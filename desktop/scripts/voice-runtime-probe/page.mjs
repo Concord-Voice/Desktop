@@ -2,7 +2,7 @@ import { Device } from 'mediasoup-client';
 import { voiceService } from '/src/renderer/services/voice/voiceService.ts';
 import { MediaEncryption, deriveFrameKey } from '/src/renderer/services/e2ee/mediaEncryption.ts';
 import { importChannelKey } from '/src/renderer/utils/crypto/crypto.ts';
-import { requireVoiceProbeContract } from './witness-contract.mjs';
+import { createFaultControlFork, requireVoiceProbeContract } from './witness-contract.mjs';
 import { createRemoteAudioWitness } from './audio-witness.mjs';
 import { buildCameraEncodingPlan } from '/src/renderer/services/voice/cameraLayering.ts';
 import { createAvSyncDriftDetector, mergeAvSyncStats } from '/src/renderer/services/voice/avSyncDriftDetector.ts';
@@ -37,6 +37,7 @@ const consumers = new Map();
 const producers = new Map();
 const independent = createAvSyncDriftDetector();
 const faultControl = createAvSyncDriftDetector();
+const forkFaultControl = createFaultControlFork();
 
 async function makeTransport(direction) {
   const options = await rpc('createTransport', { direction });
@@ -169,10 +170,8 @@ async function independentTick() {
     else refused.add(observation.reason);
     // An explicitly separate detector positive control. RTC reports and the
     // production sampler are untouched; only this fork gets an imposed 2 ms/s drift.
-    const fork = entries.map((entry) => entry.type === 'remote-outbound-rtp' && entry.id.startsWith('a:')
-      ? { ...entry, remoteTimestamp: entry.remoteTimestamp + (performance.now() - startedAt) * 0.002 }
-      : entry);
-    const control = faultControl.observe(fork, observedAt);
+    const fork = forkFaultControl(entries, performance.now() - startedAt);
+    const control = faultControl.observe(fork.entries, observedAt);
     injectedDetectorTripped ||= control.usable && control.verdict === 'drift';
   } finally { independentInFlight = false; }
 }

@@ -11,7 +11,7 @@ import { _electron as electron } from '@playwright/test';
 import { createLocalSfu } from './local-sfu.mjs';
 import { createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
-  summarizeRuntimeWitnesses } from './witness-contract.mjs';
+  summarizeRuntimeWitnesses, continuousCallDecision } from './witness-contract.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(directory, '../..');
@@ -183,8 +183,8 @@ try {
   (await readWitnesses()).forEach((entry, index) => progress[index](entry));
   for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.arm());
   // No getStats replacement, mocked RTC or manually advanced observation counter.
-  const deadline = Date.now() + duration;
-  while (Date.now() < deadline) {
+  const startedAtMs = Date.now();
+  while (continuousCallDecision({ elapsedMs: Date.now() - startedAtMs, requiredDurationMs: duration }) !== 'verify') {
     await delay(5000);
     const live = await readWitnesses();
     assert(live.every((entry, index) => entry.audioSignalPresent && entry.decodedVideoPresent &&

@@ -1,6 +1,24 @@
 export const MIN_DURATION_MS = 95_000;
 export const VIDEO_STALL_MS = 10_000;
 
+/**
+ * Creates the existing separate fault-control fork without touching the real
+ * reports observed by the production sampler or independent witness.
+ */
+export function createFaultControlFork({ slopeMsPerSec = 2 } = {}) {
+  return (entries, elapsedMs) => ({
+    entries: entries.map((entry) => entry.type === 'remote-outbound-rtp' && entry.id.startsWith('a:')
+      ? { ...entry, remoteTimestamp: entry.remoteTimestamp + elapsedMs * (slopeMsPerSec / 1_000) }
+      : entry),
+    normalized: false,
+  });
+}
+
+/** Preserve the original fixed continuous-call observation boundary. */
+export function continuousCallDecision({ elapsedMs, requiredDurationMs }) {
+  return elapsedMs < requiredDurationMs ? 'continue' : 'verify';
+}
+
 export function launchProbeElectron(electron, options) {
   // Playwright otherwise prepends --no-sandbox on Linux, which this fixture refuses.
   return electron.launch({ ...options, chromiumSandbox: true });
