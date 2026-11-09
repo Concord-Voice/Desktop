@@ -16,11 +16,13 @@ import {
   beginPendingApproval,
   clearPendingApproval,
   commitSelfHostedApproval,
+  dirKeyForApiBase,
   isTier2DialApproved,
   isValidatedSelfHostedApiBase,
   loadApprovedSelfHostedOrigins,
   profileIdForApiBase,
   profilePathsForApiBase,
+  serviceIdForApiBase,
 } from '../../../src/main/selfHostedProfile';
 
 describe('selfHostedProfile', () => {
@@ -208,5 +210,22 @@ describe('selfHostedProfile', () => {
     expect(isValidatedSelfHostedApiBase('https://persisted.lan')).toBe(false);
     loadApprovedSelfHostedOrigins();
     expect(isValidatedSelfHostedApiBase('https://persisted.lan')).toBe(true);
+  });
+});
+
+describe('connection identity helpers', () => {
+  it('maps the SaaS API base to the saas service id', () => {
+    expect(serviceIdForApiBase('https://api.concordvoice.chat')).toBe('saas');
+  });
+
+  it('maps origins differing only by path to one service id', () => {
+    const a = serviceIdForApiBase('https://chat.example.com');
+    expect(a).toMatch(/^selfhost-[0-9a-f]{16}$/);
+    expect(serviceIdForApiBase('https://chat.example.com/some/path')).toBe(a);
+  });
+
+  it('returns a full sha256 hex dir key for self-hosted and empty for saas', () => {
+    expect(dirKeyForApiBase('https://chat.example.com')).toMatch(/^[0-9a-f]{64}$/);
+    expect(dirKeyForApiBase('https://api.concordvoice.chat')).toBe('');
   });
 });
