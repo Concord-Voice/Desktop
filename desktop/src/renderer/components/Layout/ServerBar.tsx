@@ -178,7 +178,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   }, [checkOverflow, barServers]);
 
   const scrollBy = (delta: number) => {
-    scrollRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
+    // Let CSS select smooth or instant scrolling from the effective motion policy.
+    scrollRef.current?.scrollBy({ left: delta, behavior: 'auto' });
   };
 
   // Sticky icons only navigate. Sidebar peeking is owned by the adjacent DockShell lip.

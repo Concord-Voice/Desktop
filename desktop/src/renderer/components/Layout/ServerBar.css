@@ -132,6 +132,17 @@
   flex: 1;
 }
 
+/* Scrolling is independent of the global animation/transition duration override. */
+[data-reduce-animations='true'] .server-bar-scroll {
+  scroll-behavior: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .server-bar-scroll {
+    scroll-behavior: auto;
+  }
+}
+
 /* Hide scrollbar */
 .server-bar-scroll::-webkit-scrollbar {
   height: 0;
