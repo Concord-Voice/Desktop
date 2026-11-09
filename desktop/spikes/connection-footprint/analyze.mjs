@@ -1,6 +1,6 @@
 // Summarise a raw-<platform>-<arch>.jsonl from main.mjs into markdown tables.
 // Throwaway, like main.mjs. Usage (from desktop/):
-//   node spikes/connection-footprint/analyze.mjs spikes/connection-footprint/results/raw-darwin-arm64.jsonl [--cores=18] [--prefix=prod-] [--exclude=prod-]
+//   node spikes/connection-footprint/analyze.mjs spikes/connection-footprint/results/raw-darwin-arm64.jsonl [--cores=18] [--prefix=app-] [--exclude=prod-,app-]
 import fs from 'node:fs';
 import os from 'node:os';
 
@@ -8,13 +8,13 @@ const [file, ...rest] = process.argv.slice(2);
 const opt = Object.fromEntries(rest.map((a) => a.replace(/^--/, '').split('=')));
 const CORES = Number(opt.cores ?? os.cpus().length);
 const PREFIX = opt.prefix ?? '';
-const EXCLUDE = opt.exclude ?? null;
+const EXCLUDE = opt.exclude ? opt.exclude.split(',') : [];
 const rows = fs
   .readFileSync(file, 'utf8')
   .split('\n')
   .filter(Boolean)
   .map((l) => JSON.parse(l))
-  .filter((r) => r.run.startsWith(PREFIX) && !(EXCLUDE && r.run.startsWith(EXCLUDE)));
+  .filter((r) => r.run.startsWith(PREFIX) && !EXCLUDE.some((x) => r.run.startsWith(x)));
 
 const runs = new Map();
 for (const r of rows) {
@@ -27,6 +27,8 @@ for (const r of rows) {
   else if (r.kind === 'footprint') run.fp.push(r);
   else if (r.kind === 'disk') run.disk = r.kb;
   else if (r.kind === 'visibility') run.vis = r.states;
+  else if (r.kind === 'render') run.render = r.views;
+  else if (r.kind === 'host' && r.phase === 'end') run.host = r;
 }
 
 const MB = (kb) => kb / 1024;
@@ -100,6 +102,17 @@ function summarise(run) {
   return { m, rs, durS, loadMax, atLoad, steady, cpu, fpTotal, fpView };
 }
 
+function loginProof(xs, v) {
+  if (!v) return '—';
+  if (xs.every((x) => !x.run.render)) return 'not recorded';
+  const views = xs.flatMap((x) => Object.values(x.run.render ?? {}));
+  return `${views.filter((r) => r?.login).length}/${xs.length * v}`;
+}
+function compressor(xs) {
+  const c = xs.map((x) => x.run.host?.compressorMB).filter((n) => n != null);
+  return c.length ? (median(c) / 1024).toFixed(1) : '—';
+}
+
 const all = [...runs.values()].filter((r) => r.meta && r.meta.views != null).map((r) => ({ run: r, s: summarise(r) }));
 const pick = (state, throttle, views) =>
   all.filter((x) => x.s.m.state === state && x.s.m.throttle === throttle && x.s.m.views === views);
@@ -130,8 +143,8 @@ p('### Memory: workingSetSize (MB), sum over every app process');
 p();
 p('`cold` = first sample at all-loaded (median of reps). `login-idle` = mean of the last 3 samples. Footprint = macOS phys_footprint at end of run (all processes; the private-memory cross-check).');
 p();
-p('| state | throttle | views | minutes (actual) | total WS | browser | GPU | utility | renderers (Tab) | delta total WS vs N-1 | footprint total | delta footprint vs N-1 | per-view renderer footprint |');
-p('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+p('| state | throttle | views | minutes (actual) | total WS | browser | GPU | utility | renderers (Tab) | delta total WS vs N-1 | footprint total | delta footprint vs N-1 | per-view renderer footprint | login screen reached (views, all reps) | host compressor GB (end, median) |');
+p('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
 for (const state of ['cold', 'login-idle']) {
   for (const th of [true, false]) {
     let prevWS = null;
@@ -147,7 +160,7 @@ for (const state of ['cold', 'login-idle']) {
       for (let i = 0; i < v; i++) pv.push(median(xs.map((x) => x.s.fpView[i] ?? NaN)));
       const mins = xs.map((x) => (x.s.durS / 60).toFixed(1)).join(',');
       p(
-        `| ${state} | ${th} | ${v} | ${mins} | ${f1(tot)} | ${f1(MB(med('browser')))} | ${f1(MB(med('gpu')))} | ${f1(MB(med('utility')))} | ${f1(MB(med('tabs')))} | ${prevWS == null ? '—' : f1(tot - prevWS)} | ${f1(fp)} | ${prevFP == null ? '—' : f1(fp - prevFP)} | ${pv.map(f1).join(' / ') || '—'} |`
+        `| ${state} | ${th} | ${v} | ${mins} | ${f1(tot)} | ${f1(MB(med('browser')))} | ${f1(MB(med('gpu')))} | ${f1(MB(med('utility')))} | ${f1(MB(med('tabs')))} | ${prevWS == null ? '—' : f1(tot - prevWS)} | ${f1(fp)} | ${prevFP == null ? '—' : f1(fp - prevFP)} | ${pv.map(f1).join(' / ') || '—'} | ${loginProof(xs, v)} | ${compressor(xs)} |`
       );
       prevWS = tot;
       prevFP = fp;
@@ -155,21 +168,20 @@ for (const state of ['cold', 'login-idle']) {
   }
 }
 p();
-p('### Idle CPU (login-idle; window = +60 s after load to end of run), % of one core');
+p('### Idle CPU (login-idle; window = +60 s after load to end of run), % of one core, median of reps');
 p();
-p('| throttle | views | window s | view 0 (foreground) | hidden views 1..N-1 | browser | GPU | Network Service | total |');
-p('|---|---|---|---|---|---|---|---|---|');
+p('| throttle | views | reps | window s | view 0 (foreground) | hidden views 1..N-1 | browser | GPU | Network Service | total |');
+p('|---|---|---|---|---|---|---|---|---|---|');
 for (const th of [true, false]) {
   for (let v = 0; v <= 3; v++) {
-    for (const x of pick('login-idle', th, v)) {
-      const c = x.s.cpu;
-      if (!c) continue;
-      const hidden = [];
-      for (let i = 1; i < v; i++) hidden.push(f2(c.perView[i]));
-      p(
-        `| ${th} | ${v} | ${Math.round(c.spanS)} | ${v ? f2(c.perView[0]) : '—'} | ${hidden.join(' / ') || '—'} | ${f2(c.byType.Browser)} | ${f2(c.byType.GPU)} | ${f2(c.byType['Network Service'])} | ${f2(c.total)} |`
-      );
-    }
+    const cs = pick('login-idle', th, v).map((x) => x.s.cpu).filter(Boolean);
+    if (!cs.length) continue;
+    const m = (fn) => median(cs.map(fn).filter((n) => n != null && !Number.isNaN(n)));
+    const hidden = [];
+    for (let i = 1; i < v; i++) hidden.push(f2(m((c) => c.perView[i])));
+    p(
+      `| ${th} | ${v} | ${cs.length} | ${Math.round(m((c) => c.spanS))} | ${v ? f2(m((c) => c.perView[0])) : '—'} | ${hidden.join(' / ') || '—'} | ${f2(m((c) => c.byType.Browser))} | ${f2(m((c) => c.byType.GPU))} | ${f2(m((c) => c.byType['Network Service']))} | ${f2(m((c) => c.total))} |`
+    );
   }
 }
 p();

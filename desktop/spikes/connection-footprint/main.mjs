@@ -12,23 +12,39 @@
 // is the foreground view; views >=1 are hidden with setVisible(false) from
 // creation, which is how background connections would be restored.
 //
-// The spike's main process registers NO ipcMain handlers. The renderer boots to
-// its login screen; it cannot complete a login, because Login.tsx fails closed
-// when `auth:storeRefreshToken` has no handler. See README § logged-in-idle.
+// In --renderer=dev mode the spike's main process registers NO ipcMain handlers;
+// --renderer=app (production bundle over app://) registers exactly one,
+// auth:restoreSession -> { status: 'no_session' } (see installAppProtocol's
+// neighbour below). Either way the renderer reaches its login screen and cannot
+// complete a login, because Login.tsx fails closed when `auth:storeRefreshToken`
+// has no handler. See README § logged-in-idle.
 //
 // Usage (from desktop/, with `npm run dev:renderer` serving :3001 and
 // `npm run build:preload && npm run build:main` done once):
 //   npx electron spikes/connection-footprint/main.mjs --views=3 --throttle=true \
 //     --state=login-idle --minutes=10 [--run=<label>] [--sample-seconds=30]
 //   npx electron spikes/connection-footprint/main.mjs --check=platform [--drag=true]
+//   npx electron spikes/connection-footprint/main.mjs --renderer=app --views=3 ...   (after npm run build:renderer)
+//   npx electron spikes/connection-footprint/main.mjs --renderer=app --check=render-proof
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, session, webContents } from 'electron';
+import {
+  app,
+  BaseWindow,
+  BrowserWindow,
+  ipcMain,
+  net,
+  protocol,
+  session,
+  WebContentsView,
+  webContents,
+} from 'electron';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,7 +61,7 @@ const argv = Object.fromEntries(
       return [k, v.length ? v.join('=') : 'true'];
     })
 );
-const CHECK = argv.check ?? null; // 'platform' | null
+const CHECK = argv.check ?? null; // 'platform' | 'render-proof' | null
 const VIEWS = Number(argv.views ?? 1);
 const THROTTLE = (argv.throttle ?? 'true') === 'true';
 const STATE = argv.state ?? 'login-idle';
@@ -53,7 +69,13 @@ const MINUTES = Number(argv.minutes ?? 10);
 const SAMPLE_S = Number(argv['sample-seconds'] ?? 30);
 const RUN = argv.run ?? `v${VIEWS}-t${THROTTLE}-${STATE}-${Date.now()}`;
 const OUT = argv.out ?? join(resultsDir, `raw-${process.platform}-${process.arch}.jsonl`);
-const RENDERER_URL = argv.url ?? 'http://localhost:3001';
+// --renderer=app loads the PRODUCTION bundle the way the shipped app does:
+// dist/renderer served over the privileged app:// scheme at
+// app://concord/index.html, with the packaged webPreferences (webSecurity on)
+// and the index.html CSP as built (loopback connect-src stripped).
+const RENDERER = argv.renderer ?? 'dev'; // 'dev' | 'app'
+const APP_MODE = RENDERER === 'app';
+const RENDERER_URL = argv.url ?? (APP_MODE ? 'app://concord/index.html' : 'http://localhost:3001');
 
 if (!CHECK) {
   if (!Number.isInteger(VIEWS) || VIEWS < 0 || VIEWS > 3) fail('--views must be 0..3');
@@ -82,6 +104,18 @@ if (!CHECK && STATE === 'cold') fs.rmSync(userData, { recursive: true, force: tr
 app.setPath('userData', userData);
 app.on('window-all-closed', () => {}); // quit explicitly, after measuring
 
+// Mirror of main.ts's app:// registration (#830): privileged BEFORE ready, same
+// privileges. main.ts gates it on app.isPackaged; the spike gates it on
+// --renderer=app because it runs unpackaged.
+if (APP_MODE) {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'app',
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+    },
+  ]);
+}
+
 // The real webPreferences. tsc output of src/main/browserWindowConfig.ts.
 const require = createRequire(import.meta.url);
 let buildBrowserWindowConfig;
@@ -89,6 +123,16 @@ try {
   ({ buildBrowserWindowConfig } = require(join(desktopRoot, 'dist/main/browserWindowConfig.js')));
 } catch {
   fail('dist/main/browserWindowConfig.js missing: run `npm run build:preload && npm run build:main`');
+}
+let resolveAppProtocolPath;
+try {
+  ({ resolveAppProtocolPath } = require(join(desktopRoot, 'dist/main/appProtocol.js')));
+} catch {
+  fail('dist/main/appProtocol.js missing: run `npm run build:main`');
+}
+const bundleRoot = join(desktopRoot, 'dist/renderer');
+if (APP_MODE && !fs.existsSync(join(bundleRoot, 'index.html'))) {
+  fail('dist/renderer/index.html missing: run `npm run build:renderer`');
 }
 const preloadPath = join(desktopRoot, 'dist/preload/preload.js');
 if (!fs.existsSync(preloadPath)) fail('dist/preload/preload.js missing: run `npm run build:preload`');
@@ -101,7 +145,8 @@ const baseConfig = buildBrowserWindowConfig({
   platform: process.platform,
   isWayland: isWayland(),
   preloadPath,
-  isPackaged: app.isPackaged,
+  // app mode takes the packaged config (webSecurity on), as the shipped app does.
+  isPackaged: APP_MODE || app.isPackaged,
 });
 const { webPreferences: realWebPreferences, ...windowOptions } = baseConfig;
 
@@ -174,12 +219,108 @@ const probeSource = (port, view) => `(() => {
   return vis();
 })()`;
 
+// ── app:// on every connection session (production renderer) ───────────────
+// The handler body is main.ts's (#830) verbatim: resolveAppProtocolPath (the
+// compiled real resolver) + net.fetch(pathToFileURL(...)). main.ts registers it
+// on the global `protocol`, i.e. defaultSession only; a fromPath session needs
+// its own ses.protocol.handle, which is spec §10's "app:// missing on a fromPath
+// session" risk, so the spike registers it per session.
+//
+// One spike-only path in front of it: /__spike_probe, the heartbeat probe's
+// sink. The production CSP allows connect-src 'self' (app://concord) but not
+// the loopback WebSocket the dev probe uses, so in app mode the probe beats with
+// fetch() to its own origin and main timestamps the arrival.
+const probeSeen = new Map();
+const appHandled = new WeakSet();
+function installAppProtocol(ses) {
+  if (!APP_MODE || appHandled.has(ses)) return;
+  appHandled.add(ses);
+  ses.protocol.handle('app', async (request) => {
+    const u = new URL(request.url);
+    if (u.host === 'concord' && u.pathname === '/__spike_probe') {
+      const view = Number(u.searchParams.get('view'));
+      const ev = u.searchParams.get('k');
+      const vis = u.searchParams.get('vis');
+      if (ev === 'hb') {
+        const at = Date.now();
+        const prev = probeSeen.get(view);
+        probeSeen.set(view, at);
+        emit('probe', { view, ev, vis, gapMs: prev ? at - prev : null });
+      } else {
+        emit('probe', { view, ev, vis });
+      }
+      return new Response(null, { status: 204 });
+    }
+    const result = resolveAppProtocolPath(request.url, bundleRoot);
+    if (!result.ok || !result.absolutePath) {
+      return new Response(null, { status: result.status });
+    }
+    return net.fetch(pathToFileURL(result.absolutePath).href);
+  });
+}
+
+// The ONE main-process handler app mode registers. It returns exactly what the
+// real auth:restoreSession returns for a profile with no stored credential
+// (tokenManager.restoreRefreshToken -> { status: 'no_session' } when there is no
+// meta file). It holds and returns no credential. Without it the invoke rejects,
+// App.tsx's restore effect throws before setIsRestoring(false), and the
+// production renderer sits at the title bar forever. That, not CSP, was the
+// earlier blank shell. The dev renderer escaped it only because StrictMode
+// re-runs the effect, and the second run short-circuits on restoreSessionCalled.
+if (APP_MODE) {
+  ipcMain.handle('auth:restoreSession', () => ({ status: 'no_session' }));
+}
+
+const appProbeSource = (view) => `(() => {
+  const vis = () => document.visibilityState;
+  const beat = (k) => fetch('app://concord/__spike_probe?view=${view}&k=' + k + '&vis=' + vis(), { cache: 'no-store' }).catch(() => {});
+  beat('hello');
+  setInterval(() => beat('hb'), 30000);
+  document.addEventListener('visibilitychange', () => beat('vis'));
+  return vis();
+})()`;
+
 // ── Composition ─────────────────────────────────────────────────────────────
 function sessionFor(i) {
-  if (i === 0) return session.defaultSession;
-  const dir = join(userData, 'spike', 'profiles', String(i), 'session');
-  fs.mkdirSync(dir, { recursive: true });
-  return session.fromPath(dir);
+  let ses;
+  if (i === 0) ses = session.defaultSession;
+  else {
+    const dir = join(userData, 'spike', 'profiles', String(i), 'session');
+    fs.mkdirSync(dir, { recursive: true });
+    ses = session.fromPath(dir);
+  }
+  installAppProtocol(ses);
+  return ses;
+}
+
+// Proof that a view reached the login screen, not a blank shell.
+async function renderProof(views) {
+  const out = {};
+  for (const [i, v] of views.entries()) {
+    out[i] = v.webContents.isDestroyed()
+      ? null
+      : await v.webContents
+          .executeJavaScript(
+            "({ els: document.querySelectorAll('*').length, login: (document.body?.innerText ?? '').includes('Sign In to Existing Account'), href: location.href })"
+          )
+          .catch(() => null);
+  }
+  return out;
+}
+
+function hostStats() {
+  let compressorMB = null;
+  let freeMB = null;
+  try {
+    const vm = execFileSync('vm_stat', { encoding: 'utf8' });
+    const page = Number(/page size of (\d+) bytes/.exec(vm)?.[1] ?? 16384);
+    const pages = (label) => Number(new RegExp(`${label}:\\s+(\\d+)`).exec(vm)?.[1] ?? NaN);
+    compressorMB = Math.round((pages('Pages occupied by compressor') * page) / 1048576);
+    freeMB = Math.round((pages('Pages free') * page) / 1048576);
+  } catch {
+    // vm_stat is macOS-only; leave nulls elsewhere.
+  }
+  return { loadavg: os.loadavg().map((n) => Math.round(n * 100) / 100), compressorMB, freeMB };
 }
 
 function createComposition(n, { throttle, visibleIndex = 0 }) {
@@ -294,6 +435,7 @@ async function runMeasurement() {
     minutes: MINUTES,
     sampleSeconds: SAMPLE_S,
     url: RENDERER_URL,
+    renderer: RENDERER,
     electron: process.versions.electron,
     platform: process.platform,
     arch: process.arch,
@@ -301,8 +443,10 @@ async function runMeasurement() {
   const { win, views } = createComposition(VIEWS, { throttle: THROTTLE });
   const loads = await Promise.all(views.map((v, i) => loadView(v, i)));
   for (const l of loads) emit('load', l);
+  emit('host', { phase: 'start', ...hostStats() });
   for (const [i, v] of views.entries()) {
-    const vis = await v.webContents.executeJavaScript(probeSource(port, i)).catch(() => 'error');
+    const src = APP_MODE ? appProbeSource(i) : probeSource(port, i);
+    const vis = await v.webContents.executeJavaScript(src).catch(() => 'error');
     emit('probe-injected', { view: i, vis });
   }
   console.log(`[spike] ${RUN} loads: ${loads.map((l) => `${l.view}:${l.ms}ms`).join(' ') || 'none'}`);
@@ -314,6 +458,8 @@ async function runMeasurement() {
     sample(views);
   }
   emit('visibility', { states: await visibility(views) });
+  emit('render', { views: await renderProof(views) });
+  emit('host', { phase: 'end', ...hostStats() });
   footprints(views);
 
   const disk = {};
@@ -487,11 +633,67 @@ async function runPlatformChecks() {
   probe('after-explicit-webContents.close()+1500ms');
 }
 
+// ── Render proof (--check=render-proof, use with --renderer=app) ────────────
+// 1. DOM proof for every view of every composition: the login screen's text is
+//    present and the document is app://concord/index.html (also recorded at the
+//    end of every measurement run as `render`).
+// 2. A visual capture per connection session. A window capture
+//    (screencapture -l) only shows painted content, and webContents.capturePage()
+//    fails with "Current display surface not available for capture" while the
+//    screen is locked. So the visual is taken from an OFFSCREEN window on the
+//    same session with the same webPreferences, preload and app:// handler; it
+//    paints without a display. It proves what the bundle renders on each session
+//    kind. It is not a capture of the composed BaseWindow.
+async function offscreenCapture(i, file) {
+  const ses = sessionFor(i);
+  const w = new BrowserWindow({
+    show: false,
+    width: 1200,
+    height: 800,
+    webPreferences: { ...realWebPreferences, session: ses, offscreen: true },
+  });
+  let last = null;
+  w.webContents.on('paint', (_e, _dirty, image) => {
+    last = image;
+  });
+  w.webContents.setFrameRate(5);
+  await w.loadURL(RENDERER_URL);
+  await sleep(4000);
+  const proof = await w.webContents
+    .executeJavaScript("({ login: (document.body?.innerText ?? '').includes('Sign In to Existing Account'), href: location.href })")
+    .catch(() => null);
+  if (last && !last.isEmpty()) fs.writeFileSync(file, last.toPNG());
+  w.destroy();
+  return { file: last && !last.isEmpty() ? file : null, ...proof };
+}
+
+async function runRenderProof() {
+  emit('run', { check: 'render-proof', renderer: RENDERER, url: RENDERER_URL, electron: process.versions.electron });
+  const tag = APP_MODE ? 'prod' : 'dev';
+  for (let n = 1; n <= 3; n++) {
+    const c = createComposition(n, { throttle: true, visibleIndex: 0 });
+    await Promise.all(c.views.map((v, i) => loadView(v, i)));
+    await sleep(3000);
+    const proof = await renderProof(c.views);
+    emit('render', { views: proof, composition: n });
+    console.log(`[spike] render-proof ${n} views: ${JSON.stringify(proof)}`);
+    for (const v of c.views) if (!v.webContents.isDestroyed()) v.webContents.close();
+    c.win.destroy();
+    await sleep(500);
+  }
+  for (const i of [0, 1, 2]) {
+    const r = await offscreenCapture(i, join(resultsDir, `macos-${tag}-offscreen-session${i}.png`));
+    emit('platform', { row: 'render-proof-offscreen', session: i, ...r });
+    console.log(`[spike] offscreen session ${i}: ${JSON.stringify(r)}`);
+  }
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   tReady = performance.now();
   try {
     if (CHECK === 'platform') await runPlatformChecks();
+    else if (CHECK === 'render-proof') await runRenderProof();
     else await runMeasurement();
   } catch (e) {
     console.error(`[spike] failed: ${e?.message ?? String(e)}`);

@@ -26,9 +26,41 @@ build is unpackaged. Each view also gets its own `session` and `backgroundThrott
 foreground view. Views 1 and up are hidden with `view.setVisible(false)` from creation, which
 is how background connections would be restored.
 
-The spike's main process registers **no `ipcMain` handlers**. The renderer boots to its login
-screen and logs `No handler registered for ...` for every preload call it makes. That noise is
-expected.
+### Renderers
+
+There are two renderer modes:
+
+- `--renderer=dev`, the default, loads the Vite dev renderer at `http://localhost:3001`, as Task
+  0 Step 1 prescribes.
+- `--renderer=app` loads the **production bundle the way the shipped app does**. That is
+  `dist/renderer` (`npm run build:renderer`) served over the privileged `app://` scheme at
+  `app://concord/index.html`, with the packaged `webPreferences` (`webSecurity` on) and the
+  built CSP, whose loopback `connect-src` entries are stripped. It mirrors three things from
+  `main.ts`:
+  - `protocol.registerSchemesAsPrivileged`, called before `ready` with the same privileges.
+  - The `app://` handler body: the compiled real `resolveAppProtocolPath` plus
+    `net.fetch(pathToFileURL(...))`.
+  - Per-session registration. `main.ts` calls the global `protocol.handle`, which covers
+    `defaultSession` only. A `fromPath` session needs its own `ses.protocol.handle`; this is
+    the "app:// missing on a fromPath session" risk in spec §10.
+
+### IPC handlers
+
+`--renderer=dev` registers **no `ipcMain` handlers**. `--renderer=app` registers exactly one:
+`auth:restoreSession`, returning `{ status: 'no_session' }`.
+
+That is what the real handler returns for a profile with no stored credential:
+`restoreRefreshToken` finds no meta file and returns `no_session`. The handler holds and returns
+no credential.
+
+Without it the production renderer never leaves its restoring gate. The invoke rejects, so
+`App.tsx`'s restore effect throws before `setIsRestoring(false)`, and only the title bar
+renders. That, not CSP, caused the blank shell in the first production attempt.
+
+The dev renderer gets past the gate only through React StrictMode. StrictMode runs the effect
+a second time, and that run short-circuits on `restoreSessionCalled`, which clears the flag.
+
+Every other preload call still logs `No handler registered for ...`. That noise is expected.
 
 `userData` is redirected to `<appData>/concord-connection-footprint-spike`, so the spike never
 touches a real Concord profile. `--state=cold` deletes that directory before launch.
@@ -53,8 +85,10 @@ node spikes/connection-footprint/analyze.mjs spikes/connection-footprint/results
 | `--minutes` | number | sampling window after all views have loaded |
 | `--sample-seconds` | default `30` | `app.getAppMetrics()` interval |
 | `--run` | label | run id written on every JSONL line |
-| `--url` | default `http://localhost:3001` | renderer URL. The supplementary production-bundle runs used `vite preview` on `:3002`; in this harness that bundle stalls at a blank shell (see `results/macos-arm64.md`) |
+| `--renderer` | `dev` (default) / `app` | Vite dev renderer, or the production bundle over `app://` (above) |
+| `--url` | default per `--renderer` | renderer URL override. The first production attempt used `vite preview` on `:3002`; it stalled at a blank shell because of the missing `auth:restoreSession` handler. Superseded by `--renderer=app` |
 | `--check=platform` | | macOS platform rows instead of a measurement run |
+| `--check=render-proof` | | with `--renderer=app`: DOM proof that every view of 1/2/3-view compositions reached the login screen, plus an offscreen visual per session (see below) |
 | `--drag=true` | | with `--check=platform`: also post real OS mouse drags (see below) |
 
 ## What it records
@@ -73,6 +107,9 @@ Each run appends JSONL lines to `results/raw-<platform>-<arch>.jsonl`:
   minus `spike/`. The values are also printed on exit.
 - `probe`: heartbeat-probe events (below).
 - `visibility`: `document.visibilityState` of every view at the end of the run.
+- `render`: per view, the DOM element count, whether the login screen's text is present, and
+  `location.href`. This is the proof that a view did not stall at a blank shell.
+- `host`: load average, macOS compressor and free memory at the start and end of the run.
 
 **CPU unit.** On Electron 45 / macOS, `percentCPUUsage` is a share of **all** logical cores. On
 the 18-core measuring host, the `cumulativeCPUUsage` delta divided by wall time came out at 18
@@ -88,7 +125,11 @@ WebSocket to a `ws` server in the spike's main process on `127.0.0.1`, which the
 
 - **Application heartbeat:** the page sends from a 30 s `setInterval`, like
   `websocketService.startPingInterval`. The server timestamps the arrivals, so a throttled
-  page cannot misreport its own timing.
+  page cannot misreport its own timing. With `--renderer=app` the production CSP refuses the
+  loopback WebSocket, so the page instead beats with `fetch('app://concord/__spike_probe')`.
+  That is its own origin, which `connect-src 'self'` allows. The spike's `app://` handler
+  answers that one path itself and timestamps the arrival. There is no protocol ping or echo
+  in this mode; that part of the result comes from the dev runs.
 - **Protocol ping:** the server sends one every 54 s, which is the control plane's
   `pingPeriod`. Chromium's network service answers it without renderer JS.
 - **Application echo:** the server sends a frame every 54 s, and the page echoes it from
@@ -102,6 +143,17 @@ can apply a stricter rule.
 
 Chromium's intensive wake-up throttling applies only after a page has been hidden for 5
 minutes. The `throttle=true` heartbeat runs therefore need a window of 10 minutes or more.
+
+## Render proof when the screen is locked
+
+A window capture (`screencapture -l`) only shows painted content. `webContents.capturePage()`
+fails with "Current display surface not available for capture" while the screen is locked.
+`--check=render-proof` therefore produces two kinds of proof:
+
+- **DOM proof** for every view of the 1-, 2- and 3-view compositions.
+- **An offscreen capture** for sessions 0, 1 and 2. Each is an offscreen `BrowserWindow` on
+  that session, with the same `webPreferences`, preload and `app://` handler, written to
+  `results/macos-prod-offscreen-session<i>.png`.
 
 ## `logged-in-idle`: not measurable with this harness
 
