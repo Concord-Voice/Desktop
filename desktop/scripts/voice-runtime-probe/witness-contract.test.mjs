@@ -9,7 +9,7 @@ import os from 'node:os';
 import * as contract from './witness-contract.mjs';
 import { createAvSyncDriftDetector } from '../../src/renderer/services/voice/avSyncDriftDetector.ts';
 import {
-  continuousCallDecision, createFaultControlFork, createVideoProgressGate, FINAL_OBSERVATION_DEADLINE_MS, initialConsumersVerified, planContinuousCallPoll, replacementVerified, requireDuration,
+  continuousCallDecision, createFaultControlFork, createVideoProgressGate, FINAL_OBSERVATION_DEADLINE_MS, initialConsumersVerified, observeFaultControl, planContinuousCallPoll, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
 } from './witness-contract.mjs';
 
@@ -231,6 +231,37 @@ test('an unlinked mediasoup video probator does not block the paired fault-contr
     verdict = detector.observe(control.entries, startedAt + elapsed);
   }
   assert.equal(verdict?.verdict, 'drift');
+});
+
+test('a one-sided frozen audio Sender Report does not contaminate the normalized control clock basis', () => {
+  const rawDetector = createAvSyncDriftDetector();
+  const controlDetector = createAvSyncDriftDetector();
+  const fork = createFaultControlFork();
+  const startedAt = 1_000_000;
+  let rawAtFreeze;
+  let rawFinal;
+  let rawUsableCount = 0;
+  let controlTripped = false;
+  for (let elapsed = 0; elapsed <= 95_000; elapsed += 5_000) {
+    const raw = avSyncEntries(startedAt + elapsed, 100, 100);
+    if (elapsed === 40_000) {
+      const audioSr = raw.find((entry) => entry.id === 'a:ro-audio');
+      audioSr.timestamp = startedAt + 35_000;
+      audioSr.remoteTimestamp = startedAt + 35_000 - 100;
+    }
+    const original = structuredClone(raw);
+    const rawObservation = rawDetector.observe(raw, startedAt + elapsed);
+    if (elapsed === 40_000) rawAtFreeze = rawObservation;
+    rawFinal = rawObservation;
+    if (rawObservation.usable) rawUsableCount++;
+    const controlObservation = observeFaultControl(controlDetector, fork(raw, elapsed), startedAt + elapsed);
+    controlTripped ||= controlObservation.usable && controlObservation.verdict === 'drift';
+    assert.deepEqual(raw, original, 'neither raw detector nor control fork mutates the live report');
+  }
+  assert.deepEqual(rawAtFreeze, { usable: false, reason: 'sr-not-advanced' });
+  assert.deepEqual(rawFinal, { usable: true, verdict: 'steady' });
+  assert.equal(rawUsableCount, 7);
+  assert.equal(controlTripped, true, 'control must resume only from normalized Sender Report snapshots');
 });
 
 test('a frozen Sender Report remains refused after the control normalization repair', () => {
