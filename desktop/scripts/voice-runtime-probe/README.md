@@ -21,6 +21,8 @@ offset steady, and applies a declared 2 ms/s slope to the copied audio offset. T
 the control independent of ambient clock skew. It never mutates a `getStats()` entry, the
 independent witness, or the production sampler. The healthy-call witnesses always use
 untouched real reports; a tripped control proves only that the separate detector can trip.
+Snapshots refused by normalization do not advance the control detector; the raw independent
+witness still observes them. This prevents a paused Sender Report from mixing clock bases.
 
 For each kind, the control admits a pair only when the inbound report's `remoteId` and the
 remote-outbound report's `localId` link each other, their SR-derived timestamps advance, and
