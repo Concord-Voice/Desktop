@@ -11,7 +11,7 @@ import { _electron as electron } from '@playwright/test';
 import { createLocalSfu } from './local-sfu.mjs';
 import { createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
-  summarizeRuntimeWitnesses, continuousCallDecision, planContinuousCallPoll } from './witness-contract.mjs';
+  summarizeRuntimeWitnesses, continuousCallDecision, planContinuousCallPoll, POLL_INTERVAL_MS } from './witness-contract.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(directory, '../..');
@@ -190,7 +190,8 @@ try {
     await delay(poll.delayMs);
     const live = await readWitnesses();
     assert(live.every((entry, index) => entry.audioSignalPresent && entry.decodedVideoPresent &&
-      entry.sourceTracksLive && progress[index](entry)), 'Continuous decoded/presented delivery stopped');
+      entry.sourceTracksLive && progress[index](entry, { allowRecentProgress: poll.delayMs < POLL_INTERVAL_MS })),
+    'Continuous decoded/presented delivery stopped');
     requireNoRuntimeFailure(markers);
     assert(live.every((entry) => !entry.independentTickFailure), 'Independent detector observation failed');
     const decision = continuousCallDecision({ elapsedMs: Math.ceil(performance.now() - continuousStartedAtMs),

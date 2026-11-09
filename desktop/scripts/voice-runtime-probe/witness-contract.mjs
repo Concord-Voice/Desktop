@@ -172,19 +172,23 @@ export function requireDuration(duration) {
 /** Compare actual decode/presentation counters between bounded runtime polls. */
 export function createVideoProgressGate() {
   let previous;
-  return (witness) => {
+  return (witness, { allowRecentProgress = false } = {}) => {
     const finite = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
     if (typeof witness.videoConsumerId !== 'string' || !witness.videoConsumerId ||
         ![witness.framesDecoded, witness.presentedFrames, witness.decodedProgressAgeMs,
           witness.presentedProgressAgeMs].every(finite)) return false;
-    const advancing = previous?.videoConsumerId === witness.videoConsumerId &&
-      witness.framesDecoded > previous.framesDecoded && witness.presentedFrames > previous.presentedFrames &&
-      witness.decodedProgressAgeMs <= VIDEO_STALL_MS && witness.presentedProgressAgeMs <= VIDEO_STALL_MS;
+    const sameConsumer = previous?.videoConsumerId === witness.videoConsumerId;
+    const fresh = witness.decodedProgressAgeMs <= VIDEO_STALL_MS && witness.presentedProgressAgeMs <= VIDEO_STALL_MS;
+    const advancing = sameConsumer && fresh && witness.framesDecoded > previous.framesDecoded &&
+      witness.presentedFrames > previous.presentedFrames;
+    const recentProgress = allowRecentProgress && sameConsumer && fresh && previous.advanced &&
+      witness.framesDecoded >= previous.framesDecoded && witness.presentedFrames >= previous.presentedFrames;
     previous = {
       videoConsumerId: witness.videoConsumerId,
       framesDecoded: witness.framesDecoded, presentedFrames: witness.presentedFrames,
+      advanced: advancing,
     };
-    return Boolean(advancing);
+    return Boolean(advancing || recentProgress);
   };
 }
 
