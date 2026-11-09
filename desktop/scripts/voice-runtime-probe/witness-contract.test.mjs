@@ -9,7 +9,7 @@ import os from 'node:os';
 import * as contract from './witness-contract.mjs';
 import { createAvSyncDriftDetector } from '../../src/renderer/services/voice/avSyncDriftDetector.ts';
 import {
-  continuousCallDecision, createFaultControlFork, createVideoProgressGate, initialConsumersVerified, planContinuousCallPoll, replacementVerified, requireDuration,
+  continuousCallDecision, createFaultControlFork, createVideoProgressGate, FINAL_OBSERVATION_DEADLINE_MS, initialConsumersVerified, planContinuousCallPoll, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
 } from './witness-contract.mjs';
 
@@ -69,6 +69,23 @@ function detectorWitness(overrides = {}) {
   };
 }
 
+function driveContinuousCall({ elapsedMs, requiredDurationMs, readLatencyMs, witnesses }) {
+  const admissions = [];
+  for (let polls = 0; polls < 4; polls++) {
+    const plan = planContinuousCallPoll(elapsedMs);
+    if (!plan) {
+      return { admissions, elapsedMs, decision: continuousCallDecision({ elapsedMs, requiredDurationMs,
+        pollAdmittedElapsedMs: elapsedMs, witnesses }) };
+    }
+    admissions.push(plan.pollAdmittedElapsedMs);
+    elapsedMs += plan.delayMs + readLatencyMs;
+    const decision = continuousCallDecision({ elapsedMs, requiredDurationMs,
+      pollAdmittedElapsedMs: plan.pollAdmittedElapsedMs, witnesses });
+    if (decision !== 'continue' && decision !== 'continue-recovery') return { admissions, elapsedMs, decision };
+  }
+  throw new Error('virtual poll controller exceeded its bounded test loop');
+}
+
 test('fault control normalizes opposing live skew before imposing its exact drift ramp', () => {
   const fork = createFaultControlFork();
   const detector = createAvSyncDriftDetector();
@@ -93,6 +110,7 @@ test('one late offset-step receives a bounded recovery window after the required
     independentLastOffsetStepElapsedMs: 90_000 });
   assert.equal(continuousCallDecision({
     elapsedMs: 95_000,
+    pollAdmittedElapsedMs: 95_000,
     requiredDurationMs: 95_000,
     witnesses: [recovering, healthy],
   }), 'continue-recovery');
@@ -102,13 +120,13 @@ test('continuous-call recovery rejects missing control evidence and repeated dis
   const healthy = detectorWitness();
   const recovering = detectorWitness({ independentCurrentWindowUsable: false, independentOffsetStepCount: 1,
     independentLastOffsetStepElapsedMs: 90_000 });
-  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, pollAdmittedElapsedMs: 95_000, requiredDurationMs: 95_000,
     witnesses: [{ ...recovering, injectedDetectorTripped: false }, healthy] }), 'fail');
-  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, pollAdmittedElapsedMs: 95_000, requiredDurationMs: 95_000,
     witnesses: [{ ...recovering, independentOffsetStepCount: 2 }, healthy] }), 'fail');
-  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, pollAdmittedElapsedMs: 95_000, requiredDurationMs: 95_000,
     witnesses: [{ ...recovering, independentLastOffsetStepElapsedMs: 34_999 }, healthy] }), 'fail');
-  assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 180_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 180_000, pollAdmittedElapsedMs: 179_999, requiredDurationMs: 180_000,
     witnesses: [healthy, healthy] }), 'verify');
   assert.equal(continuousCallDecision({ elapsedMs: 180_001, requiredDurationMs: 180_000,
     pollAdmittedElapsedMs: 179_999, witnesses: [healthy, healthy] }), 'verify');
@@ -120,6 +138,29 @@ test('poll planner admits the final pre-cutoff observation and clamps its delay'
   assert.equal(planContinuousCallPoll(180_000), null);
   assert.equal(planContinuousCallPoll(-1), null);
   assert.equal(planContinuousCallPoll(1.5), null);
+});
+
+test('a valid final observation admitted before 180 seconds survives one millisecond of read latency', () => {
+  const result = driveContinuousCall({ elapsedMs: 175_000, requiredDurationMs: 180_000,
+    readLatencyMs: 1, witnesses: [detectorWitness(), detectorWitness()] });
+  assert.deepEqual(result, { admissions: [175_000], elapsedMs: 180_001, decision: 'verify' });
+});
+
+test('continuous-call admission never grants the final grace to early, invalid, incomplete, drifting, or overdue evidence', () => {
+  const healthy = [detectorWitness(), detectorWitness()];
+  const early = driveContinuousCall({ elapsedMs: 174_999, requiredDurationMs: 180_000,
+    readLatencyMs: 2, witnesses: healthy });
+  assert.deepEqual(early, { admissions: [174_999], elapsedMs: 180_001, decision: 'fail' });
+  assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 180_000,
+    pollAdmittedElapsedMs: 180_000, witnesses: healthy }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 180_001, requiredDurationMs: 180_000,
+    pollAdmittedElapsedMs: 179_999,
+    witnesses: [detectorWitness({ independentCurrentWindowUsable: false }), detectorWitness()] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: FINAL_OBSERVATION_DEADLINE_MS + 1,
+    requiredDurationMs: 180_000, pollAdmittedElapsedMs: 179_999, witnesses: healthy }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 180_001, requiredDurationMs: 180_000,
+    pollAdmittedElapsedMs: 179_999,
+    witnesses: [detectorWitness({ productionDrift: true }), detectorWitness()] }), 'fail');
 });
 
 test('one late offset-step rebuilds a real detector window before bounded verification', () => {
@@ -139,9 +180,9 @@ test('one late offset-step rebuilds a real detector window before bounded verifi
 
 test('continuous-call evidence fails immediately on raw independent or production drift', () => {
   const witnesses = [detectorWitness(), detectorWitness()];
-  assert.equal(continuousCallDecision({ elapsedMs: 5_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 5_000, pollAdmittedElapsedMs: 5_000, requiredDurationMs: 95_000,
     witnesses: [{ ...witnesses[0], independentDrift: true }, witnesses[1]] }), 'fail');
-  assert.equal(continuousCallDecision({ elapsedMs: 5_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 5_000, pollAdmittedElapsedMs: 5_000, requiredDurationMs: 95_000,
     witnesses: [witnesses[0], { ...witnesses[1], productionDrift: true }] }), 'fail');
 });
 
@@ -153,7 +194,7 @@ test('missing or malformed reports never normalize the control or satisfy recove
   assert.notEqual(control.entries[0], raw[0], 'fork still copies malformed report objects');
   assert.deepEqual(raw, [{ id: 'a:ro-audio', type: 'remote-outbound-rtp', kind: 'audio', timestamp: 1_000 }]);
   assert.deepEqual(createAvSyncDriftDetector().observe(control.entries, 1_000), { usable: false, reason: 'missing-stats' });
-  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, pollAdmittedElapsedMs: 95_000, requiredDurationMs: 95_000,
     witnesses: [detectorWitness({ injectedDetectorTripped: false }), detectorWitness()] }), 'fail');
 });
 
@@ -207,9 +248,9 @@ test('runtime-witness recovery rejects repeated offset steps and the hard cap', 
   const healthy = detectorWitness();
   const repeated = detectorWitness({ independentCurrentWindowUsable: false, independentOffsetStepCount: 2,
     independentLastOffsetStepElapsedMs: 90_000 });
-  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, pollAdmittedElapsedMs: 95_000, requiredDurationMs: 95_000,
     witnesses: [repeated, healthy] }), 'fail');
-  assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 95_000,
+  assert.equal(continuousCallDecision({ elapsedMs: 180_000, pollAdmittedElapsedMs: 179_999, requiredDurationMs: 95_000,
     witnesses: [{ ...healthy, injectedDetectorTripped: false }, healthy] }), 'fail');
 });
 
