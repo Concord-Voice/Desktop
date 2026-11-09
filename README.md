@@ -62,6 +62,13 @@ workflow lints, Semgrep, Prettier, ESLint and tsc):
 pipx install pre-commit
 pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
+Native audio verification runs daily at **07:00 UTC** in
+[Nightly Native Audiocap](.github/workflows/nightly-native-audiocap.yml), after a
+successful IOC scan covering the window since the last successful scheduled run.
+The same native suite runs for relevant PR changes. See
+[ADR-0043](docs/adr/0043-per-process-screen-share-audio-capture.md#verification)
+for coverage and release-gate boundaries.
+
 Root contract fixtures, legal documents and scripts are required build inputs.
 The encryption engine and event schema remain in-tree.
 

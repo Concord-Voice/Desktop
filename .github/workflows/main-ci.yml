@@ -7,9 +7,10 @@
 # workflow_call paths lose, and owns release publication plus the release-asset
 # sync and public-mirror fan-out). It does NOT deploy: Desktop has no server
 # deploys (nightly-ci.yml and production deploys stayed in Hosted at the split).
-# Known gap: with no nightly here, CodeQL, ESLint SARIF and Scorecard run on
+# Known gap: CodeQL, ESLint SARIF and Scorecard run on
 # main only for a hotfix release merge. PR CI scans every change before it
 # merges; osv-scanner.yml and sonar-main.yml still run on a schedule.
+# nightly-native-audiocap.yml owns only the daily IOC/native verification.
 #
 # Scanner exceptions (in-file triggers retained elsewhere):
 #   - osv-scanner.yml: standalone main/weekly and legacy or uncertain PR
@@ -80,7 +81,8 @@ jobs:
       # now also gated on `hotfix`, so on an ordinary merge this probe arms
       # NOTHING here. It still runs, and its value still feeds `desktop-release`,
       # but an ordinary merge waits for an operator to cut the release (there
-      # is no nightly in this repo). The probe is VERSION-based, not push-based:
+      # is no nightly release dispatcher in this repo). The probe is VERSION-based,
+      # not push-based:
       # it stays armed until v<version> is tagged, so the next hotfix merge
       # releases the pending version too.
       desktop-release: ${{ steps.filter.outputs.desktop-release == 'true' || steps.pending.outputs.pending == 'true' }}

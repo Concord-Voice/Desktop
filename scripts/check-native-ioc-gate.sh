@@ -85,9 +85,9 @@ if nat is not None:
                 f"native-audiocap.yml has its own `{forbidden}` trigger — that runs "
                 f"`npm ci` outside the IOC gate (ADR-0018)")
 
-# 2. pr-ci.yml must invoke it, gated on ioc.
+# 2. PR CI and the nightly must invoke it, gated on ioc.
 #
-# pr-ci ONLY. main-ci.yml is deliberately excluded, and that is a correction: an
+# main-ci.yml is deliberately excluded, and that is a correction: an
 # earlier version of this guard required the node there too, which was wrong twice
 # over. main-ci is the push:main RELEASE orchestrator -- every one of its jobs is
 # gated on `hotfix == true && desktop-release == true`, so ordinary merges run
@@ -95,7 +95,7 @@ if nat is not None:
 # `ioc` job carries that same hotfix condition, so a `needs: ioc` node there was
 # unreachable on exactly the pushes it was meant to cover: GitHub propagates a
 # skipped dependency. Found by Codex on PR #3155.
-for name, ioc_job in (("pr-ci.yml", "ioc"),):
+for name, ioc_job in (("pr-ci.yml", "ioc"), ("nightly-native-audiocap.yml", "ioc")):
     doc = load(name)
     if doc is None:
         continue
@@ -119,7 +119,49 @@ for name, ioc_job in (("pr-ci.yml", "ioc"),):
             f"{name}: native-audiocap is missing `needs: {ioc_job}`. Its addon-build "
             f"leg runs `npm ci`; ADR-0018 requires that edge.")
 
-# 3. main-ci must NOT invoke it. Re-adding it there would look like more coverage
+# 3. The nightly must preserve the daily cadence and the full-window IOC handoff.
+nightly_name = "nightly-native-audiocap.yml"
+nightly = load(nightly_name)
+if nightly is not None:
+    def require(condition, message):
+        if not condition:
+            problems.append(f"{nightly_name}: {message}")
+
+    triggers = nightly.get("on", nightly.get(True, {}))
+    require(triggers == {"schedule": [{"cron": "0 7 * * *"}], "workflow_dispatch": None},
+            "must run daily at 07:00 UTC with input-free manual dispatch")
+    require(nightly.get("concurrency") == {"group": "nightly-native-audiocap", "cancel-in-progress": False},
+            "must serialize nightly runs without cancelling in-flight coverage")
+    require(nightly.get("permissions") == {"contents": "read"}, "must default to read-only permissions")
+    jobs = nightly.get("jobs", {})
+    require(set(jobs) == {"window", "ioc", "native-audiocap"},
+            "must contain only the scan window, IOC and native verification jobs")
+    window = jobs.get("window", {})
+    ioc = jobs.get("ioc", {})
+    native = jobs.get("native-audiocap", {})
+    require(window.get("if") == "github.repository == 'Concord-Voice/Desktop' && github.ref == 'refs/heads/main'",
+            "scan window must be restricted to Desktop main")
+    require(window.get("outputs", {}).get("diff-base") == "${{ steps.window.outputs.diff-base }}",
+            "window must expose the resolved diff-base")
+    require(ioc.get("uses") == "./.github/workflows/ioc-scanning.yml",
+            "ioc must call ioc-scanning.yml")
+    require(ioc.get("needs") in (["window"], "window"), "ioc must wait for the scan window")
+    require(ioc.get("with") == {"diff-base": "${{ needs.window.outputs.diff-base }}"},
+            "ioc must receive the full-window diff-base")
+    require(native.get("needs") in (["ioc"], "ioc"), "native-audiocap must wait only for ioc")
+    for name, job in (("ioc", ioc), ("native-audiocap", native)):
+        require("if" not in job and "continue-on-error" not in job,
+                f"{name} must retain default success-only ordering without path/release conditions")
+    expected_permissions = {
+        "window": {"contents": "read", "actions": "read"},
+        "ioc": {"contents": "read", "pull-requests": "read"},
+        "native-audiocap": {"contents": "read"},
+    }
+    for name, job in jobs.items():
+        require(job.get("permissions") == expected_permissions.get(name), f"{name} permissions drifted")
+        require("secrets" not in job and "environment" not in job, f"{name} must not receive release credentials")
+
+# 4. main-ci must NOT invoke it. Re-adding it there would look like more coverage
 #    and deliver none -- the node cannot run behind a hotfix-gated ioc.
 main_ci = load("main-ci.yml")
 if main_ci is not None and "native-audiocap" in main_ci.get("jobs", {}):
@@ -127,7 +169,7 @@ if main_ci is not None and "native-audiocap" in main_ci.get("jobs", {}):
         "main-ci.yml has a `native-audiocap` job. It CANNOT RUN there: main-ci is "
         "the release orchestrator and its `ioc` job is gated on "
         "hotfix && desktop-release, so a `needs: ioc` node is skipped on every "
-        "ordinary merge. Remove it; PR CI is where the native build gates.")
+        "ordinary merge. Remove it; PR and nightly CI own native verification.")
 
 if problems:
     print("native-audiocap IOC gate is broken:")
@@ -137,5 +179,5 @@ if problems:
     print("See ADR-0043 and the invariant stated in pr-ci.yml's scanner block.")
     sys.exit(1)
 
-print("check-native-ioc-gate: native-audiocap is reusable, ioc-gated in pr-ci, and absent from main-ci.")
+print("check-native-ioc-gate: native-audiocap is reusable, ioc-gated in PR and nightly CI, and absent from main-ci.")
 PY
