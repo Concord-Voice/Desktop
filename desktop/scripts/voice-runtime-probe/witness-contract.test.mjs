@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import * as contract from './witness-contract.mjs';
+import { createAvSyncDriftDetector } from '../../src/renderer/services/voice/avSyncDriftDetector.ts';
 import {
-  createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
+  continuousCallDecision, createFaultControlFork, createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
 } from './witness-contract.mjs';
 
@@ -39,6 +40,56 @@ test('the real Playwright launch boundary never adds no-sandbox on Linux',
 const sample = (framesDecoded, presentedFrames, extra = {}) => ({
   videoConsumerId: 'original', framesDecoded, presentedFrames,
   decodedProgressAgeMs: 100, presentedProgressAgeMs: 100, ...extra,
+});
+
+function avSyncEntries(timestamp, audioOffset, videoOffset) {
+  return [
+    { id: 'a:in-audio', type: 'inbound-rtp', kind: 'audio', remoteId: 'a:ro-audio',
+      ssrc: 1, trackIdentifier: 'audio', timestamp, jitterBufferDelay: 0.05, jitterBufferEmittedCount: 1_000 },
+    { id: 'a:ro-audio', type: 'remote-outbound-rtp', kind: 'audio', localId: 'a:in-audio',
+      timestamp, remoteTimestamp: timestamp - audioOffset },
+    { id: 'v:in-video', type: 'inbound-rtp', kind: 'video', remoteId: 'v:ro-video',
+      ssrc: 2, trackIdentifier: 'video', timestamp, jitterBufferDelay: 0.05, jitterBufferEmittedCount: 1_000 },
+    { id: 'v:ro-video', type: 'remote-outbound-rtp', kind: 'video', localId: 'v:in-video',
+      timestamp, remoteTimestamp: timestamp - videoOffset },
+  ];
+}
+
+test('fault control normalizes opposing live skew before imposing its exact drift ramp', () => {
+  const fork = createFaultControlFork();
+  const detector = createAvSyncDriftDetector();
+  const startedAt = 1_000_000;
+  let verdict;
+  for (let elapsed = 0; elapsed <= 65_000; elapsed += 5_000) {
+    // The live audio offset increases by 2 ms/s. The historical copied-report
+    // fork adds that same amount to remoteTimestamp, cancelling its own control.
+    const raw = avSyncEntries(startedAt + elapsed, 100 + elapsed * 0.002, 100);
+    const control = fork(raw, elapsed);
+    assert.deepEqual(raw, avSyncEntries(startedAt + elapsed, 100 + elapsed * 0.002, 100),
+      'the control fork must not mutate live RTC reports');
+    verdict = detector.observe(control.entries, startedAt + elapsed);
+  }
+  assert.equal(verdict?.usable, true, 'the control must accumulate a usable one-minute window');
+  assert.equal(verdict?.verdict, 'drift', 'ambient skew cannot cancel the positive control');
+});
+
+test('one late offset-step receives a bounded recovery window after the required 95 seconds', () => {
+  assert.equal(continuousCallDecision({
+    elapsedMs: 95_000,
+    requiredDurationMs: 95_000,
+    hardDurationMs: 180_000,
+    rawVerdict: 'insufficient-samples',
+    controlTripped: true,
+    lateDiscontinuities: 1,
+  }), 'continue-recovery');
+});
+
+test('continuous-call recovery rejects missing control evidence and repeated discontinuities', () => {
+  const base = { elapsedMs: 95_000, requiredDurationMs: 95_000, hardDurationMs: 180_000,
+    rawVerdict: 'insufficient-samples', controlTripped: true, lateDiscontinuities: 1 };
+  assert.equal(continuousCallDecision({ ...base, controlTripped: false }), 'fail');
+  assert.equal(continuousCallDecision({ ...base, lateDiscontinuities: 2 }), 'fail');
+  assert.equal(continuousCallDecision({ ...base, elapsedMs: 180_000 }), 'fail');
 });
 
 test('partial diagnostics retain only typed transport and media counters', () => {
