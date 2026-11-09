@@ -22,13 +22,21 @@ the control independent of ambient clock skew. It never mutates a `getStats()` e
 independent witness, or the production sampler. The healthy-call witnesses always use
 untouched real reports; a tripped control proves only that the separate detector can trip.
 
-The normal continuous-call gate is at least 95 seconds. A single peer may continue to the
-180-second cap only when one late raw `offset-step` has left its current measurement window
-without a usable verdict. Media progress, E2EE, production/independent drift, and runtime
-errors still fail immediately during recovery. Missing control evidence, another reset, or
-a different discontinuity fails; sufficient proof by the cap verifies, and insufficient
-proof at or after 180 seconds fails. No peer is skipped or retried. Failure summaries retain
-only bounded detector-reason labels and counters, never raw RTC reports or IDs.
+For each kind, the control admits a pair only when the inbound report's `remoteId` and the
+remote-outbound report's `localId` link each other, their SR-derived timestamps advance, and
+the link is unambiguous. An unlinked mediasoup probationary report is ignored; multiple
+legitimate linked publishers are rejected rather than selected arbitrarily.
+
+The normal continuous-call gate is at least 95 seconds. New observation cycles stop at
+180 seconds. A final cycle admitted from 175 through 179.999 seconds may finish by 185
+seconds only if it produces complete proof; an incomplete result at or after 180 seconds
+fails and is never retried. A single peer may receive this recovery only when one late raw
+`offset-step` has left its current measurement window without a usable verdict. Media
+progress, E2EE, production/independent drift, and runtime errors still fail immediately.
+Missing control evidence, another reset, or a different discontinuity fails; no peer is
+skipped. The 185-second bound is internal completion handling, not a duration setting.
+Failure summaries retain only bounded detector-reason labels and counters, never raw RTC
+reports or IDs.
 
 Run from a normal ephemeral Linux or macOS runner, as a non-root user, with supported
 Chromium sandboxing and a display (Xvfb is suitable on Linux). The media worker lives in
