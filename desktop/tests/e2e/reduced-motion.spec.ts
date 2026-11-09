@@ -33,16 +33,7 @@ for (const finding of cases) {
         return parent.id;
       }, selector);
       const scroll = finding.selector === '.server-bar-scroll';
-      const property = scroll
-        ? 'scroll-behavior'
-        : /transition/.test(
-              readFileSync(finding.path, 'utf8')
-                .split('\n')
-                .slice(finding.line - 1, finding.line + 2)
-                .join('\n')
-            )
-          ? 'transition-duration'
-          : 'animation-duration';
+      const property = finding.property;
       const cdp = await page.context().newCDPSession(page);
       await cdp.send('DOM.enable');
       await cdp.send('CSS.enable');

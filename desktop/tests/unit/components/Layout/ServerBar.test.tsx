@@ -21,6 +21,23 @@ vi.mock('@/renderer/services/system/apiClient', () => ({
 }));
 
 describe('ServerBar', () => {
+  it('lets the effective CSS motion policy govern arrow scrolling', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(800);
+    const visible = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
+    const scroll = vi.fn();
+    const old = HTMLElement.prototype.scrollBy;
+    HTMLElement.prototype.scrollBy = scroll;
+    try {
+      render(<ServerBar onOpenActionModal={vi.fn()} onContextMenu={vi.fn()} />);
+      fireEvent.click(await screen.findByLabelText('Scroll right'));
+      expect(scroll).toHaveBeenCalledWith({ left: 200, behavior: 'auto' });
+    } finally {
+      width.mockRestore();
+      visible.mockRestore();
+      HTMLElement.prototype.scrollBy = old;
+    }
+  });
+
   const onOpenActionModal = vi.fn();
   const onContextMenu = vi.fn();
   const mockDMConversation: DMConversation = {

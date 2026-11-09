@@ -268,6 +268,15 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 | Rationale | The taint rule treats any URL that reaches a network-capable sink as SSRF. `shell.openExternal` hands the URL to the user's OS browser or protocol handler; the app makes no request of its own. The handler in `desktop/src/main/ipc/openExternal.ts` checks the IPC sender first, requires a string, and passes only URLs whose protocol is in `ALLOWED_PROTOCOLS`. |
 | Disposition | Per-instance `FALSE_POSITIVE` only where the sink is `shell.openExternal` behind the sender check and protocol allowlist. A URL that reaches `net`, `fetch` or `http` in the main process is a real finding. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. S5144 is one of the `injection`-tagged taint rules ADR-0017 had deactivated; it fires here because the project now runs the stock profiles on purpose (Mark, 2026-11-05), not because of the drift described below. CodeQL and Semgrep still own this class. |
 
+#### `typescript:S1313` — Egress classifier ranges
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-02 |
+| Instance count in Section 2 | 3 (rows 11–13) |
+| Rationale | At `0035dc2924d1f3ef2daea460c2f869b78d5140a3`, `egressPolicy.ts:20–23` adds these CIDRs to `net.BlockList`; `classifyAddress:90–104` classifies them as tier 1; `isDialPermitted:106–117` denies tier 1 regardless of origin approval. These are restrictions, not connection destinations. |
+| Disposition | Individual false positives for the three recorded instances only; no rule or profile changes. |
+
 #### `typescript:S2245` — `Math.random` for timer jitter
 
 | Field | Value |
@@ -295,6 +304,23 @@ Rows 3–6 and 7–10 are linked pairs (`S1082` and `S6848` on the same line); M
 | 8 | 2026-11-07 | `AaGRKm7AWV1cgC4sffof` | `typescript:S6848` | `desktop/src/renderer/components/Voice/ParticipantVolumeRow.tsx:34` | Claude (#167) | Pair of row 4; same reasoning. Legacy note `typescript:S6848` sub-pattern A. |
 | 9 | 2026-11-07 | `AaGRKm7hWV1cgC4sffos` | `typescript:S6848` | `desktop/src/renderer/components/Members/UserProfileModal.tsx:151` | Claude (#167) | Pair of row 5; same reasoning. Legacy note `typescript:S6848` sub-pattern C. |
 | 10 | 2026-11-07 | `AaGRKm59WV1cgC4sffoI` | `typescript:S6848` | `desktop/src/renderer/components/ui/Modal.tsx:153` | Claude (#167) | Pair of row 6; same reasoning. Legacy note `typescript:S6848` sub-pattern C. |
+| 11 | 2026-11-02 | `AaGRKm-HWV1cgC4sffpJ` | `typescript:S1313` | `desktop/src/main/egressPolicy.ts:33` | `Codex (#<audit-pr>)` | False positive: 169.254.0.0/16 at desktop/src/main/egressPolicy.ts:33 defines a tier-1 metadata/link-local classification range, not a connection destination. blockList (20–23) passes it to net.BlockList.addSubnet; classifyAddress (90–104) returns tier1 for a match; isDialPermitted (106–117) always rejects tier1 regardless of origin approval. Verified unchanged at 0035dc2924d1f3ef2daea460c2f869b78d5140a3, blob d5962dc6e757b3a475b0a4dac94a11168f2d3cef. Per-instance audit: docs/ci/sonarqube-false-positive-register.md, Desktop entry 2. Sonar comment `AaGdoygi3csJgc5xD_Wo`. The original preparation entry 2 maps to row 11 here. Note S1313 above. |
+| 12 | 2026-11-02 | `AaGRKm-HWV1cgC4sffpK` | `typescript:S1313` | `desktop/src/main/egressPolicy.ts:34` | `Codex (#<audit-pr>)` | False positive: fe80::/10 at desktop/src/main/egressPolicy.ts:34 defines an IPv6 link-local classification range in TIER1, not a connection destination. blockList (20–23) passes it to net.BlockList.addSubnet; classifyAddress (90–104) returns tier1 for a match; isDialPermitted (106–117) always rejects tier1 regardless of origin approval. Verified unchanged at 0035dc2924d1f3ef2daea460c2f869b78d5140a3, blob d5962dc6e757b3a475b0a4dac94a11168f2d3cef. Per-instance audit: docs/ci/sonarqube-false-positive-register.md, Desktop entry 3. Sonar comment `AaGdpRJvT0wX21LPCeTa`. The original preparation entry 3 maps to row 12 here. Note S1313 above. |
+| 13 | 2026-11-02 | `AaGRKm-HWV1cgC4sffpL` | `typescript:S1313` | `desktop/src/main/egressPolicy.ts:47` | `Codex (#<audit-pr>)` | False positive: 224.0.0.0/4 at desktop/src/main/egressPolicy.ts:47 defines an IPv4 multicast classification range in TIER1, not a connection destination. blockList (20–23) passes it to net.BlockList.addSubnet; classifyAddress (90–104) returns tier1 for a match; isDialPermitted (106–117) always rejects tier1 regardless of origin approval. Verified unchanged at 0035dc2924d1f3ef2daea460c2f869b78d5140a3, blob d5962dc6e757b3a475b0a4dac94a11168f2d3cef. Per-instance audit: docs/ci/sonarqube-false-positive-register.md, Desktop entry 4. Sonar comment `AaGdpnzsNLf9_zh7rl7N`. The original preparation entry 4 maps to row 13 here. Note S1313 above. |
+
+### November 2 disposition receipts
+
+The three rows above record actual individual false-positive transitions on
+2026-11-02, each submitted with its own rationale. On 2026-11-09 the API reports
+all three as `FIXED`, last updated 2026-11-05T07:40:22Z; the original comments and
+marking times remain preserved. No transition was repeated. All times below are UTC.
+
+| Issue key | Live precheck / OPEN | Server marking | Independent readback / FALSE_POSITIVE | Comment key |
+|---|---|---|---|---|
+| `AaGRKm-HWV1cgC4sffpJ` | 2026-11-02T19:00:30Z | 2026-11-02T19:01:17Z | 2026-11-02T19:01:23Z | `AaGdoygi3csJgc5xD_Wo` |
+| `AaGRKm-HWV1cgC4sffpK` | 2026-11-02T19:03:16Z | 2026-11-02T19:03:23Z | 2026-11-02T19:03:37Z | `AaGdpRJvT0wX21LPCeTa` |
+| `AaGRKm-HWV1cgC4sffpL` | 2026-11-02T19:04:46Z | 2026-11-02T19:04:56Z | 2026-11-02T19:05:08Z | `AaGdpnzsNLf9_zh7rl7N` |
+
 
 ## Recreation-recovery / drift-guard (ADR-0017 narrowed profile)
 
