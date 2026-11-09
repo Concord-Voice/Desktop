@@ -2,7 +2,7 @@ import { Device } from 'mediasoup-client';
 import { voiceService } from '/src/renderer/services/voice/voiceService.ts';
 import { MediaEncryption, deriveFrameKey } from '/src/renderer/services/e2ee/mediaEncryption.ts';
 import { importChannelKey } from '/src/renderer/utils/crypto/crypto.ts';
-import { createFaultControlFork, requireVoiceProbeContract } from './witness-contract.mjs';
+import { createFaultControlFork, observeFaultControl, requireVoiceProbeContract } from './witness-contract.mjs';
 import { createRemoteAudioWitness } from './audio-witness.mjs';
 import { buildCameraEncodingPlan } from '/src/renderer/services/voice/cameraLayering.ts';
 import { createAvSyncDriftDetector, mergeAvSyncStats } from '/src/renderer/services/voice/avSyncDriftDetector.ts';
@@ -196,7 +196,7 @@ async function independentTick() {
     // production sampler are untouched; only this fork gets an imposed 2 ms/s drift.
     const fork = forkFaultControl(entries, performance.now() - startedAt);
     controlNormalizationReasons.add(fork.normalizationReason);
-    const control = faultControl.observe(fork.entries, observedAt);
+    const control = observeFaultControl(faultControl, fork, observedAt);
     if (control.usable) faultControlUsableCount++;
     else controlRefused.add(control.reason);
     injectedDetectorTripped ||= fork.normalized && control.usable && control.verdict === 'drift';

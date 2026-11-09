@@ -67,6 +67,11 @@ export function createFaultControlFork({ slopeMsPerSec = 2 } = {}) {
   };
 }
 
+/** Observes the isolated fault-control fork without touching raw RTC reports. */
+export function observeFaultControl(detector, fork, observedAt) {
+  return detector.observe(fork.entries, observedAt);
+}
+
 export function continuousCallDecision({ elapsedMs, pollAdmittedElapsedMs, requiredDurationMs, witnesses }) {
   if (!Number.isSafeInteger(elapsedMs) || !Number.isSafeInteger(requiredDurationMs) ||
       !Number.isSafeInteger(pollAdmittedElapsedMs) || requiredDurationMs < MIN_DURATION_MS ||
