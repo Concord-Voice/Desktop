@@ -96,6 +96,11 @@ six samples), normalized controls tripped, camera reproduction passed, and the n
 closed. This run did not exercise late-reset extension and does not establish Linux behavior;
 the deterministic detector test covers the 60-second rebase policy.
 
+At the same script revision, a maximum-duration macOS run also passed at 180.009 seconds:
+both peers had current usable windows (22 and 23 samples), normalized controls tripped, no
+raw or production drift appeared, camera reproduction passed, and the native worker closed.
+This confirms bounded completion at the configured maximum, not live late-reset recovery.
+
 A startup preflight checks the production service members this test-only integration
 uses and fails before key setup when that contract changes. No production test API is
 added. Failures retain only allowlisted transport/ICE/audio states, media counters,
