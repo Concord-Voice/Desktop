@@ -11,7 +11,7 @@ import { _electron as electron } from '@playwright/test';
 import { createLocalSfu } from './local-sfu.mjs';
 import { createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
-  summarizeRuntimeWitnesses } from './witness-contract.mjs';
+  summarizeRuntimeWitnesses, continuousCallDecision, planContinuousCallPoll, POLL_INTERVAL_MS } from './witness-contract.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(directory, '../..');
@@ -183,18 +183,27 @@ try {
   (await readWitnesses()).forEach((entry, index) => progress[index](entry));
   for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.arm());
   // No getStats replacement, mocked RTC or manually advanced observation counter.
-  const deadline = Date.now() + duration;
-  while (Date.now() < deadline) {
-    await delay(5000);
+  const continuousStartedAtMs = performance.now();
+  for (;;) {
+    const poll = planContinuousCallPoll(Math.ceil(performance.now() - continuousStartedAtMs));
+    if (!poll) throw new Error('No admissible continuous-call observation remains');
+    await delay(poll.delayMs);
     const live = await readWitnesses();
     assert(live.every((entry, index) => entry.audioSignalPresent && entry.decodedVideoPresent &&
-      entry.sourceTracksLive && progress[index](entry)), 'Continuous decoded/presented delivery stopped');
+      entry.sourceTracksLive && progress[index](entry, { allowRecentProgress: poll.delayMs < POLL_INTERVAL_MS })),
+    'Continuous decoded/presented delivery stopped');
     requireNoRuntimeFailure(markers);
+    assert(live.every((entry) => !entry.independentTickFailure), 'Independent detector observation failed');
+    const decision = continuousCallDecision({ elapsedMs: Math.ceil(performance.now() - continuousStartedAtMs),
+      pollAdmittedElapsedMs: poll.pollAdmittedElapsedMs, requiredDurationMs: duration, witnesses: live });
+    if (decision === 'fail') throw new Error('Continuous-call drift evidence did not meet the bounded admission contract');
+    if (decision === 'verify') break;
   }
   result.witnesses = await readWitnesses();
   for (const entry of result.witnesses) {
     assert(entry.measuredDurationMs >= duration && entry.productionTimerArmed && entry.productionObservationCount > 0);
-    assert(entry.independentUsableCount > 0 && !entry.independentDrift && !entry.productionDrift);
+    assert(entry.independentUsableCount > 0 && entry.independentCurrentWindowUsable &&
+      !entry.independentDrift && !entry.productionDrift && !entry.independentTickFailure);
     assert(entry.e2eeEntered.length === 2 && entry.e2eeEntered.every((count) => count > 0));
     assert(entry.layeredPriorityApplied && entry.audioExtensionsNegotiated && entry.videoExtensionsNegotiated);
     assert(entry.injectedDetectorTripped, 'Separate detector fault control did not trip');
