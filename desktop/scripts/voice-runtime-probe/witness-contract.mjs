@@ -69,6 +69,7 @@ export function createFaultControlFork({ slopeMsPerSec = 2 } = {}) {
 
 /** Observes the isolated fault-control fork without touching raw RTC reports. */
 export function observeFaultControl(detector, fork, observedAt) {
+  if (!fork.normalized) return { usable: false, reason: fork.normalizationReason };
   return detector.observe(fork.entries, observedAt);
 }
 
