@@ -67,15 +67,19 @@ export function createFaultControlFork({ slopeMsPerSec = 2 } = {}) {
   };
 }
 
-export function continuousCallDecision({ elapsedMs, requiredDurationMs, witnesses }) {
+export function continuousCallDecision({ elapsedMs, pollAdmittedElapsedMs, requiredDurationMs, witnesses }) {
   if (!Number.isSafeInteger(elapsedMs) || !Number.isSafeInteger(requiredDurationMs) ||
-      requiredDurationMs < MIN_DURATION_MS || requiredDurationMs > MAX_DURATION_MS || elapsedMs < 0) return 'fail';
+      !Number.isSafeInteger(pollAdmittedElapsedMs) || requiredDurationMs < MIN_DURATION_MS ||
+      requiredDurationMs > MAX_DURATION_MS || elapsedMs < 0 || pollAdmittedElapsedMs < 0 ||
+      pollAdmittedElapsedMs >= MAX_DURATION_MS || pollAdmittedElapsedMs > elapsedMs ||
+      elapsedMs > FINAL_OBSERVATION_DEADLINE_MS) return 'fail';
   if (!Array.isArray(witnesses) || witnesses.length !== 2) return 'fail';
   if (witnesses.some((entry) => entry?.independentDrift || entry?.productionDrift)) return 'fail';
   if (elapsedMs < requiredDurationMs) return 'continue';
   if (witnesses.some((entry) => !entry?.injectedDetectorTripped)) return 'fail';
-  if (elapsedMs > MAX_DURATION_MS) return 'fail';
-  if (witnesses.every((entry) => entry?.independentCurrentWindowUsable && entry.independentUsableCount > 0)) return 'verify';
+  const complete = witnesses.every((entry) => entry?.independentCurrentWindowUsable && entry.independentUsableCount > 0);
+  if (complete && elapsedMs <= MAX_DURATION_MS) return 'verify';
+  if (complete && pollAdmittedElapsedMs >= MAX_DURATION_MS - POLL_INTERVAL_MS) return 'verify';
   if (elapsedMs >= MAX_DURATION_MS) return 'fail';
   const recovering = witnesses.filter((entry) => !entry?.independentCurrentWindowUsable);
   const lateThresholdMs = Math.max(0, requiredDurationMs - 60_000);

@@ -11,7 +11,7 @@ import { _electron as electron } from '@playwright/test';
 import { createLocalSfu } from './local-sfu.mjs';
 import { createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
-  summarizeRuntimeWitnesses, continuousCallDecision } from './witness-contract.mjs';
+  summarizeRuntimeWitnesses, continuousCallDecision, planContinuousCallPoll } from './witness-contract.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const desktop = path.resolve(directory, '../..');
@@ -183,16 +183,18 @@ try {
   (await readWitnesses()).forEach((entry, index) => progress[index](entry));
   for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.arm());
   // No getStats replacement, mocked RTC or manually advanced observation counter.
-  const startedAtMs = Date.now();
+  const continuousStartedAtMs = performance.now();
   for (;;) {
-    await delay(5000);
+    const poll = planContinuousCallPoll(Math.ceil(performance.now() - continuousStartedAtMs));
+    if (!poll) throw new Error('No admissible continuous-call observation remains');
+    await delay(poll.delayMs);
     const live = await readWitnesses();
     assert(live.every((entry, index) => entry.audioSignalPresent && entry.decodedVideoPresent &&
       entry.sourceTracksLive && progress[index](entry)), 'Continuous decoded/presented delivery stopped');
     requireNoRuntimeFailure(markers);
     assert(live.every((entry) => !entry.independentTickFailure), 'Independent detector observation failed');
-    const decision = continuousCallDecision({ elapsedMs: Date.now() - startedAtMs,
-      requiredDurationMs: duration, witnesses: live });
+    const decision = continuousCallDecision({ elapsedMs: Math.ceil(performance.now() - continuousStartedAtMs),
+      pollAdmittedElapsedMs: poll.pollAdmittedElapsedMs, requiredDurationMs: duration, witnesses: live });
     if (decision === 'fail') throw new Error('Continuous-call drift evidence did not meet the bounded admission contract');
     if (decision === 'verify') break;
   }
