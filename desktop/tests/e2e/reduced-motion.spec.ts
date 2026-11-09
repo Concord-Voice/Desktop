@@ -45,6 +45,15 @@ for (const finding of cases) {
             { id: target, property, pseudo }
           );
         const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+        const input = await cdp.send('DOM.querySelector', {
+          nodeId: root.nodeId,
+          selector: '#motion-target',
+        });
+        const { node: targetNode } = await cdp.send('DOM.describeNode', {
+          nodeId: input.nodeId,
+          depth: -1,
+          pierce: true,
+        });
         const find = (node: typeof root): number | undefined => {
           if (node.attributes?.includes('thumb')) return node.nodeId;
           for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) {
@@ -52,7 +61,7 @@ for (const finding of cases) {
             if (id) return id;
           }
         };
-        const nodeId = find(root);
+        const nodeId = find(targetNode);
         expect(nodeId, 'real Chromium slider thumb').toBeTruthy();
         const computed = await cdp.send('CSS.getComputedStyleForNode', { nodeId: nodeId! });
         return computed.computedStyle.find((v) => v.name === property)!.value;
