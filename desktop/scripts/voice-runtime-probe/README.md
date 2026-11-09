@@ -5,9 +5,13 @@ local mediasoup worker. It runs production `VoiceService` sender/receiver transf
 hooks, `e2eeWorker`, `MediaEncryption`, camera encoding ladders, ICE diagnostics and the
 production A/V sampling timer. It also runs an independent detector on unmodified
 real stats. Continuous synthetic audio and video must decrypt and play for at least
-95 seconds. Every measured poll must advance both actual decoded and presented frame
-counters within the progress deadline. Camera reproduction must retain the capture track,
-advance new per-consumer counters, and receive its own production transform-verification verdict.
+95 seconds. Every normal five-second poll must advance both actual decoded and presented
+frame counters within the progress deadline. The one terminal, clamped short poll may retain
+the immediately preceding both-advancing proof only for the same consumer, nondecreasing
+counters, and both ages within `VIDEO_STALL_MS`; retained proof cannot chain, admit startup,
+or admit a new, stale, or regressed consumer. Camera reproduction retains the capture track,
+requires strict new per-consumer counter advancement, and receives its own production
+transform-verification verdict.
 
 The fixture replaces account setup, key-service provisioning and signaling only.
 It installs a fresh random test CSK and real transports into the production singleton.
@@ -15,10 +19,38 @@ It does **not** test login, join authorization, Socket.IO, RoomManager, key rota
 screen capture or the app's complete receive-audio graph. No RTC object or `getStats`
 method is mocked. Only production code increments `avSyncObservationCount`.
 
-The detector positive control copies the real reports into a **separate** detector and
-adds a declared 2 ms/s offset. This proves that detector can trip; it is not evidence of
-a discontinuity induced in the actual engine or media stream. The healthy-call witnesses
-always use untouched real reports.
+The detector positive control copies the real reports into a **separate** detector. It
+baselines one finite namespaced audio/video remote-outbound pair, holds the copied video
+offset steady, and applies a declared 2 ms/s slope to the copied audio offset. That makes
+the control independent of ambient clock skew. It never mutates a `getStats()` entry, the
+independent witness, or the production sampler. The healthy-call witnesses always use
+untouched real reports; a tripped control proves only that the separate detector can trip.
+Snapshots refused by normalization do not advance the control detector; the raw independent
+witness still observes them. This prevents a paused Sender Report from mixing clock bases.
+
+For each kind, the control admits a pair only when the inbound report's `remoteId` and the
+remote-outbound report's `localId` link each other, their SR-derived timestamps advance, and
+the link is unambiguous. An unlinked mediasoup probationary report is ignored; multiple
+legitimate linked publishers are rejected rather than selected arbitrarily.
+
+The normal continuous-call gate is at least 95 seconds. New observation cycles stop at
+180 seconds. A final cycle admitted from 175 through 179.999 seconds may finish by 185
+seconds only if it produces complete proof; an incomplete result at or after 180 seconds
+fails and is never retried. A single peer may receive this recovery only when one late raw
+`offset-step` has left its current measurement window without a usable verdict. Media
+progress, E2EE, production/independent drift, and runtime errors still fail immediately.
+Missing control evidence fails. During active incomplete-window recovery, another reset or
+a different discontinuity fails; no peer is skipped. The 185-second bound is internal
+completion handling, not a duration setting.
+Failure summaries retain only bounded detector-reason labels and counters, never raw RTC
+reports or IDs.
+
+`independentCurrentWindowUsable` means the retained detector window has usable proof; it
+does not mean the latest tick was usable. A non-discontinuity refusal such as
+`sr-not-advanced` retains that history under the production detector contract. Reset counts
+govern incomplete-window recovery, not lifetime failure: several early resets followed by a
+clean 60-second window by the base deadline can pass. A second or different reset during an
+active, incomplete extension fails at the next poll.
 
 Run from a normal ephemeral Linux or macOS runner, as a non-root user, with supported
 Chromium sandboxing and a display (Xvfb is suitable on Linux). The media worker lives in
@@ -71,8 +103,18 @@ advancing decoded/presented frames, separately verified replacement consumers an
 confirmed native-worker exit. Original verbose console logs,
 keys, SDP and raw media stats are deliberately excluded from the artifact.
 
-This harness is prepared for CI execution. Its real media leg has not run successfully
-in the restricted authoring host; syntax/build checks do not constitute runtime proof.
+Runtime evidence: on 2026-11-09, the repaired probe passed on macOS with sandboxed Electron
+45.0.0 (Chromium 156.0.8078.48, bundled Node 24.22.0), mediasoup-client 3.25.3, and native
+SFU 3.31.0. It ran 95.151 seconds: both peers produced steady usable raw windows (five and
+six samples), normalized controls tripped, camera reproduction passed, and the native worker
+closed. This run did not exercise late-reset extension and does not establish Linux behavior;
+the deterministic detector test covers the 60-second rebase policy.
+
+With the same runtime versions, the final observation-boundary repair passed a
+maximum-duration macOS run at 180.009 seconds:
+both peers had current usable windows (22 and 23 samples), normalized controls tripped, no
+raw or production drift appeared, camera reproduction passed, and the native worker closed.
+This confirms bounded completion at the configured maximum, not live late-reset recovery.
 
 A startup preflight checks the production service members this test-only integration
 uses and fails before key setup when that contract changes. No production test API is

@@ -2,7 +2,7 @@ import { Device } from 'mediasoup-client';
 import { voiceService } from '/src/renderer/services/voice/voiceService.ts';
 import { MediaEncryption, deriveFrameKey } from '/src/renderer/services/e2ee/mediaEncryption.ts';
 import { importChannelKey } from '/src/renderer/utils/crypto/crypto.ts';
-import { requireVoiceProbeContract } from './witness-contract.mjs';
+import { createFaultControlFork, observeFaultControl, requireVoiceProbeContract } from './witness-contract.mjs';
 import { createRemoteAudioWitness } from './audio-witness.mjs';
 import { buildCameraEncodingPlan } from '/src/renderer/services/voice/cameraLayering.ts';
 import { createAvSyncDriftDetector, mergeAvSyncStats } from '/src/renderer/services/voice/avSyncDriftDetector.ts';
@@ -29,14 +29,24 @@ let videoProgress;
 let startedAt = 0;
 let independentUsableCount = 0;
 let independentDrift = false;
+let independentCurrentWindowUsable = false;
+let independentOffsetStepCount = 0;
+let independentOtherDiscontinuityCount = 0;
+let independentLastOffsetStepElapsedMs = null;
 let injectedDetectorTripped = false;
+let faultControlUsableCount = 0;
+let independentTickFailure = false;
 let independentInFlight = false;
 const refused = new Set();
+const controlRefused = new Set();
+const controlNormalizationReasons = new Set();
+const otherDiscontinuities = new Set(['stream-changed', 'counter-reset', 'clock-regression']);
 const enteredFrames = new Map();
 const consumers = new Map();
 const producers = new Map();
 const independent = createAvSyncDriftDetector();
 const faultControl = createAvSyncDriftDetector();
+const forkFaultControl = createFaultControlFork();
 
 async function makeTransport(direction) {
   const options = await rpc('createTransport', { direction });
@@ -165,15 +175,33 @@ async function independentTick() {
     const [audio, video] = await Promise.all([audioRecv.getStats(), videoRecv.getStats()]);
     const entries = mergeAvSyncStats(audio.values(), video.values());
     const observation = independent.observe(entries, observedAt);
-    if (observation.usable) { independentUsableCount++; independentDrift ||= observation.verdict === 'drift'; }
-    else refused.add(observation.reason);
+    if (observation.usable) {
+      independentCurrentWindowUsable = true;
+      independentUsableCount++;
+      independentDrift ||= observation.verdict === 'drift';
+    }
+    else {
+      refused.add(observation.reason);
+      if (observation.reason === 'offset-step') {
+        independentCurrentWindowUsable = false;
+        independentOffsetStepCount++;
+        independentLastOffsetStepElapsedMs = performance.now() - startedAt;
+      }
+      if (otherDiscontinuities.has(observation.reason)) {
+        independentCurrentWindowUsable = false;
+        independentOtherDiscontinuityCount++;
+      }
+    }
     // An explicitly separate detector positive control. RTC reports and the
     // production sampler are untouched; only this fork gets an imposed 2 ms/s drift.
-    const fork = entries.map((entry) => entry.type === 'remote-outbound-rtp' && entry.id.startsWith('a:')
-      ? { ...entry, remoteTimestamp: entry.remoteTimestamp + (performance.now() - startedAt) * 0.002 }
-      : entry);
-    const control = faultControl.observe(fork, observedAt);
-    injectedDetectorTripped ||= control.usable && control.verdict === 'drift';
+    const fork = forkFaultControl(entries, performance.now() - startedAt);
+    controlNormalizationReasons.add(fork.normalizationReason);
+    const control = observeFaultControl(faultControl, fork, observedAt);
+    if (control.usable) faultControlUsableCount++;
+    else controlRefused.add(control.reason);
+    injectedDetectorTripped ||= fork.normalized && control.usable && control.verdict === 'drift';
+  } catch {
+    independentTickFailure = true;
   } finally { independentInFlight = false; }
 }
 
@@ -228,7 +256,10 @@ async function witness() {
     productionTimerArmed: voiceService.avSyncSamplingTimer !== null,
     productionObservationCount: voiceService.avSyncObservationCount,
     productionDrift: voiceService.avSyncDriftEmitted,
-    independentUsableCount, independentDrift, independentRefusals: [...refused], injectedDetectorTripped,
+    independentUsableCount, independentDrift, independentCurrentWindowUsable, independentOffsetStepCount,
+    independentOtherDiscontinuityCount, independentLastOffsetStepElapsedMs, independentRefusals: [...refused], injectedDetectorTripped,
+    faultControlUsableCount, faultControlRefusals: [...controlRefused],
+    faultControlNormalizationReasons: [...controlNormalizationReasons], independentTickFailure,
     audioSignalPresent: audioRms > 0.005, decodedVideoPresent: framesDecoded > 5 && colored > 500,
     videoConsumerId: videoConsumer.id, framesDecoded,
     presentedFrames: videoProgress.presentedFrames,
