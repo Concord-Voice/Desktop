@@ -5,9 +5,13 @@ local mediasoup worker. It runs production `VoiceService` sender/receiver transf
 hooks, `e2eeWorker`, `MediaEncryption`, camera encoding ladders, ICE diagnostics and the
 production A/V sampling timer. It also runs an independent detector on unmodified
 real stats. Continuous synthetic audio and video must decrypt and play for at least
-95 seconds. Every measured poll must advance both actual decoded and presented frame
-counters within the progress deadline. Camera reproduction must retain the capture track,
-advance new per-consumer counters, and receive its own production transform-verification verdict.
+95 seconds. Every normal five-second poll must advance both actual decoded and presented
+frame counters within the progress deadline. The one terminal, clamped short poll may retain
+the immediately preceding both-advancing proof only for the same consumer, nondecreasing
+counters, and both ages within `VIDEO_STALL_MS`; retained proof cannot chain, admit startup,
+or admit a new, stale, or regressed consumer. Camera reproduction retains the capture track,
+requires strict new per-consumer counter advancement, and receives its own production
+transform-verification verdict.
 
 The fixture replaces account setup, key-service provisioning and signaling only.
 It installs a fresh random test CSK and real transports into the production singleton.
@@ -35,10 +39,18 @@ seconds only if it produces complete proof; an incomplete result at or after 180
 fails and is never retried. A single peer may receive this recovery only when one late raw
 `offset-step` has left its current measurement window without a usable verdict. Media
 progress, E2EE, production/independent drift, and runtime errors still fail immediately.
-Missing control evidence, another reset, or a different discontinuity fails; no peer is
-skipped. The 185-second bound is internal completion handling, not a duration setting.
+Missing control evidence fails. During active incomplete-window recovery, another reset or
+a different discontinuity fails; no peer is skipped. The 185-second bound is internal
+completion handling, not a duration setting.
 Failure summaries retain only bounded detector-reason labels and counters, never raw RTC
 reports or IDs.
+
+`independentCurrentWindowUsable` means the retained detector window has usable proof; it
+does not mean the latest tick was usable. A non-discontinuity refusal such as
+`sr-not-advanced` retains that history under the production detector contract. Reset counts
+govern incomplete-window recovery, not lifetime failure: several early resets followed by a
+clean 60-second window by the base deadline can pass. A second or different reset during an
+active, incomplete extension fails at the next poll.
 
 Run from a normal ephemeral Linux or macOS runner, as a non-root user, with supported
 Chromium sandboxing and a display (Xvfb is suitable on Linux). The media worker lives in
