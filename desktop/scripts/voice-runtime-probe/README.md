@@ -23,11 +23,12 @@ independent witness, or the production sampler. The healthy-call witnesses alway
 untouched real reports; a tripped control proves only that the separate detector can trip.
 
 The normal continuous-call gate is at least 95 seconds. A single peer may continue to the
-180-second cap only when one late raw `offset-step` has left its latest independent verdict
-unusable. Media progress, E2EE, production/independent drift, and runtime errors still
-fail immediately during recovery. Missing control evidence, another reset, any different
-discontinuity, or reaching the cap fails; no peer is skipped or retried. Failure summaries
-retain only bounded detector-reason labels and counters, never raw RTC reports or IDs.
+180-second cap only when one late raw `offset-step` has left its current measurement window
+without a usable verdict. Media progress, E2EE, production/independent drift, and runtime
+errors still fail immediately during recovery. Missing control evidence, another reset, or
+a different discontinuity fails; sufficient proof by the cap verifies, and insufficient
+proof at or after 180 seconds fails. No peer is skipped or retried. Failure summaries retain
+only bounded detector-reason labels and counters, never raw RTC reports or IDs.
 
 Run from a normal ephemeral Linux or macOS runner, as a non-root user, with supported
 Chromium sandboxing and a display (Xvfb is suitable on Linux). The media worker lives in
@@ -80,8 +81,12 @@ advancing decoded/presented frames, separately verified replacement consumers an
 confirmed native-worker exit. Original verbose console logs,
 keys, SDP and raw media stats are deliberately excluded from the artifact.
 
-This harness is prepared for CI execution. Its real media leg has not run successfully
-in the restricted authoring host; syntax/build checks do not constitute runtime proof.
+Runtime evidence: on 2026-11-09, the repaired probe passed on macOS with sandboxed Electron
+45.0.0 (Chromium 156.0.8078.48, bundled Node 24.22.0), mediasoup-client 3.25.3, and native
+SFU 3.31.0. It ran 95.151 seconds: both peers produced steady usable raw windows (five and
+six samples), normalized controls tripped, camera reproduction passed, and the native worker
+closed. This run did not exercise late-reset extension and does not establish Linux behavior;
+the deterministic detector test covers the 60-second rebase policy.
 
 A startup preflight checks the production service members this test-only integration
 uses and fails before key setup when that contract changes. No production test API is

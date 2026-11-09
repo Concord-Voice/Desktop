@@ -18,8 +18,8 @@ The report establishes nondeterminism, not a production detector defect. A behav
 
 - Keep `avSyncDriftDetector.ts`, production sampling, and raw independent observations unchanged.
 - `createFaultControlFork` shallow-copies the real report entries. After its first finite namespaced audio/video remote-outbound pair, it preserves the copied video offset and imposes an exact 2 ms/s slope on the copied audio offset. It changes no raw report entry, identity, counter, or production observation.
-- Require at least 95 seconds of continuous real media. At that boundary, complete evidence verifies immediately. A recovery window to the existing 180-second cap is allowed only for exactly one peer with one raw `offset-step`, no other discontinuity, and no latest usable raw verdict.
-- Drift, failed independent sampling, missing control evidence, a second/different reset, media/E2EE/progress failure, runtime error, or the cap fails. The recovery window is not a retry and cannot omit a peer.
+- Require at least 95 seconds of continuous real media. At that boundary, complete evidence verifies immediately. A recovery window to the existing 180-second cap is allowed only for exactly one peer with one raw `offset-step`, no other discontinuity, and no usable verdict in its current measurement window.
+- Drift, failed independent sampling, missing control evidence, a second/different reset, media/E2EE/progress failure, or runtime error fails. Sufficient proof by the cap verifies; insufficient proof at or after 180 seconds fails. The recovery window is not a retry and cannot omit a peer.
 - Diagnostics contain only counters, booleans, and an allowlisted detector-reason set; no IDs, keys, SDP, raw RTC reports, or console payloads.
 
 ## Validation and limits
