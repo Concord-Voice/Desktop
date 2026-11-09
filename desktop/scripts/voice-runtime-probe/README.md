@@ -96,7 +96,8 @@ six samples), normalized controls tripped, camera reproduction passed, and the n
 closed. This run did not exercise late-reset extension and does not establish Linux behavior;
 the deterministic detector test covers the 60-second rebase policy.
 
-At the same script revision, a maximum-duration macOS run also passed at 180.009 seconds:
+With the same runtime versions, the final observation-boundary repair passed a
+maximum-duration macOS run at 180.009 seconds:
 both peers had current usable windows (22 and 23 samples), normalized controls tripped, no
 raw or production drift appeared, camera reproduction passed, and the native worker closed.
 This confirms bounded completion at the configured maximum, not live late-reset recovery.
