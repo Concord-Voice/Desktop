@@ -55,6 +55,20 @@ function avSyncEntries(timestamp, audioOffset, videoOffset) {
   ];
 }
 
+function detectorWitness(overrides = {}) {
+  return {
+    independentCurrentWindowUsable: true,
+    independentUsableCount: 1,
+    independentDrift: false,
+    productionDrift: false,
+    injectedDetectorTripped: true,
+    independentOffsetStepCount: 0,
+    independentOtherDiscontinuityCount: 0,
+    independentLastOffsetStepElapsedMs: null,
+    ...overrides,
+  };
+}
+
 test('fault control normalizes opposing live skew before imposing its exact drift ramp', () => {
   const fork = createFaultControlFork();
   const detector = createAvSyncDriftDetector();
@@ -74,22 +88,121 @@ test('fault control normalizes opposing live skew before imposing its exact drif
 });
 
 test('one late offset-step receives a bounded recovery window after the required 95 seconds', () => {
+  const healthy = detectorWitness();
+  const recovering = detectorWitness({ independentCurrentWindowUsable: false, independentOffsetStepCount: 1,
+    independentLastOffsetStepElapsedMs: 90_000 });
   assert.equal(continuousCallDecision({
     elapsedMs: 95_000,
     requiredDurationMs: 95_000,
-    hardDurationMs: 180_000,
-    rawVerdict: 'insufficient-samples',
-    controlTripped: true,
-    lateDiscontinuities: 1,
+    witnesses: [recovering, healthy],
   }), 'continue-recovery');
 });
 
 test('continuous-call recovery rejects missing control evidence and repeated discontinuities', () => {
-  const base = { elapsedMs: 95_000, requiredDurationMs: 95_000, hardDurationMs: 180_000,
-    rawVerdict: 'insufficient-samples', controlTripped: true, lateDiscontinuities: 1 };
-  assert.equal(continuousCallDecision({ ...base, controlTripped: false }), 'fail');
-  assert.equal(continuousCallDecision({ ...base, lateDiscontinuities: 2 }), 'fail');
-  assert.equal(continuousCallDecision({ ...base, elapsedMs: 180_000 }), 'fail');
+  const healthy = detectorWitness();
+  const recovering = detectorWitness({ independentCurrentWindowUsable: false, independentOffsetStepCount: 1,
+    independentLastOffsetStepElapsedMs: 90_000 });
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+    witnesses: [{ ...recovering, injectedDetectorTripped: false }, healthy] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+    witnesses: [{ ...recovering, independentOffsetStepCount: 2 }, healthy] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+    witnesses: [{ ...recovering, independentLastOffsetStepElapsedMs: 34_999 }, healthy] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 180_000,
+    witnesses: [healthy, healthy] }), 'verify');
+  assert.equal(continuousCallDecision({ elapsedMs: 180_001, requiredDurationMs: 180_000,
+    witnesses: [healthy, healthy] }), 'fail');
+});
+
+test('one late offset-step rebuilds a real detector window before bounded verification', () => {
+  const detector = createAvSyncDriftDetector();
+  const startedAt = 1_000_000;
+  for (let elapsed = 0; elapsed <= 90_000; elapsed += 5_000) {
+    detector.observe(avSyncEntries(startedAt + elapsed, 100, 100), startedAt + elapsed);
+  }
+  const stepped = detector.observe(avSyncEntries(startedAt + 95_000, 200, 100), startedAt + 95_000);
+  assert.deepEqual(stepped, { usable: false, reason: 'offset-step' });
+  let recovered;
+  for (let elapsed = 100_000; elapsed <= 160_000; elapsed += 5_000) {
+    recovered = detector.observe(avSyncEntries(startedAt + elapsed, 200, 100), startedAt + elapsed);
+  }
+  assert.deepEqual(recovered, { usable: true, verdict: 'steady' });
+});
+
+test('continuous-call evidence fails immediately on raw independent or production drift', () => {
+  const witnesses = [detectorWitness(), detectorWitness()];
+  assert.equal(continuousCallDecision({ elapsedMs: 5_000, requiredDurationMs: 95_000,
+    witnesses: [{ ...witnesses[0], independentDrift: true }, witnesses[1]] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 5_000, requiredDurationMs: 95_000,
+    witnesses: [witnesses[0], { ...witnesses[1], productionDrift: true }] }), 'fail');
+});
+
+test('missing or malformed reports never normalize the control or satisfy recovery evidence', () => {
+  const fork = createFaultControlFork();
+  const raw = [{ id: 'a:ro-audio', type: 'remote-outbound-rtp', kind: 'audio', timestamp: 1_000 }];
+  const control = fork(raw, 0);
+  assert.equal(control.normalized, false);
+  assert.notEqual(control.entries[0], raw[0], 'fork still copies malformed report objects');
+  assert.deepEqual(raw, [{ id: 'a:ro-audio', type: 'remote-outbound-rtp', kind: 'audio', timestamp: 1_000 }]);
+  assert.deepEqual(createAvSyncDriftDetector().observe(control.entries, 1_000), { usable: false, reason: 'missing-stats' });
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+    witnesses: [detectorWitness({ injectedDetectorTripped: false }), detectorWitness()] }), 'fail');
+});
+
+test('control normalization requires a stable paired stats identity and advancing Sender Reports', () => {
+  const startedAt = 1_000_000;
+  const fork = createFaultControlFork();
+  assert.equal(fork(avSyncEntries(startedAt, 100, 100), 0).normalized, true);
+
+  const frozen = avSyncEntries(startedAt + 5_000, 100, 100);
+  for (const entry of frozen) {
+    if (entry.type === 'remote-outbound-rtp') entry.remoteTimestamp = startedAt - 100;
+  }
+  assert.equal(fork(frozen, 5_000).normalized, false, 'a frozen SR cannot form a control ramp');
+
+  const mismatched = avSyncEntries(startedAt, 100, 100);
+  mismatched.find((entry) => entry.id === 'a:ro-audio').localId = 'a:wrong-inbound';
+  assert.equal(createFaultControlFork()(mismatched, 0).normalized, false,
+    'an unpaired remote-outbound report cannot establish the control baseline');
+});
+
+test('an unlinked mediasoup video probator does not block the paired fault-control ramp', () => {
+  const fork = createFaultControlFork();
+  const detector = createAvSyncDriftDetector();
+  const startedAt = 1_000_000;
+  let verdict;
+  for (let elapsed = 0; elapsed <= 65_000; elapsed += 5_000) {
+    const raw = avSyncEntries(startedAt + elapsed, 100, 100);
+    raw.push({ id: 'v:probator', type: 'inbound-rtp', kind: 'video', ssrc: 1234,
+      timestamp: startedAt + elapsed, jitterBufferDelay: 0, jitterBufferEmittedCount: 0 });
+    const original = structuredClone(raw);
+    const control = fork(raw, elapsed);
+    assert.equal(control.normalized, true);
+    assert.deepEqual(raw, original, 'the control fork must not mutate the unlinked live probator');
+    verdict = detector.observe(control.entries, startedAt + elapsed);
+  }
+  assert.equal(verdict?.verdict, 'drift');
+});
+
+test('a frozen Sender Report remains refused after the control normalization repair', () => {
+  const detector = createAvSyncDriftDetector();
+  const startedAt = 1_000_000;
+  detector.observe(avSyncEntries(startedAt, 100, 100), startedAt);
+  const frozen = avSyncEntries(startedAt + 5_000, 100, 100);
+  for (const entry of frozen) {
+    if (entry.type === 'remote-outbound-rtp') entry.remoteTimestamp = startedAt - 100;
+  }
+  assert.deepEqual(detector.observe(frozen, startedAt + 5_000), { usable: false, reason: 'sr-not-advanced' });
+});
+
+test('runtime-witness recovery rejects repeated offset steps and the hard cap', () => {
+  const healthy = detectorWitness();
+  const repeated = detectorWitness({ independentCurrentWindowUsable: false, independentOffsetStepCount: 2,
+    independentLastOffsetStepElapsedMs: 90_000 });
+  assert.equal(continuousCallDecision({ elapsedMs: 95_000, requiredDurationMs: 95_000,
+    witnesses: [repeated, healthy] }), 'fail');
+  assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 95_000,
+    witnesses: [{ ...healthy, injectedDetectorTripped: false }, healthy] }), 'fail');
 });
 
 test('partial diagnostics retain only typed transport and media counters', () => {
@@ -99,13 +212,21 @@ test('partial diagnostics retain only typed transport and media counters', () =>
     audioPacketsReceived: 12, videoPacketsReceived: 18, videoBytesReceived: 4096,
     framesDecoded: 9, presentedFrames: 8, outboundPacketsSent: 40, outboundVideoFramesEncoded: 10,
     e2eeEntered: [11, 22, 33], sourceTracksLive: true,
+    productionDrift: true, independentDrift: false, injectedDetectorTripped: true,
+    independentUsableCount: 2, independentOffsetStepCount: 1, faultControlUsableCount: 3,
+    independentRefusals: ['offset-step', 'secret', 'offset-step', 'sr-not-advanced', 'field-absent', 'future-stats'],
+    faultControlRefusals: ['first-sample', 'invalid', 'first-sample'],
     sdp: 'never retain this', testKey: [1, 2, 3], consumerId: 'private identity' };
   const expected = { transportStates: { send: 'connected', audioReceive: 'unknown', videoReceive: 'failed' },
     iceGatheringStates: { send: 'complete', audioReceive: 'gathering', videoReceive: 'new' },
     audioContextState: 'running', audioSignalPresent: false, decodedVideoPresent: true,
     audioPacketsReceived: 12, videoPacketsReceived: 18, videoBytesReceived: 4096,
     framesDecoded: 9, presentedFrames: 8, outboundPacketsSent: 40, outboundVideoFramesEncoded: 10,
-    e2eeEntered: [11, 22], sourceTracksLive: true };
+    e2eeEntered: [11, 22], sourceTracksLive: true,
+    productionDrift: true, independentDrift: false, injectedDetectorTripped: true,
+    independentUsableCount: 2, independentOffsetStepCount: 1, faultControlUsableCount: 3,
+    independentRefusals: ['offset-step', 'sr-not-advanced', 'field-absent', 'future-stats'],
+    faultControlRefusals: ['first-sample'], faultControlNormalizationReasons: [] };
   assert.deepEqual(contract.summarizeRuntimeWitnesses?.([input, input, input]), [expected, expected]);
   const bad = { ...input, audioContextState: 'contains private text', framesDecoded: Infinity,
     audioPacketsReceived: -1, e2eeEntered: ['secret'], audioSignalPresent: 'yes' };

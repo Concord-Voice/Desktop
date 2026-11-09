@@ -15,10 +15,19 @@ It does **not** test login, join authorization, Socket.IO, RoomManager, key rota
 screen capture or the app's complete receive-audio graph. No RTC object or `getStats`
 method is mocked. Only production code increments `avSyncObservationCount`.
 
-The detector positive control copies the real reports into a **separate** detector and
-adds a declared 2 ms/s offset. This proves that detector can trip; it is not evidence of
-a discontinuity induced in the actual engine or media stream. The healthy-call witnesses
-always use untouched real reports.
+The detector positive control copies the real reports into a **separate** detector. It
+baselines one finite namespaced audio/video remote-outbound pair, holds the copied video
+offset steady, and applies a declared 2 ms/s slope to the copied audio offset. That makes
+the control independent of ambient clock skew. It never mutates a `getStats()` entry, the
+independent witness, or the production sampler. The healthy-call witnesses always use
+untouched real reports; a tripped control proves only that the separate detector can trip.
+
+The normal continuous-call gate is at least 95 seconds. A single peer may continue to the
+180-second cap only when one late raw `offset-step` has left its latest independent verdict
+unusable. Media progress, E2EE, production/independent drift, and runtime errors still
+fail immediately during recovery. Missing control evidence, another reset, any different
+discontinuity, or reaching the cap fails; no peer is skipped or retried. Failure summaries
+retain only bounded detector-reason labels and counters, never raw RTC reports or IDs.
 
 Run from a normal ephemeral Linux or macOS runner, as a non-root user, with supported
 Chromium sandboxing and a display (Xvfb is suitable on Linux). The media worker lives in
