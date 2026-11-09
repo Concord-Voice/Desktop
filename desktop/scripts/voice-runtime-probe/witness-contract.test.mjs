@@ -9,7 +9,7 @@ import os from 'node:os';
 import * as contract from './witness-contract.mjs';
 import { createAvSyncDriftDetector } from '../../src/renderer/services/voice/avSyncDriftDetector.ts';
 import {
-  continuousCallDecision, createFaultControlFork, createVideoProgressGate, initialConsumersVerified, replacementVerified, requireDuration,
+  continuousCallDecision, createFaultControlFork, createVideoProgressGate, initialConsumersVerified, planContinuousCallPoll, replacementVerified, requireDuration,
   requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
 } from './witness-contract.mjs';
 
@@ -111,7 +111,15 @@ test('continuous-call recovery rejects missing control evidence and repeated dis
   assert.equal(continuousCallDecision({ elapsedMs: 180_000, requiredDurationMs: 180_000,
     witnesses: [healthy, healthy] }), 'verify');
   assert.equal(continuousCallDecision({ elapsedMs: 180_001, requiredDurationMs: 180_000,
-    witnesses: [healthy, healthy] }), 'fail');
+    pollAdmittedElapsedMs: 179_999, witnesses: [healthy, healthy] }), 'verify');
+});
+
+test('poll planner admits the final pre-cutoff observation and clamps its delay', () => {
+  assert.deepEqual(planContinuousCallPoll(174_999), { pollAdmittedElapsedMs: 174_999, delayMs: 5_000 });
+  assert.deepEqual(planContinuousCallPoll(179_999), { pollAdmittedElapsedMs: 179_999, delayMs: 1 });
+  assert.equal(planContinuousCallPoll(180_000), null);
+  assert.equal(planContinuousCallPoll(-1), null);
+  assert.equal(planContinuousCallPoll(1.5), null);
 });
 
 test('one late offset-step rebuilds a real detector window before bounded verification', () => {

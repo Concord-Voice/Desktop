@@ -1,5 +1,7 @@
 export const MIN_DURATION_MS = 95_000;
 export const MAX_DURATION_MS = 180_000;
+export const POLL_INTERVAL_MS = 5_000;
+export const FINAL_OBSERVATION_DEADLINE_MS = 185_000;
 export const VIDEO_STALL_MS = 10_000;
 
 const DETECTOR_REASONS = new Set([
@@ -81,6 +83,15 @@ export function continuousCallDecision({ elapsedMs, requiredDurationMs, witnesse
     recovering[0].independentOtherDiscontinuityCount === 0 &&
     recovering[0].independentLastOffsetStepElapsedMs >= lateThresholdMs
     ? 'continue-recovery' : 'fail';
+}
+
+/** Plans the last admissible observation without sleeping past the hard boundary. */
+export function planContinuousCallPoll(elapsedMs) {
+  if (!Number.isSafeInteger(elapsedMs) || elapsedMs < 0 || elapsedMs >= MAX_DURATION_MS) return null;
+  return {
+    pollAdmittedElapsedMs: elapsedMs,
+    delayMs: Math.min(POLL_INTERVAL_MS, MAX_DURATION_MS - elapsedMs),
+  };
 }
 
 export function launchProbeElectron(electron, options) {
