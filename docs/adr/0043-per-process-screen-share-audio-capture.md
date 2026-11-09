@@ -751,25 +751,28 @@ succeeding.
   rather than passing. Making these gates therefore means first giving them a
   reporting shape that survives the skip.
 
-  **The gate is the nightly, and it is now armed.** `nightly-ci.yml` carries an
-  UNCONDITIONAL `native-audiocap` node — added because the PR leg is path-gated
-  and main-ci's every job is hotfix-gated, so nothing re-ran these legs against
-  `main` at all. Being unconditional it reports on every nightly and has no skip
-  to survive, which is what makes it a viable gate where a
-  `required_status_checks` context is not. The developer took that release-gating
-  decision on PR #3155: `native-audiocap` is in the `release` and `bump` jobs'
-  `if:` expressions AND in both `blocking` arrays, so a red ASAN, UBSAN, or fuzz
-  leg withholds the nightly release.
+  **Desktop nightly coverage after the repository split.**
+  `.github/workflows/nightly-native-audiocap.yml` runs daily at **07:00 UTC**,
+  preserving the cadence formerly owned by Hosted's `nightly-ci.yml`. It runs
+  the complete reusable native suite after IOC succeeds, without a path or
+  release condition: JSF++ profile, ASAN/UBSAN, TSAN, fuzz smoke and the four
+  addon build rows. Runner and compiler drift can change those results even
+  when no native file changes.
 
-  Both places, always. A name in the `blocking` array but not the `if:` prints
-  "blocking" in the summary table while the release cuts anyway — a gate that
-  reports itself and does nothing, which is the failure mode this whole section
-  was written about.
+  The IOC install-script diff starts at the last successful **scheduled** run
+  on Desktop main. Failed or cancelled nights remain in the next scan window;
+  manual runs do not advance it. With no usable prior SHA (including API failure
+  or a SHA outside the checked-out ancestry), the resolver falls back to the
+  root commit, matching the former nightly's cold-start behavior. The IOC
+  lockfile and payload checks still inspect the current tree. The install-script
+  check compares endpoint snapshots, not every intermediate historical tree.
 
-  So the split is: **advisory at PR time, blocking post-merge.** A sanitizer
-  failure cannot block the merge — the ruleset names two contexts and this is not
-  one of them — but it does stop the release that would carry the defect to a
-  user.
+  Hosted's native job also withheld releases before it was removed during the
+  split. **The replacement restores scheduled verification only.** It does not
+  dispatch signing, publish a release, deploy production, or change required
+  checks. Placement of a release-blocking native gate remains undecided; this
+  nightly must not be described as granting or withholding release authorization.
+
 - The ring buffer is fuzzed. It is the one component reachable across a trust boundary.
 - A regression test proves the D6 last row: a window target cannot obtain a system-mix track.
 - A regression test proves D7's plist key is present, so it cannot be dropped by a config refactor.
