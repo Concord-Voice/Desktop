@@ -703,6 +703,7 @@ run_policy_case ioc-input-nightly guard-input .github/workflows/nightly-native-a
 run_policy_case ioc-input-scanner guard-input .github/workflows/ioc-scanning.yml
 run_policy_case ioc-input-window-suite guard-input .github/scripts/tests/test_native_nightly.py
 run_policy_case ioc-input-hook-config guard-input .pre-commit-config.yaml
+run_policy_case ioc-input-pin-guard guard-input scripts/check-hook-revisions.py
 broker_registration_status=0
 python3 - "$REPO_ROOT" "$TASK_TMP" <<'PY' || broker_registration_status=$?
 # Reuse the repository's supported command/enforcement recognisers. A filename
@@ -800,7 +801,8 @@ for label, changed in (('ioc-input-source', 'scripts/check-native-ioc-gate.sh'),
                        ('ioc-input-nightly', '.github/workflows/nightly-native-audiocap.yml'),
                        ('ioc-input-scanner', '.github/workflows/ioc-scanning.yml'),
                        ('ioc-input-window-suite', '.github/scripts/tests/test_native_nightly.py'),
-                       ('ioc-input-hook-config', '.pre-commit-config.yaml')):
+                       ('ioc-input-hook-config', '.pre-commit-config.yaml'),
+                       ('ioc-input-pin-guard', 'scripts/check-hook-revisions.py')):
     selection = json.loads((evidence / f'{label}.selection.json').read_text())
     assert selection['known'] is True, 'matching relevance is based on validated actual matcher output'
     if not registered(suite, changed, selection):

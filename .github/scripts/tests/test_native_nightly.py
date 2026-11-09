@@ -24,20 +24,48 @@ def workflow(name=NIGHTLY):
 
 class NativeNightlyTest(unittest.TestCase):
     def test_hook_pin_guard_accepts_shas_and_rejects_movable_refs(self):
-        # Editing this config exposed a pre-existing whitespace-backtracking bug
-        # that rejected every valid pin. Exercise the actual hook expression.
-        config = yaml.safe_load((ROOT / '.pre-commit-config.yaml').read_text())
+        source = (ROOT / '.pre-commit-config.yaml').read_text()
+        config = yaml.safe_load(source)
         hook = next(h for repo in config['repos'] for h in repo['hooks']
                     if h['id'] == 'hook-revs-are-shas')
-        pattern = re.compile(hook['entry'])
-        for repo in config['repos']:
-            if 'rev' in repo:
-                self.assertIsNone(pattern.search(f"    rev: {repo['rev']}  # frozen: v1.0.0"))
+        self.assertEqual(hook['entry'], 'python3 scripts/check-hook-revisions.py .pre-commit-config.yaml')
+        self.assertEqual(hook['language'], 'python')
+        self.assertIn('PyYAML==6.0.3', hook['additional_dependencies'])
+        self.assertIs(hook['pass_filenames'], False)
+        for path in ('.pre-commit-config.yaml', 'scripts/check-hook-revisions.py'):
+            self.assertRegex(path, hook['files'])
+        pin = next(repo['rev'] for repo in config['repos'] if 'rev' in repo)
+        original = next(line for line in source.splitlines() if f'rev: {pin}' in line)
+        cases = [('checked-in pins', source, 0)]
         for value in ('main', 'v1.0.0', 'abc123', 'a' * 39, 'a' * 41, 'g' * 40):
             for separator in (' ', '  ', '\t'):
-                self.assertIsNotNone(pattern.search(f'    rev:{separator}{value}  # frozen: v1.0.0'))
-        self.assertIsNotNone(pattern.search('    rev: ' + 'a' * 40))
-        self.assertIsNotNone(pattern.search('    rev: ' + 'a' * 40 + ' # frozen:'))
+                cases.append((f'movable {value} {separator!r}', source.replace(
+                    original, f'    rev:{separator}{value}  # frozen: v1', 1), 1))
+        for label, replacement in (
+            ('space before colon', '    rev : main  # frozen: v1'),
+            ('missing frozen comment', f'    rev: {pin}'),
+            ('empty frozen tag', f'    rev: {pin}  # frozen:'),
+            ('preceding comment', f'    # frozen: v1\n    rev: {pin}'),
+            ('comment decoy', f'    rev: {pin}  # unrelated frozen: v1'),
+            ('duplicate rev', original + '\n' + original),
+            ('alias', f'    other: &pin {pin}\n    rev: *pin  # frozen: v1'),
+        ):
+            cases.append((label, source.replace(original, replacement, 1), 1))
+        for value in ('main', pin):
+            cases.append((f'inline {value}', source + '\n  - {repo: https://example.invalid/hooks, '
+                          f'rev: {value}, hooks: [{{id: test}}]}} # frozen: v1\n', 1))
+        cases.extend([('invalid YAML', 'repos: [', 1), ('missing repos', '{}', 1),
+                      ('non-mapping repo', 'repos: [main]', 1),
+                      ('local and meta', 'repos: [{repo: local}, {repo: meta}]', 0)])
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'config.yaml'
+            for label, content, expected in cases:
+                with self.subTest(label=label):
+                    target.write_text(content)
+                    result = subprocess.run([sys.executable, str(ROOT / 'scripts/check-hook-revisions.py'),
+                                             str(target)], capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                    self.assertNotIn('Traceback', result.stderr)
 
     def test_checked_in_gate(self):
         result = subprocess.run(['bash', str(ROOT / 'scripts/check-native-ioc-gate.sh')],
@@ -106,7 +134,8 @@ class NativeNightlyTest(unittest.TestCase):
             self.assertNotIn('ref', checkout['with'], 'native must test the triggering SHA')
 
     def test_suite_is_reachable_for_its_inputs(self):
-        inputs = ['.pre-commit-config.yaml', f'.github/workflows/{NIGHTLY}', '.github/workflows/ioc-scanning.yml',
+        inputs = ['.pre-commit-config.yaml', 'scripts/check-hook-revisions.py',
+                  f'.github/workflows/{NIGHTLY}', '.github/workflows/ioc-scanning.yml',
                   '.github/scripts/tests/test_native_nightly.py']
         policy = yaml.safe_load((ROOT / '.github/ci/scan-relevance.yml').read_text())
         for path in inputs:

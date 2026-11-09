@@ -392,7 +392,7 @@ repos:
         entry: scripts/test-check-native-ioc-gate.sh
         language: python
         additional_dependencies: ['PyYAML==6.0.3']
-        files: '^(scripts/(check|test-check)-native-ioc-gate\.sh|\.github/scripts/tests/test_native_nightly\.py|\.github/workflows/(nightly-native-audiocap|ioc-scanning)\.yml|\.github/ci/scan-relevance\.yml|\.pre-commit-config\.yaml)$'
+        files: '^(scripts/(check|test-check)-native-ioc-gate\.sh|scripts/check-hook-revisions\.py|\.github/scripts/tests/test_native_nightly\.py|\.github/workflows/(nightly-native-audiocap|ioc-scanning)\.yml|\.github/ci/scan-relevance\.yml|\.pre-commit-config\.yaml)$'
         pass_filenames: false
 
   # ── JSF++ profile for the native audio capture core (ADR-0043 D3) ─────────
@@ -530,8 +530,8 @@ repos:
     hooks:
       - id: hook-revs-are-shas
         name: pre-commit hook revs are pinned to commit SHAs
-        language: pygrep
-        # Keep the separator inside the lookahead: a preceding \s* can
-        # backtrack and incorrectly reject a valid pinned revision.
-        entry: '^\s*rev:(?![ \t]+[0-9a-f]{40}[ \t]+# frozen: \S+[ \t]*$)'
-        files: '^\.pre-commit-config\.yaml$'
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
+        entry: python3 scripts/check-hook-revisions.py .pre-commit-config.yaml
+        files: '^(\.pre-commit-config\.yaml|scripts/check-hook-revisions\.py)$'
+        pass_filenames: false
