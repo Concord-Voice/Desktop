@@ -347,6 +347,48 @@ test('advancing real-counter snapshots pass; frozen startup image and one-sided 
   assert.equal(progress(sample(350, 350, { decodedProgressAgeMs: 10_001 })), false);
 });
 
+test('only one shortened terminal poll may retain immediately preceding two-counter progress', () => {
+  const terminalPoll = planContinuousCallPoll(179_999);
+  assert.equal(terminalPoll?.delayMs < 5_000, true, 'this is the planner-admitted terminal short poll');
+  const progress = createVideoProgressGate();
+  assert.equal(progress(sample(100, 100)), false);
+  assert.equal(progress(sample(150, 150)), true);
+  const retained = sample(150, 150, { decodedProgressAgeMs: 100, presentedProgressAgeMs: 100 });
+  assert.equal(progress(retained), false, 'ordinary cadence cannot retain a previous observation');
+
+  const terminalProgress = createVideoProgressGate();
+  terminalProgress(sample(100, 100));
+  assert.equal(terminalProgress(sample(150, 150)), true);
+  assert.equal(terminalProgress(retained, { allowRecentProgress: terminalPoll.delayMs < 5_000 }), true);
+  assert.equal(terminalProgress(retained, { allowRecentProgress: true }), false,
+    'a second retained poll cannot pass without new decoder and presentation progress');
+});
+
+test('one-sided nondecreasing terminal progress may retain a preceding two-counter proof once', () => {
+  const terminal = { allowRecentProgress: true };
+  const progress = createVideoProgressGate();
+  progress(sample(100, 100));
+  assert.equal(progress(sample(150, 150)), true);
+  assert.equal(progress(sample(200, 150), terminal), true);
+  assert.equal(progress(sample(200, 150), terminal), false);
+});
+
+test('retained terminal progress still rejects a new consumer, regressed counters, and stale evidence', () => {
+  const terminal = { allowRecentProgress: true };
+  const cases = [
+    sample(150, 150, { videoConsumerId: 'replacement' }),
+    sample(149, 149),
+    sample(150, 150, { decodedProgressAgeMs: 10_001 }),
+    sample(150, 150, { presentedProgressAgeMs: 10_001 }),
+  ];
+  for (const terminalWitness of cases) {
+    const progress = createVideoProgressGate();
+    progress(sample(100, 100));
+    assert.equal(progress(sample(150, 150)), true);
+    assert.equal(progress(terminalWitness, terminal), false);
+  }
+});
+
 test('a replacement consumer needs its own baseline and subsequent advancing poll', () => {
   const progress = createVideoProgressGate();
   progress(sample(100, 100));
