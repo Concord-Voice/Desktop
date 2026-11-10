@@ -677,6 +677,33 @@ function memoryRestoreResult(): RestoreRefreshTokenResult {
   };
 }
 
+function parseCredentialEnvelope(
+  plaintext: string,
+  apiBase: string
+): { token: string; owner: number; binding: string } | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(plaintext);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const envelope = value as Record<string, unknown>;
+  if (
+    envelope.version !== 1 ||
+    typeof envelope.token !== 'string' ||
+    !envelope.token ||
+    envelope.apiBase !== apiBase ||
+    typeof envelope.owner !== 'number' ||
+    !Number.isSafeInteger(envelope.owner) ||
+    envelope.owner <= 0 ||
+    typeof envelope.binding !== 'string' ||
+    !/^[0-9a-f-]{36}$/.test(envelope.binding)
+  )
+    return null;
+  return { token: envelope.token, owner: envelope.owner, binding: envelope.binding };
+}
+
 /**
  * Restore the refresh token on app startup — main-process memory first, then
  * disk. Returns the token or an error status.
@@ -729,27 +756,8 @@ export async function restoreRefreshToken(): Promise<RestoreRefreshTokenResult> 
   if (superseded()) return memoryRestoreResult();
 
   // Legacy token-only files have no authenticated destination and cannot be migrated safely.
-  let envelope: Record<string, unknown>;
-  try {
-    const value: unknown = JSON.parse(plaintext);
-    if (typeof value !== 'object' || value === null || Array.isArray(value))
-      return { status: 'no_session' };
-    envelope = value as Record<string, unknown>;
-  } catch {
-    return { status: 'no_session' };
-  }
-  if (
-    envelope.version !== 1 ||
-    typeof envelope.token !== 'string' ||
-    !envelope.token ||
-    envelope.apiBase !== meta.apiBase ||
-    typeof envelope.owner !== 'number' ||
-    !Number.isSafeInteger(envelope.owner) ||
-    envelope.owner <= 0 ||
-    typeof envelope.binding !== 'string' ||
-    !/^[0-9a-f-]{36}$/.test(envelope.binding)
-  )
-    return { status: 'no_session' };
+  const envelope = parseCredentialEnvelope(plaintext, meta.apiBase);
+  if (!envelope) return { status: 'no_session' };
 
   if (
     app.isPackaged &&
