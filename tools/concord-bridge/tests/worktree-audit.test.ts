@@ -109,6 +109,24 @@ describe("Audit ledger", () => {
     expect(ledger.query()[0].results).toEqual({ highSeverityFinding: false });
   });
 
+  it("records red-team severity after the persisted field limit without storing output", async () => {
+    await ledger.writeEntry(entry("late-severity", {
+      execution: { ...entry("late-severity").execution, agentRole: "red-team" },
+      results: { outputSummary: `${"x".repeat(16_100)} P0` },
+    }));
+
+    expect(ledger.query()[0].results).toEqual({ highSeverityFinding: true });
+    expect(fs.readFileSync(ledger.ledgerPath, "utf-8")).not.toContain("P0");
+    expect(ledger.verifyChain().ok).toBe(true);
+  });
+
+  it("projects only own OS signal names from v3 records", async () => {
+    await ledger.writeEntry(entry("prototype-signal", {
+      execution: { ...entry("prototype-signal").execution, signal: "toString" },
+    }));
+    expect((ledger.query()[0].execution as { signal: string | null }).signal).toBeNull();
+  });
+
   it("projects legacy records without exposing task content and verifies original bytes", async () => {
     fs.mkdirSync(ledger.auditDir, { recursive: true });
     const old = {

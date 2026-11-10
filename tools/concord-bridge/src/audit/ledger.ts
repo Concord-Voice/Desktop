@@ -213,7 +213,7 @@ function projectV3Record(record: LedgerRecord): LedgerRecord {
     },
     execution: {
       ...auditObject(projected.execution),
-      signal: typeof execution.signal === "string" && execution.signal in osConstants.signals ? execution.signal : null,
+      signal: typeof execution.signal === "string" && Object.hasOwn(osConstants.signals, execution.signal) ? execution.signal : null,
     },
     prompt: {
       contextFileCount: nonnegativeCount(prompt.contextFileCount),
@@ -269,7 +269,7 @@ export class AuditLedger {
     const timestamp = new Date(entry.timestamp ?? Date.now()).toISOString();
     const highSeverityFinding = evaluateEscalation({
       agentRole: entry.execution.agentRole,
-      outputSummary: redactSecrets(entry.results.outputSummary ?? ""),
+      outputSummary: entry.results.outputSummary ?? "",
     });
     const body = sanitize({
       schema: "concord-bridge-audit-v3",
