@@ -129,6 +129,7 @@ import { resolveCachedSpa } from './spaCache/resolveCachedSpa';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
+import { consumePipOpenToken, isPipOpenOptions, MAX_PIP_WINDOWS } from './pipOpenPolicy';
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
@@ -2904,6 +2905,7 @@ type PipWindowEntry = {
   window: BrowserWindow;
   ownerFrameTreeNodeId: number;
   remoteSpaUrl: string | null;
+  ready: Promise<void>;
   /**
    * #3104 D6 — the per-window capability that authenticates this PiP on the
    * renderer-side `concord-pip` RPC channel. Minted here because the main
@@ -2914,6 +2916,7 @@ type PipWindowEntry = {
   sessionToken: string;
 };
 const pipWindows = new Map<string, PipWindowEntry>();
+let lastPipOpenRejectionLog = -Infinity;
 
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
@@ -2958,61 +2961,82 @@ function getOwnedPipWindow(event: IpcMainInvokeEvent, id: string): BrowserWindow
   return resolvePipSender(event, id)?.entry.window ?? null;
 }
 
-ipcMain.handle(
-  'pip:open',
-  (event, opts: { id: string; width?: number; height?: number; title?: string }) => {
-    // Defense-in-depth: only accept pip:open from the active SPA, the dev
-    // server, or the bundled renderer. Without validation any frame loaded
-    // in any window could spawn PiP windows.
-    const senderFrame = event.senderFrame;
-    const remoteUrl = getRemoteSpaUrl();
-    if (!senderFrame || !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl)) {
-      console.warn('[pip:open] rejected — sender frame validation failed');
-      return;
+ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Promise<void> => {
+  // Only the main window's main frame may create native child windows.
+  const senderFrame = event.senderFrame;
+  const remoteUrl = getRemoteSpaUrl();
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender !== mainWindow.webContents ||
+    !senderFrame ||
+    senderFrame.frameTreeNodeId !== mainWindow.webContents.mainFrame.frameTreeNodeId ||
+    !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl) ||
+    !isPipOpenOptions(opts)
+  ) {
+    const now = performance.now();
+    if (now - lastPipOpenRejectionLog >= 5_000) {
+      lastPipOpenRejectionLog = now;
+      console.warn('[pip:open] rejected — sender or options validation failed');
     }
+    throw new Error('PiP could not be opened');
+  }
 
-    const existing = pipWindows.get(opts.id);
-    if (existing) {
-      if (existing.ownerFrameTreeNodeId === senderFrame.frameTreeNodeId) {
-        existing.window.focus();
-      }
-      return;
+  const existing = pipWindows.get(opts.id);
+  if (existing) {
+    if (existing.ownerFrameTreeNodeId !== senderFrame.frameTreeNodeId)
+      throw new Error('PiP could not be opened');
+    try {
+      await existing.ready;
+    } catch {
+      throw new Error('PiP could not be opened');
     }
+    if (existing.window.isDestroyed()) throw new Error('PiP could not be opened');
+    existing.window.focus();
+    return;
+  }
 
-    const contentProtectionEnabled = readContentProtectionPref();
-    const pip = new BrowserWindow({
-      width: opts.width || 320,
-      height: opts.height || 240,
-      minWidth: 160,
-      minHeight: 120,
-      frame: false,
-      // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
-      // visually reads as "floating glass" rather than "compact app window".
-      // On macOS this drops the standard window shadow; on Wayland and X11
-      // the compositor decides regardless. Safe on Windows (no-op).
-      hasShadow: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: true,
-      title: opts.title || 'Concord Voice PiP',
-      webPreferences: {
-        preload: path.join(__dirname, '../preload/preload.js'),
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-      },
-      backgroundColor: '#000',
-    });
-    applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
+  if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
+    throw new Error('PiP could not be opened');
 
+  const contentProtectionEnabled = readContentProtectionPref();
+  const sessionToken = mintPipSessionToken();
+  const pip = new BrowserWindow({
+    width: opts.width || 320,
+    height: opts.height || 240,
+    minWidth: 160,
+    minHeight: 120,
+    frame: false,
+    // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
+    // visually reads as "floating glass" rather than "compact app window".
+    // On macOS this drops the standard window shadow; on Wayland and X11
+    // the compositor decides regardless. Safe on Windows (no-op).
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    title: opts.title || 'Concord Voice PiP',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+    backgroundColor: '#000',
+  });
+  applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
+
+  // A synchronous load failure must not leave an untracked native window.
+  let ready: Promise<void>;
+  try {
     // Load PiP route (hash-based routing)
     if (!app.isPackaged) {
-      pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
+      ready = pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
     } else if (remoteUrl) {
       // Tier 3: PiP windows load from the remote SPA, including the
       // `/spa/<sha>/` path component. Origin-only would fall through to
       // nginx's catch-all and redirect to the marketing site (#802).
-      pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
+      ready = pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
     } else if (
       (mainWindow?.webContents.getURL() ?? '').startsWith(
         `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`
@@ -3025,32 +3049,45 @@ ipcMain.handle(
       // will-navigate gate + spa-cache protocol handler permit and
       // integrity-verify it. Derived from the live main-window URL (stateless) so
       // it cannot drift from the actual effective mode.
-      pip.loadURL(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${opts.id}`);
+      ready = pip.loadURL(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${opts.id}`);
     } else {
       // #830: PiP bundled mode loads via app:// for consistent origin.
-      pip.loadURL(`app://concord/index.html#/pip/${opts.id}`);
+      ready = pip.loadURL(`app://concord/index.html#/pip/${opts.id}`);
     }
-
-    const sessionToken = mintPipSessionToken();
-    pipWindows.set(opts.id, {
-      window: pip,
-      ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
-      remoteSpaUrl: remoteUrl,
-      sessionToken,
-    });
-
-    pip.on('closed', () => {
-      pipWindows.delete(opts.id);
-      mainWindow?.webContents.send('pip:closed', { id: opts.id });
-    });
-
-    // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
-    // main renderer's signaling proxy must already know the capability when the
-    // PiP's own renderer finishes booting and issues its first RPC; a pull would
-    // race that boot. The PiP window gets its copy by pulling 'pip:session'.
-    mainWindow?.webContents.send('pip:opened', { id: opts.id, token: sessionToken });
+  } catch {
+    if (!pip.isDestroyed()) pip.destroy();
+    throw new Error('PiP could not be opened');
   }
-);
+
+  pipWindows.set(opts.id, {
+    window: pip,
+    ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
+    remoteSpaUrl: remoteUrl,
+    sessionToken,
+    ready,
+  });
+
+  const forgetWindow = () => {
+    if (pipWindows.get(opts.id)?.window !== pip) return;
+    pipWindows.delete(opts.id);
+    mainWindow?.webContents.send('pip:closed', { id: opts.id });
+  };
+  pip.on('closed', forgetWindow);
+
+  // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
+  // main renderer's signaling proxy must already know the capability when the
+  // PiP's own renderer finishes booting and issues its first RPC; a pull would
+  // race that boot. The PiP window gets its copy by pulling 'pip:session'.
+  try {
+    mainWindow?.webContents.send('pip:opened', { id: opts.id, token: sessionToken });
+    await ready;
+    if (pip.isDestroyed()) throw new Error('PiP closed during load');
+  } catch {
+    if (!pip.isDestroyed()) pip.destroy();
+    forgetWindow();
+    throw new Error('PiP could not be opened');
+  }
+});
 
 ipcMain.handle('pip:close', (event, opts: { id: string }) => {
   getOwnedPipWindow(event, opts.id)?.close();

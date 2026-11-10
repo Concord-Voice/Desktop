@@ -274,11 +274,17 @@ const VoiceStage: React.FC = () => {
         <button
           className="voice-stage__pip-btn"
           onClick={async () => {
-            await globalThis.electron.openPipWindow({
-              id: `screen-${dominantScreenShareId}`,
-              width: 400,
-              height: 300,
-            });
+            try {
+              await globalThis.electron.openPipWindow({
+                id: `screen-${dominantScreenShareId}`,
+                width: 400,
+                height: 300,
+              });
+            } catch {
+              useVoiceStore
+                .getState()
+                .setVideoSlotError('Could not open PiP. Close an open PiP or try again.');
+            }
           }}
           title="Pop out to PiP window"
         >
