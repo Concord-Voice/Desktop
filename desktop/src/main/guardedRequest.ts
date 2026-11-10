@@ -245,36 +245,41 @@ export async function resolveForDisplay(
     return { ok: true, address: bare, addresses: [bare], decision };
   }
   const lookup = new Promise<ResolveForDisplayResult>((resolve) => {
-    limitedProbeLookup(host, resolver, (err, addrs) => {
-      const list = (Array.isArray(addrs) ? addrs : []) as { address: string }[];
-      if (err?.code === PROBE_LOOKUP_BUSY) return resolve({ ok: false, kind: 'busy' });
-      if (err || list.length === 0) return resolve({ ok: false, kind: 'unreachable' });
-      const decisions = list.map((a) => classifyAddress(a.address));
-      const tier1 = decisions.find((d) => d.tier === 'tier1');
-      if (tier1?.tier === 'tier1')
-        return resolve({ ok: false, kind: 'tier1', reason: tier1.reason });
-      // An entry we cannot classify is neither presentable nor dialable, and the dial
-      // guard would refuse it anyway (isDialPermitted fails closed on 'invalid'). Report
-      // it as the same verdict a genuine resolution failure produces rather than letting
-      // it fall through to the dialog's `public` copy — "on the internet" for an address
-      // we could not parse is a false statement to the user.
-      if (decisions.some((d) => d.tier === 'invalid')) {
-        return resolve({ ok: false, kind: 'unreachable' });
-      }
-      // WHOLESALE, not list[0]. Classifying only the first entry let a name resolving to
-      // [public, private] show "on the internet", record `tierAtApproval: 'public'`, and
-      // then dead-end on `origin_not_approved` at the tier-2 dial — a state re-approving
-      // could not fix, because the ceremony would keep displaying the public address.
-      // The STRICTEST member decides, and the dialog shows every address.
-      const idx = decisions.findIndex((d) => d.tier === 'tier2');
-      const pick = idx === -1 ? 0 : idx;
-      resolve({
-        ok: true,
-        address: list[pick].address,
-        addresses: list.map((a) => a.address),
-        decision: decisions[pick],
-      });
-    }, { all: true });
+    limitedProbeLookup(
+      host,
+      resolver,
+      (err, addrs) => {
+        const list = (Array.isArray(addrs) ? addrs : []) as { address: string }[];
+        if (err?.code === PROBE_LOOKUP_BUSY) return resolve({ ok: false, kind: 'busy' });
+        if (err || list.length === 0) return resolve({ ok: false, kind: 'unreachable' });
+        const decisions = list.map((a) => classifyAddress(a.address));
+        const tier1 = decisions.find((d) => d.tier === 'tier1');
+        if (tier1?.tier === 'tier1')
+          return resolve({ ok: false, kind: 'tier1', reason: tier1.reason });
+        // An entry we cannot classify is neither presentable nor dialable, and the dial
+        // guard would refuse it anyway (isDialPermitted fails closed on 'invalid'). Report
+        // it as the same verdict a genuine resolution failure produces rather than letting
+        // it fall through to the dialog's `public` copy — "on the internet" for an address
+        // we could not parse is a false statement to the user.
+        if (decisions.some((d) => d.tier === 'invalid')) {
+          return resolve({ ok: false, kind: 'unreachable' });
+        }
+        // WHOLESALE, not list[0]. Classifying only the first entry let a name resolving to
+        // [public, private] show "on the internet", record `tierAtApproval: 'public'`, and
+        // then dead-end on `origin_not_approved` at the tier-2 dial — a state re-approving
+        // could not fix, because the ceremony would keep displaying the public address.
+        // The STRICTEST member decides, and the dialog shows every address.
+        const idx = decisions.findIndex((d) => d.tier === 'tier2');
+        const pick = idx === -1 ? 0 : idx;
+        resolve({
+          ok: true,
+          address: list[pick].address,
+          addresses: list.map((a) => a.address),
+          decision: decisions[pick],
+        });
+      },
+      { all: true }
+    );
   });
 
   // The deadline bounds the caller's wait; the permit remains until DNS settles.
