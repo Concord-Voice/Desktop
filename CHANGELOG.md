@@ -55,6 +55,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Security
 
+- **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.

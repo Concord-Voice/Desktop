@@ -1118,15 +1118,53 @@ describe('main.ts', () => {
 
     it('app:relaunch restarts the app', async () => {
       const { app } = await import('electron');
-      await handlers.get('app:relaunch')!(trustedIpcEvent);
+      await handlers.get('app:relaunch')!(probeEvent);
       expect(app.relaunch).toHaveBeenCalled();
       expect(app.quit).toHaveBeenCalled();
     });
 
+    it.each(['app:quit', 'app:relaunch'])(
+      '%s refuses a same-origin PiP sender',
+      async (channel) => {
+        const { app } = await import('electron');
+        (app.quit as Mock).mockClear();
+        (app.relaunch as Mock).mockClear();
+        await handlers.get(channel)!({
+          sender: {},
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+        });
+        expect(app.quit).not.toHaveBeenCalled();
+        expect(app.relaunch).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['app:quit', 'app:relaunch'])(
+      '%s rejects untrusted, subframe and missing senders',
+      async (channel) => {
+        const { app } = await import('electron');
+        (app.quit as Mock).mockClear();
+        (app.relaunch as Mock).mockClear();
+        for (const event of [
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+          },
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 77 },
+          },
+          { sender: mockWebContents, senderFrame: null },
+        ])
+          await handlers.get(channel)!(event);
+        expect(app.quit).not.toHaveBeenCalled();
+        expect(app.relaunch).not.toHaveBeenCalled();
+      }
+    );
+
     it('app:quit exits the app', async () => {
       const { app } = await import('electron');
       (app.quit as Mock).mockClear();
-      await handlers.get('app:quit')!();
+      await handlers.get('app:quit')!(probeEvent);
       expect(app.quit).toHaveBeenCalled();
     });
   });
@@ -2336,8 +2374,22 @@ describe('main.ts', () => {
       expect(downloadUpdate).toHaveBeenCalled();
     });
 
+    it('update:install rejects PiP and same-origin subframes', async () => {
+      const { safeQuitAndInstall } = await import('../../../src/main/updater');
+      (safeQuitAndInstall as Mock).mockClear();
+      await handlers.get('update:install')!({
+        sender: {},
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+      });
+      await handlers.get('update:install')!({
+        sender: mockWebContents,
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+      });
+      expect(safeQuitAndInstall).not.toHaveBeenCalled();
+    });
+
     it('update:install delegates to safeQuitAndInstall', async () => {
-      await handlers.get('update:install')!(trustedIpcEvent);
+      await handlers.get('update:install')!(probeEvent);
       const { safeQuitAndInstall } = await import('../../../src/main/updater');
       expect(safeQuitAndInstall).toHaveBeenCalled();
     });

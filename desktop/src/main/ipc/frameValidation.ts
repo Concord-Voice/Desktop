@@ -28,7 +28,7 @@
  * or http://localhost:3000.evil.com/.
  */
 
-import type { IpcMainInvokeEvent, WebFrameMain } from 'electron';
+import type { BrowserWindow, IpcMainInvokeEvent, WebFrameMain } from 'electron';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from '../spaCache/manifestSchema';
 
 const LOCAL_DEV_PATTERN = /^http:\/\/localhost:\d+(\/|$)/;
@@ -88,4 +88,23 @@ export function requireTrustedSender(
   const senderFrame = event.senderFrame;
   if (!senderFrame || !isPermittedFrameUrl(senderFrame.url, remoteSpaOrigin)) return null;
   return senderFrame;
+}
+
+/** Authorize only the live main window's trusted main frame. */
+export function isTrustedMainWindowSender(
+  event: IpcMainInvokeEvent,
+  getMainWindow: () => BrowserWindow | null,
+  getRemoteSpaOrigin: () => string | null
+): boolean {
+  try {
+    const frame = requireTrustedSender(event, getRemoteSpaOrigin());
+    const win = getMainWindow();
+    if (!frame || !win || win.isDestroyed()) return false;
+    const contents = win.webContents;
+    return (
+      event.sender === contents && frame.frameTreeNodeId === contents.mainFrame.frameTreeNodeId
+    );
+  } catch {
+    return false;
+  }
 }

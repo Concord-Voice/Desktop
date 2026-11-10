@@ -21,12 +21,18 @@ describe('registerWindowControlsIpc', () => {
 
   it('starts with the safe default cached client behavior (close→tray, minimize→toolbar)', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(() => window as never);
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
   });
 
   it('registers all three IPC handlers', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    registerWindowControlsIpc(
+      () => makeMockWindow() as never,
+      () => null
+    );
     const channels = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     expect(channels).toContain('window:setClientBehavior');
     expect(channels).toContain('window:quit');
@@ -34,7 +40,10 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('updates the cached client behavior on setClientBehavior', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    registerWindowControlsIpc(
+      () => makeMockWindow() as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
@@ -43,17 +52,47 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('window:quit handler calls app.quit()', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:quit'
     )![1];
-    handler({} as never);
+    handler({
+      sender: window.webContents,
+      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+    } as never);
     expect(app.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('window:quit refuses a same-origin PiP or subframe', () => {
+    const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
+    const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[0] === 'window:quit'
+    )![1];
+    handler({
+      sender: {},
+      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+    } as never);
+    handler({
+      sender: window.webContents,
+      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 2 },
+    } as never);
+    expect(app.quit).not.toHaveBeenCalled();
   });
 
   it('setTitleBarOverlayColor calls win.setTitleBarOverlay with passed color', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(() => window as never);
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
@@ -66,7 +105,10 @@ describe('registerWindowControlsIpc', () => {
   it('setTitleBarOverlayColor is a no-op when window is destroyed', () => {
     const window = makeMockWindow();
     window.isDestroyed.mockReturnValue(true);
-    registerWindowControlsIpc(() => window as never);
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
@@ -79,7 +121,10 @@ describe('registerWindowControlsIpc', () => {
   // shapes at the IPC trust boundary rather than blindly trusting the
   // renderer's payload.
   it('setClientBehavior rejects invalid toTray value (keeps cache unchanged)', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    registerWindowControlsIpc(
+      () => makeMockWindow() as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
@@ -89,7 +134,10 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('setClientBehavior rejects non-object payload', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    registerWindowControlsIpc(
+      () => makeMockWindow() as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
@@ -99,7 +147,10 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('setClientBehavior accepts the swap configuration', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    registerWindowControlsIpc(
+      () => makeMockWindow() as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
@@ -109,7 +160,10 @@ describe('registerWindowControlsIpc', () => {
 
   it('setTitleBarOverlayColor rejects non-CSS-color color value', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(() => window as never);
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
@@ -119,7 +173,10 @@ describe('registerWindowControlsIpc', () => {
 
   it('setTitleBarOverlayColor accepts rgba() format', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(() => window as never);
+    registerWindowControlsIpc(
+      () => window as never,
+      () => null
+    );
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
