@@ -121,14 +121,22 @@ jobs:
           bash scripts/security/check-ioc-refresh-pr.sh --base-ref HEAD --noop-exit-code 2 > /tmp/ioc-refresh-guard.md 2>&1
           rc=$?
           set -e
-          cat /tmp/ioc-refresh-guard.md
-          {
-            echo "exit_code=$rc"
-            echo "report<<EOF"
-            cat /tmp/ioc-refresh-guard.md
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          cat /tmp/ioc-refresh-guard.md >> "$GITHUB_STEP_SUMMARY"
+          reason=$(sed -n 's/^Guard reason: //p' /tmp/ioc-refresh-guard.md | head -n 1)
+          case "$reason" in
+            PASS|COLLISION|REMOVAL|OVERSIZED|NO_CHANGE|PROVENANCE|INVALID|INTERNAL) ;;
+            *) reason=INTERNAL ;;
+          esac
+          if [[ "$rc" -eq 0 && "$reason" != PASS ]] || [[ "$rc" -eq 2 && "$reason" != NO_CHANGE ]]; then
+            rc=10
+          fi
+          case "$rc" in
+            0) report='Guard passed.' ;;
+            2) report='Package set unchanged.' ;;
+            *) report="Guard failed ($reason); security review required." ;;
+          esac
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          echo "report=$report" >> "$GITHUB_OUTPUT"
+          echo "$report" >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
       - name: Open PR if changed
@@ -173,6 +181,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.cpr.outputs.pull-request-number }}
+          GUARD_REPORT: ${{ steps.guard.outputs.report }}
         run: |
           set -euo pipefail
           marker='<!-- ioc-refresh-guard -->'
@@ -180,8 +189,7 @@ jobs:
           {
             echo "$marker"
             echo "@Concord-Voice/security IOC refresh guard failed; leaving this PR for human review."
-            echo
-            cat /tmp/ioc-refresh-guard.md
+            echo "$GUARD_REPORT"
           } > "$body_file"
           # shellcheck disable=SC2016
           existing=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
@@ -213,48 +221,83 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          changed_files=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          printf '%s\n' "$changed_files" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$changed_files" == "scripts/security/iocs/shai-hulud-2.0.txt" ]]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "IOC refresh guard skipped: PR is not a data-only IOC list refresh." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 <<'PY'
+          import os
+          import subprocess
+
+          paths = subprocess.run(
+              ["git", "diff", "--no-renames", "--name-only", "-z", os.environ["BASE_SHA"], os.environ["HEAD_SHA"]],
+              check=True, stdout=subprocess.PIPE,
+          ).stdout
+          changed = paths == b"scripts/security/iocs/shai-hulud-2.0.txt\0"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"changed={str(changed).lower()}\n")
+          if not changed:
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+                  summary.write("IOC refresh guard skipped: PR is not a data-only IOC list refresh.\n")
+          PY
 
       - name: Run IOC refresh guard
+        id: validation
         if: steps.changed.outputs.changed == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          ioc_path='scripts/security/iocs/shai-hulud-2.0.txt'
+          entry=$(git ls-tree "$HEAD_SHA" -- "$ioc_path")
+          checked_out=$(git ls-tree HEAD -- "$ioc_path")
+          result=fail
+          reason=INVALID_FILE
+          if [[ "$entry" == "100644 blob "* && "$entry" == "$checked_out" ]]; then
+            rc=0
+            env -u GH_TOKEN -u GITHUB_TOKEN bash scripts/security/check-ioc-refresh-pr.sh --base-ref "$BASE_SHA" > /tmp/ioc-pr-guard.md 2>&1 || rc=$?
+            reason=$(sed -n 's/^Guard reason: //p' /tmp/ioc-pr-guard.md | head -n 1)
+            case "$reason" in
+              PASS|COLLISION|REMOVAL|OVERSIZED|NO_CHANGE|PROVENANCE|INVALID|INTERNAL) ;;
+              *) reason=INTERNAL ;;
+            esac
+            if [[ "$rc" -eq 0 && "$reason" == PASS ]]; then
+              result=pass
+            fi
+          fi
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "IOC refresh guard: $result ($reason)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update IOC refresh guard comment
+        if: steps.changed.outputs.changed == 'true'
+        env:
+          GUARD_RESULT: ${{ steps.validation.outputs.result }}
+          GUARD_REASON: ${{ steps.validation.outputs.reason }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          set +e
-          bash scripts/security/check-ioc-refresh-pr.sh --base-ref "$BASE_SHA" > /tmp/ioc-refresh-guard.md 2>&1
-          rc=$?
-          set -e
-          cat /tmp/ioc-refresh-guard.md
-          cat /tmp/ioc-refresh-guard.md >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
           marker='<!-- ioc-refresh-guard -->'
           # shellcheck disable=SC2016
           existing=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --jq '[.[][] | select(.body | contains("<!-- ioc-refresh-guard -->"))] | first | .id // empty')
-          if [[ $rc -eq 0 ]]; then
+          if [[ "$GUARD_RESULT" == 'pass' ]]; then
             if [[ -n "$existing" ]]; then
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}"
             fi
             exit 0
           fi
+          case "$GUARD_REASON" in
+            COLLISION|REMOVAL|OVERSIZED|NO_CHANGE|PROVENANCE|INVALID|INTERNAL|INVALID_FILE) ;;
+            *) GUARD_REASON=INTERNAL ;;
+          esac
           body_file=/tmp/ioc-refresh-escalation.md
           {
             echo "$marker"
             echo "@Concord-Voice/security IOC refresh guard failed; this PR must stay under human review."
-            echo
-            cat /tmp/ioc-refresh-guard.md
+            echo "Guard reason: $GUARD_REASON"
           } > "$body_file"
           if [[ -n "$existing" ]]; then
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --field "body=$(cat "$body_file")"
           else
             gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --field "body=$(cat "$body_file")"
           fi
-          exit "$rc"
+          exit 1

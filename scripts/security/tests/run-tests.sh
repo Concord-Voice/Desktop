@@ -694,6 +694,28 @@ test_ioc_refresh_guard_clean_small_delta_passes() {
     || { echo "expected pass report, got: $output" >&2; return 1; }
 }
 
+test_ioc_refresh_guard_rejects_symlink_without_disclosure() {
+  local tmpdir; tmpdir=$(setup_ioc_refresh_guard_repo)
+  trap "rm -rf $tmpdir" RETURN
+  cd "$tmpdir"
+  printf 'IOC_SENTINEL=secret-value\n' > "$tmpdir/secret"
+  rm scripts/security/iocs/shai-hulud-2.0.txt
+  ln -s "$tmpdir/secret" scripts/security/iocs/shai-hulud-2.0.txt
+  local output exit_code=0
+  output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
+  [[ $exit_code -ne 0 && "$output" != *IOC_SENTINEL* ]] || { echo 'symlink contents were disclosed or accepted' >&2; return 1; }
+}
+
+test_ioc_refresh_guard_does_not_echo_invalid_input() {
+  local tmpdir; tmpdir=$(setup_ioc_refresh_guard_repo)
+  trap "rm -rf $tmpdir" RETURN
+  cd "$tmpdir"
+  write_ioc_refresh_head scripts/security/iocs/shai-hulud-2.0.txt alpha-package bravo-package 'IOC_SENTINEL=secret-value'
+  local output exit_code=0
+  output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
+  [[ $exit_code -eq 1 && "$output" != *IOC_SENTINEL* ]] || { echo 'invalid input was disclosed or accepted' >&2; return 1; }
+}
+
 test_ioc_refresh_guard_noop_body_fails() {
   local tmpdir; tmpdir=$(setup_ioc_refresh_guard_repo)
   trap "rm -rf $tmpdir" RETURN
@@ -704,13 +726,17 @@ test_ioc_refresh_guard_noop_body_fails() {
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
   [[ $exit_code -eq 1 ]] || { echo "expected no-op delta to fail with exit 1, got $exit_code: $output" >&2; return 1; }
-  echo "$output" | grep -q 'package set is unchanged' \
+  echo "$output" | grep -q 'Guard reason: NO_CHANGE' \
     || { echo "expected no-op reason, got: $output" >&2; return 1; }
 }
 
 test_codeowners_protects_ioc_refresh_guard_script() {
   grep -Eq '^scripts/security/check-ioc-refresh-pr\.sh[[:space:]]+@Concord-Voice/security$' "$REPO_ROOT/CODEOWNERS" \
     || { echo "check-ioc-refresh-pr.sh must be CODEOWNERS-gated to @Concord-Voice/security" >&2; return 1; }
+}
+
+test_ioc_refresh_workflow_rejects_symlink_and_strips_tokens() {
+  python3 "$HARNESS_DIR/test-ioc-refresh-workflow.py"
 }
 
 # C: the credentialed refresh workflow contract.
@@ -771,7 +797,7 @@ test_ioc_refresh_guard_noop_can_use_custom_exit_code() {
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance --noop-exit-code 2 2>&1) || exit_code=$?
   [[ $exit_code -eq 2 ]] || { echo "expected no-op delta to exit 2, got $exit_code: $output" >&2; return 1; }
-  echo "$output" | grep -q 'package set is unchanged' \
+  echo "$output" | grep -q 'Guard reason: NO_CHANGE' \
     || { echo "expected no-op reason, got: $output" >&2; return 1; }
 }
 
@@ -785,7 +811,7 @@ test_ioc_refresh_guard_removal_requires_review() {
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
   [[ $exit_code -eq 1 ]] || { echo "expected removal to require review with exit 1, got $exit_code: $output" >&2; return 1; }
-  echo "$output" | grep -q 'removals require security review' \
+  echo "$output" | grep -q 'Guard reason: REMOVAL' \
     || { echo "expected removal review reason, got: $output" >&2; return 1; }
 }
 
@@ -799,7 +825,7 @@ test_ioc_refresh_guard_lockfile_collision_fails() {
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
   [[ $exit_code -eq 1 ]] || { echo "expected lockfile collision to fail with exit 1, got $exit_code: $output" >&2; return 1; }
-  echo "$output" | grep -q 'safe-package.*package-lock.json' \
+  echo "$output" | grep -q 'Guard reason: COLLISION' \
     || { echo "expected collision reason, got: $output" >&2; return 1; }
 }
 
@@ -816,7 +842,7 @@ JSON
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance 2>&1) || exit_code=$?
   [[ $exit_code -eq 1 ]] || { echo "expected tool lock collision exit 1, got $exit_code: $output" >&2; return 1; }
-  grep -q 'fixture-malicious-package.*license-checker/package-lock.json' <<<"$output" \
+  grep -q 'Guard reason: COLLISION' <<<"$output" \
     || { echo "expected license tool collision reason, got: $output" >&2; return 1; }
 }
 
@@ -834,7 +860,7 @@ test_ioc_refresh_guard_oversized_delta_fails() {
   local output exit_code=0
   output=$("$REFRESH_GUARD" --base-ref HEAD --skip-provenance --max-delta 100 2>&1) || exit_code=$?
   [[ $exit_code -eq 1 ]] || { echo "expected oversized delta to fail with exit 1, got $exit_code: $output" >&2; return 1; }
-  echo "$output" | grep -q 'additions 101 exceeds max 100' \
+  echo "$output" | grep -q 'Guard reason: OVERSIZED' \
     || { echo "expected oversized reason, got: $output" >&2; return 1; }
 }
 
