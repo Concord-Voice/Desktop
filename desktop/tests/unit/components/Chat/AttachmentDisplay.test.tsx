@@ -1003,6 +1003,8 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
     const { container } = render(
       <AttachmentDisplay attachments={[photoOf('guard-200mib', 209_715_200)]} channelId="ch-1" />
     );
+    expect(mockApiFetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
 
     await waitFor(() =>
       expect(container.querySelector('img.attachment-image')).toBeInTheDocument()
@@ -1077,6 +1079,7 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
       installImmediateIO();
 
       render(<AttachmentDisplay attachments={[photoOf(`len-${encoding}`, 0)]} channelId="ch-1" />);
+      fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
 
       await waitFor(() => expect(streamLengths).toEqual([expected]));
     }
@@ -1133,7 +1136,7 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
 
     render(<AttachmentDisplay attachments={[video]} channelId="ch-1" />);
 
-    // Above the 256 MiB preload cap the button asks first (display policy).
+    // Above the automatic media preload cap the button asks first.
     await user.click(screen.getByText(/^Large video — download /));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -1199,6 +1202,10 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
       const { container, unmount } = render(
         <AttachmentDisplay attachments={[photoOf(`${idPrefix}-${i}`, bytes)]} channelId="ch-1" />
       );
+      const loadButton = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Click to load image"]'
+      );
+      if (loadButton) fireEvent.click(loadButton);
       const img = await waitFor(() => {
         const node = container.querySelector('img.attachment-image');
         expect(node).toBeInTheDocument();
@@ -1276,6 +1283,7 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
         channelId="ch-1"
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
     const firstUrl = await waitFor(() => {
       const src = first.container.querySelector('img.attachment-image')?.getAttribute('src');
       expect(src).toMatch(/^blob:cache-/);
@@ -1287,6 +1295,7 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
         channelId="ch-1"
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
     await waitFor(() =>
       expect(second.container.querySelector('img.attachment-image')).toHaveAttribute(
         'src',
