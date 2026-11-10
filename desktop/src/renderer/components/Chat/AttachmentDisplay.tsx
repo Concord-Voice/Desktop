@@ -32,6 +32,7 @@ import {
   MAX_DECRYPTABLE_ATTACHMENT_BYTES,
 } from '../../utils/policy/entitlementLimits';
 import type { AttachmentSummary } from '../../types/chat';
+import { SAVE_IMAGE_MAX_BYTES } from '../../../shared/saveImage';
 import { useSettingsStore } from '../../stores/ui/settingsStore';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { useWindowFocus } from '../../hooks/ui/useWindowFocus';
@@ -711,8 +712,13 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // a native "Save Image As…" on a blob: URL). User-cancel is a no-op success.
   // Sync wrapper whose promise chain ends in `.catch`, so the promise is handled
   // (not floating) without the `void` operator, and callers invoke it directly.
+  // All saveable blobs fit in the retained cache; larger live-only blobs do not.
+  const saveEntry = blobUrlCache.get(attachment.id);
+  const canSaveImage =
+    url !== null && saveEntry?.url === url && saveEntry.bytes <= SAVE_IMAGE_MAX_BYTES;
   const handleSaveImage = useCallback((): void => {
-    if (!url) return;
+    const entry = blobUrlCache.get(attachment.id);
+    if (!url || entry?.url !== url || entry.bytes > SAVE_IMAGE_MAX_BYTES) return;
     fetch(url)
       .then((r) => r.arrayBuffer())
       .then((bytes) =>
@@ -989,7 +995,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           // opened on purpose. Static photos are never paused.
           paused={isAnimated && !windowFocused}
           onClose={() => setLightboxOpen(false)}
-          onSave={handleSaveImage}
+          onSave={canSaveImage ? handleSaveImage : undefined}
         />
       )}
       {menuPos && (
@@ -1004,7 +1010,8 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           />
           <ContextMenu.Item
             icon={<Download size={16} />}
-            label="Save image…"
+            label={canSaveImage ? 'Save image…' : 'Save image unavailable (100 MiB limit)'}
+            ariaDisabled={!canSaveImage}
             onClick={() => {
               setMenuPos(null);
               handleSaveImage();
