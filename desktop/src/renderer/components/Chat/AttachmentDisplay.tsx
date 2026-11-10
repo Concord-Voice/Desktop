@@ -612,6 +612,17 @@ function imageNeedsConsent(size: number, previewNeedsConsent: boolean): boolean 
   );
 }
 
+function imageContainerStyle(
+  awaitingClick: boolean,
+  clamped: ReturnType<typeof clampAttachmentSize>,
+  naturalRatio: number | null
+): React.CSSProperties | undefined {
+  if (awaitingClick) return undefined;
+  if (clamped) return { width: `${clamped.width}px`, height: `${clamped.height}px` };
+  if (naturalRatio) return { aspectRatio: String(naturalRatio), maxWidth: `${ATTACHMENT_MAX_W}px` };
+  return undefined;
+}
+
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Declared above the focus hook, which now takes it as its `enabled` gate.
   // `file_type` is MIME-derived and PERSISTED at upload, so it is wrong for two
@@ -822,15 +833,8 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // session) for legacy messages without dims, and finally to a min-height
   // skeleton for the very first paint of a dim-less attachment.
   const clamped = clampAttachmentSize(attachment.width, attachment.height);
-  let containerStyle: React.CSSProperties | undefined;
   // The click-to-load chip sizes itself, like GifEmbed's placeholder.
-  if (awaitingClick) {
-    containerStyle = undefined;
-  } else if (clamped) {
-    containerStyle = { width: `${clamped.width}px`, height: `${clamped.height}px` };
-  } else if (naturalRatio) {
-    containerStyle = { aspectRatio: String(naturalRatio), maxWidth: `${ATTACHMENT_MAX_W}px` };
-  }
+  const containerStyle = imageContainerStyle(awaitingClick, clamped, naturalRatio);
 
   // No browser API pauses an animated <img>, and the server only ever holds
   // ciphertext so there is no still frame to swap in either: on THIS surface
