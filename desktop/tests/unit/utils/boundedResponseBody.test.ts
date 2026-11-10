@@ -93,6 +93,17 @@ describe('readBoundedBody', () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  it('rejects without waiting for cancellation of the other tee branch', async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const read = vi.fn().mockResolvedValue({ done: false, value: new Uint8Array(MAX + 1) });
+    const response = {
+      body: { getReader: () => ({ read, cancel }) },
+      headers: new Headers(),
+    } as unknown as Response;
+    await expect(readBoundedBody(response, MAX)).rejects.toBeInstanceOf(AttachmentTooLargeError);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('reports the OBSERVED byte count, not the declared one', async () => {
     const res = streamingResponse([2000], { 'Content-Length': '10' });
     await expect(readBoundedBody(res, MAX)).rejects.toMatchObject({ byteLength: 2000 });
