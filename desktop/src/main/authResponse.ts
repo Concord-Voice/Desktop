@@ -2,6 +2,10 @@
 export const AUTH_RESPONSE_MAX_BYTES = 1024 * 1024;
 export const AUTH_REQUEST_TIMEOUT_MS = 30_000;
 
+export function authRequestSignal(flowSignal: AbortSignal): AbortSignal {
+  return AbortSignal.any([flowSignal, AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS)]);
+}
+
 export async function readAuthJson(response: Response, signal: AbortSignal): Promise<unknown> {
   const body = response.body;
   const declared = response.headers.get('content-length');

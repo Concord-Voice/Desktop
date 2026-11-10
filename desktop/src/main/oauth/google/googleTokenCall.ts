@@ -1,4 +1,4 @@
-import { readAuthJson } from '../../authResponse';
+import { authRequestSignal, readAuthJson } from '../../authResponse';
 import { GoogleFlowError } from './errors';
 
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -21,16 +21,17 @@ export async function googleTokenCall(opts: {
     client_secret: opts.clientSecret,
     redirect_uri: opts.redirectUri,
   });
+  const requestSignal = authRequestSignal(opts.signal);
   let resp: Response;
   try {
     resp = await opts.fetchFn(opts.endpoint ?? GOOGLE_TOKEN_ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
-      signal: opts.signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if (opts.signal.aborted || (err as Error)?.name === 'AbortError') {
+  } catch {
+    if (opts.signal.aborted) {
       throw new GoogleFlowError('sso_cancelled', 'token');
     }
     throw new GoogleFlowError('google_unavailable', 'token');
@@ -39,9 +40,10 @@ export async function googleTokenCall(opts: {
   if (resp.status >= 400) throw new GoogleFlowError('google_exchange_rejected', 'token');
   let body: { id_token?: unknown };
   try {
-    body = (await readAuthJson(resp, opts.signal)) as { id_token?: unknown };
+    body = (await readAuthJson(resp, requestSignal)) as { id_token?: unknown };
   } catch {
     if (opts.signal.aborted) throw new GoogleFlowError('sso_cancelled', 'token');
+    if (requestSignal.aborted) throw new GoogleFlowError('google_unavailable', 'token');
     throw new GoogleFlowError('google_exchange_rejected', 'token-parse');
   }
   if (typeof body.id_token !== 'string' || body.id_token.length === 0) {
