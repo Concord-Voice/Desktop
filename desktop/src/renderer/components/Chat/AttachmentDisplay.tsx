@@ -603,6 +603,15 @@ function useStillFrame(url: string | null, enabled: boolean): string | null {
   return hasStill ? still.url : null;
 }
 
+function imageNeedsConsent(size: number, previewNeedsConsent: boolean): boolean {
+  return (
+    !Number.isSafeInteger(size) ||
+    size <= 0 ||
+    (size > IMAGE_PRELOAD_MAX_BYTES && size <= MAX_DECRYPTABLE_ATTACHMENT_BYTES) ||
+    previewNeedsConsent
+  );
+}
+
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Declared above the focus hook, which now takes it as its `enabled` gate.
   // `file_type` is MIME-derived and PERSISTED at upload, so it is wrong for two
@@ -647,12 +656,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   const [userClicked, setUserClicked] = useState(false);
   const userClickedRef = useRef(false);
   const [previewNeedsConsent, setPreviewNeedsConsent] = useState(false);
-  const sizeNeedsConsent =
-    !Number.isSafeInteger(attachment.file_size) ||
-    attachment.file_size <= 0 ||
-    (attachment.file_size > IMAGE_PRELOAD_MAX_BYTES &&
-      attachment.file_size <= MAX_DECRYPTABLE_ATTACHMENT_BYTES) ||
-    previewNeedsConsent;
+  const sizeNeedsConsent = imageNeedsConsent(attachment.file_size, previewNeedsConsent);
   const awaitingClick =
     !userClicked &&
     url === null &&
@@ -736,12 +740,11 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
     } catch (err) {
       // A refusal is a different failure from a broken fetch or decrypt: the
       // bytes were never requested, so say so instead of "failed to load".
-      if (err instanceof PreviewNeedsConsentError) {
-        if (userClickedRef.current) retryWithConsent = true;
-        else {
-          awaitingClickRef.current = true;
-          setPreviewNeedsConsent(true);
-        }
+      if (err instanceof PreviewNeedsConsentError && userClickedRef.current) {
+        retryWithConsent = true;
+      } else if (err instanceof PreviewNeedsConsentError) {
+        awaitingClickRef.current = true;
+        setPreviewNeedsConsent(true);
       } else if (err instanceof AttachmentTooLargeError)
         setTooLarge({ bytes: err.byteLength, truncated: err.truncated });
       else setError(failureOf(err));
@@ -1170,11 +1173,15 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   // TERMINAL: retrying re-fetches the same bytes and fails the same way. Only a
   // generic failure (a dropped fetch, a transient 5xx) is worth another go.
   const terminal = error !== null && error !== 'generic';
-  let loadTitle = previewNeedsConsent
-    ? 'Large video — download?'
-    : isVideo && !autoLoad && Number.isSafeInteger(attachment.file_size) && attachment.file_size > 0
-      ? `Large video — download ${sizeLabel}?`
-      : `Load ${label}`;
+  let loadTitle = `Load ${label}`;
+  if (previewNeedsConsent) loadTitle = 'Large video — download?';
+  else if (
+    isVideo &&
+    !autoLoad &&
+    Number.isSafeInteger(attachment.file_size) &&
+    attachment.file_size > 0
+  )
+    loadTitle = `Large video — download ${sizeLabel}?`;
   if (error === 'generic') loadTitle = `Failed to load ${label} — retry`;
   else if (loading) loadTitle = `Loading ${label}…`;
 
