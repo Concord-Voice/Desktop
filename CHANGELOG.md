@@ -51,6 +51,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 - **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
 - **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
 - **Feedback:** The known-issues link in the Feedback window now opens the list at its current address.
+- **Chat:** Saving an image now checks the 100 MiB limit before copying its decrypted bytes.
 - **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
 
 ### Security
