@@ -638,6 +638,10 @@ function saveImageAs(id: string, mimeType: string, url: string | null): void {
     .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
 }
 
+function availableSaveAction(canSaveImage: boolean, save: () => void): (() => void) | undefined {
+  return canSaveImage ? save : undefined;
+}
+
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Declared above the focus hook, which now takes it as its `enabled` gate.
   // `file_type` is MIME-derived and PERSISTED at upload, so it is wrong for two
@@ -998,7 +1002,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           // opened on purpose. Static photos are never paused.
           paused={isAnimated && !windowFocused}
           onClose={() => setLightboxOpen(false)}
-          onSave={canSaveImage ? handleSaveImage : undefined}
+          onSave={availableSaveAction(canSaveImage, handleSaveImage)}
         />
       )}
       {menuPos && (
