@@ -286,7 +286,7 @@ vi.mock('../../../src/main/machineId', () => ({
 vi.mock('../../../src/main/selfHostedProbe', async (importActual) => ({
   // normalizeSelfHostedUrl stays REAL — the ceremony keys its approval on the same
   // normalized origin the probe will dial.
-  ...(await importActual<typeof import('../../../src/main/selfHostedProbe')>()),
+  ...((await importActual()) as Record<string, unknown>),
   probeSelfHostedServer: mockProbeSelfHostedServer,
 }));
 
