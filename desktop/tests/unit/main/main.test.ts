@@ -1221,9 +1221,61 @@ describe('main.ts', () => {
       expect(result[0].thumbnail).toContain('data:image');
     });
 
+    it('clipboard:writeText refuses a same-origin PiP sender', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      await expect(
+        Promise.resolve().then(() =>
+          handlers.get('clipboard:writeText')!(
+            { sender: {}, senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 } },
+            'synthetic'
+          )
+        )
+      ).rejects.toThrow('Clipboard write denied');
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('clipboard:writeText rejects subframes and invalid data', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      for (const [event, text] of [
+        [
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+          },
+          'text',
+        ],
+        [probeEvent, { value: 'text' }],
+      ])
+        await expect(
+          Promise.resolve().then(() => handlers.get('clipboard:writeText')!(event, text))
+        ).rejects.toThrow('Clipboard write denied');
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('propagates a native clipboard rejection instead of reporting success', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockImplementationOnce(() => {
+        throw new Error('synthetic failure');
+      });
+      await expect(
+        Promise.resolve().then(() => handlers.get('clipboard:writeText')!(probeEvent, 'text'))
+      ).rejects.toThrow('synthetic failure');
+    });
+
+    it('allows empty and Unicode strings for the live main frame', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      await handlers.get('clipboard:writeText')!(probeEvent, '');
+      await handlers.get('clipboard:writeText')!(probeEvent, 'Grüße 🌍');
+      expect(clipboard.writeText).toHaveBeenNthCalledWith(1, '');
+      expect(clipboard.writeText).toHaveBeenNthCalledWith(2, 'Grüße 🌍');
+    });
+
     it('clipboard:writeText writes to clipboard', async () => {
       const { clipboard } = await import('electron');
-      await handlers.get('clipboard:writeText')!(trustedIpcEvent, 'hello');
+      await handlers.get('clipboard:writeText')!(probeEvent, 'hello');
       expect(clipboard.writeText).toHaveBeenCalledWith('hello');
     });
   });
@@ -2428,7 +2480,9 @@ describe('main.ts', () => {
         sideEffects.forEach((effect) => effect.mockClear());
 
         await handlers.get('media:getDesktopSources')!(event);
-        await handlers.get('clipboard:writeText')!(event, 'secret');
+        await expect(
+          Promise.resolve().then(() => handlers.get('clipboard:writeText')!(event, 'secret'))
+        ).rejects.toThrow('Clipboard write denied');
         await handlers.get('app:setHardwareAcceleration')!(event, false);
         await handlers.get('app:relaunch')!(event);
         await handlers.get('update:check')!(event);
@@ -3094,6 +3148,62 @@ describe('main.ts', () => {
   });
 
   describe('permission handlers', () => {
+    it('denies web clipboard write permissions to PiP and subframes', () => {
+      const callback = vi.fn();
+      sessionHandlers.permissionRequest!({}, 'clipboard-sanitized-write', callback, {
+        isMainFrame: true,
+        requestingUrl: 'http://localhost:3001/',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+      const result = sessionHandlers.permissionCheck!(
+        mockWebContents,
+        'clipboard-sanitized-write',
+        'http://localhost:3001',
+        { isMainFrame: false, requestingUrl: 'http://localhost:3001/' }
+      );
+      expect(result).toBe(false);
+    });
+
+    it.each(['clipboard-sanitized-write', 'clipboard-read'])(
+      'grants %s only to the trusted main window main frame',
+      (permission) => {
+        const valid = { isMainFrame: true, requestingUrl: 'http://localhost:3001/' };
+        const invalid = [
+          [{}, valid],
+          [mockWebContents, { ...valid, isMainFrame: false }],
+          [mockWebContents, { ...valid, requestingUrl: 'https://evil.example/' }],
+          [mockWebContents, undefined],
+        ] as const;
+        const callback = vi.fn();
+        sessionHandlers.permissionRequest!(mockWebContents, permission, callback, valid);
+        expect(callback).toHaveBeenLastCalledWith(true);
+        expect(
+          sessionHandlers.permissionCheck!(
+            mockWebContents,
+            permission,
+            'http://localhost:3001',
+            valid
+          )
+        ).toBe(true);
+        for (const [sender, details] of invalid) {
+          sessionHandlers.permissionRequest!(sender, permission, callback, details);
+          expect(callback).toHaveBeenLastCalledWith(false);
+          expect(
+            sessionHandlers.permissionCheck!(sender, permission, 'http://localhost:3001', details)
+          ).toBe(false);
+        }
+        mockMainWindow.isDestroyed.mockReturnValueOnce(true);
+        expect(
+          sessionHandlers.permissionCheck!(
+            mockWebContents,
+            permission,
+            'http://localhost:3001',
+            valid
+          )
+        ).toBe(false);
+      }
+    );
+
     it('denies geolocation requests', () => {
       expect(sessionHandlers.permissionRequest).toBeDefined();
       const callback = vi.fn();

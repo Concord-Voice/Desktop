@@ -55,6 +55,7 @@ import {
   session,
   shell,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -1659,18 +1660,42 @@ app.whenReady().then(async () => {
   registerTrayStatusIpc(getRemoteSpaBaseUrl, () => mainWindow);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const denied = ['geolocation'];
-    if (denied.includes(permission)) {
-      callback(false);
-      return;
+  const canAccessWebClipboard = (
+    contents: WebContents | null,
+    details: { isMainFrame: boolean; requestingUrl?: string }
+  ): boolean => {
+    try {
+      return (
+        !!mainWindow &&
+        !mainWindow.isDestroyed() &&
+        contents === mainWindow.webContents &&
+        details?.isMainFrame === true &&
+        isPermittedFrameUrl(details.requestingUrl ?? '', getRemoteSpaBaseUrl())
+      );
+    } catch {
+      return false;
     }
-    callback(true);
-  });
+  };
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      if (permission === 'clipboard-sanitized-write' || permission === 'clipboard-read') {
+        callback(canAccessWebClipboard(webContents, details));
+        return;
+      }
+      const denied = ['geolocation'];
+      if (denied.includes(permission)) {
+        callback(false);
+        return;
+      }
+      callback(true);
+    }
+  );
 
   // Permission check handler: Chromium queries this synchronously to verify grants.
   // Default to true so internal checks (e.g. WebAuthn/FIDO2) aren't silently blocked.
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+    if (permission === 'clipboard-sanitized-write' || permission === 'clipboard-read')
+      return canAccessWebClipboard(webContents, details);
     const denied = ['geolocation'];
     return !denied.includes(permission);
   });
@@ -2021,10 +2046,15 @@ ipcMain.handle('media:getDesktopSources', async (event) => {
   }));
 });
 
-// Clipboard write (navigator.clipboard.writeText is blocked in Electron)
-ipcMain.handle('clipboard:writeText', (event, text: string) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  clipboard.writeText(text);
+// A denied write must reject: cutSelection deletes text only after a successful copy.
+ipcMain.handle('clipboard:writeText', (event, text: unknown) => {
+  if (
+    !isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl) ||
+    typeof text !== 'string'
+  ) {
+    throw new Error('Clipboard write denied');
+  }
+  return clipboard.writeText(text);
 });
 
 // GPU info
