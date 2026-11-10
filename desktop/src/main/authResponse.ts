@@ -23,7 +23,7 @@ export async function readAuthJson(response: Response, signal: AbortSignal): Pro
   if (!body) throw new Error('authentication response body unavailable');
 
   const reader = body.getReader();
-  const bytes = new Uint8Array(AUTH_RESPONSE_MAX_BYTES);
+  let bytes = new Uint8Array(16 * 1024);
   let total = 0;
   const onAbort = () => {
     void reader.cancel().catch(() => undefined);
@@ -37,6 +37,13 @@ export async function readAuthJson(response: Response, signal: AbortSignal): Pro
       if (done) break;
       if (value.byteLength > AUTH_RESPONSE_MAX_BYTES - total)
         throw new Error('authentication response too large');
+      if (total + value.byteLength > bytes.length) {
+        const grown = new Uint8Array(
+          Math.min(AUTH_RESPONSE_MAX_BYTES, Math.max(bytes.length * 2, total + value.byteLength))
+        );
+        grown.set(bytes.subarray(0, total));
+        bytes = grown;
+      }
       bytes.set(value, total);
       total += value.byteLength;
     }
