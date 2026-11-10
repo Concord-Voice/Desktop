@@ -10,6 +10,7 @@ const { mockGetMachineId, mockNetFetch } = vi.hoisted(() => ({
 }));
 
 let safeStorageAvailable = true;
+let appIsPackaged = false;
 let storageBackend = 'gnome_libsecret';
 // Tag prepended to "ciphertext". 'v11' is a keyring key; 'v10' on Linux is
 // Chromium's hardcoded-key fallback, which secureStorage.ts refuses.
@@ -40,7 +41,12 @@ function mockRm(path: string): void {
 }
 
 vi.mock('electron', () => ({
-  app: { getPath: () => '/tmp/td' },
+  app: {
+    getPath: () => '/tmp/td',
+    get isPackaged() {
+      return appIsPackaged;
+    },
+  },
   safeStorage: {
     isAsyncEncryptionAvailable: async () => safeStorageAvailable,
     getSelectedStorageBackend: () => storageBackend,
@@ -117,6 +123,12 @@ import {
 // Mocked via vi.mock('electron') above — imported here so tests can spy the
 // async encrypt/decrypt to simulate a locked keychain or hold one in flight.
 import { safeStorage } from 'electron';
+import {
+  profilePathsForApiBase,
+  commitSelfHostedApproval,
+  _resetSelfHostedProfileForTesting,
+} from '@/main/selfHostedProfile';
+import { _resetApprovalsCacheForTesting } from '@/main/selfHostedApprovals';
 import fs from 'node:fs';
 
 // ─── JWT Test Helper ────────────────────────────────────────────────
@@ -165,6 +177,14 @@ function diskFile(suffix: string): unknown {
   return [...fsFiles.entries()].find(([path]) => path.endsWith(suffix))?.[1];
 }
 
+const TEST_BINDING = '01234567-89ab-4def-8123-456789abcdef';
+function tokenEnvelope(token: string, apiBase = 'http://localhost:8080', owner = 7): string {
+  return JSON.stringify({ version: 1, token, apiBase, owner, binding: TEST_BINDING });
+}
+function tokenFromCiphertext(value: unknown): string {
+  return (JSON.parse(String(value).slice(3)) as { token: string }).token;
+}
+
 function readMockDisk(path: unknown): unknown {
   const value = fsFiles.get(String(path));
   if (value === undefined) throw new Error('ENOENT');
@@ -174,6 +194,7 @@ function readMockDisk(path: unknown): unknown {
 describe('tokenManager', () => {
   beforeEach(() => {
     safeStorageAvailable = true;
+    appIsPackaged = false;
     storageBackend = 'gnome_libsecret';
     ciphertextTag = 'v11';
     fsWriteCalls.length = 0;
@@ -185,6 +206,8 @@ describe('tokenManager', () => {
     fsRename.fail = false;
     fsRead.impl = () => Buffer.from('x');
     _resetForTesting();
+    _resetSelfHostedProfileForTesting();
+    _resetApprovalsCacheForTesting();
     mockGetMachineId.mockClear();
     mockNetFetch.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -196,6 +219,118 @@ describe('tokenManager', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     setPlatform(originalPlatform);
+  });
+
+  describe('persisted token destination binding', () => {
+    it('restores a currently approved self-hosted destination in packaged builds', async () => {
+      fsRead.impl = readMockDisk;
+      const apiBase = 'https://approved.example';
+      expect(commitSelfHostedApproval(apiBase, '8.8.8.8')).toBe(true);
+      storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase });
+      await flushDiskWrites();
+      _resetForTesting();
+      appIsPackaged = true;
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'secret', apiBase });
+    });
+
+    it('refuses a no-longer-approved self-hosted destination in packaged builds', async () => {
+      fsRead.impl = readMockDisk;
+      storeRefreshToken({
+        refreshToken: 'secret',
+        rememberMe: true,
+        apiBase: 'https://unapproved.example',
+      });
+      await flushDiskWrites();
+      _resetForTesting();
+      appIsPackaged = true;
+      expect(await restoreRefreshToken()).toEqual({ status: 'no_session' });
+      await performRefresh();
+      expect(mockNetFetch).not.toHaveBeenCalled();
+    });
+
+    it('restores the rotated token and its E2EE keys after restart', async () => {
+      const apiBase = 'https://example.test';
+      const keys = {
+        wrappingKeyBase64: 'wk',
+        preferencesKeyBase64: 'pk',
+        wrappedPrivateKeyBase64: 'wpk',
+      };
+      fsRead.impl = readMockDisk;
+      const owner = storeRefreshToken({ refreshToken: 'old', rememberMe: true, apiBase });
+      expect(await storeE2EEKeysIfOwner(keys, owner)).toBe(true);
+      mockNetFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'access', refresh_token: 'new' })
+      );
+      expect((await performRefresh()).status).toBe('ok');
+      await flushDiskWrites();
+      _resetForTesting();
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'new', apiBase });
+      expect(await restoreE2EEKeys()).toEqual(keys);
+    });
+
+    it('refuses token-only legacy data without a network request', async () => {
+      fsRead.impl = (path) =>
+        String(path).endsWith('active-profile.json')
+          ? (() => {
+              throw new Error('ENOENT');
+            })()
+          : String(path).endsWith('token-meta.json')
+            ? JSON.stringify({ apiBase: 'http://localhost:8080', rememberMe: true })
+            : Buffer.from('v11legacy-token');
+      expect(await restoreRefreshToken()).toEqual({ status: 'no_session' });
+      await performRefresh();
+      expect(mockNetFetch).not.toHaveBeenCalled();
+    });
+
+    it('refuses E2EE keys from another credential even when metadata and owner match', async () => {
+      const apiBase = 'https://example.test';
+      const keys = {
+        wrappingKeyBase64: 'wk',
+        preferencesKeyBase64: 'pk',
+        wrappedPrivateKeyBase64: 'wpk',
+      };
+      fsRead.impl = readMockDisk;
+      const owner = storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase });
+      await storeE2EEKeysIfOwner(keys, owner);
+      const profile = profilePathsForApiBase(apiBase);
+      const diskKeys = JSON.parse(String(fsFiles.get(profile.e2eeFile)).slice(3));
+      diskKeys.binding = TEST_BINDING;
+      fsFiles.set(profile.e2eeFile, Buffer.from(`v11${JSON.stringify(diskKeys)}`));
+      fsFiles.set(
+        profile.metaFile,
+        JSON.stringify({ apiBase, rememberMe: true, credentialOwner: owner, e2eeState: 'ready' })
+      );
+      _resetForTesting();
+      expect((await restoreRefreshToken()).status).toBe('ok');
+      expect(await restoreE2EEKeys()).toBeNull();
+    });
+
+    it.each(['https://attacker.example', 'https://example.test/other'])(
+      'rejects a token relocated to %s without sending a refresh',
+      async (forgedBase) => {
+        const originalBase = 'https://example.test';
+        fsRead.impl = readMockDisk;
+        storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase: originalBase });
+        await flushDiskWrites();
+        const source = profilePathsForApiBase(originalBase);
+        const target = profilePathsForApiBase(forgedBase);
+        fsFiles.set(target.tokenFile, fsFiles.get(source.tokenFile));
+        fsFiles.set(
+          target.metaFile,
+          JSON.stringify({
+            apiBase: forgedBase,
+            rememberMe: true,
+            credentialOwner: 1,
+            e2eeState: 'ready',
+          })
+        );
+        fsFiles.set('/tmp/td/active-profile.json', JSON.stringify({ apiBase: forgedBase }));
+        _resetForTesting();
+        expect((await restoreRefreshToken()).status).not.toBe('ok');
+        await performRefresh();
+        expect(mockNetFetch).not.toHaveBeenCalled();
+      }
+    );
   });
 
   describe('storeRefreshToken', () => {
@@ -222,7 +357,7 @@ describe('tokenManager', () => {
         apiBase: 'http://localhost:8080',
       });
       await flushDiskWrites();
-      expect(String(diskFile('secure-token.dat'))).toBe('v11my-token');
+      expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('my-token');
       expect(fsWriteCalls.length).toBeGreaterThan(0);
       const paths = fsWriteCalls.map((c) => c[0] as string);
       expect(paths.some((p) => p.includes('secure-token.dat'))).toBe(true);
@@ -389,7 +524,7 @@ describe('tokenManager', () => {
         if (file.endsWith('token-meta.json')) {
           return JSON.stringify({ apiBase: 'http://localhost:8080', rememberMe: true });
         }
-        return Buffer.from('v11stored-token');
+        return Buffer.from(`v11${tokenEnvelope('stored-token')}`);
       };
       const result = await restoreRefreshToken();
       expect(result).toEqual({
@@ -1358,7 +1493,7 @@ describe('tokenManager', () => {
       await flushDiskWrites();
       // Should have written the rotated token to disk
       const tokenWrites = fsWriteCalls.filter((c) => (c[0] as string).includes('secure-token.dat'));
-      expect(String(tokenWrites.at(-1)?.[1])).toBe('v11rt-new');
+      expect(tokenFromCiphertext(tokenWrites.at(-1)?.[1])).toBe('rt-new');
     });
 
     it('does not persist rotated token when rememberMe=false', async () => {
@@ -1638,7 +1773,7 @@ describe('tokenManager', () => {
       const tokenWrites = fsWriteCalls.filter((call) =>
         String(call[0]).endsWith('secure-token.dat')
       );
-      expect((tokenWrites.at(-1)?.[1] as Buffer).toString()).toBe(`v11${refreshToken}`);
+      expect(tokenFromCiphertext(tokenWrites.at(-1)?.[1])).toBe(refreshToken);
       expect(vi.getTimerCount()).toBe(successorTimerCount);
 
       // The stale response carried a later-expiring access token. If it had
@@ -2009,7 +2144,7 @@ describe('tokenManager', () => {
       first.resolve(Buffer.from('v11rt-first'));
       await flushDiskWrites();
 
-      expect(String(diskFile('secure-token.dat'))).toBe('v11rt-second');
+      expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('rt-second');
       expect(JSON.parse(String(diskFile('token-meta.json')))).toMatchObject({
         credentialOwner: secondOwner,
       });
@@ -2035,7 +2170,7 @@ describe('tokenManager', () => {
       publish.resolve(Buffer.from('v11rt-published'));
       await flushDiskWrites();
 
-      expect(String(diskFile('secure-token.dat'))).toBe('v11rt-rotated');
+      expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('rt-rotated');
       expect(JSON.parse(String(diskFile('token-meta.json')))).toMatchObject({
         credentialOwner: owner,
       });
@@ -2086,12 +2221,12 @@ describe('tokenManager', () => {
           : Buffer.from('v11stored');
       vi.spyOn(safeStorage, 'decryptStringAsync').mockResolvedValueOnce({
         shouldReEncrypt: true,
-        result: 'rt-stored',
+        result: tokenEnvelope('rt-stored'),
       });
 
       expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'rt-stored' });
       await flushDiskWrites();
-      expect(String(diskFile('secure-token.dat'))).toBe('v11rt-stored');
+      expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('rt-stored');
     });
 
     it('reports a key write superseded by a newer key write as not persisted', async () => {
@@ -2307,7 +2442,7 @@ describe('tokenManager', () => {
       await storeE2EEKeysIfOwner(keys, owner);
       _resetForTesting();
       expect(await restoreRefreshToken()).toMatchObject({ status: 'ok' });
-      const blob = JSON.stringify({ credentialOwner: owner, keys });
+      const blob = String(diskFile('secure-e2ee.dat')).slice(3);
       vi.spyOn(safeStorage, 'decryptStringAsync').mockResolvedValueOnce({
         shouldReEncrypt: true,
         result: blob,
@@ -2331,8 +2466,11 @@ describe('tokenManager', () => {
       held.resolve(Buffer.from('v11rt-first'));
       await flushDiskWrites();
 
-      expect(encrypt.mock.calls.map(([plain]) => plain)).toEqual(['rt-first', 'rt-last']);
-      expect(String(diskFile('secure-token.dat'))).toBe('v11rt-last');
+      expect(encrypt.mock.calls.map(([plain]) => JSON.parse(plain).token)).toEqual([
+        'rt-first',
+        'rt-last',
+      ]);
+      expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('rt-last');
     });
 
     it('encrypts only the newest of a burst of key writes queued behind an encrypt', async () => {
