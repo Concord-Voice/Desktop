@@ -383,6 +383,7 @@ const trustedIpcEvent = {
   sender: { id: 41 },
   senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 41 },
 };
+const probeEvent = { sender: mockWebContents, senderFrame: mockWebContents.mainFrame };
 const foreignIpcEvent = {
   sender: { id: 99 },
   senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 99 },
@@ -1757,7 +1758,7 @@ describe('main.ts', () => {
       });
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        probeEvent,
         'https://homelab.lan'
       );
 
@@ -1789,6 +1790,42 @@ describe('main.ts', () => {
         message: 'Self-hosted server probing is not available from this frame.',
       });
       // Refused before any side effect: no probe, no ceremony.
+      expect(probeSelfHostedServer).not.toHaveBeenCalled();
+    });
+
+    it('selfHosted:probeServer rejects another permitted window', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      (probeSelfHostedServer as Mock).mockClear();
+      const result = await handlers.get('selfHosted:probeServer')!(
+        {
+          sender: { id: 600 },
+          senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 600 },
+        },
+        'https://homelab.lan'
+      );
+      expect(result).toEqual({
+        status: 'error',
+        code: 'rejected',
+        message: 'Self-hosted server probing is not available from this frame.',
+      });
+      expect(probeSelfHostedServer).not.toHaveBeenCalled();
+    });
+
+    it('selfHosted:probeServer rejects a same-origin subframe', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      (probeSelfHostedServer as Mock).mockClear();
+      const result = await handlers.get('selfHosted:probeServer')!(
+        {
+          sender: mockWebContents,
+          senderFrame: { url: mockWebContents.mainFrame.url, frameTreeNodeId: 999 },
+        },
+        'https://homelab.lan'
+      );
+      expect(result).toEqual({
+        status: 'error',
+        code: 'rejected',
+        message: 'Self-hosted server probing is not available from this frame.',
+      });
       expect(probeSelfHostedServer).not.toHaveBeenCalled();
     });
 
@@ -1913,7 +1950,7 @@ describe('main.ts', () => {
       } as never);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        probeEvent,
         'https://metadata.invalid'
       );
 
@@ -1937,7 +1974,7 @@ describe('main.ts', () => {
       mockShowMessageBox.mockResolvedValueOnce({ response: 0 });
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        probeEvent,
         'https://declined.lan'
       );
 
@@ -1973,7 +2010,7 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockResolvedValueOnce(failure);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        probeEvent,
         'https://not-concord.lan'
       );
 
@@ -1997,12 +2034,9 @@ describe('main.ts', () => {
       const ok = { status: 'ok', apiBase: 'https://real.lan' };
       (probeSelfHostedServer as Mock).mockResolvedValue(ok);
 
-      expect(
-        await handlers.get('selfHosted:probeServer')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          'https://real.lan'
-        )
-      ).toEqual(ok);
+      expect(await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://real.lan')).toEqual(
+        ok
+      );
       expect(isValidatedSelfHostedApiBase('https://real.lan')).toBe(true);
       expect(approvalStore.records).toHaveLength(1);
 
@@ -2013,10 +2047,7 @@ describe('main.ts', () => {
       approvalStore.failAppend = true;
       try {
         expect(
-          await handlers.get('selfHosted:probeServer')!(
-            { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-            'https://unwritable.lan'
-          )
+          await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://unwritable.lan')
         ).toEqual({
           status: 'error',
           code: 'approval_not_saved',
@@ -2038,14 +2069,8 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockClear();
       (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok' });
 
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://approved.lan'
-      );
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://approved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://approved.lan');
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://approved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1); // rarity: once per origin
       expect(isValidatedSelfHostedApiBase('https://approved.lan')).toBe(true);
@@ -2070,10 +2095,7 @@ describe('main.ts', () => {
         addresses: ['203.0.113.10'],
         decision: { tier: 'public' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://moved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://moved.lan');
       expect(approvalStore.records).toEqual([
         expect.objectContaining({ tierAtApproval: 'public' }),
       ]);
@@ -2087,10 +2109,7 @@ describe('main.ts', () => {
         addresses: ['10.0.0.5'],
         decision: { tier: 'tier2', reason: 'private' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://moved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://moved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
       expect(approvalStore.records).toHaveLength(2);
@@ -2116,15 +2135,9 @@ describe('main.ts', () => {
         decision: { tier: 'public' },
       } as never;
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://steady.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://steady.lan');
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://steady.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://steady.lan');
 
       // Rarity invariant: an approved origin produces no prompt on repeat connect.
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
@@ -2207,12 +2220,12 @@ describe('main.ts', () => {
 
       // Each distinct origin is a fresh ceremony.
       for (let i = 0; i < CEREMONY_BUDGET; i++) {
-        await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, `https://burst${i}.lan`);
+        await handlers.get('selfHosted:probeServer')!(probeEvent, `https://burst${i}.lan`);
       }
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
 
       const refused = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
+        probeEvent,
         'https://burst-over.lan'
       );
       expect(refused).toEqual({ status: 'error', code: 'too_many_prompts', message: '' });
@@ -2221,7 +2234,7 @@ describe('main.ts', () => {
       // An origin approved before the bucket drained is unaffected — no dialog, so
       // no token, so the throttle must not touch it.
       const approved = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
+        probeEvent,
         'https://burst0.lan'
       );
       expect(approved).toEqual({ status: 'ok' });
@@ -2233,7 +2246,7 @@ describe('main.ts', () => {
     // resolveForDisplay's dns.lookup is a libuv-threadpool job that cannot be
     // cancelled, so concurrency here is a resource-exhaustion lever, not a
     // convenience issue. The gate must therefore cover the WHOLE handler.
-    it('refuses a concurrent probe from the same sender while letting another sender through', async () => {
+    it('refuses concurrent probes while one probe is in flight', async () => {
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       const { _resetSelfHostedProfileForTesting } =
         await import('../../../src/main/selfHostedProfile');
@@ -2251,8 +2264,8 @@ describe('main.ts', () => {
         return { status: 'ok' };
       });
 
-      const senderA = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 7 } };
-      const senderB = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 8 } };
+      const senderA = probeEvent;
+      const senderB = probeEvent;
 
       const first = handlers.get('selfHosted:probeServer')!(senderA, 'https://inflight.lan');
       const refused = await handlers.get('selfHosted:probeServer')!(senderA, 'https://other.lan');
@@ -2262,9 +2275,29 @@ describe('main.ts', () => {
 
       release();
       await expect(first).resolves.toEqual({ status: 'ok' });
-      await expect(third).resolves.toEqual({ status: 'ok' });
+      await expect(third).resolves.toEqual({ status: 'error', code: 'busy', message: '' });
       // The refused call must not have dialled or prompted for its own origin.
-      expect(probeSelfHostedServer).toHaveBeenCalledTimes(2);
+      expect(probeSelfHostedServer).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the global probe slot while the owner window is destroyed', async () => {
+      let release: ((value: unknown) => void) | undefined;
+      mockResolveForDisplay.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }) as never
+      );
+      const first = handlers.get('selfHosted:probeServer')!(probeEvent, 'https://inflight.lan');
+      mockMainWindow.isDestroyed.mockReturnValueOnce(true);
+      await expect(
+        handlers.get('selfHosted:probeServer')!(probeEvent, 'https://other.lan')
+      ).resolves.toMatchObject({ code: 'rejected' });
+      await expect(
+        handlers.get('selfHosted:probeServer')!(probeEvent, 'https://other.lan')
+      ).resolves.toMatchObject({ code: 'busy' });
+      release?.({ ok: false, kind: 'unreachable' });
+      await expect(first).resolves.toMatchObject({ code: 'unreachable' });
     });
 
     it('releases the slot after a probe settles, including on rejection', async () => {
@@ -2277,7 +2310,7 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockReset();
       (probeSelfHostedServer as Mock).mockRejectedValueOnce(new Error('boom'));
 
-      const sender = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 9 } };
+      const sender = probeEvent;
       await expect(
         handlers.get('selfHosted:probeServer')!(sender, 'https://flaky.lan')
       ).rejects.toThrow('boom');

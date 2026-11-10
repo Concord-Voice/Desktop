@@ -58,6 +58,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
+- **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
 
 ## [0.3.1] - 2026-11-06
 

@@ -2385,57 +2385,34 @@ export async function requestSelfHostedApproval(
   return response === 1;
 }
 
-// One probe at a time per webContents (the set is keyed on event.sender.id, so the
-// bound is PER-FRAME, not process-global). This is a REJECTING single-flight, not the
-// promise-sharing kind used by restoreSessionPromise / spaSelfHeal: two concurrent
-// probes of DIFFERENT urls must never share one result.
-//
-// It gates the whole handler because resolveForDisplay's dns.lookup is a
-// libuv-threadpool job that cannot be cancelled. The default pool is 4, so N
-// concurrent probes of unresolvable names queue N getaddrinfo jobs against those
-// slots and head-of-line-block every async fs operation in the main process —
-// credential IO and the approvals-file read included — with zero dialogs shown.
-// The threadpool is process-global while this bound is not, so the protection rests
-// on there being one auth window and the renderer having no way to mint another.
-// A per-request timeout (resolveForDisplay's race) does not free the slot; only
-// not starting the lookup does. ServerInput already disables Connect while busy,
-// so the refused concurrency has no legitimate caller.
-const probesInFlight = new Set<number>();
+// The native dialog and probe are process-wide, regardless of the renderer sender.
+let probeInFlight = false;
 
 ipcMain.handle('selfHosted:probeServer', async (event, url: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[selfHosted:probeServer] rejected — sender frame validation failed');
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender !== mainWindow.webContents ||
+    !event.senderFrame ||
+    event.senderFrame.frameTreeNodeId !== mainWindow.webContents.mainFrame.frameTreeNodeId ||
+    !isTrustedAuthSender(event)
+  ) {
+    console.warn('[selfHosted:probeServer] rejected — sender is not the active main frame');
     return {
       status: 'error',
       code: 'rejected',
       message: 'Self-hosted server probing is not available from this frame.',
     };
   }
-  // Set synchronously, before the handler's first await, so a burst dispatched in
-  // one tick cannot all observe an empty set.
-  // Fail closed rather than collapsing an unidentifiable sender into a shared bucket.
-  // `?? -1` would put every such caller on one key, so unrelated frames would refuse
-  // each other's probes as 'busy'. Electron populates `sender` for every ipcMain.handle
-  // today; this guards the refactor or harness where it does not. `rejected`, not
-  // `busy` — 'busy' is a transient retryable state and this is not transient.
-  const senderId = event.sender?.id;
-  if (senderId === undefined) {
-    console.warn('[selfHosted:probeServer] rejected — the invoke event carried no sender id');
-    return {
-      status: 'error',
-      code: 'rejected',
-      message: 'Self-hosted server probing is not available from this frame.',
-    };
-  }
-  if (probesInFlight.has(senderId)) {
-    console.warn('[selfHosted:probeServer] refused — a probe is already in flight');
+  if (probeInFlight) {
+    console.warn('[selfHosted:probeServer] refused — probe already in flight');
     return { status: 'error', code: 'busy', message: '' };
   }
-  probesInFlight.add(senderId);
+  probeInFlight = true;
   try {
     return await handleProbeSelfHostedServer(url);
   } finally {
-    probesInFlight.delete(senderId);
+    probeInFlight = false;
   }
 });
 
@@ -2455,12 +2432,16 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
 
   const parsed = new URL(normalized.apiBase);
   const resolved: ResolveForDisplayResult = await resolveForDisplay(parsed.hostname);
-  if (!resolved.ok && resolved.kind === 'tier1') {
-    // Reason token only; the renderer owns the user-facing copy.
-    return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
-  }
   if (!resolved.ok) {
-    return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    switch (resolved.kind) {
+      case 'busy':
+        return { status: 'error', code: 'busy', message: '' };
+      case 'tier1':
+        // Reason token only; the renderer owns the user-facing copy.
+        return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
+      default:
+        return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    }
   }
 
   // Consent is scoped to the address class the ceremony displayed. An origin approved

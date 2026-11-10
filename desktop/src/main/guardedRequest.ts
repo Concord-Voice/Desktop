@@ -15,6 +15,42 @@ export class EgressDeniedError extends Error {
   }
 }
 
+// Hold the process-wide permit until the OS callback, even if a caller times out.
+let probeLookupPending = false;
+export const PROBE_LOOKUP_BUSY = 'ERR_CONCORD_PROBE_LOOKUP_BUSY';
+
+function limitedProbeLookup(
+  host: string,
+  resolver: typeof dns.lookup,
+  callback: (error: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void,
+  options: dns.LookupAllOptions
+): void {
+  if (probeLookupPending) {
+    const error = Object.assign(new Error('probe lookup busy'), { code: PROBE_LOOKUP_BUSY });
+    queueMicrotask(() => callback(error, []));
+    return;
+  }
+  probeLookupPending = true;
+  try {
+    resolver(host, options, (error, addresses) => {
+      probeLookupPending = false;
+      callback(error, addresses);
+    });
+  } catch (error) {
+    probeLookupPending = false;
+    throw error;
+  }
+}
+
+// guardedRequest always requests all addresses from this resolver before dialing.
+export const probeResolver = ((
+  host: string,
+  options: dns.LookupAllOptions,
+  callback: (error: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void
+) => {
+  limitedProbeLookup(host, dns.lookup, callback, options);
+}) as typeof dns.lookup;
+
 // Validates EVERY resolved address (Happy Eyeballs dials past addresses[0]).
 // Denies wholesale; a mixed good/bad result is anomalous and the good half must not pass.
 export function makeGuardedLookup(deps: {
@@ -186,7 +222,8 @@ export type ResolveForDisplayResult =
   // They differ whenever a name resolves to a mixed set — see the wholesale rule below.
   | { ok: true; address: string; addresses: string[]; decision: EgressDecision }
   | { ok: false; kind: 'tier1'; reason: string }
-  | { ok: false; kind: 'unreachable' };
+  | { ok: false; kind: 'unreachable' }
+  | { ok: false; kind: 'busy' };
 
 // An OS resolver can sit on an unanswered query far longer than a user will wait for
 // the connect flow, so the caller's wait is bounded independently of the query's.
@@ -208,51 +245,44 @@ export async function resolveForDisplay(
     return { ok: true, address: bare, addresses: [bare], decision };
   }
   const lookup = new Promise<ResolveForDisplayResult>((resolve) => {
-    resolver(host, { all: true }, (err, addrs) => {
-      const list = (Array.isArray(addrs) ? addrs : []) as { address: string }[];
-      if (err || list.length === 0) return resolve({ ok: false, kind: 'unreachable' });
-      const decisions = list.map((a) => classifyAddress(a.address));
-      const tier1 = decisions.find((d) => d.tier === 'tier1');
-      if (tier1?.tier === 'tier1')
-        return resolve({ ok: false, kind: 'tier1', reason: tier1.reason });
-      // An entry we cannot classify is neither presentable nor dialable, and the dial
-      // guard would refuse it anyway (isDialPermitted fails closed on 'invalid'). Report
-      // it as the same verdict a genuine resolution failure produces rather than letting
-      // it fall through to the dialog's `public` copy — "on the internet" for an address
-      // we could not parse is a false statement to the user.
-      if (decisions.some((d) => d.tier === 'invalid')) {
-        return resolve({ ok: false, kind: 'unreachable' });
-      }
-      // WHOLESALE, not list[0]. Classifying only the first entry let a name resolving to
-      // [public, private] show "on the internet", record `tierAtApproval: 'public'`, and
-      // then dead-end on `origin_not_approved` at the tier-2 dial — a state re-approving
-      // could not fix, because the ceremony would keep displaying the public address.
-      // The STRICTEST member decides, and the dialog shows every address.
-      const idx = decisions.findIndex((d) => d.tier === 'tier2');
-      const pick = idx === -1 ? 0 : idx;
-      resolve({
-        ok: true,
-        address: list[pick].address,
-        addresses: list.map((a) => a.address),
-        decision: decisions[pick],
-      });
-    });
+    limitedProbeLookup(
+      host,
+      resolver,
+      (err, addrs) => {
+        const list = (Array.isArray(addrs) ? addrs : []) as { address: string }[];
+        if (err?.code === PROBE_LOOKUP_BUSY) return resolve({ ok: false, kind: 'busy' });
+        if (err || list.length === 0) return resolve({ ok: false, kind: 'unreachable' });
+        const decisions = list.map((a) => classifyAddress(a.address));
+        const tier1 = decisions.find((d) => d.tier === 'tier1');
+        if (tier1?.tier === 'tier1')
+          return resolve({ ok: false, kind: 'tier1', reason: tier1.reason });
+        // An entry we cannot classify is neither presentable nor dialable, and the dial
+        // guard would refuse it anyway (isDialPermitted fails closed on 'invalid'). Report
+        // it as the same verdict a genuine resolution failure produces rather than letting
+        // it fall through to the dialog's `public` copy — "on the internet" for an address
+        // we could not parse is a false statement to the user.
+        if (decisions.some((d) => d.tier === 'invalid')) {
+          return resolve({ ok: false, kind: 'unreachable' });
+        }
+        // WHOLESALE, not list[0]. Classifying only the first entry let a name resolving to
+        // [public, private] show "on the internet", record `tierAtApproval: 'public'`, and
+        // then dead-end on `origin_not_approved` at the tier-2 dial — a state re-approving
+        // could not fix, because the ceremony would keep displaying the public address.
+        // The STRICTEST member decides, and the dialog shows every address.
+        const idx = decisions.findIndex((d) => d.tier === 'tier2');
+        const pick = idx === -1 ? 0 : idx;
+        resolve({
+          ok: true,
+          address: list[pick].address,
+          addresses: list.map((a) => a.address),
+          decision: decisions[pick],
+        });
+      },
+      { all: true }
+    );
   });
 
-  // ── This timeout does NOT cancel the lookup. ──
-  // dns.lookup in callback form wraps uv_getaddrinfo, a libuv-threadpool job with no
-  // cancellation API. Losing the race abandons the RESULT; the query keeps its pool
-  // slot until the OS resolver gives up on its own schedule. So this bounds how long
-  // ONE caller waits, and bounds nothing about resource use — N stalled probes still
-  // occupy N of the (default 4) threadpool slots and head-of-line-block every async
-  // fs operation in the main process. The structural fix for that is the rejecting
-  // single-flight on selfHosted:probeServer, which stops the second lookup from ever
-  // being started. Do not read this race as a resource bound.
-  //
-  // A late answer cannot revive the caller: the race is already settled, and Promise
-  // settlement is one-shot. Failing to unreachable is also the correct direction —
-  // it is the same verdict a genuine resolution failure produces, so no dial is
-  // authorized and no dialog is shown by a lookup we never saw the answer to.
+  // The deadline bounds the caller's wait; the permit remains until DNS settles.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<ResolveForDisplayResult>((resolve) => {
     timer = setTimeout(() => resolve({ ok: false, kind: 'unreachable' }), timeoutMs);
