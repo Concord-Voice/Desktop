@@ -2543,7 +2543,7 @@ describe('main.ts', () => {
       reopened();
     });
 
-    it('shares an in-flight open and pushes the session before load completes', async () => {
+    it('settles duplicate opens while the first PiP is still loading', async () => {
       const gate = deferred();
       const child = {
         ...mockMainWindow,
@@ -2558,19 +2558,34 @@ describe('main.ts', () => {
       const first = handlers.get('pip:open')!(pipOwnerEvent, {
         id: 'pending-pip',
       }) as Promise<void>;
-      const second = handlers.get('pip:open')!(pipOwnerEvent, {
-        id: 'pending-pip',
-      }) as Promise<void>;
-      expect(mockWebContents.send).toHaveBeenCalledWith(
-        'pip:opened',
-        expect.objectContaining({ id: 'pending-pip' })
+      const duplicates = Array.from(
+        { length: 64 },
+        () => handlers.get('pip:open')!(pipOwnerEvent, { id: 'pending-pip' }) as Promise<void>
       );
-      expect(child.focus).not.toHaveBeenCalled();
-      gate.resolve();
-      await Promise.all([first, second]);
-      expect(child.focus).toHaveBeenCalledOnce();
-      const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
-      close();
+      let settled = 0;
+      for (const duplicate of duplicates) {
+        void duplicate.then(
+          () => {
+            settled += 1;
+          },
+          () => {
+            settled += 1;
+          }
+        );
+      }
+      try {
+        await vi.waitFor(() => expect(settled).toBe(duplicates.length), { timeout: 500 });
+        expect(child.focus).toHaveBeenCalledTimes(duplicates.length);
+        expect(mockWebContents.send).toHaveBeenCalledWith(
+          'pip:opened',
+          expect.objectContaining({ id: 'pending-pip' })
+        );
+      } finally {
+        gate.resolve();
+        await Promise.allSettled([first, ...duplicates]);
+        const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
+        close();
+      }
     });
 
     it('destroys a newly created PiP if loading throws synchronously', async () => {

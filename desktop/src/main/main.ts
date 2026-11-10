@@ -2905,7 +2905,6 @@ type PipWindowEntry = {
   window: BrowserWindow;
   ownerFrameTreeNodeId: number;
   remoteSpaUrl: string | null;
-  ready: Promise<void>;
   /**
    * #3104 D6 — the per-window capability that authenticates this PiP on the
    * renderer-side `concord-pip` RPC channel. Minted here because the main
@@ -2987,14 +2986,9 @@ function getPipLoadUrl(id: string, remoteUrl: string | null): string {
   return `app://concord/index.html#/pip/${id}`;
 }
 
-async function focusExistingPip(existing: PipWindowEntry, senderFrameId: number): Promise<void> {
-  if (existing.ownerFrameTreeNodeId !== senderFrameId) throw new Error('PiP could not be opened');
-  try {
-    await existing.ready;
-  } catch {
+function focusExistingPip(existing: PipWindowEntry, senderFrameId: number): void {
+  if (existing.ownerFrameTreeNodeId !== senderFrameId || existing.window.isDestroyed())
     throw new Error('PiP could not be opened');
-  }
-  if (existing.window.isDestroyed()) throw new Error('PiP could not be opened');
   existing.window.focus();
 }
 
@@ -3058,7 +3052,6 @@ ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Pro
     ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
     remoteSpaUrl: remoteUrl,
     sessionToken,
-    ready,
   });
 
   const forgetWindow = () => {
