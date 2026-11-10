@@ -147,6 +147,28 @@ describe("Harness argv builders", () => {
     expect(args.slice(-2)).toEqual(["--", "--dangerously-skip-permissions"]);
   });
 
+  it("never spawns an Antigravity read-only worker", async () => {
+    let spawnCalls = 0;
+    const spawnFn: SpawnFn = () => {
+      spawnCalls++;
+      throw new Error("unexpected spawn");
+    };
+    const result = await new AntigravityRunner(spawnFn).run(runOpts());
+    expect(result).toMatchObject({ status: "FAILED", failureReason: expect.stringMatching(/Antigravity.*read-only/i) });
+    expect(spawnCalls).toBe(0);
+  });
+
+  it("still starts the process path for an Antigravity write-tier worker", async () => {
+    let spawnCalls = 0;
+    const spawnFn: SpawnFn = () => {
+      spawnCalls++;
+      throw new Error("synthetic spawn failure");
+    };
+    const result = await new AntigravityRunner(spawnFn).run(runOpts({ access: "workspace-write" }));
+    expect(result.failureReason).toBe("spawn error: synthetic spawn failure");
+    expect(spawnCalls).toBe(1);
+  });
+
   it("status protocol embeds the nonce", () => {
     expect(statusProtocol("abc")).toContain("[AWAITING_INPUT:abc]");
     expect(statusProtocol("abc")).toContain("[PERMISSION_REQUIRED:abc]");

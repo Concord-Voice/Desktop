@@ -13,7 +13,7 @@ import {
   type Elicitor,
   type EscalationEvidence,
 } from "./gate/activation.js";
-import { AntigravityRunner } from "./runners/agy-runner.js";
+import { ANTIGRAVITY_READ_ONLY_UNAVAILABLE, AntigravityRunner } from "./runners/agy-runner.js";
 import { WORKER_ENV_FLAG, type HarnessRunner, type RunnerResult } from "./runners/base.js";
 import { ClaudeRunner } from "./runners/claude-runner.js";
 import { CodexRunner } from "./runners/codex-runner.js";
@@ -93,6 +93,7 @@ export function resolveExecution(
     return { ok: true, execution: { harness, model: config.codexModel, effort: config.codexEffort ?? "medium", ...common } };
   }
   if (!config.agyModel) return { ok: false, reason: `Role ${config.role} is unsupported on Antigravity.` };
+  if (config.access === "read-only") return { ok: false, reason: ANTIGRAVITY_READ_ONLY_UNAVAILABLE };
   return { ok: true, execution: { harness, model: config.agyModel, effort: config.agyEffort ?? "medium", ...common } };
 }
 

@@ -131,7 +131,34 @@ describe("Concord Bridge MCP server", () => {
     expect(agy.content[0].text).toMatch(/unsupported on Antigravity/);
     const cfg = getAgentConfig("docs-reviewer");
     expect(resolveExecution({ ...cfg, codexEffort: null }, "codex")).toMatchObject({ ok: true, execution: { effort: "medium" } });
-    expect(resolveExecution({ ...cfg, agyEffort: null }, "antigravity")).toMatchObject({ ok: true, execution: { effort: "medium" } });
+    expect(resolveExecution({ ...getAgentConfig("researcher"), agyEffort: null }, "antigravity")).toMatchObject({ ok: true, execution: { effort: "medium" } });
+  });
+
+  it("rejects read-only Antigravity defaults and overrides before creating a worktree", async () => {
+    const { server, agy } = makeServer(repo);
+    for (const agent_role of ["scope-reviewer", "test-reviewer", "docs-reviewer"]) {
+      const result = await server.executeTool("bridge_dispatch_task", { agent_role, prompt: "review" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/Antigravity.*read-only/i);
+    }
+    for (const agent_role of ["code-reviewer", "frontend-reviewer", "migration-reviewer", "socket-io-reviewer", "deployment-config-reviewer"]) {
+      const result = await server.executeTool("bridge_dispatch_task", { agent_role, prompt: "review", harness_override: "antigravity" });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/Antigravity.*read-only/i);
+    }
+    expect(agy.calls).toHaveLength(0);
+    expect(fs.existsSync(path.join(repo, ".worktrees"))).toBe(false);
+    expect(gitOut(repo, "branch", "--list")).toBe("* main");
+  });
+
+  it("retains explicitly write-capable Antigravity and read-only Codex overrides", async () => {
+    const { server, agy, codex } = makeServer(repo);
+    const researcher = await server.executeTool("bridge_dispatch_task", { agent_role: "researcher", prompt: "research" });
+    expect(json(researcher).status).toBe("COMPLETED");
+    expect(agy.calls[0]).toMatchObject({ access: "workspace-write" });
+    const reviewer = await server.executeTool("bridge_dispatch_task", { agent_role: "scope-reviewer", prompt: "review", harness_override: "codex" });
+    expect(json(reviewer).status).toBe("COMPLETED");
+    expect(codex.calls[0]).toMatchObject({ access: "read-only" });
   });
 
   it("refuses recursive dispatch from inside a worker", async () => {

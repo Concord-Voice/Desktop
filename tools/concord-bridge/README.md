@@ -44,10 +44,12 @@ One process per dispatch and one per reply, always with `shell: false`:
 |---|---|---|---|
 | claude | `claude -p --model … --effort … --permission-mode plan\|acceptEdits --max-turns N --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence -- <prompt>` | `read-only` becomes `plan`; both write tiers become `acceptEdits` | `--max-turns` |
 | codex | `codex exec -m … -c model_reasoning_effort=… --sandbox read-only\|workspace-write -C <worktree> -- <prompt>` | `read-only` becomes `read-only`; both write tiers become `workspace-write` | not enforced (no flag) |
-| antigravity | `agy run --model … --effort … -- <prompt>` | not enforced | not enforced |
+| antigravity | `agy run --model … --effort … -- <prompt>` | read-only refused; write tiers not enforced | not enforced |
 
 Only the claude flags were checked against a live CLI (Claude Code 2.1.307).
 The codex flags come from the upstream CLI source. The `agy` argv is unverified.
+Read-only roles that default to Antigravity must use an explicit Claude or Codex
+override until Antigravity enforcement is verified.
 
 Each worker gets a 30-minute SIGKILL timeout and a 2 MiB cap on combined
 stdout and stderr. A worker reports a pause by printing
