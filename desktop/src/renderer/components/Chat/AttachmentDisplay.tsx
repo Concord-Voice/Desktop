@@ -32,6 +32,7 @@ import {
   MAX_DECRYPTABLE_ATTACHMENT_BYTES,
 } from '../../utils/policy/entitlementLimits';
 import type { AttachmentSummary } from '../../types/chat';
+import { SAVE_IMAGE_MAX_BYTES } from '../../../shared/saveImage';
 import { useSettingsStore } from '../../stores/ui/settingsStore';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { useWindowFocus } from '../../hooks/ui/useWindowFocus';
@@ -623,6 +624,24 @@ function imageContainerStyle(
   return undefined;
 }
 
+function saveableImageUrl(id: string, url: string | null): string | null {
+  const entry = blobUrlCache.get(id);
+  return url && entry?.url === url && entry.bytes <= SAVE_IMAGE_MAX_BYTES ? url : null;
+}
+
+function saveImageAs(id: string, mimeType: string, url: string | null): void {
+  const saveUrl = saveableImageUrl(id, url);
+  if (!saveUrl) return;
+  fetch(saveUrl)
+    .then((r) => r.arrayBuffer())
+    .then((bytes) => globalThis.electron.saveImageAs(bytes, `image-${id}${extFromMime(mimeType)}`))
+    .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
+}
+
+function availableSaveAction(canSaveImage: boolean, save: () => void): (() => void) | undefined {
+  return canSaveImage ? save : undefined;
+}
+
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Declared above the focus hook, which now takes it as its `enabled` gate.
   // `file_type` is MIME-derived and PERSISTED at upload, so it is wrong for two
@@ -711,18 +730,12 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // a native "Save Image As…" on a blob: URL). User-cancel is a no-op success.
   // Sync wrapper whose promise chain ends in `.catch`, so the promise is handled
   // (not floating) without the `void` operator, and callers invoke it directly.
-  const handleSaveImage = useCallback((): void => {
-    if (!url) return;
-    fetch(url)
-      .then((r) => r.arrayBuffer())
-      .then((bytes) =>
-        globalThis.electron.saveImageAs(
-          bytes,
-          `image-${attachment.id}${extFromMime(attachment.mime_type)}`
-        )
-      )
-      .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
-  }, [url, attachment.id, attachment.mime_type]);
+  // All saveable blobs fit in the retained cache; larger live-only blobs do not.
+  const canSaveImage = saveableImageUrl(attachment.id, url) !== null;
+  const handleSaveImage = useCallback(
+    () => saveImageAs(attachment.id, attachment.mime_type, url),
+    [url, attachment.id, attachment.mime_type]
+  );
 
   const load = useCallback(async () => {
     if (loadingRef.current || urlRef.current || awaitingClickRef.current) return;
@@ -989,7 +1002,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           // opened on purpose. Static photos are never paused.
           paused={isAnimated && !windowFocused}
           onClose={() => setLightboxOpen(false)}
-          onSave={handleSaveImage}
+          onSave={availableSaveAction(canSaveImage, handleSaveImage)}
         />
       )}
       {menuPos && (
@@ -1004,7 +1017,8 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           />
           <ContextMenu.Item
             icon={<Download size={16} />}
-            label="Save image…"
+            label={canSaveImage ? 'Save image…' : 'Save image unavailable (100 MiB limit)'}
+            ariaDisabled={!canSaveImage}
             onClick={() => {
               setMenuPos(null);
               handleSaveImage();

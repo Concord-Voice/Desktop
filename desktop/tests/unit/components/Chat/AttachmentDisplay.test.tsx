@@ -348,6 +348,53 @@ describe('AttachmentDisplay', () => {
     }
   });
 
+  it.each([100 * 1024 * 1024 + 1, BLOB_CACHE_RETAIN_MAX_BYTES + 1])(
+    'does not fetch or materialize a decrypted image of %i bytes for save',
+    async (size) => {
+      const saveImageAs = vi.fn();
+      const origElectron = window.electron;
+      window.electron = { ...origElectron, saveImageAs } as typeof window.electron;
+      const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(8));
+      const blobFetch = vi.fn().mockResolvedValue({ arrayBuffer });
+      vi.stubGlobal('fetch', blobFetch);
+      mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(size));
+      try {
+        const { img } = await renderLoadedImage(`img-too-large-${size}`);
+        fireEvent.contextMenu(img);
+        fireEvent.click(screen.getByText(/Save image/));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(blobFetch).not.toHaveBeenCalled();
+        expect(arrayBuffer).not.toHaveBeenCalled();
+        expect(saveImageAs).not.toHaveBeenCalled();
+        fireEvent.click(img);
+        expect(screen.queryByRole('button', { name: 'Save image' })).not.toBeInTheDocument();
+      } finally {
+        window.electron = origElectron;
+        vi.unstubAllGlobals();
+      }
+    }
+  );
+
+  it('allows saving an image exactly at the 100 MiB limit', async () => {
+    const saveImageAs = vi.fn().mockResolvedValue({ ok: true });
+    const origElectron = window.electron;
+    window.electron = { ...origElectron, saveImageAs } as typeof window.electron;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) })
+    );
+    mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(100 * 1024 * 1024));
+    try {
+      const { img } = await renderLoadedImage('img-save-at-limit');
+      fireEvent.contextMenu(img);
+      fireEvent.click(screen.getByText('Save image…'));
+      await waitFor(() => expect(saveImageAs).toHaveBeenCalledOnce());
+    } finally {
+      window.electron = origElectron;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('swallows a Save failure when the blob fetch rejects (no crash)', async () => {
     const saveImageAs = vi.fn();
     const origElectron = window.electron;
