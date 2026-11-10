@@ -2523,24 +2523,62 @@ describe('main.ts', () => {
       expect(hidden).toBe(false);
     });
 
-    it('destroys and untracks a PiP whose load promise rejects', async () => {
-      const failedLoad = Promise.reject(new Error('load failed'));
-      failedLoad.catch(() => undefined);
-      const child = {
-        ...mockMainWindow,
-        destroy: vi.fn(),
-        on: vi.fn(),
-        loadURL: vi.fn(() => failedLoad),
-      };
-      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
-        return child;
-      });
+    it.each([false, true])(
+      'revokes and untracks a PiP whose load rejects (closed event: %s)',
+      async (emitClosed) => {
+        const failedLoad = Promise.reject(new Error('load failed'));
+        failedLoad.catch(() => undefined);
+        const child = {
+          ...mockMainWindow,
+          destroy: vi.fn(),
+          on: vi.fn(),
+          loadURL: vi.fn(() => failedLoad),
+        };
+        if (emitClosed) {
+          child.destroy.mockImplementation(() => {
+            const closed = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as
+              (() => void) | undefined;
+            closed?.();
+          });
+        }
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return child;
+        });
+        mockWebContents.send.mockClear();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'async-load-failure' })
+        ).rejects.toThrow();
+        expect(child.destroy).toHaveBeenCalledOnce();
+        expect(
+          mockWebContents.send.mock.calls
+            .filter((call) => call[0] === 'pip:opened' || call[0] === 'pip:closed')
+            .map((call) => call[0])
+        ).toEqual(['pip:opened', 'pip:closed']);
+        const reopened = await openPip('async-load-failure');
+        reopened();
+      }
+    );
+
+    it('charges failed loads against the window-creation budget', async () => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      for (let n = 0; n < 8; n++) {
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return {
+            ...mockMainWindow,
+            on: vi.fn(),
+            destroy: vi.fn(),
+            loadURL: vi.fn().mockRejectedValue(new Error('load failed')),
+          };
+        });
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: `failed-load-${n}` })
+        ).rejects.toThrow();
+      }
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
       await expect(
-        handlers.get('pip:open')!(pipOwnerEvent, { id: 'async-load-failure' })
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'failed-load-ninth' })
       ).rejects.toThrow();
-      expect(child.destroy).toHaveBeenCalledOnce();
-      const reopened = await openPip('async-load-failure');
-      reopened();
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
     });
 
     it('settles duplicate opens while the first PiP is still loading', async () => {

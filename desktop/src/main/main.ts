@@ -3008,6 +3008,7 @@ ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Pro
   const existing = pipWindows.get(opts.id);
   if (existing) return focusExistingPip(existing, senderFrame.frameTreeNodeId);
 
+  // Failed loads spend a token so retries cannot bypass the window-churn limit.
   if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
     throw new Error('PiP could not be opened');
 
