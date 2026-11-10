@@ -18,14 +18,16 @@
  *   async disk writes after it are queued and re-check ownership after each await.
  */
 
-import { safeStorage, net } from 'electron';
+import { app, safeStorage, net } from 'electron';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { getMachineId } from './machineId';
 import { clearAttestationToken } from './attestationService';
 import { encryptForDisk, isSecureStorageAvailable, isUnprotectedCiphertext } from './secureStorage';
 import type { CredentialOwner, RefreshResult } from './ipcContract';
 import {
+  isValidatedSelfHostedApiBase,
   profileIdForApiBase,
   profilePathsForApiBase,
   type ProfilePaths,
@@ -54,6 +56,7 @@ interface TokenMeta {
 }
 
 interface PersistedE2EEKeys {
+  binding: string;
   credentialOwner: CredentialOwner;
   keys: E2EEKeyMaterial;
 }
@@ -84,6 +87,7 @@ interface RefreshOperation {
 let inMemoryRefreshToken: string | null = null;
 let inMemoryRememberMe = true;
 let inMemoryApiBase = '';
+let inMemoryCredentialBinding = '';
 let cachedAccessToken: string | null = null;
 // Session-only (rememberMe=false) E2EE key material lives here and ONLY here —
 // never on disk — so it survives a renderer soft reload (the main process
@@ -94,7 +98,6 @@ let inMemoryE2EEOwner: CredentialOwner | null = null;
 let inMemoryE2EEState: E2EEPersistenceState = 'pending';
 let stagedE2EEKeys: StagedE2EEKeys | null = null;
 let reservedCredentialOwner: CredentialOwner | null = null;
-let allowLegacyE2EEMigration = false;
 // Owner numbers are not unique. Restore adopts a profile's persisted owner,
 // which can move this counter backwards, and two profiles can persist the same
 // number. So every queued write re-checks the API base and the stored value
@@ -519,14 +522,26 @@ function persistPublishedToken(
   apiBase: string,
   owner: CredentialOwner
 ): Promise<void> {
+  const binding = inMemoryCredentialBinding;
   return enqueueDiskWrite(async () => {
     // A logout or a newer login owns the profile files now. Checked before the
     // encrypt too, so a burst of logins encrypts only the newest.
-    const superseded = () => owner !== credentialGeneration || apiBase !== inMemoryApiBase;
+    const superseded = () =>
+      owner !== credentialGeneration ||
+      apiBase !== inMemoryApiBase ||
+      binding !== inMemoryCredentialBinding;
     if (superseded()) return;
     let encrypted: Buffer | null;
     try {
-      encrypted = await encryptForDisk(token);
+      encrypted = await encryptForDisk(
+        JSON.stringify({
+          version: 1,
+          token,
+          apiBase,
+          owner,
+          binding,
+        })
+      );
     } catch (err) {
       console.error('[TokenManager] Failed to encrypt token:', errorMessage(err));
       return;
@@ -566,10 +581,10 @@ function publishRefreshToken(
   inMemoryE2EEKeys = null;
   inMemoryE2EEOwner = null;
   inMemoryE2EEState = 'pending';
-  allowLegacyE2EEMigration = false;
   stagedE2EEKeys = null;
   reservedCredentialOwner = null;
 
+  inMemoryCredentialBinding = randomUUID();
   inMemoryRefreshToken = data.refreshToken;
   inMemoryRememberMe = data.rememberMe;
   inMemoryApiBase = data.apiBase;
@@ -692,14 +707,14 @@ export async function restoreRefreshToken(): Promise<RestoreRefreshTokenResult> 
     return { status: 'no_session' };
   }
 
-  let token: string;
+  let plaintext: string;
   let shouldReEncrypt: boolean;
   try {
     const encrypted = fs.readFileSync(pathsForApiBase(meta.apiBase).tokenFile);
     if (isUnprotectedCiphertext(encrypted)) {
       throw new Error('Token file is not under a keyring key');
     }
-    ({ result: token, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted));
+    ({ result: plaintext, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted));
   } catch (err) {
     if (superseded()) return memoryRestoreResult();
     if (DECRYPT_TEMPORARILY_UNAVAILABLE.test(errorMessage(err))) {
@@ -713,30 +728,52 @@ export async function restoreRefreshToken(): Promise<RestoreRefreshTokenResult> 
   }
   if (superseded()) return memoryRestoreResult();
 
-  // Key-material audit: previously logged the token's last-8 chars + a
-  // sha256 fingerprint plus rememberMe + apiBase — removed to keep
-  // refresh-token bytes off stdout.
-  const legacyMeta = meta.credentialOwner === undefined || meta.e2eeState === undefined;
-  const owner = meta.credentialOwner ?? nextCredentialOwner(meta.apiBase);
+  // Legacy token-only files have no authenticated destination and cannot be migrated safely.
+  let envelope: Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(plaintext);
+    if (typeof value !== 'object' || value === null || Array.isArray(value))
+      return { status: 'no_session' };
+    envelope = value as Record<string, unknown>;
+  } catch {
+    return { status: 'no_session' };
+  }
+  if (
+    envelope.version !== 1 ||
+    typeof envelope.token !== 'string' ||
+    !envelope.token ||
+    envelope.apiBase !== meta.apiBase ||
+    typeof envelope.owner !== 'number' ||
+    !Number.isSafeInteger(envelope.owner) ||
+    envelope.owner <= 0 ||
+    typeof envelope.binding !== 'string' ||
+    !/^[0-9a-f-]{36}$/.test(envelope.binding)
+  )
+    return { status: 'no_session' };
+
+  if (
+    app.isPackaged &&
+    new URL(meta.apiBase).origin !== DEFAULT_PROFILE_API_BASE &&
+    !isValidatedSelfHostedApiBase(meta.apiBase)
+  )
+    return { status: 'no_session' };
+
+  const token = envelope.token;
+  const owner = envelope.owner;
   credentialGeneration = owner;
+  inMemoryCredentialBinding = envelope.binding;
   inMemoryRefreshToken = token;
-  inMemoryRememberMe = meta.rememberMe;
+  inMemoryRememberMe = true;
   inMemoryApiBase = meta.apiBase;
   inMemoryE2EEKeys = null;
   inMemoryE2EEOwner = null;
-  inMemoryE2EEState = meta.e2eeState ?? 'pending';
+  // Only an E2EE blob bound to this credential may become ready.
+  inMemoryE2EEState = 'ready';
   stagedE2EEKeys = null;
   reservedCredentialOwner = null;
-  allowLegacyE2EEMigration = legacyMeta;
-  if (legacyMeta) {
-    // Persist the owner + fail-closed marker before attempting the one-time
-    // legacy E2EE migration. A crash now prompts for unlock instead of ever
-    // pairing this credential with an unowned blob.
-    writeMeta(meta.apiBase, meta.rememberMe, owner, 'pending');
-  }
   // The key that decrypted this file is no longer the one that encrypts.
   if (shouldReEncrypt) persistRotatedToken(token, meta.apiBase);
-  return { status: 'ok', token, apiBase: meta.apiBase, rememberMe: meta.rememberMe };
+  return { status: 'ok', token, apiBase: meta.apiBase, rememberMe: true };
 }
 
 /** `value` when it is an array, keeping only its strings; otherwise empty. */
@@ -796,11 +833,25 @@ function persistRotatedToken(newRefreshToken: string, apiBase: string): void {
     return;
   }
   const owner = credentialGeneration;
+  const binding = inMemoryCredentialBinding;
   void enqueueDiskWrite(async () => {
     try {
-      const encrypted = await encryptForDisk(newRefreshToken);
+      const encrypted = await encryptForDisk(
+        JSON.stringify({
+          version: 1,
+          token: newRefreshToken,
+          apiBase,
+          owner,
+          binding,
+        })
+      );
       // Superseded tokens and memory-only sessions never reach the disk.
-      if (encrypted === null || !refreshTokenIsCurrent(newRefreshToken, apiBase, owner)) return;
+      if (
+        encrypted === null ||
+        binding !== inMemoryCredentialBinding ||
+        !refreshTokenIsCurrent(newRefreshToken, apiBase, owner)
+      )
+        return;
       writeTokenFile(apiBase, encrypted);
       // Key-material audit: previously logged the new refresh token's last-8
       // chars — removed to keep token bytes off stdout.
@@ -962,6 +1013,7 @@ export function clearTokens(): void {
   inMemoryRefreshToken = null;
   inMemoryRememberMe = true;
   inMemoryApiBase = '';
+  inMemoryCredentialBinding = '';
   cachedAccessToken = null;
   // Drop session-only E2EE key custody on logout/clear — the in-memory keys
   // must not outlive the session (CWE-212). performLogout() flows through here.
@@ -970,7 +1022,6 @@ export function clearTokens(): void {
   inMemoryE2EEState = 'pending';
   stagedE2EEKeys = null;
   reservedCredentialOwner = null;
-  allowLegacyE2EEMigration = false;
   deleteFiles(apiBaseToClear);
 }
 
@@ -1076,11 +1127,11 @@ export async function storeE2EEKeysIfOwner(
   inMemoryE2EEKeys = data;
   inMemoryE2EEOwner = owner;
   inMemoryE2EEState = 'ready';
-  allowLegacyE2EEMigration = false;
 
   if (!inMemoryRememberMe) return true;
 
   const apiBase = inMemoryApiBase;
+  const binding = inMemoryCredentialBinding;
   return enqueueDiskWrite(async () => {
     // A logout, a newer credential, or different keys replaced this write.
     // Checked before the encrypt too, so a burst of key writes encrypts only
@@ -1088,11 +1139,16 @@ export async function storeE2EEKeysIfOwner(
     const superseded = () =>
       owner !== credentialGeneration ||
       apiBase !== inMemoryApiBase ||
+      binding !== inMemoryCredentialBinding ||
       !sameE2EEKeys(inMemoryE2EEKeys, data);
     if (superseded()) return false;
     let encrypted: Buffer | null;
     try {
-      const persisted: PersistedE2EEKeys = { credentialOwner: owner, keys: data };
+      const persisted: PersistedE2EEKeys = {
+        binding,
+        credentialOwner: owner,
+        keys: data,
+      };
       encrypted = await encryptForDisk(JSON.stringify(persisted));
     } catch (err) {
       console.error('[TokenManager] Failed to encrypt E2EE keys:', errorMessage(err));
@@ -1141,22 +1197,20 @@ export async function restoreE2EEKeys(): Promise<E2EEKeyMaterial | null> {
     return inMemoryE2EEKeys;
   }
 
-  if (
-    !inMemoryRefreshToken ||
-    !inMemoryApiBase ||
-    (inMemoryE2EEState !== 'ready' && !allowLegacyE2EEMigration)
-  ) {
+  if (!inMemoryRefreshToken || !inMemoryApiBase || inMemoryE2EEState !== 'ready') {
     return null;
   }
 
   const owner = credentialGeneration;
   const apiBase = inMemoryApiBase;
+  const binding = inMemoryCredentialBinding;
   const decrypted = await decryptE2EEFile(apiBase);
   // No readable file, or a logout or newer credential during the decrypt.
   if (
     !decrypted ||
     owner !== credentialGeneration ||
     apiBase !== inMemoryApiBase ||
+    binding !== inMemoryCredentialBinding ||
     !inMemoryRefreshToken
   ) {
     return null;
@@ -1176,6 +1230,7 @@ export async function restoreE2EEKeys(): Promise<E2EEKeyMaterial | null> {
     parsed !== null &&
     !Array.isArray(parsed) &&
     (parsed as Record<string, unknown>).credentialOwner === owner &&
+    (parsed as Record<string, unknown>).binding === binding &&
     isE2EEKeyMaterial((parsed as Record<string, unknown>).keys)
   ) {
     const keys = (parsed as PersistedE2EEKeys).keys;
@@ -1187,11 +1242,6 @@ export async function restoreE2EEKeys(): Promise<E2EEKeyMaterial | null> {
     return keys;
   }
 
-  if (allowLegacyE2EEMigration && isE2EEKeyMaterial(parsed)) {
-    const keys = parsed;
-    void storeE2EEKeysIfOwner(keys, owner);
-    return keys;
-  }
   return null;
 }
 
@@ -1236,13 +1286,13 @@ export function _resetForTesting(): void {
   inMemoryRefreshToken = null;
   inMemoryRememberMe = true;
   inMemoryApiBase = '';
+  inMemoryCredentialBinding = '';
   cachedAccessToken = null;
   inMemoryE2EEKeys = null;
   inMemoryE2EEOwner = null;
   inMemoryE2EEState = 'pending';
   stagedE2EEKeys = null;
   reservedCredentialOwner = null;
-  allowLegacyE2EEMigration = false;
   refreshOperation = null;
   proactiveRefreshCallback = null;
   lastProactiveRefreshTimestamp = 0;
