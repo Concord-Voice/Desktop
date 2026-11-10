@@ -2428,15 +2428,16 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
 
   const parsed = new URL(normalized.apiBase);
   const resolved: ResolveForDisplayResult = await resolveForDisplay(parsed.hostname);
-  if (!resolved.ok && resolved.kind === 'busy') {
-    return { status: 'error', code: 'busy', message: '' };
-  }
-  if (!resolved.ok && resolved.kind === 'tier1') {
-    // Reason token only; the renderer owns the user-facing copy.
-    return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
-  }
   if (!resolved.ok) {
-    return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    switch (resolved.kind) {
+      case 'busy':
+        return { status: 'error', code: 'busy', message: '' };
+      case 'tier1':
+        // Reason token only; the renderer owns the user-facing copy.
+        return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
+      default:
+        return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    }
   }
 
   // Consent is scoped to the address class the ceremony displayed. An origin approved

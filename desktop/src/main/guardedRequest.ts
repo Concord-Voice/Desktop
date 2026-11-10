@@ -23,7 +23,7 @@ function limitedProbeLookup(
   host: string,
   resolver: typeof dns.lookup,
   callback: (error: NodeJS.ErrnoException | null, addresses: dns.LookupAddress[]) => void,
-  options: dns.LookupAllOptions = { all: true }
+  options: dns.LookupAllOptions
 ): void {
   if (probeLookupPending) {
     const error = Object.assign(new Error('probe lookup busy'), { code: PROBE_LOOKUP_BUSY });
@@ -274,7 +274,7 @@ export async function resolveForDisplay(
         addresses: list.map((a) => a.address),
         decision: decisions[pick],
       });
-    });
+    }, { all: true });
   });
 
   // The deadline bounds the caller's wait; the permit remains until DNS settles.
