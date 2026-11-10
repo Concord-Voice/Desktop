@@ -55,6 +55,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Security
 
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 
 ## [0.3.1] - 2026-11-06
 

@@ -31,6 +31,7 @@ import type { appleTokenCall as appleTokenCallFn } from './appleTokenCall';
 import { AppleFlowError } from './errors';
 import type { verifyAppleIDToken as verifyAppleIDTokenFn } from './idTokenVerifier';
 import { codeChallengeS256, generateCodeVerifier } from '../pkce';
+import { parseProviderAuthUrl } from '../providerAuthUrl';
 import type { signClientSecret as signClientSecretFn } from './signClientSecret';
 import {
   constantTimeEquals,
@@ -41,6 +42,7 @@ import {
 
 /** Overall flow deadline (spec R2). */
 export const APPLE_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+const APPLE_BRIDGE_CALLBACK = 'https://api.concordvoice.chat/auth/sso/apple/callback';
 
 export interface AppleFlowDeps {
   apiBase: string;
@@ -118,18 +120,14 @@ async function initiate(
 }
 
 /** Parses client_id + redirect_uri out of the server-built authorize URL (D5). */
-function parseAuthUrl(authUrl: string): { clientId: string; redirectUri: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(authUrl);
-  } catch {
-    throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  }
-  if (parsed.protocol !== 'https:') throw new AppleFlowError('sso_initiate_failed', 'initiate');
+function parseAuthUrl(authUrl: string): { clientId: string; redirectUri: string; url: string } {
+  const parsed = parseProviderAuthUrl(authUrl, 'https://appleid.apple.com/auth/authorize');
+  if (!parsed) throw new AppleFlowError('sso_initiate_failed', 'initiate');
   const clientId = parsed.searchParams.get('client_id') ?? '';
   const redirectUri = parsed.searchParams.get('redirect_uri') ?? '';
-  if (!clientId || !redirectUri) throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  return { clientId, redirectUri };
+  if (!clientId || redirectUri !== APPLE_BRIDGE_CALLBACK)
+    throw new AppleFlowError('sso_initiate_failed', 'initiate');
+  return { clientId, redirectUri, url: parsed.href };
 }
 
 async function postSession(
@@ -216,9 +214,9 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     }
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
-    const { clientId, redirectUri } = parseAuthUrl(init.auth_url);
+    const { clientId, redirectUri, url } = parseAuthUrl(init.auth_url);
 
-    await deps.openExternal(init.auth_url);
+    await deps.openExternal(url);
 
     // Rejects with oauth_cancelled / oauth_timeout / oauth_provider_error:<x>.
     const cb = await loopback.promise;

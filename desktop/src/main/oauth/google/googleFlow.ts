@@ -28,6 +28,7 @@ import { GoogleFlowError } from './errors';
 import type { googleTokenCall as googleTokenCallFn } from './googleTokenCall';
 import type { verifyGoogleIDToken as verifyGoogleIDTokenFn } from './idTokenVerifier';
 import { codeChallengeS256, generateCodeVerifier } from '../pkce';
+import { parseProviderAuthUrl } from '../providerAuthUrl';
 import {
   constantTimeEquals,
   mapSessionResponse as mapSessionResponseShared,
@@ -123,17 +124,16 @@ async function initiate(
  * appleFlow.parseAuthUrl). The control-plane embeds GOOGLE_CLIENT_ID in the
  * authorize URL at /initiate time; the desktop never holds a client_id constant.
  */
-function parseGoogleAuthUrl(authUrl: string): { clientId: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(authUrl);
-  } catch {
-    throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  }
-  if (parsed.protocol !== 'https:') throw new GoogleFlowError('sso_initiate_failed', 'initiate');
+function parseGoogleAuthUrl(
+  authUrl: string,
+  redirectUri: string
+): { clientId: string; url: string } {
+  const parsed = parseProviderAuthUrl(authUrl, 'https://accounts.google.com/o/oauth2/v2/auth');
+  if (!parsed) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
   const clientId = parsed.searchParams.get('client_id') ?? '';
-  if (!clientId) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  return { clientId };
+  if (!clientId || parsed.searchParams.get('redirect_uri') !== redirectUri)
+    throw new GoogleFlowError('sso_initiate_failed', 'initiate');
+  return { clientId, url: parsed.href };
 }
 
 async function postSession(
@@ -202,9 +202,9 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     }
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
-    const { clientId } = parseGoogleAuthUrl(init.auth_url);
+    const { clientId, url } = parseGoogleAuthUrl(init.auth_url, loopback.redirectURI);
 
-    await deps.openExternal(init.auth_url);
+    await deps.openExternal(url);
 
     // Rejects with oauth_cancelled / oauth_timeout / oauth_provider_error:<x>.
     const cb = await loopback.promise;
