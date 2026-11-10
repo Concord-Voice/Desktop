@@ -527,8 +527,12 @@ function apiFetchRaw(
   assertBeforeDispatch?: () => void
 ): Promise<Response> {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const requestUrl = `${apiBase}${normalizedPath}`;
+  if (new URL(requestUrl).origin !== new URL(apiBase).origin) {
+    throw new Error('API request escaped the selected server origin');
+  }
   assertBeforeDispatch?.();
-  return fetch(`${apiBase}${normalizedPath}`, {
+  return fetch(requestUrl, {
     ...init,
     headers,
     credentials: 'include',
