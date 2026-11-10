@@ -59,6 +59,35 @@ describe('appleTokenCall', () => {
     await expect(call(fetchFn)).resolves.toEqual({ idToken: 'idt-1' });
   });
 
+  it('reports cancellation during a stalled token response body', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = appleTokenCall({ ...baseArgs, fetchFn, signal: controller.signal });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    controller.abort();
+    await expectCode(pending, 'sso_cancelled');
+  });
+
+  it('bounds a stalled token body without cancelling the browser flow', async () => {
+    const flow = new AbortController();
+    const deadline = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+    try {
+      const fetchFn = vi.fn(
+        async () => new Response(new ReadableStream<Uint8Array>({}))
+      ) as unknown as typeof fetch;
+      const pending = appleTokenCall({ ...baseArgs, fetchFn, signal: flow.signal });
+      await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+      deadline.abort();
+      await expectCode(pending, 'apple_unavailable');
+      expect(flow.signal.aborted).toBe(false);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('maps 400 (invalid_grant et al.) to apple_exchange_rejected', async () => {
     const fetchFn = (async () => jsonResponse(400, { error: 'invalid_grant' })) as typeof fetch;
     await expectCode(call(fetchFn), 'apple_exchange_rejected');

@@ -13,6 +13,7 @@
  *   5xx / network / bad body → apple_unavailable (orchestrator retries once)
  *   abort → sso_cancelled
  */
+import { authRequestSignal, readAuthJson } from '../../authResponse';
 import { AppleFlowError } from './errors';
 
 export const APPLE_TOKEN_ENDPOINT = 'https://appleid.apple.com/auth/token';
@@ -37,6 +38,7 @@ export async function appleTokenCall(opts: {
     redirect_uri: opts.redirectUri,
   });
 
+  const requestSignal = authRequestSignal(opts.signal);
   let res: Response;
   try {
     res = await opts.fetchFn(opts.endpoint ?? APPLE_TOKEN_ENDPOINT, {
@@ -46,10 +48,10 @@ export async function appleTokenCall(opts: {
         Accept: 'application/json',
       },
       body: form.toString(),
-      signal: opts.signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') {
+  } catch {
+    if (opts.signal.aborted) {
       throw new AppleFlowError('sso_cancelled', 'apple_token');
     }
     throw new AppleFlowError('apple_unavailable', 'apple_token');
@@ -62,7 +64,11 @@ export async function appleTokenCall(opts: {
     throw new AppleFlowError('apple_unavailable', 'apple_token');
   }
 
-  const body = (await res.json().catch(() => null)) as { id_token?: unknown } | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (opts.signal.aborted) throw new AppleFlowError('sso_cancelled', 'apple_token');
+    if (requestSignal.aborted) throw new AppleFlowError('apple_unavailable', 'apple_token');
+    return null;
+  })) as { id_token?: unknown } | null;
   if (!body || typeof body.id_token !== 'string' || body.id_token.length === 0) {
     throw new AppleFlowError('apple_exchange_rejected', 'apple_token');
   }

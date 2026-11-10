@@ -73,6 +73,30 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cancelActiveGoogleFlow());
 
 describe('runGoogleSignIn', () => {
+  it('reports cancellation while the initiation body is stalled', async () => {
+    const lo = makeLoopback();
+    const controlPlaneFetch = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const deps = makeDeps(lo, { controlPlaneFetch });
+    const pending = runGoogleSignIn(deps);
+    await vi.waitFor(() => expect(controlPlaneFetch).toHaveBeenCalledOnce());
+    cancelActiveGoogleFlow();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized initiation before opening the browser', async () => {
+    const lo = makeLoopback();
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () => new Response(JSON.stringify({ padding: 'x'.repeat(2 * 1024 * 1024) }))
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
   it('rejects a phishing authorization URL before opening the browser', async () => {
     const lo = makeLoopback();
     lo.resolveCb({ code: 'CODE', state: 'STATE' });

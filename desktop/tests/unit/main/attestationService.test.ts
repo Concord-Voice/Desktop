@@ -49,19 +49,16 @@ const OPTS = {
 const FUTURE_EXPIRES_AT = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
 function mockSuccessResponse(token = 'attest-token-xyz', expiresAt = FUTURE_EXPIRES_AT) {
-  mockNet.fetch.mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: vi.fn().mockResolvedValue({ attestation_token: token, expires_at: expiresAt }),
-  });
+  mockNet.fetch.mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ attestation_token: token, expires_at: expiresAt }), {
+        status: 200,
+      })
+  );
 }
 
 function mockErrorResponse(status: number, body: Record<string, unknown>) {
-  mockNet.fetch.mockResolvedValue({
-    ok: false,
-    status,
-    json: vi.fn().mockResolvedValue(body),
-  });
+  mockNet.fetch.mockImplementation(async () => new Response(JSON.stringify(body), { status }));
 }
 
 beforeEach(() => {
@@ -81,6 +78,20 @@ describe('attest — success', () => {
     mockSuccessResponse('tok-abc');
     const result = await attest(OPTS);
     expect(result).toBe('tok-abc');
+  });
+
+  it('does not cache an oversized attestation response', async () => {
+    mockNet.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          attestation_token: 'fake',
+          expires_at: FUTURE_EXPIRES_AT,
+          padding: 'x'.repeat(2 * 1024 * 1024),
+        })
+      )
+    );
+    await expect(attest(OPTS)).rejects.toThrow();
+    expect(getAttestationToken()).toBeNull();
   });
 
   it('caches the token so getAttestationToken() returns it', async () => {
@@ -173,11 +184,7 @@ describe('attest — failure with absent code in error body', () => {
 
 describe('attest — failure with unparseable error body', () => {
   it('throws AttestationError without crashing when res.json() rejects', async () => {
-    mockNet.fetch.mockResolvedValue({
-      ok: false,
-      status: 503,
-      json: vi.fn().mockRejectedValue(new Error('not JSON')),
-    });
+    mockNet.fetch.mockResolvedValue(new Response('not JSON', { status: 503 }));
     const err = await attest(OPTS).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AttestationError);
     expect((err as AttestationError).status).toBe(503);
@@ -250,20 +257,12 @@ describe('clearAttestationToken', () => {
 
 describe('attest — malformed expires_at (fail-closed)', () => {
   it('throws AttestationError when expires_at is not a valid date string', async () => {
-    mockNet.fetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue({ attestation_token: 'tok-x', expires_at: 'not-a-date' }),
-    });
+    mockSuccessResponse('tok-x', 'not-a-date');
     await expect(attest(OPTS)).rejects.toBeInstanceOf(AttestationError);
   });
 
   it('does not cache anything when expires_at is malformed', async () => {
-    mockNet.fetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue({ attestation_token: 'tok-x', expires_at: 'not-a-date' }),
-    });
+    mockSuccessResponse('tok-x', 'not-a-date');
     await attest(OPTS).catch(() => {});
     expect(getAttestationToken()).toBeNull();
   });

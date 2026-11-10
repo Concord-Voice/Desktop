@@ -47,6 +47,17 @@ describe('signClientSecret', () => {
     await expect(call(fetchFn)).resolves.toBe('jwt-abc');
   });
 
+  it('reports cancellation during a stalled broker response body', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = call(fetchFn, controller.signal);
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    controller.abort();
+    await expectCode(pending, 'sso_cancelled');
+  });
+
   it('maps 401 to sso_state_expired', async () => {
     const fetchFn = (async () =>
       jsonResponse(401, { error_code: 'invalid_state' })) as typeof fetch;

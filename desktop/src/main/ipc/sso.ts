@@ -61,6 +61,7 @@ import { isIP } from 'node:net';
 import { ipcMain, net, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 
 import { getApiBaseUrl, PRODUCTION_API_BASE } from '../apiBaseUrl';
+import { AUTH_REQUEST_TIMEOUT_MS, readAuthJson } from '../authResponse';
 import { classifyAddress } from '../egressPolicy';
 import { guardedRequest } from '../guardedRequest';
 import { getMachineId } from '../machineId';
@@ -289,9 +290,9 @@ function sanitizeCompletionErrorBody(value: unknown): SSOCompletionErrorBody | u
   return Object.keys(body).length > 0 ? body : undefined;
 }
 
-async function responseJson(response: Response): Promise<unknown> {
+async function responseJson(response: Response, signal: AbortSignal): Promise<unknown> {
   try {
-    return await response.json();
+    return await readAuthJson(response, signal);
   } catch {
     return null;
   }
@@ -462,6 +463,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
+    const signal = AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
       response = await net.fetch(
@@ -471,6 +473,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(requestBody),
+          signal,
         }
       );
     } catch {
@@ -478,7 +481,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     }
 
     const cookieBoundSessionId = captureSessionId(response);
-    const body = await responseJson(response);
+    const body = await responseJson(response, signal);
     if (!response.ok) {
       await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
       const safeBody = sanitizeCompletionErrorBody(body);
@@ -536,6 +539,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
+    const signal = AbortSignal.timeout(SSO_MFA_VERIFY_TIMEOUT_MS);
     let response: Response;
     try {
       response = await net.fetch(`${mfa.apiBase}/api/v1/auth/mfa/verify`, {
@@ -553,14 +557,14 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
         // credential is stored: a renderer-side timeout cannot stop main from
         // storing a late credential that no session admits (#3423). It covers
         // the body read too; a cut body parses to null and stores nothing.
-        signal: AbortSignal.timeout(SSO_MFA_VERIFY_TIMEOUT_MS),
+        signal,
       });
     } catch {
       return { kind: 'error', status: 0, code: 'sso_mfa_verify_failed' };
     }
 
     const cookieBoundSessionId = captureSessionId(response);
-    const body = await responseJson(response);
+    const body = await responseJson(response, signal);
     if (!response.ok) {
       await revokeCookieBoundSession(mfa.apiBase, cookieBoundSessionId);
       const safeBody = sanitizeCompletionErrorBody(body);

@@ -23,6 +23,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { getMachineId } from './machineId';
+import { AUTH_REQUEST_TIMEOUT_MS, readAuthJson } from './authResponse';
 import { clearAttestationToken } from './attestationService';
 import { encryptForDisk, isSecureStorageAvailable, isUnprotectedCiphertext } from './secureStorage';
 import type { CredentialOwner, RefreshResult } from './ipcContract';
@@ -791,12 +792,13 @@ function stringList(value: unknown): string[] {
 
 async function tryParseMfaChallenge(
   response: Response,
-  apiBase: string
+  apiBase: string,
+  signal: AbortSignal
 ): Promise<RefreshResult | null> {
   if (response.status !== 403) return null;
 
   try {
-    const errData = (await response.json()) as {
+    const errData = (await readAuthJson(response, signal)) as {
       error?: string;
       mfa_challenge_token?: string;
       methods?: unknown;
@@ -823,7 +825,8 @@ async function tryParseMfaChallenge(
           typeof errData.default_method === 'string' ? errData.default_method : undefined,
       };
     }
-  } catch {
+  } catch (err) {
+    if (signal.aborted) throw err;
     // Not JSON or no MFA data — fall through to generic failure
   }
 
@@ -889,6 +892,7 @@ function performOwnedRefresh(): Promise<OwnedRefreshResult> {
       // failure-path console.warn. HTTP status + error classification are
       // sufficient diagnostics; deriving a suffix correlation handle from
       // refresh-token bytes violates internal-reference
+      const signal = AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS);
       const response = await net.fetch(`${owner.apiBase}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {
@@ -900,17 +904,18 @@ function performOwnedRefresh(): Promise<OwnedRefreshResult> {
         // cookies before the X-Refresh-Token header, so a stale cookie would
         // shadow the correct header value and cause a 401.
         credentials: 'omit',
+        signal,
       });
 
       if (!response.ok) {
-        const mfaResult = await tryParseMfaChallenge(response, owner.apiBase);
+        const mfaResult = await tryParseMfaChallenge(response, owner.apiBase, signal);
         if (mfaResult) return { result: mfaResult, owner };
         console.warn(`[TokenManager] Refresh failed: HTTP ${response.status}`);
         const rejected = response.status === 401 || response.status === 403;
         return { result: { status: 'refresh_failed' }, owner, rejected };
       }
 
-      const data = (await response.json()) as {
+      const data = (await readAuthJson(response, signal)) as {
         access_token?: string;
         refresh_token?: string;
         session_id?: string;

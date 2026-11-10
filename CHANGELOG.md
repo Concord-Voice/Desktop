@@ -55,6 +55,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Security
 
+- **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
