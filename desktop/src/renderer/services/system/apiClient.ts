@@ -22,6 +22,7 @@ import {
 import { recordChallengeIssuer } from './challengeIssuer';
 import { getAttestationTokenSafe } from './attestationToken';
 import { getDesktopClientVersion } from '../../utils/runtime/clientVersion';
+import { readBoundedBody } from '../../utils/runtime/boundedResponseBody';
 import { useClientConfigStore } from '../../stores/ui/clientConfigStore';
 import type { TerminalAttestationCode } from '../../stores/auth/attestationFailureStore';
 import type { ApiRequestContext } from './requestContext';
@@ -592,10 +593,21 @@ async function setClientVersionHeader(headers: Headers): Promise<void> {
  * callers if we fall through and return the original response unchanged.
  */
 async function parseAttestationBody(response: Response): Promise<AttestationFailureBody> {
-  const body = (await response
-    .clone()
-    .json()
-    .catch(() => ({}))) as Record<string, unknown>;
+  let body: Record<string, unknown> = {};
+  let clone: Response | undefined;
+  try {
+    clone = response.clone();
+    if (clone.body) {
+      const bytes = await readBoundedBody(clone, 64 * 1024);
+      const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        body = parsed as Record<string, unknown>;
+      }
+    }
+  } catch {
+    // A malformed or oversized denial remains an ordinary 403.
+    if (clone?.body && !clone.body.locked) void clone.body.cancel().catch(() => undefined);
+  }
   return {
     code: typeof body.code === 'string' ? body.code : null,
     requiredMinVersion:
@@ -685,6 +697,7 @@ async function handleReattestPath(
   ) {
     return response;
   }
+  void response.body?.cancel().catch(() => undefined);
   const retryResponse = await apiFetchRaw(
     serverSelection.apiBase,
     path,
@@ -939,6 +952,7 @@ async function handle401Recovery({
     return response;
   }
   const refreshedLifecycle = captureAuthLifecycle();
+  void response.body?.cancel().catch(() => undefined);
   const retryResponse = await apiFetchRaw(
     serverSelection.apiBase,
     path,

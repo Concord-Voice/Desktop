@@ -29,6 +29,7 @@ import {
 } from '../../services/system/runtimeServerBase';
 import { useDraftMessageStore } from '../../stores/chat/draftMessageStore';
 import { errorMessage } from '../../utils/runtime/redactError';
+import { IDENTITY_MEDIA_TIMEOUT_MS, readIdentityMedia } from '../../utils/ui/identityMedia';
 import { useAuthenticatedMediaUrl } from '../../hooks/ui/useAuthenticatedMediaUrl';
 import { describeMessagePreview, truncateSenderName } from '../../utils/messaging/messagePreview';
 import { identityInitialStyle, resolveUserAccentColors } from '../../utils/ui/schemeColors';
@@ -206,6 +207,7 @@ const ConversationAvatar: React.FC<ConversationAvatarProps> = ({
     const unsubscribeDM = useDMStore.subscribe(retireIfChanged);
     const unsubscribeServer = onRuntimeServerSelectionChange(retireIfChanged);
     void (async () => {
+      const timeout = setTimeout(() => owner.controller.abort(), IDENTITY_MEDIA_TIMEOUT_MS);
       try {
         const response = await apiFetch(
           `/api/v1/media/dm-icons/${encodeURIComponent(conversationId)}`,
@@ -213,14 +215,12 @@ const ConversationAvatar: React.FC<ConversationAvatarProps> = ({
           { context: owner.context }
         );
         if (!isCurrent()) return;
-        if (
-          !response.ok ||
-          !supportedIconTypes.has(normalizeIconType(response.headers.get('Content-Type') ?? ''))
-        ) {
+        const contentType = normalizeIconType(response.headers.get('Content-Type') ?? '');
+        if (!response.ok || !supportedIconTypes.has(contentType)) {
           disposeGroupIcon(owner);
           return;
         }
-        const blob = await response.blob();
+        const blob = await readIdentityMedia(response, contentType);
         if (!isCurrent()) return;
         if (blob.size === 0 || !supportedIconTypes.has(normalizeIconType(blob.type))) {
           disposeGroupIcon(owner);
@@ -235,6 +235,8 @@ const ConversationAvatar: React.FC<ConversationAvatarProps> = ({
       } catch {
         disposeGroupIcon(owner);
         setGroupImage((current) => (current?.owner === owner ? null : current));
+      } finally {
+        clearTimeout(timeout);
       }
     })();
     return () => {
