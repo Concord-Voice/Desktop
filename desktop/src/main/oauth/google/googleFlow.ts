@@ -202,8 +202,11 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     const verifier = generateCodeVerifier();
     const challenge = codeChallengeS256(verifier);
 
-    let expectedState: string | undefined;
-    const loopback = await deps.startLoopback({ timeoutMs, expectedState: () => expectedState });
+    const expectedState = { value: '' };
+    const loopback = await deps.startLoopback({
+      timeoutMs,
+      expectedState: () => expectedState.value,
+    });
     flow.loopback = loopback;
     if (abort.signal.aborted) {
       loopback.close();
@@ -212,7 +215,7 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
     if (!init.state) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-    expectedState = init.state;
+    expectedState.value = init.state;
     const { clientId, url } = parseGoogleAuthUrl(init.auth_url, loopback.redirectURI);
 
     await deps.openExternal(url);

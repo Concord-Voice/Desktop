@@ -212,8 +212,11 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
 
     // Loopback timeout = the flow deadline (spec R2): Apple's consent +
     // form_post round-trip regularly exceeds the 60s Google default.
-    let expectedState: string | undefined;
-    const loopback = await deps.startLoopback({ timeoutMs, expectedState: () => expectedState });
+    const expectedState = { value: '' };
+    const loopback = await deps.startLoopback({
+      timeoutMs,
+      expectedState: () => expectedState.value,
+    });
     flow.loopback = loopback;
     if (abort.signal.aborted) {
       // Cancelled while the loopback was binding — activeFlow is already
@@ -225,7 +228,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
     if (!init.state) throw new AppleFlowError('sso_initiate_failed', 'initiate');
-    expectedState = init.state;
+    expectedState.value = init.state;
     const { clientId, redirectUri, url } = parseAuthUrl(init.auth_url);
 
     await deps.openExternal(url);
