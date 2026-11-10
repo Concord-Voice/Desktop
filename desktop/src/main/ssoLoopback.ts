@@ -38,6 +38,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { URL, URLSearchParams } from 'node:url';
+import { constantTimeEquals } from './oauth/ssoFlowShared';
 
 export interface LoopbackResult {
   code: string;
@@ -68,6 +69,8 @@ export interface LoopbackHandle {
 
 export interface LoopbackOptions {
   timeoutMs?: number;
+  /** Main-process flows wait for this state; the legacy bridge has no state parameter. */
+  expectedState?: () => string | undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -121,6 +124,19 @@ export function startLoopback(opts: LoopbackOptions = {}): Promise<LoopbackHandl
     const code = params.get('code');
     const state = params.get('state');
     const error = params.get('error');
+    // Guarded flows do not accept callbacks until initiation supplies their state.
+    if (opts.expectedState) {
+      const expected = opts.expectedState();
+      if (
+        !expected ||
+        !state ||
+        params.getAll('state').length !== 1 ||
+        !constantTimeEquals(state, expected)
+      ) {
+        res.writeHead(400).end();
+        return;
+      }
+    }
     // Apple-only: the 'user' field is populated on first auth only. Coerce
     // null → undefined so the resolved LoopbackResult matches the optional
     // appleUserData field shape (undefined === absent, not "").
@@ -194,9 +210,8 @@ export function startLoopback(opts: LoopbackOptions = {}): Promise<LoopbackHandl
     // Wrap the entire handler in a try/catch to defend against an
     // uncaughtException tearing down the main process. URL parsing on
     // hostile input can throw; downstream res.writeHead can throw if the
-    // socket has already closed. Either way, fall back to a 500 + reject
-    // the awaiting promise so the renderer surfaces a stable error code
-    // rather than the desktop client dying.
+    // socket has already closed. A guarded flow stays available after a
+    // malformed request; the legacy bridge retains its rejection behavior.
     try {
       const url = new URL(req.url ?? '/', `http://${BIND_ADDRESS}`);
       if (url.pathname !== CALLBACK_PATH) {
@@ -226,7 +241,7 @@ export function startLoopback(opts: LoopbackOptions = {}): Promise<LoopbackHandl
       } catch {
         /* ignore — connection already torn down */
       }
-      if (!settled) {
+      if (!opts.expectedState && !settled) {
         settled = true;
         cleanup();
         const message = handlerErr instanceof Error ? handlerErr.message : 'request_handler_failed';
