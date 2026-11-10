@@ -11,6 +11,8 @@ import {
 } from '../../services/system/requestContext';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { resolveMediaUrl } from '../../utils/ui/resolveMediaUrl';
+import { AttachmentTooLargeError } from '../../utils/runtime/boundedResponseBody';
+import { IDENTITY_MEDIA_TIMEOUT_MS, readIdentityMedia } from '../../utils/ui/identityMedia';
 
 const protectedMediaPath =
   /^\/api\/v1\/media\/(?:avatars|banners|server-icons|server-banners|dm-icons)\/[0-9a-fA-F-]{36}$/;
@@ -113,6 +115,10 @@ export function useAuthenticatedMediaUrl(source?: string | null): string | undef
         );
       };
       void (async () => {
+        const timeout = setTimeout(() => {
+          retry();
+          shared.controller.abort();
+        }, IDENTITY_MEDIA_TIMEOUT_MS);
         try {
           const response = await apiFetch(
             path,
@@ -121,16 +127,23 @@ export function useAuthenticatedMediaUrl(source?: string | null): string | undef
           );
           if (!response.ok) {
             if (response.status === 429 || response.status >= 500) retry();
+            void response.body?.cancel().catch(() => undefined);
             return;
           }
-          if (shared.controller.signal.aborted || !apiRequestContextIsCurrent(context)) return;
+          if (shared.controller.signal.aborted || !apiRequestContextIsCurrent(context)) {
+            shared.controller.abort();
+            return;
+          }
           const contentType = response.headers
             .get('Content-Type')
             ?.split(';')[0]
             .trim()
             .toLowerCase();
-          if (!contentType || !imageTypes.has(contentType)) return;
-          const blob = await response.blob();
+          if (!contentType || !imageTypes.has(contentType)) {
+            void response.body?.cancel().catch(() => undefined);
+            return;
+          }
+          const blob = await readIdentityMedia(response, contentType);
           if (
             shared.controller.signal.aborted ||
             !apiRequestContextIsCurrent(context) ||
@@ -146,8 +159,13 @@ export function useAuthenticatedMediaUrl(source?: string | null): string | undef
           shared.url = url;
           retryAttempts.delete(retryKey);
           shared.listeners.forEach((listener) => listener(url));
-        } catch {
-          retry();
+        } catch (error) {
+          if (error instanceof AttachmentTooLargeError) {
+            shared.exhausted = true;
+            shared.controller.abort();
+          } else retry();
+        } finally {
+          clearTimeout(timeout);
         }
       })();
     }

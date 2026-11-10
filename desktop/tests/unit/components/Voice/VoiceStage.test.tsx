@@ -79,6 +79,24 @@ describe('VoiceStage', () => {
     expect(screen.getByText('No screen share selected')).toBeInTheDocument();
   });
 
+  it('reports a refused screen-share PiP request', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn().mockRejectedValue(new Error('PiP unavailable')),
+    } as unknown as typeof globalThis.electron;
+    setStageState({
+      dominantScreenShareId: 'producer-1',
+      tunedInScreenShares: { 'producer-1': 'consumer-1' },
+      participants: { 'user-1': mockParticipant() },
+    });
+    render(<VoiceStage />);
+
+    await act(async () => fireEvent.click(screen.getByTitle('Pop out to PiP window')));
+    expect(useVoiceStore.getState().videoSlotError).toContain('Could not open PiP');
+    globalThis.electron = origElectron;
+  });
+
   // ── Equal layout mode ────────────────────────────────────────────────────
 
   it('renders grid in equal layout with tuned-in shares', () => {

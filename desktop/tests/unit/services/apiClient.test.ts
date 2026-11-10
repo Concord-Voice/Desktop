@@ -104,6 +104,19 @@ describe('apiClient', () => {
     expect(headers.get('X-Concord-Client-Version')).toBeNull();
   });
 
+  it.each([
+    '//evil.example/x',
+    '\\\\evil.example\\x',
+    'https://evil.example/x',
+    '@evil.example/x',
+    '/api/v1/\\evil.example/x',
+    '/api/v1/test\nInjected: true',
+  ])('rejects an untrusted request path before dispatch: %s', async (path) => {
+    setRuntimeServerBase('https://homelab.lan:8443');
+    await expect(apiFetch(path)).rejects.toThrow('relative service route');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('uses the active runtime API base for requests', async () => {
     setRuntimeServerBase('https://homelab.lan:8443');
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
@@ -191,6 +204,18 @@ describe('apiClient', () => {
     expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
     // Verify new token is stored in authStore
     expect(useAuthStore.getState().accessToken).toBe('new-token');
+  });
+
+  it('cancels the superseded 401 body when a retry succeeds', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+    globalThis.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'ok', accessToken: 'new-token' }),
+    } as any;
+    const cancel = vi.fn();
+    mockFetch.mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 401 }));
+    mockFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+    expect((await apiFetch('/api/v1/test')).status).toBe(200);
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
   });
 
   it.each(['0.2.18', '1.1.0-pilot.2'])(

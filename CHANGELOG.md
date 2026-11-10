@@ -46,6 +46,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Fixed
 
 - **Chat:** Large or unknown-size images and videos now wait for a click before downloading.
+- **Privacy:** Profile and conversation images now stop downloading when they exceed a safety limit or take too long.
 - **Accessibility:** Reduce Animations and the system reduced-motion preference now stop animated server-bar scrolling and volume-slider thumb transitions.
 - **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
 - **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
@@ -56,6 +57,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
+- **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 
 ## [0.3.1] - 2026-11-06
 

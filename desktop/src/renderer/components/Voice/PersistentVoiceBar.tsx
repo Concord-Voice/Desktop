@@ -44,12 +44,17 @@ const PersistentVoiceBar: React.FC = () => {
   const handlePopOut = useCallback(async () => {
     if (!globalThis.electron?.openPipWindow) return;
 
-    await globalThis.electron.openPipWindow({
-      id: 'controls-main',
-      width: 480,
-      height: 80,
-      title: 'Concord Voice Controls',
-    });
+    try {
+      await globalThis.electron.openPipWindow({
+        id: 'controls-main',
+        width: 480,
+        height: 80,
+        title: 'Concord Voice Controls',
+      });
+    } catch {
+      useVoiceStore.getState().setVideoSlotError('Could not open PiP. Close one or retry.');
+      return;
+    }
     setVoiceControlsPoppedOut(true);
   }, [setVoiceControlsPoppedOut]);
 

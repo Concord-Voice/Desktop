@@ -286,7 +286,7 @@ vi.mock('../../../src/main/machineId', () => ({
 vi.mock('../../../src/main/selfHostedProbe', async (importActual) => ({
   // normalizeSelfHostedUrl stays REAL — the ceremony keys its approval on the same
   // normalized origin the probe will dial.
-  ...(await importActual<typeof import('../../../src/main/selfHostedProbe')>()),
+  ...((await importActual()) as Record<string, unknown>),
   probeSelfHostedServer: mockProbeSelfHostedServer,
 }));
 
@@ -438,6 +438,8 @@ beforeEach(async () => {
   const { _resetCeremonyBudgetForTesting } =
     await import('../../../src/main/selfHostedCeremonyBudget');
   _resetCeremonyBudgetForTesting();
+  const { _resetPipOpenBudgetForTesting } = await import('../../../src/main/pipOpenPolicy');
+  _resetPipOpenBudgetForTesting();
 });
 
 afterEach(() => {
@@ -700,7 +702,10 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(trustedIpcEvent, { id: 'content-protection-pip' });
+      await handlers.get('pip:open')!(
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        { id: 'content-protection-pip' }
+      );
       (fs.writeFileSync as Mock).mockClear();
       mockMainWindow.setContentProtection.mockClear();
       pip.setContentProtection.mockClear();
@@ -775,7 +780,10 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(trustedIpcEvent, { id: 'content-protection-rollback-pip' });
+      await handlers.get('pip:open')!(
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        { id: 'content-protection-rollback-pip' }
+      );
       (fs.writeFileSync as Mock).mockImplementation(() => undefined);
       mockMainWindow.setContentProtection.mockReset();
       pip.setContentProtection.mockReset();
@@ -1029,7 +1037,10 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(trustedIpcEvent, { id: 'content-protection-persisted-pip' });
+      await handlers.get('pip:open')!(
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        { id: 'content-protection-persisted-pip' }
+      );
       expect(pip.setContentProtection).toHaveBeenCalledWith(true);
       expect(pip.setContentProtection.mock.invocationCallOrder[0]).toBeLessThan(
         pip.loadURL.mock.invocationCallOrder[0]
@@ -2447,11 +2458,31 @@ describe('main.ts', () => {
   });
 
   describe('IPC: PiP window management', () => {
+    it('rejects a same-origin PiP renderer attempting to create another window', async () => {
+      const { BrowserWindow } = await import('electron');
+      const before = (BrowserWindow as unknown as Mock).mock.calls.length;
+      const firstNewCall = mockMainWindow.on.mock.calls.length;
+      await expect(
+        handlers.get('pip:open')!(
+          {
+            sender: { id: 999 },
+            senderFrame: { url: 'http://localhost:3001/#/pip/other', frameTreeNodeId: 999 },
+          },
+          { id: 'pip-escape-repro' }
+        )
+      ).rejects.toThrow('PiP could not be opened');
+      const closed = mockMainWindow.on.mock.calls
+        .slice(firstNewCall)
+        .find((call) => call[0] === 'closed')?.[1] as (() => void) | undefined;
+      closed?.();
+      expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
+    });
     // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
     // defense-in-depth). In this test environment isPackaged=false, so a
     // localhost URL satisfies the validator.
     const pipOwnerEvent = {
-      senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 41 },
+      sender: mockWebContents,
+      senderFrame: mockWebContents.mainFrame,
     };
     const otherPermittedPipEvent = {
       senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 99 },
@@ -2467,6 +2498,216 @@ describe('main.ts', () => {
       return closed!;
     }
 
+    it('rejects a same-origin subframe in the main web contents', async () => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      await expect(
+        handlers.get('pip:open')!(
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 99 },
+          },
+          { id: 'subframe-test' }
+        )
+      ).rejects.toThrow('PiP could not be opened');
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
+    });
+
+    it('does not let a legacy caller hide controls after a refused pop-out', async () => {
+      let hidden = false;
+      try {
+        await handlers.get('pip:open')!(pipOwnerEvent, { id: 'bad/id' });
+        hidden = true;
+      } catch {
+        // Older renderers stop before setting the popped-out state on rejection.
+      }
+      expect(hidden).toBe(false);
+    });
+
+    it.each([false, true])(
+      'revokes and untracks a PiP whose load rejects (closed event: %s)',
+      async (emitClosed) => {
+        const failedLoad = Promise.reject(new Error('load failed'));
+        failedLoad.catch(() => undefined);
+        const child = {
+          ...mockMainWindow,
+          destroy: vi.fn(),
+          on: vi.fn(),
+          loadURL: vi.fn(() => failedLoad),
+        };
+        if (emitClosed) {
+          child.destroy.mockImplementation(() => {
+            const closed = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as
+              (() => void) | undefined;
+            closed?.();
+          });
+        }
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return child;
+        });
+        mockWebContents.send.mockClear();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'async-load-failure' })
+        ).rejects.toThrow();
+        expect(child.destroy).toHaveBeenCalledOnce();
+        expect(
+          mockWebContents.send.mock.calls
+            .filter((call) => call[0] === 'pip:opened' || call[0] === 'pip:closed')
+            .map((call) => call[0])
+        ).toEqual(['pip:opened', 'pip:closed']);
+        const reopened = await openPip('async-load-failure');
+        reopened();
+      }
+    );
+
+    it('charges failed loads against the window-creation budget', async () => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      for (let n = 0; n < 8; n++) {
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return {
+            ...mockMainWindow,
+            on: vi.fn(),
+            destroy: vi.fn(),
+            loadURL: vi.fn().mockRejectedValue(new Error('load failed')),
+          };
+        });
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: `failed-load-${n}` })
+        ).rejects.toThrow();
+      }
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'failed-load-ninth' })
+      ).rejects.toThrow();
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
+    });
+
+    it('settles duplicate opens while the first PiP is still loading', async () => {
+      const gate = deferred();
+      const child = {
+        ...mockMainWindow,
+        on: vi.fn(),
+        focus: vi.fn(),
+        loadURL: vi.fn(() => gate.promise),
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      mockWebContents.send.mockClear();
+      const first = handlers.get('pip:open')!(pipOwnerEvent, {
+        id: 'pending-pip',
+      }) as Promise<void>;
+      const duplicates = Array.from(
+        { length: 64 },
+        () => handlers.get('pip:open')!(pipOwnerEvent, { id: 'pending-pip' }) as Promise<void>
+      );
+      let settled = 0;
+      for (const duplicate of duplicates) {
+        void duplicate.then(
+          () => {
+            settled += 1;
+          },
+          () => {
+            settled += 1;
+          }
+        );
+      }
+      try {
+        await vi.waitFor(() => expect(settled).toBe(duplicates.length), { timeout: 500 });
+        expect(child.focus).toHaveBeenCalledTimes(duplicates.length);
+        expect(mockWebContents.send).toHaveBeenCalledWith(
+          'pip:opened',
+          expect.objectContaining({ id: 'pending-pip' })
+        );
+      } finally {
+        gate.resolve();
+        await Promise.allSettled([first, ...duplicates]);
+        const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
+        close();
+      }
+    });
+
+    it('destroys a newly created PiP if loading throws synchronously', async () => {
+      const child = {
+        ...mockMainWindow,
+        destroy: vi.fn(),
+        loadURL: vi.fn(() => {
+          throw new Error('load failed');
+        }),
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'load-failure' })
+      ).rejects.toThrow();
+      expect(child.destroy).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      undefined,
+      null,
+      {},
+      { id: 'x'.repeat(129) },
+      { id: 'valid', width: 999999 },
+      { id: 'valid', title: 'x'.repeat(129) },
+    ])('rejects invalid PiP options before creating a window', async (opts) => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      await expect(handlers.get('pip:open')!(pipOwnerEvent, opts)).rejects.toThrow();
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
+    });
+
+    it('limits simultaneous PiPs, still focuses an existing one, and reuses a closed slot', async () => {
+      const { MAX_PIP_WINDOWS, _resetPipOpenBudgetForTesting } =
+        await import('../../../src/main/pipOpenPolicy');
+      const opened: Array<{ id: string; close: () => void }> = [];
+      try {
+        for (let n = 0; n <= MAX_PIP_WINDOWS; n++) {
+          _resetPipOpenBudgetForTesting();
+          const before = mockMainWindow.on.mock.calls.length;
+          const id = `cap-test-${n}`;
+          try {
+            await handlers.get('pip:open')!(pipOwnerEvent, { id });
+          } catch {
+            break;
+          }
+          const close = mockMainWindow.on.mock.calls
+            .slice(before)
+            .find((call) => call[0] === 'closed')?.[1] as () => void;
+          expect(close).toBeDefined();
+          opened.push({ id, close });
+        }
+        expect(opened.length).toBeGreaterThanOrEqual(7);
+        _resetPipOpenBudgetForTesting();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'over-cap' })
+        ).rejects.toThrow();
+        mockMainWindow.focus.mockClear();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: opened[0].id })
+        ).resolves.toBeUndefined();
+        expect(mockMainWindow.focus).toHaveBeenCalledOnce();
+        await handlers.get('pip:close')!(pipOwnerEvent, { id: opened[0].id });
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'still-at-cap' })
+        ).rejects.toThrow();
+        opened.shift()!.close();
+        const closeNew = await openPip('reused-cap-slot');
+        closeNew();
+      } finally {
+        for (const entry of opened) entry.close();
+      }
+    });
+
+    it('limits repeated create-and-close churn', async () => {
+      for (let n = 0; n < 8; n++) {
+        const close = await openPip(`burst-${n}`);
+        close();
+      }
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'burst-ninth' })
+      ).rejects.toThrow();
+    });
+
     it('creates the PiP window sandboxed with contextIsolation and no Node integration', async () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
@@ -2476,6 +2717,31 @@ describe('main.ts', () => {
       expect(pipCall[0].webPreferences.contextIsolation).toBe(true);
       expect(pipCall[0].webPreferences.nodeIntegration).toBe(false);
       closed();
+    });
+
+    it('allows the main frame to open PiP from the signed SPA cache', async () => {
+      const { app } = await import('electron');
+      const { setRemoteSpaState } = await import('../../../src/main/spaState');
+      const originalMainFrame = mockWebContents.mainFrame;
+      const testApp = app as unknown as { isPackaged: boolean };
+      testApp.isPackaged = true;
+      setRemoteSpaState(null);
+      mockWebContents.mainFrame = { url: 'spa-cache://concord/index.html', frameTreeNodeId: 77 };
+      mockWebContents.getURL.mockReturnValue('spa-cache://concord/index.html');
+      try {
+        const closed = await openPip('cache-main', {
+          sender: mockWebContents,
+          senderFrame: mockWebContents.mainFrame,
+        });
+        expect(mockMainWindow.loadURL).toHaveBeenCalledWith(
+          'spa-cache://concord/index.html#/pip/cache-main'
+        );
+        closed();
+      } finally {
+        mockWebContents.getURL.mockReturnValue('');
+        mockWebContents.mainFrame = originalMainFrame;
+        testApp.isPackaged = false;
+      }
     });
 
     it('lets the opener focus, update, and close its PiP window', async () => {
@@ -2530,7 +2796,7 @@ describe('main.ts', () => {
         const before = (BrowserWindow as unknown as Mock).mock.calls.length;
         mockMainWindow.close.mockClear();
         mockMainWindow.setAlwaysOnTop.mockClear();
-        await handlers.get('pip:open')!(event, { id: 'rejected-pip' });
+        await expect(handlers.get('pip:open')!(event, { id: 'rejected-pip' })).rejects.toThrow();
         await handlers.get('pip:close')!(event, { id: 'rejected-pip' });
         await handlers.get('pip:setAlwaysOnTop')!(event, { id: 'rejected-pip', flag: false });
         const after = (BrowserWindow as unknown as Mock).mock.calls.length;
@@ -2549,7 +2815,9 @@ describe('main.ts', () => {
       mockMainWindow.close.mockClear();
       mockMainWindow.setAlwaysOnTop.mockClear();
 
-      await handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
+      await expect(
+        handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' })
+      ).rejects.toThrow();
       expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
       await handlers.get('pip:close')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
@@ -2613,7 +2881,23 @@ describe('main.ts', () => {
       ['an untrusted origin', () => foreignIpcEvent],
       ['a frameless sender', () => ({ senderFrame: null })],
     ])('refuses pip:session to %s', async (_label, makeEvent) => {
-      const closed = await openPip('session-denied-pip');
+      const child = {
+        ...mockMainWindow,
+        on: vi.fn(),
+        webContents: {
+          ...mockWebContents,
+          mainFrame: {
+            url: 'http://localhost:3001/#/pip/session-denied-pip',
+            frameTreeNodeId: 900,
+          },
+        },
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      await handlers.get('pip:open')!(pipOwnerEvent, { id: 'session-denied-pip' });
+      const closed = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
+      expect(closed).toBeDefined();
       const result = await handlers.get('pip:session')!(makeEvent(), {
         id: 'session-denied-pip',
       });
@@ -2676,10 +2960,8 @@ describe('main.ts', () => {
 
       try {
         const closed = await openPip('transition-pip', {
-          senderFrame: {
-            url: transition.senderFrameUrl,
-            frameTreeNodeId: 41,
-          },
+          sender: mockWebContents,
+          senderFrame: mockWebContents.mainFrame,
         });
         const pipMainFrameEvent = {
           sender: mockWebContents,
@@ -2705,22 +2987,23 @@ describe('main.ts', () => {
       }
     });
 
-    it('assigns a fresh owner when a closed PiP ID is reused', async () => {
+    it('allows the main frame to reopen a closed PiP ID', async () => {
       const closeFirst = await openPip('reused-pip');
       closeFirst();
-      const closeSecond = await openPip('reused-pip', otherPermittedPipEvent);
+      const closeSecond = await openPip('reused-pip');
       mockMainWindow.setAlwaysOnTop.mockClear();
 
       await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
         id: 'reused-pip',
         flag: false,
       });
-      expect(mockMainWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+      expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      mockMainWindow.setAlwaysOnTop.mockClear();
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
         id: 'reused-pip',
         flag: false,
       });
-      expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      expect(mockMainWindow.setAlwaysOnTop).not.toHaveBeenCalled();
       closeSecond();
     });
   });
@@ -2802,7 +3085,7 @@ describe('main.ts', () => {
       const beforeQuit = appOnCallbacks.get('before-quit');
       expect(beforeQuit).toBeDefined();
       await handlers.get('pip:open')!(
-        { senderFrame: { url: 'http://localhost:3001/' } },
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
         { id: 'before-quit-pip' }
       );
       mockMainWindow.destroy.mockClear();
@@ -2820,7 +3103,7 @@ describe('main.ts', () => {
       )?.[1] as (() => void) | undefined;
       expect(beforeQuitForUpdate).toBeDefined();
       await handlers.get('pip:open')!(
-        { senderFrame: { url: 'http://localhost:3001/' } },
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
         { id: 'before-update-quit-pip' }
       );
       mockMainWindow.destroy.mockClear();
