@@ -8,9 +8,98 @@
  * proxy to the real network stack.
  */
 import { describe, expect, it } from 'vitest';
+import { request } from 'node:http';
 import { startLoopback } from '../../../src/main/ssoLoopback';
 
 describe('startLoopback', () => {
+  it('ignores premature and wrong-state callbacks until the matching GET arrives', async () => {
+    let expectedState: string | undefined;
+    const handle = await startLoopback({ timeoutMs: 3000, expectedState: () => expectedState });
+    try {
+      expect((await fetch(`${handle.redirectURI}?code=early&state=expected`)).status).toBe(400);
+      expectedState = 'expected';
+      for (const query of [
+        'code=bad&state=wrong',
+        'error=access_denied',
+        'error=access_denied&state=wrong',
+        'code=bad&state=expected&state=wrong',
+      ]) {
+        expect((await fetch(`${handle.redirectURI}?${query}`)).status).toBe(400);
+      }
+      const response = await fetch(`${handle.redirectURI}?code=valid&state=expected`);
+      expect(response.status).toBe(200);
+      expect(await handle.promise).toMatchObject({ code: 'valid', state: 'expected' });
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('ignores malformed absolute request targets without closing a guarded listener', async () => {
+    const handle = await startLoopback({ timeoutMs: 3000, expectedState: () => 'expected' });
+    try {
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port: handle.port, path: 'http://[' }, (res) => {
+          res.resume();
+          res.on('end', () => resolve(res.statusCode));
+        });
+        req.on('error', reject);
+        req.end();
+      });
+      expect(status).toBe(500);
+      expect((await fetch(`${handle.redirectURI}?code=valid&state=expected`)).status).toBe(200);
+      expect(await handle.promise).toMatchObject({ code: 'valid', state: 'expected' });
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('ignores wrong-state form errors and accepts a matching Apple POST', async () => {
+    const handle = await startLoopback({ timeoutMs: 3000, expectedState: () => 'expected' });
+    const post = (body: string) =>
+      fetch(handle.redirectURI, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+    try {
+      for (const body of [
+        'error=user_cancelled_authorize&state=wrong',
+        'error=user_cancelled_authorize',
+        'code=bad&state=wrong',
+        'code=bad&state=expected&state=wrong',
+      ]) {
+        expect((await post(body)).status).toBe(400);
+      }
+      expect((await post('code=valid&state=expected&user=first')).status).toBe(200);
+      expect(await handle.promise).toMatchObject({
+        code: 'valid',
+        state: 'expected',
+        appleUserData: 'first',
+      });
+    } finally {
+      handle.close();
+    }
+  });
+
+  it.each(['GET', 'POST'])('reports matching provider error over %s', async (method) => {
+    const handle = await startLoopback({ timeoutMs: 3000, expectedState: () => 'expected' });
+    try {
+      const body = 'error=access_denied&state=expected';
+      const response =
+        method === 'GET'
+          ? await fetch(`${handle.redirectURI}?${body}`)
+          : await fetch(handle.redirectURI, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body,
+            });
+      expect(response.status).toBe(200);
+      await expect(handle.promise).rejects.toThrow('oauth_provider_error:access_denied');
+    } finally {
+      handle.close();
+    }
+  });
+
   it('resolves with code+state on /oauth/callback', async () => {
     const handle = await startLoopback();
     expect(handle.port).toBeGreaterThan(0);

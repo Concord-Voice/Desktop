@@ -116,6 +116,26 @@ afterEach(() => {
 });
 
 describe('runAppleSignIn — happy path', () => {
+  it('installs the initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    deliverCallback(lo);
+    const { deps } = makeDeps(lo);
+    vi.mocked(deps.openExternal).mockImplementation(async () => {
+      expect(vi.mocked(deps.startLoopback).mock.calls[0][0]?.expectedState?.()).toBe('state-1');
+    });
+    expect((await runAppleSignIn(deps)).kind).toBe('tokens');
+    expect(deps.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an empty initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo, {
+      initiateBody: { auth_url: AUTH_URL, state: '', nonce: 'nonce-1' },
+    });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
   it('reports cancellation while the initiation body is stalled', async () => {
     const lo = makeLoopback();
     const { deps } = makeDeps(lo);
@@ -261,7 +281,10 @@ describe('runAppleSignIn — happy path', () => {
     });
 
     // loopback gets the FLOW deadline, not the 60s default (spec R2)
-    expect(deps.startLoopback).toHaveBeenCalledWith({ timeoutMs: APPLE_FLOW_TIMEOUT_MS });
+    expect(deps.startLoopback).toHaveBeenCalledWith({
+      timeoutMs: APPLE_FLOW_TIMEOUT_MS,
+      expectedState: expect.any(Function),
+    });
   });
 
   it('omits apple_user_data when the loopback returned none', async () => {

@@ -73,6 +73,35 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cancelActiveGoogleFlow());
 
 describe('runGoogleSignIn', () => {
+  it('installs the initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const deps = makeDeps(lo);
+    vi.mocked(deps.openExternal).mockImplementation(async () => {
+      expect(vi.mocked(deps.startLoopback).mock.calls[0][0]?.expectedState?.()).toBe('STATE');
+    });
+    expect((await runGoogleSignIn(deps)).kind).toBe('tokens');
+    expect(deps.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an empty initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid',
+              state: '',
+              nonce: 'NONCE',
+            })
+          )
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
   it('reports cancellation while the initiation body is stalled', async () => {
     const lo = makeLoopback();
     const controlPlaneFetch = vi.fn(
