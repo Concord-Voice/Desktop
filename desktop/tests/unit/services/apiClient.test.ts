@@ -109,12 +109,12 @@ describe('apiClient', () => {
     '\\\\evil.example\\x',
     'https://evil.example/x',
     '@evil.example/x',
-    '/%2f%2fevil.example/x',
-  ])('keeps an untrusted request path on the selected origin: %s', async (path) => {
+    '/api/v1/\\evil.example/x',
+    '/api/v1/test\nInjected: true',
+  ])('rejects an untrusted request path before dispatch: %s', async (path) => {
     setRuntimeServerBase('https://homelab.lan:8443');
-    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
-    await apiFetch(path);
-    expect(new URL(mockFetch.mock.calls[0][0] as string).origin).toBe('https://homelab.lan:8443');
+    await expect(apiFetch(path)).rejects.toThrow('relative service route');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('uses the active runtime API base for requests', async () => {

@@ -526,13 +526,15 @@ function apiFetchRaw(
   headers: Headers,
   assertBeforeDispatch?: () => void
 ): Promise<Response> {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const requestUrl = `${apiBase}${normalizedPath}`;
-  if (new URL(requestUrl).origin !== new URL(apiBase).origin) {
+  if (!/^\/api\/v1\/[^\\\x00-\x1f\x7f]*$/.test(path)) {
+    throw new Error('API request path must be a relative service route');
+  }
+  const requestUrl = new URL(path, apiBase);
+  if (requestUrl.origin !== apiBase) {
     throw new Error('API request escaped the selected server origin');
   }
   assertBeforeDispatch?.();
-  return fetch(requestUrl, {
+  return fetch(requestUrl.href, {
     ...init,
     headers,
     credentials: 'include',
