@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { AuditLedger, GENESIS_HASH, computeHash, redactSecrets, type AuditEntryInput } from "../src/audit/ledger.js";
+import { AuditLedger, GENESIS_HASH, computeHash, redactSecrets, type AuditEntryInput, type JsonValue } from "../src/audit/ledger.js";
 import {
   isStrictlyInside,
   validateBranchNameSyntax,
@@ -92,6 +92,21 @@ describe("Audit ledger", () => {
       expect(query).not.toContain(marker);
     }
     expect(ledger.verifyChain().ok).toBe(true);
+  });
+
+  it("projects v3 records without returning extra persisted fields", async () => {
+    const original = await ledger.writeEntry(entry("t1"));
+    const body: { [key: string]: JsonValue } = { ...original };
+    delete body.hash;
+    body.injected_secret = "opaqueTopSecret";
+    body.execution = { ...(body.execution as { [key: string]: JsonValue }), injected_secret: "opaqueNestedSecret" };
+    fs.writeFileSync(ledger.ledgerPath, JSON.stringify({ ...body, hash: computeHash(GENESIS_HASH, body) }) + "\n");
+
+    expect(ledger.verifyChain().ok).toBe(true);
+    const queried = JSON.stringify(ledger.query());
+    expect(queried).not.toContain("opaqueTopSecret");
+    expect(queried).not.toContain("opaqueNestedSecret");
+    expect(ledger.query()[0].results).toEqual({ highSeverityFinding: false });
   });
 
   it("projects legacy records without exposing task content and verifies original bytes", async () => {

@@ -68,7 +68,7 @@ environment carries that flag.
 | Path (repo root) | What |
 |---|---|
 | `.worktrees/<session-id>/` | one worktree per dispatch. Created with `git worktree add`, never reused; an existing target is refused |
-| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. New records omit prompts, replies, worker output, and free-form failure details; only metadata and a derived escalation flag are stored. Legacy records remain on disk and can contain secrets; queries project their metadata without returning raw content, while chain verification uses the original records |
+| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. New records omit prompts, replies, worker output, and free-form failure details; only metadata and a derived escalation flag are stored. Queries project both new and legacy records through explicit metadata fields without returning extra stored fields; legacy records remain on disk and can contain secrets. Chain verification uses the original records |
 | `.agent-bus/workers/<session-id>.json` | marker file for the recursion guard |
 
 Both directories are gitignored at the repository root. The bridge never deletes
@@ -82,9 +82,10 @@ A `red-team-critical` dispatch is admitted only when one of these holds:
   path changed on the requested existing `branch`, falls under the core-crypto
   (RC-1) or key-custody (RC-2) prefixes in `src/gate/activation.ts`. Prompt
   text is never inspected.
-- **RC-3.** `escalation_task_id` names a completed audit-ledger entry, written
-  by this bridge, of a `red-team` run whose output reports a CRITICAL or
-  HIGH finding (`P0`/`P1`).
+- **RC-3.** `escalation_task_id` names a completed audit-ledger entry in a
+  valid hash chain, of a `red-team` run whose output reports a CRITICAL or
+  HIGH finding (`P0`/`P1`). This assumes only the trusted bridge can write the
+  ledger; its unkeyed hash chain cannot authenticate a writer.
 - **RC-4.** None of the above holds, and a human approves through **MCP
   elicitation** (`elicitation/create`, a yes/no form). If the MCP client does
   not declare the elicitation capability, the request errors or times out (5
