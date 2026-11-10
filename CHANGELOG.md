@@ -29,7 +29,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-This release adds groundwork for verifying account keys. Nothing uses it yet.
+This release adds groundwork for verifying account keys and protects remembered sessions from being redirected to another server. Existing remembered sessions require signing in again.
 
 ### Added
 
@@ -51,6 +51,10 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 - **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
 - **Feedback:** The known-issues link in the Feedback window now opens the list at its current address.
 - **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
+
+### Security
+
+- **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
 
 ## [0.3.1] - 2026-11-06
 
