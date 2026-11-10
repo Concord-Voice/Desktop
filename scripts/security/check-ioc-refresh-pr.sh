@@ -247,7 +247,7 @@ base_text = git_show(base_ref, IOC_PATH)
 sha, source_commit, head_names, failures = parse_ioc_text(head_text, strict_headers=True)
 _, _, base_names, base_parse_failures = parse_ioc_text(base_text, strict_headers=False)
 if base_parse_failures:
-    die_internal("base IOC list is structurally invalid: " + "; ".join(base_parse_failures))
+    die_internal("base IOC list is structurally invalid")
 
 head_set = set(head_names)
 base_set = set(base_names)
