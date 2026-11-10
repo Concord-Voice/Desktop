@@ -9,7 +9,7 @@ export function authRequestSignal(flowSignal: AbortSignal): AbortSignal {
 export async function readAuthJson(response: Response, signal: AbortSignal): Promise<unknown> {
   const body = response.body;
   const declared = response.headers.get('content-length');
-  const length = declared === null || declared.trim() === '' ? NaN : Number(declared);
+  const length = declared === null || declared.trim() === '' ? Number.NaN : Number(declared);
   const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
   if (
     signal.aborted ||

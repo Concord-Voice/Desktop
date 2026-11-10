@@ -9,7 +9,7 @@ describe('bounded authentication response JSON', () => {
     const payload = `{"v":"${'x'.repeat(AUTH_RESPONSE_MAX_BYTES - 8)}"}`;
     expect(Buffer.byteLength(payload)).toBe(AUTH_RESPONSE_MAX_BYTES);
     const result = await readAuthJson(new Response(payload), liveSignal());
-    expect((result as { v: string }).v.length).toBe(AUTH_RESPONSE_MAX_BYTES - 8);
+    expect((result as { v: string }).v).toHaveLength(AUTH_RESPONSE_MAX_BYTES - 8);
   });
 
   it('does not treat an encoded Content-Length as the decoded byte count', async () => {
@@ -21,7 +21,7 @@ describe('bounded authentication response JSON', () => {
       },
     });
     const result = await readAuthJson(response, liveSignal());
-    expect((result as { v: string }).v.length).toBe(AUTH_RESPONSE_MAX_BYTES - 8);
+    expect((result as { v: string }).v).toHaveLength(AUTH_RESPONSE_MAX_BYTES - 8);
   });
 
   it('rejects an oversized declared length and cancels the stream', async () => {
@@ -79,7 +79,7 @@ describe('bounded authentication response JSON', () => {
       },
     });
     const result = await readAuthJson(new Response(body), liveSignal());
-    expect((result as { v: string }).v.length).toBe(200000);
+    expect((result as { v: string }).v).toHaveLength(200000);
   });
 
   it('settles an aborted read even if the underlying cancel promise never resolves', async () => {
