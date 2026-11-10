@@ -1169,6 +1169,40 @@ describe('tokenManager', () => {
   // ─── performRefresh ─────────────────────────────────────────────────
 
   describe('performRefresh', () => {
+    it('rejects an oversized refresh response without accepting its token', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      mockNetFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: 'synthetic-access', padding: 'x'.repeat(2 * 1024 * 1024) })
+      );
+      expect(await performRefresh()).toEqual({ status: 'refresh_failed' });
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('aborts a stalled refresh body and permits a subsequent refresh', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      const controller = new AbortController();
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(controller.signal);
+      const cancel = vi.fn();
+      mockNetFetch.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({ cancel })));
+      const pending = performRefresh();
+      await vi.waitFor(() => expect(mockNetFetch).toHaveBeenCalledOnce());
+      controller.abort();
+      expect(await pending).toEqual({ status: 'refresh_failed' });
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(getCachedAccessToken()).toBeNull();
+      timeout.mockRestore();
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: 'next-token' }));
+      expect(await performRefresh()).toMatchObject({ status: 'ok', accessToken: 'next-token' });
+    });
+
     it('returns no_token when no refresh token is stored', async () => {
       const result = await performRefresh();
       expect(result).toEqual({ status: 'no_token' });

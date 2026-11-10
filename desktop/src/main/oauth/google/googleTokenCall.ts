@@ -1,3 +1,4 @@
+import { readAuthJson } from '../../authResponse';
 import { GoogleFlowError } from './errors';
 
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -38,8 +39,9 @@ export async function googleTokenCall(opts: {
   if (resp.status >= 400) throw new GoogleFlowError('google_exchange_rejected', 'token');
   let body: { id_token?: unknown };
   try {
-    body = (await resp.json()) as { id_token?: unknown };
+    body = (await readAuthJson(resp, opts.signal)) as { id_token?: unknown };
   } catch {
+    if (opts.signal.aborted) throw new GoogleFlowError('sso_cancelled', 'token');
     throw new GoogleFlowError('google_exchange_rejected', 'token-parse');
   }
   if (typeof body.id_token !== 'string' || body.id_token.length === 0) {

@@ -24,6 +24,7 @@
  *     replays exactly what Apple saw at /authorize — RFC 6749 §4.1.3 —
  *     including whatever bridge redirect #973 lands.
  */
+import { readAuthJson } from '../../authResponse';
 import type { AppleSignInErrorCode } from '../../../shared/appleSso';
 import type { startLoopback as startLoopbackFn, LoopbackHandle } from '../../ssoLoopback';
 
@@ -107,7 +108,10 @@ async function initiate(
     throw new AppleFlowError('sso_initiate_failed', 'initiate');
   }
   if (!res.ok) throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  const body = (await res.json().catch(() => null)) as Partial<InitiateResponse> | null;
+  const body = (await readAuthJson(res, signal).catch(() => {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'initiate');
+    return null;
+  })) as Partial<InitiateResponse> | null;
   if (
     !body ||
     typeof body.auth_url !== 'string' ||
@@ -150,7 +154,10 @@ async function postSession(
     throw new AppleFlowError('sso_session_rejected', 'session');
   }
   if (!res.ok) throw new AppleFlowError('sso_session_rejected', 'session');
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readAuthJson(res, signal).catch(() => {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'session');
+    return null;
+  })) as Record<string, unknown> | null;
   if (!body) throw new AppleFlowError('sso_session_rejected', 'session');
   return body;
 }
@@ -266,6 +273,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     return { kind: 'error', code: toErrorCode(err) };
   } finally {
     clearTimeout(deadline);
+    flow.abort.abort();
     if (activeFlow === flow) {
       activeFlow = null;
       flow.loopback?.close();

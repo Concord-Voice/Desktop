@@ -116,6 +116,26 @@ afterEach(() => {
 });
 
 describe('runAppleSignIn — happy path', () => {
+  it('reports cancellation while the initiation body is stalled', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo);
+    deps.controlPlaneFetch = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = runAppleSignIn(deps);
+    await vi.waitFor(() => expect(deps.controlPlaneFetch).toHaveBeenCalledOnce());
+    cancelActiveAppleFlow();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized initiation before opening the browser', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo, { initiateBody: { padding: 'x'.repeat(2 * 1024 * 1024) } });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
   it('rejects a phishing authorization URL before opening the browser', async () => {
     const lo = makeLoopback();
     lo.resolve({ code: 'code-1', state: 'state-1' });

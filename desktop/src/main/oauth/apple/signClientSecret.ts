@@ -14,6 +14,7 @@
  *   5xx / network / bad body → sso_initiate_failed (new flow)
  *   abort → sso_cancelled
  */
+import { readAuthJson } from '../../authResponse';
 import { AppleFlowError } from './errors';
 
 export async function signClientSecret(opts: {
@@ -40,7 +41,10 @@ export async function signClientSecret(opts: {
   if (res.status === 429) throw new AppleFlowError('sso_rate_limited', 'broker');
   if (!res.ok) throw new AppleFlowError('sso_initiate_failed', 'broker');
 
-  const body = (await res.json().catch(() => null)) as { client_secret?: unknown } | null;
+  const body = (await readAuthJson(res, opts.signal).catch(() => {
+    if (opts.signal.aborted) throw new AppleFlowError('sso_cancelled', 'broker');
+    return null;
+  })) as { client_secret?: unknown } | null;
   if (!body || typeof body.client_secret !== 'string' || body.client_secret.length === 0) {
     throw new AppleFlowError('sso_initiate_failed', 'broker');
   }

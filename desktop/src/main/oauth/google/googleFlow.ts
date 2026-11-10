@@ -21,6 +21,7 @@
  *     { kind: 'error', code } so no raw Error (with a potential cause chain)
  *     crosses the IPC boundary (internal-reference).
  */
+import { readAuthJson } from '../../authResponse';
 import type { SSOSignInErrorCode } from '../../../shared/sso';
 import type { startLoopback as startLoopbackFn, LoopbackHandle } from '../../ssoLoopback';
 
@@ -107,7 +108,10 @@ async function initiate(
     throw new GoogleFlowError('sso_initiate_failed', 'initiate');
   }
   if (!res.ok) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  const body = (await res.json().catch(() => null)) as Partial<InitiateResponse> | null;
+  const body = (await readAuthJson(res, signal).catch(() => {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'initiate');
+    return null;
+  })) as Partial<InitiateResponse> | null;
   if (
     !body ||
     typeof body.auth_url !== 'string' ||
@@ -155,7 +159,10 @@ async function postSession(
     throw new GoogleFlowError('sso_session_rejected', 'session');
   }
   if (!res.ok) throw new GoogleFlowError('sso_session_rejected', 'session');
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readAuthJson(res, signal).catch(() => {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'session');
+    return null;
+  })) as Record<string, unknown> | null;
   if (!body) throw new GoogleFlowError('sso_session_rejected', 'session');
   return body;
 }
@@ -238,6 +245,7 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     return { kind: 'error', code: toErrorCode(err) };
   } finally {
     clearTimeout(deadline);
+    flow.abort.abort();
     if (activeFlow === flow) {
       activeFlow = null;
       flow.loopback?.close();

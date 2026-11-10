@@ -59,6 +59,17 @@ describe('appleTokenCall', () => {
     await expect(call(fetchFn)).resolves.toEqual({ idToken: 'idt-1' });
   });
 
+  it('reports cancellation during a stalled token response body', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = appleTokenCall({ ...baseArgs, fetchFn, signal: controller.signal });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    controller.abort();
+    await expectCode(pending, 'sso_cancelled');
+  });
+
   it('maps 400 (invalid_grant et al.) to apple_exchange_rejected', async () => {
     const fetchFn = (async () => jsonResponse(400, { error: 'invalid_grant' })) as typeof fetch;
     await expectCode(call(fetchFn), 'apple_exchange_rejected');
