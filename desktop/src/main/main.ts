@@ -143,7 +143,11 @@ import {
   getSpaHash,
   setRemoteSpaState,
 } from './spaState';
-import { isPermittedFrameUrl, requireTrustedSender } from './ipc/frameValidation';
+import {
+  isPermittedFrameUrl,
+  isTrustedMainWindowSender,
+  requireTrustedSender,
+} from './ipc/frameValidation';
 import {
   IPC_CONTRACT_VERSION,
   type CredentialOwner,
@@ -1405,7 +1409,7 @@ const createWindow = async (): Promise<void> => {
   // Register the window-control + version-info IPC surfaces (#806). The
   // factory closures defer the window lookup so the late-bind window
   // reference is always current (handles the brief teardown window).
-  registerWindowControlsIpc(() => mainWindow);
+  registerWindowControlsIpc(() => mainWindow, getRemoteSpaBaseUrl);
   registerVersionInfoIpc(() => mainWindow);
 
   const bundledPath = path.join(__dirname, '../renderer/index.html');
@@ -2161,7 +2165,7 @@ ipcMain.handle('app:setContentProtection', async (event, enabled: unknown): Prom
 
 // Relaunch (for hardware acceleration toggle)
 ipcMain.handle('app:relaunch', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
+  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
   app.relaunch();
   app.quit();
 });
@@ -2242,7 +2246,8 @@ ipcMain.handle('spa:checkForUpdate', async (event) => {
 });
 
 // Clean app exit (preserves persisted auth/remember-me state)
-ipcMain.handle('app:quit', () => {
+ipcMain.handle('app:quit', (event) => {
+  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
   app.quit();
 });
 
@@ -2284,7 +2289,7 @@ ipcMain.handle('update:download', (event) => {
   return downloadUpdate();
 });
 ipcMain.handle('update:install', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
+  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
   return safeQuitAndInstall();
 });
 ipcMain.handle('update:getAllowPrerelease', () => getAllowPrerelease());
