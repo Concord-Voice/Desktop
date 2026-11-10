@@ -18,6 +18,8 @@ import {
   decryptAttachmentStream,
   UnsupportedAttachmentFormatError,
   AttachmentIntegrityError,
+  expectedBlobLength,
+  ENVELOPE_VERSION_V3,
 } from '../../utils/crypto/attachmentChunkedCrypto';
 import { formatFileSize } from '../../utils/crypto/attachmentCrypto';
 import {
@@ -25,7 +27,10 @@ import {
   parseContentLength,
   tooLargeMessage,
 } from '../../utils/runtime/boundedResponseBody';
-import { MAX_DECRYPTABLE_ATTACHMENT_BYTES } from '../../utils/policy/entitlementLimits';
+import {
+  IMAGE_STRIP_MAX_BYTES,
+  MAX_DECRYPTABLE_ATTACHMENT_BYTES,
+} from '../../utils/policy/entitlementLimits';
 import type { AttachmentSummary } from '../../types/chat';
 import { useSettingsStore } from '../../stores/ui/settingsStore';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
@@ -97,12 +102,13 @@ interface CachedBlob {
 interface LoadedAttachment {
   readonly url: string;
   readonly animated: boolean | null;
+  readonly bytes: number;
 }
 
 const blobUrlCache = new Map<string, CachedBlob>();
 // Oversized blobs cannot join the retained LRU, but overlapping surfaces of
 // the same file must still share one URL until the final surface releases it.
-const uncachedLiveBlobs = new Map<string, { url: string; animated: boolean | null }>();
+const uncachedLiveBlobs = new Map<string, CachedBlob>();
 let cachedBytes = 0;
 
 /**
@@ -230,7 +236,7 @@ function cacheBlobUrl(fileId: string, url: string, bytes: number, animated: bool
   // Too large for the retained LRU: share its URL only while a surface needs
   // it. The final surface release removes this transient entry and revokes it.
   if (bytes > BLOB_CACHE_RETAIN_MAX_BYTES) {
-    uncachedLiveBlobs.set(fileId, { url, animated });
+    uncachedLiveBlobs.set(fileId, { url, bytes, animated });
     return;
   }
 
@@ -258,6 +264,9 @@ function cacheBlobUrl(fileId: string, url: string, bytes: number, animated: bool
 
 /** Loads in progress, keyed by file id. */
 const inFlightLoads = new Map<string, Promise<LoadedAttachment>>();
+
+/** An automatic preview needs consent before consuming a larger body. */
+class PreviewNeedsConsentError extends Error {}
 
 /** Why an attachment could not be shown.
  *
@@ -299,7 +308,7 @@ const FAILURE_COPY: Record<Exclude<AttachmentFailure, null>, string> = {
  *  Content-Length that describes the bytes we will read. A compressed response
  *  reports its COMPRESSED length, which would misframe the envelope, so that
  *  header is ignored unless the response is uncompressed. */
-function attachmentLength(response: Response, declaredSize: number): number {
+function attachmentLength(response: Response, declaredSize: number, autoLimit?: number): number {
   const encoding = (response.headers.get('Content-Encoding') ?? 'identity').trim().toLowerCase();
   const transport =
     encoding === 'identity'
@@ -309,6 +318,11 @@ function attachmentLength(response: Response, declaredSize: number): number {
   // Either claim above the guard refuses before a byte of the body is read.
   const largest = Math.max(length, transport ?? 0);
   if (largest > MAX_DECRYPTABLE_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(largest);
+  if (
+    autoLimit !== undefined &&
+    (!Number.isSafeInteger(length) || length < 1 || largest > autoLimit)
+  )
+    throw new PreviewNeedsConsentError();
   return length;
 }
 
@@ -316,10 +330,11 @@ async function decryptResponse(
   response: Response,
   channelId: string,
   declaredSize: number,
-  mimeType: string
+  mimeType: string,
+  autoLimit?: number
 ): Promise<Blob> {
   if (!response.ok) throw new Error(`Failed to fetch attachment (${response.status})`);
-  const length = attachmentLength(response, declaredSize);
+  const length = attachmentLength(response, declaredSize, autoLimit);
   // SELECT THE KEY BY EPOCH, not "whatever is current".
   //
   // Every revocation rotates the CSK, so decrypting with the latest key
@@ -341,13 +356,27 @@ async function decryptResponse(
   // `length` bytes, so it bounds the transfer too. Electron always supplies a
   // body; a response without one is a transport failure, not tampering.
   if (!response.body) throw new Error('Attachment response has no body');
-  return decryptAttachmentStream(response.body, length, channelKey, mimeType);
+  let received = 0;
+  const body =
+    autoLimit === undefined
+      ? response.body
+      : response.body.pipeThrough(
+          new TransformStream<Uint8Array, Uint8Array>({
+            transform(chunk, controller) {
+              received += chunk.byteLength;
+              if (received > autoLimit) throw new PreviewNeedsConsentError();
+              controller.enqueue(chunk);
+            },
+          })
+        );
+  return decryptAttachmentStream(body, length, channelKey, mimeType);
 }
 
 async function loadAndCache(
   fileId: string,
   channelId: string,
-  declaredSize: number
+  declaredSize: number,
+  autoLimit?: number
 ): Promise<LoadedAttachment> {
   // Guards run BEFORE the allocating operation, not between two of them.
   // `file_size` rides on the summary, so an oversized attachment costs no
@@ -361,7 +390,7 @@ async function loadAndCache(
   const mimeType = response.headers.get('X-File-Mime-Type') || 'application/octet-stream';
   let blob: Blob;
   try {
-    blob = await decryptResponse(response, channelId, declaredSize, mimeType);
+    blob = await decryptResponse(response, channelId, declaredSize, mimeType, autoLimit);
   } catch (err) {
     // Release the connection on every early exit (a locked body rejects the
     // cancel, which is fine: decryptAttachmentStream already released it).
@@ -390,23 +419,28 @@ async function loadAndCache(
 
   const url = URL.createObjectURL(blob);
   cacheBlobUrl(fileId, url, blob.size, animated);
-  return { url, animated };
+  return { url, animated, bytes: blob.size };
 }
 
 async function fetchAndDecrypt(
   fileId: string,
   channelId: string,
-  declaredSize: number
+  declaredSize: number,
+  autoLimit?: number
 ): Promise<LoadedAttachment> {
+  const requireConsent = (loaded: LoadedAttachment) => {
+    if (autoLimit !== undefined && loaded.bytes > autoLimit) throw new PreviewNeedsConsentError();
+    return loaded;
+  };
   const cached = blobUrlCache.get(fileId);
   if (cached) {
     // Move to end for LRU freshness
     blobUrlCache.delete(fileId);
     blobUrlCache.set(fileId, cached);
-    return { url: cached.url, animated: cached.animated };
+    return requireConsent(cached);
   }
   const uncached = uncachedLiveBlobs.get(fileId);
-  if (uncached) return uncached;
+  if (uncached) return requireConsent(uncached);
 
   // Coalesce concurrent loads of one attachment onto a single fetch + decrypt.
   // The same file legitimately appears on several surfaces at once (a message
@@ -419,13 +453,13 @@ async function fetchAndDecrypt(
   // a growing margin. Coalescing removes the duplicates rather than trying to
   // clean up after them, and saves N-1 fetches and decrypts besides.
   const existing = inFlightLoads.get(fileId);
-  if (existing) return existing;
+  if (existing) return requireConsent(await existing);
 
-  const load = loadAndCache(fileId, channelId, declaredSize).finally(() => {
+  const load = loadAndCache(fileId, channelId, declaredSize, autoLimit).finally(() => {
     inFlightLoads.delete(fileId);
   });
   inFlightLoads.set(fileId, load);
-  return load;
+  return requireConsent(await load);
 }
 
 /** Guard copy, rendered in the chip footprint so the refusal sits where the
@@ -459,9 +493,10 @@ function FileIcon({ fileType }: { readonly fileType: string }) {
   }
 }
 
-/** 256 MiB: the largest video Desktop preloads without asking. Mobile's cap is
- *  64 MiB; both come from the attachment display policy (2026-11-05). */
-export const VIDEO_PRELOAD_MAX_BYTES = 256 * 1024 * 1024;
+/** The largest uploadable image, including its v3 ciphertext framing. */
+const IMAGE_PRELOAD_MAX_BYTES = expectedBlobLength(IMAGE_STRIP_MAX_BYTES, ENVELOPE_VERSION_V3);
+// A sender-controlled video label cannot grant a larger automatic download.
+export const VIDEO_PRELOAD_MAX_BYTES = Math.min(256 * 1024 * 1024, IMAGE_PRELOAD_MAX_BYTES);
 
 // Display constraints for image attachments — must match AttachmentDisplay.css
 // (.attachment-image-container max-width / .attachment-image max-height).
@@ -610,8 +645,20 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // `photo` is only known after download, so only the declared type can wait.
   const loadGifsAutomatically = usePrivacyStore((s) => s.settings.loadGifsAutomatically);
   const [userClicked, setUserClicked] = useState(false);
+  const userClickedRef = useRef(false);
+  const [previewNeedsConsent, setPreviewNeedsConsent] = useState(false);
+  const sizeNeedsConsent =
+    !Number.isSafeInteger(attachment.file_size) ||
+    attachment.file_size <= 0 ||
+    (attachment.file_size > IMAGE_PRELOAD_MAX_BYTES &&
+      attachment.file_size <= MAX_DECRYPTABLE_ATTACHMENT_BYTES) ||
+    previewNeedsConsent;
   const awaitingClick =
-    attachment.file_type === 'animated' && !loadGifsAutomatically && !userClicked && url === null;
+    !userClicked &&
+    url === null &&
+    (sizeNeedsConsent || (attachment.file_type === 'animated' && !loadGifsAutomatically));
+  const sizeNeedsConsentRef = useRef(sizeNeedsConsent);
+  sizeNeedsConsentRef.current = sizeNeedsConsent;
   const awaitingClickRef = useRef(awaitingClick);
   awaitingClickRef.current = awaitingClick;
   const [loading, setLoading] = useState(!url);
@@ -633,6 +680,13 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   const pinnedRef = useRef(false);
   const releaseOnExitRef = useRef(false);
   const loadRef = useRef<() => void>(() => undefined);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   urlRef.current = url;
   pinnedRef.current = focusWithin || lightboxOpen || menuPos !== null;
 
@@ -658,10 +712,16 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   const load = useCallback(async () => {
     if (loadingRef.current || urlRef.current || awaitingClickRef.current) return;
     loadingRef.current = true;
+    let retryWithConsent = false;
     try {
       setError(null);
       setLoading(true);
-      const loaded = await fetchAndDecrypt(attachment.id, channelId, attachment.file_size);
+      const loaded = await fetchAndDecrypt(
+        attachment.id,
+        channelId,
+        attachment.file_size,
+        userClickedRef.current ? undefined : IMAGE_PRELOAD_MAX_BYTES
+      );
       if (!visibleRef.current && !pinnedRef.current) {
         releaseOffscreenBlob(attachment.id, loaded.url);
         return;
@@ -676,12 +736,20 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
     } catch (err) {
       // A refusal is a different failure from a broken fetch or decrypt: the
       // bytes were never requested, so say so instead of "failed to load".
-      if (err instanceof AttachmentTooLargeError)
+      if (err instanceof PreviewNeedsConsentError) {
+        if (userClickedRef.current) retryWithConsent = true;
+        else {
+          awaitingClickRef.current = true;
+          setPreviewNeedsConsent(true);
+        }
+      } else if (err instanceof AttachmentTooLargeError)
         setTooLarge({ bytes: err.byteLength, truncated: err.truncated });
       else setError(failureOf(err));
     } finally {
       loadingRef.current = false;
       setLoading(false);
+      if (retryWithConsent && mountedRef.current && (visibleRef.current || pinnedRef.current))
+        loadRef.current();
     }
   }, [attachment.id, attachment.file_size, channelId]);
   loadRef.current = load;
@@ -711,6 +779,11 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           if (!pinnedRef.current) {
             urlRef.current = null;
             setUrl(null);
+            if (sizeNeedsConsentRef.current) {
+              userClickedRef.current = false;
+              awaitingClickRef.current = true;
+              setUserClicked(false);
+            }
           }
         }
       },
@@ -812,8 +885,9 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
         <button
           type="button"
           className="gif-embed-placeholder"
-          aria-label="Click to load GIF"
+          aria-label={sizeNeedsConsent ? 'Click to load image' : 'Click to load GIF'}
           onClick={() => {
+            userClickedRef.current = true;
             awaitingClickRef.current = false;
             // This button unmounts while focused, and an unmounted element
             // never fires blur: clear the flag here or the GIF stays "hovered"
@@ -824,7 +898,15 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           }}
         >
           <ImageOff size={24} />
-          <span>Click to load GIF</span>
+          <span>
+            {sizeNeedsConsent ? 'Click to load image' : 'Click to load GIF'}
+            {sizeNeedsConsent &&
+            !previewNeedsConsent &&
+            Number.isSafeInteger(attachment.file_size) &&
+            attachment.file_size > 0
+              ? ` (${formatFileSize(attachment.file_size)})`
+              : ''}
+          </span>
         </button>
       )}
       {loading && !awaitingClick && (
@@ -939,7 +1021,13 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   // (attachment display policy, 2026-11-05). Audio stays click-to-load because
   // there's nothing visual to gain from prefetching the bytes.
   const isVideo = attachment.file_type === 'video';
-  const autoLoad = isVideo && attachment.file_size <= VIDEO_PRELOAD_MAX_BYTES;
+  const [previewNeedsConsent, setPreviewNeedsConsent] = useState(false);
+  const autoLoad =
+    isVideo &&
+    !previewNeedsConsent &&
+    Number.isSafeInteger(attachment.file_size) &&
+    attachment.file_size > 0 &&
+    attachment.file_size <= VIDEO_PRELOAD_MAX_BYTES;
   const [inView, setInView] = useState(false);
   const [focused, setFocused] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -953,6 +1041,13 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   const pinnedRef = useRef(false);
   const releaseOnExitRef = useRef(false);
   const loadRef = useRef<() => void>(() => undefined);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const hasPictureInPicture = useCallback(() => {
     const video = containerRef.current?.querySelector('video');
     return !!video && document.pictureInPictureElement === video;
@@ -963,13 +1058,15 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   const load = useCallback(async () => {
     if (urlRef.current || loadingRef.current) return;
     loadingRef.current = true;
+    let retryWithConsent = false;
     setError(null);
     setLoading(true);
     try {
       const { url: blobUrl } = await fetchAndDecrypt(
         attachment.id,
         channelId,
-        attachment.file_size
+        attachment.file_size,
+        manuallyRequestedRef.current ? undefined : VIDEO_PRELOAD_MAX_BYTES
       );
       if (!visibleRef.current && !pinnedRef.current) {
         releaseOffscreenBlob(attachment.id, blobUrl);
@@ -978,12 +1075,17 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
       urlRef.current = blobUrl;
       setUrl(blobUrl);
     } catch (err) {
-      if (err instanceof AttachmentTooLargeError)
+      if (err instanceof PreviewNeedsConsentError) {
+        if (manuallyRequestedRef.current) retryWithConsent = true;
+        else setPreviewNeedsConsent(true);
+      } else if (err instanceof AttachmentTooLargeError)
         setTooLarge({ bytes: err.byteLength, truncated: err.truncated });
       else setError(failureOf(err));
     } finally {
       loadingRef.current = false;
       setLoading(false);
+      if (retryWithConsent && mountedRef.current && (visibleRef.current || pinnedRef.current))
+        loadRef.current();
     }
   }, [attachment.id, attachment.file_size, channelId]);
   loadRef.current = load;
@@ -1068,7 +1170,11 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   // TERMINAL: retrying re-fetches the same bytes and fails the same way. Only a
   // generic failure (a dropped fetch, a transient 5xx) is worth another go.
   const terminal = error !== null && error !== 'generic';
-  let loadTitle = isVideo && !autoLoad ? `Large video — download ${sizeLabel}?` : `Load ${label}`;
+  let loadTitle = previewNeedsConsent
+    ? 'Large video — download?'
+    : isVideo && !autoLoad && Number.isSafeInteger(attachment.file_size) && attachment.file_size > 0
+      ? `Large video — download ${sizeLabel}?`
+      : `Load ${label}`;
   if (error === 'generic') loadTitle = `Failed to load ${label} — retry`;
   else if (loading) loadTitle = `Loading ${label}…`;
 
