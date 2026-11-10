@@ -2961,19 +2961,37 @@ function getOwnedPipWindow(event: IpcMainInvokeEvent, id: string): BrowserWindow
   return resolvePipSender(event, id)?.entry.window ?? null;
 }
 
+function isMainPipSender(
+  event: IpcMainInvokeEvent,
+  senderFrame: NonNullable<IpcMainInvokeEvent['senderFrame']>,
+  remoteUrl: string | null
+): boolean {
+  return (
+    !!mainWindow &&
+    !mainWindow.isDestroyed() &&
+    event.sender === mainWindow.webContents &&
+    senderFrame.frameTreeNodeId === mainWindow.webContents.mainFrame.frameTreeNodeId &&
+    isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl)
+  );
+}
+
+function getPipLoadUrl(id: string, remoteUrl: string | null): string {
+  if (!app.isPackaged) return `http://localhost:3001#/pip/${id}`;
+  // Keep the remote SPA path; origin-only URLs can reach the marketing site (#802).
+  if (remoteUrl) return buildRemotePipUrl(remoteUrl, id);
+  // A signed cache main window needs a child on the same cache origin (#1870).
+  if (
+    (mainWindow?.webContents.getURL() ?? '').startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`)
+  )
+    return `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${id}`;
+  return `app://concord/index.html#/pip/${id}`;
+}
+
 ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Promise<void> => {
   // Only the main window's main frame may create native child windows.
   const senderFrame = event.senderFrame;
   const remoteUrl = getRemoteSpaUrl();
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    event.sender !== mainWindow.webContents ||
-    !senderFrame ||
-    senderFrame.frameTreeNodeId !== mainWindow.webContents.mainFrame.frameTreeNodeId ||
-    !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl) ||
-    !isPipOpenOptions(opts)
-  ) {
+  if (!senderFrame || !isMainPipSender(event, senderFrame, remoteUrl) || !isPipOpenOptions(opts)) {
     const now = performance.now();
     if (now - lastPipOpenRejectionLog >= 5_000) {
       lastPipOpenRejectionLog = now;
@@ -3029,31 +3047,7 @@ ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Pro
   // A synchronous load failure must not leave an untracked native window.
   let ready: Promise<void>;
   try {
-    // Load PiP route (hash-based routing)
-    if (!app.isPackaged) {
-      ready = pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
-    } else if (remoteUrl) {
-      // Tier 3: PiP windows load from the remote SPA, including the
-      // `/spa/<sha>/` path component. Origin-only would fall through to
-      // nginx's catch-all and redirect to the marketing site (#802).
-      ready = pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
-    } else if (
-      (mainWindow?.webContents.getURL() ?? '').startsWith(
-        `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`
-      )
-    ) {
-      // #1870: the main window is serving from the signed last-known-good cache
-      // (setRemoteSpaState(null) means remoteUrl is null, but the cache origin is
-      // the active shell). Load the PiP child from the SAME cache origin so it
-      // renders the cached shell, not the possibly-older bundled asset. The
-      // will-navigate gate + spa-cache protocol handler permit and
-      // integrity-verify it. Derived from the live main-window URL (stateless) so
-      // it cannot drift from the actual effective mode.
-      ready = pip.loadURL(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${opts.id}`);
-    } else {
-      // #830: PiP bundled mode loads via app:// for consistent origin.
-      ready = pip.loadURL(`app://concord/index.html#/pip/${opts.id}`);
-    }
+    ready = pip.loadURL(getPipLoadUrl(opts.id, remoteUrl));
   } catch {
     if (!pip.isDestroyed()) pip.destroy();
     throw new Error('PiP could not be opened');

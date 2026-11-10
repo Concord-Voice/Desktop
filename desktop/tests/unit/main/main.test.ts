@@ -2475,7 +2475,7 @@ describe('main.ts', () => {
         .slice(firstNewCall)
         .find((call) => call[0] === 'closed')?.[1] as (() => void) | undefined;
       closed?.();
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before);
+      expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
     });
     // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
     // defense-in-depth). In this test environment isPackaged=false, so a
@@ -2509,7 +2509,7 @@ describe('main.ts', () => {
           { id: 'subframe-test' }
         )
       ).rejects.toThrow('PiP could not be opened');
-      expect((MockBrowserWindow as Mock).mock.calls.length).toBe(before);
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
     });
 
     it('does not let a legacy caller hide controls after a refused pop-out', async () => {
@@ -2600,7 +2600,7 @@ describe('main.ts', () => {
     ])('rejects invalid PiP options before creating a window', async (opts) => {
       const before = (MockBrowserWindow as Mock).mock.calls.length;
       await expect(handlers.get('pip:open')!(pipOwnerEvent, opts)).rejects.toThrow();
-      expect((MockBrowserWindow as Mock).mock.calls.length).toBe(before);
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
     });
 
     it('limits simultaneous PiPs, still focuses an existing one, and reuses a closed slot', async () => {
