@@ -52,9 +52,7 @@ const PersistentVoiceBar: React.FC = () => {
         title: 'Concord Voice Controls',
       });
     } catch {
-      useVoiceStore
-        .getState()
-        .setVideoSlotError('Could not open PiP. Close an open PiP or try again.');
+      useVoiceStore.getState().setVideoSlotError('Could not open PiP. Close one or retry.');
       return;
     }
     setVoiceControlsPoppedOut(true);

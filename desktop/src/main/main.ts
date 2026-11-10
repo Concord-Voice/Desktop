@@ -2987,6 +2987,17 @@ function getPipLoadUrl(id: string, remoteUrl: string | null): string {
   return `app://concord/index.html#/pip/${id}`;
 }
 
+async function focusExistingPip(existing: PipWindowEntry, senderFrameId: number): Promise<void> {
+  if (existing.ownerFrameTreeNodeId !== senderFrameId) throw new Error('PiP could not be opened');
+  try {
+    await existing.ready;
+  } catch {
+    throw new Error('PiP could not be opened');
+  }
+  if (existing.window.isDestroyed()) throw new Error('PiP could not be opened');
+  existing.window.focus();
+}
+
 ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Promise<void> => {
   // Only the main window's main frame may create native child windows.
   const senderFrame = event.senderFrame;
@@ -3001,18 +3012,7 @@ ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Pro
   }
 
   const existing = pipWindows.get(opts.id);
-  if (existing) {
-    if (existing.ownerFrameTreeNodeId !== senderFrame.frameTreeNodeId)
-      throw new Error('PiP could not be opened');
-    try {
-      await existing.ready;
-    } catch {
-      throw new Error('PiP could not be opened');
-    }
-    if (existing.window.isDestroyed()) throw new Error('PiP could not be opened');
-    existing.window.focus();
-    return;
-  }
+  if (existing) return focusExistingPip(existing, senderFrame.frameTreeNodeId);
 
   if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
     throw new Error('PiP could not be opened');
