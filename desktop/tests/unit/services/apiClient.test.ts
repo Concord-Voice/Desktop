@@ -193,6 +193,18 @@ describe('apiClient', () => {
     expect(useAuthStore.getState().accessToken).toBe('new-token');
   });
 
+  it('cancels the superseded 401 body when a retry succeeds', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+    globalThis.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'ok', accessToken: 'new-token' }),
+    } as any;
+    const cancel = vi.fn();
+    mockFetch.mockResolvedValueOnce(new Response(new ReadableStream({ cancel }), { status: 401 }));
+    mockFetch.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+    expect((await apiFetch('/api/v1/test')).status).toBe(200);
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  });
+
   it.each(['0.2.18', '1.1.0-pilot.2'])(
     'declares the cached desktop client version on a 401 retry (%s)',
     async (version) => {

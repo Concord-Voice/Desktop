@@ -39,6 +39,88 @@ afterEach(() => {
 });
 
 describe('useAuthenticatedMediaUrl', () => {
+  it('aborts an identity response whose declared size exceeds the cap', async () => {
+    const getReader = vi.fn();
+    let signal: AbortSignal | undefined;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          'Content-Type': 'image/png',
+          'Content-Length': String(128 * 1024 * 1024 + 1),
+        }),
+        body: { getReader },
+      } as unknown as Response;
+    });
+    try {
+      useAuthStore.getState().setAccessToken('image-session');
+      const view = renderHook(() => useAuthenticatedMediaUrl(mediaPath));
+      await waitFor(() => expect(signal?.aborted).toBe(true));
+      expect(getReader).not.toHaveBeenCalled();
+      expect(createObjectURL).not.toHaveBeenCalled();
+      view.unmount();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('aborts an identity request that does not finish by the deadline', async () => {
+    let signal: AbortSignal | undefined;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      useAuthStore.getState().setAccessToken('image-session');
+      const view = renderHook(() => useAuthenticatedMediaUrl(mediaPath));
+      await waitFor(() => expect(signal).toBeDefined());
+      const timeout = timerSpy.mock.calls.find(([, delay]) => delay === 60_000)?.[0];
+      expect(typeof timeout).toBe('function');
+      act(() => (timeout as () => void)());
+      expect(signal?.aborted).toBe(true);
+      expect(createObjectURL).not.toHaveBeenCalled();
+      view.unmount();
+    } finally {
+      timerSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('cancels an oversized identity stream even when its length is understated', async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    const reader = {
+      read: vi.fn(async () => ({ done: false, value: chunk })),
+      cancel: vi.fn(async () => undefined),
+    };
+    const response = {
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        'Content-Type': 'image/png',
+        'Content-Length': '1',
+        'Content-Encoding': 'gzip',
+      }),
+      body: { getReader: () => reader },
+      blob: vi.fn(async () => new Blob([imageBytes], { type: 'image/png' })),
+    } as unknown as Response;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    try {
+      useAuthStore.getState().setAccessToken('image-session');
+      const view = renderHook(() => useAuthenticatedMediaUrl(mediaPath));
+      await waitFor(() => expect(reader.cancel).toHaveBeenCalledOnce());
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(view.result.current).toBeUndefined();
+      view.unmount();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
   it('fetches a canonical identity image with the active account and revokes it on logout', async () => {
     let authorization: string | null = null;
     server.use(
