@@ -91,7 +91,8 @@ describe('runGoogleSignIn', () => {
         async () =>
           new Response(
             JSON.stringify({
-              auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid',
+              auth_url:
+                'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback&x=1',
               state: '',
               nonce: 'NONCE',
             })
