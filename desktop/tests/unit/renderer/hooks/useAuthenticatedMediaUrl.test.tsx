@@ -66,9 +66,16 @@ describe('useAuthenticatedMediaUrl', () => {
     }
   });
 
-  it('aborts an identity request that does not finish by the deadline', async () => {
+  it('retries a mounted identity request after its deadline', async () => {
     let signal: AbortSignal | undefined;
+    let requests = 0;
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, init) => {
+      if (++requests > 1)
+        return Promise.resolve(
+          new Response(imageBytes.buffer as ArrayBuffer, {
+            headers: { 'Content-Type': 'image/png' },
+          })
+        );
       signal = init?.signal as AbortSignal;
       return new Promise<Response>((_resolve, reject) => {
         signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
@@ -83,7 +90,8 @@ describe('useAuthenticatedMediaUrl', () => {
       expect(typeof timeout).toBe('function');
       act(() => (timeout as () => void)());
       expect(signal?.aborted).toBe(true);
-      expect(createObjectURL).not.toHaveBeenCalled();
+      await waitFor(() => expect(view.result.current).toBe('blob:authenticated-avatar'));
+      expect(requests).toBe(2);
       view.unmount();
     } finally {
       timerSpy.mockRestore();

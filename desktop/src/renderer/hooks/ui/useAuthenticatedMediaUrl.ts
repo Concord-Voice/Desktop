@@ -115,7 +115,10 @@ export function useAuthenticatedMediaUrl(source?: string | null): string | undef
         );
       };
       void (async () => {
-        const timeout = setTimeout(() => shared.controller.abort(), IDENTITY_MEDIA_TIMEOUT_MS);
+        const timeout = setTimeout(() => {
+          retry();
+          shared.controller.abort();
+        }, IDENTITY_MEDIA_TIMEOUT_MS);
         try {
           const response = await apiFetch(
             path,
@@ -157,8 +160,10 @@ export function useAuthenticatedMediaUrl(source?: string | null): string | undef
           retryAttempts.delete(retryKey);
           shared.listeners.forEach((listener) => listener(url));
         } catch (error) {
-          if (error instanceof AttachmentTooLargeError) shared.controller.abort();
-          else retry();
+          if (error instanceof AttachmentTooLargeError) {
+            shared.exhausted = true;
+            shared.controller.abort();
+          } else retry();
         } finally {
           clearTimeout(timeout);
         }
