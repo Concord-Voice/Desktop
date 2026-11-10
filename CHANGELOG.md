@@ -55,6 +55,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Security
 
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 
 ## [0.3.1] - 2026-11-06
 

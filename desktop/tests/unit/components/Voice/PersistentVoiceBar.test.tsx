@@ -239,6 +239,21 @@ describe('PersistentVoiceBar', () => {
       });
     });
 
+    it('keeps inline controls visible when the PiP request is refused', async () => {
+      globalThis.electron = {
+        ...savedElectron,
+        openPipWindow: vi.fn().mockRejectedValue(new Error('PiP unavailable')),
+      } as any;
+      setBarState();
+      render(<PersistentVoiceBar />);
+      screen.getByText('Pop Out').click();
+      await vi.waitFor(() => {
+        expect(useVoiceStore.getState().voiceControlsPoppedOut).toBe(false);
+        expect(useVoiceStore.getState().videoSlotError).toContain('Could not open PiP');
+      });
+      expect(screen.getByTestId('voice-controls')).toBeInTheDocument();
+    });
+
     it('onPipClosed restores inline bar when controls-main PiP closes', async () => {
       const closedCallbacks: ((id: string) => void)[] = [];
       globalThis.electron = {

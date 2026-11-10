@@ -820,6 +820,27 @@ describe('VoiceControls', () => {
     globalThis.electron = origElectron;
   });
 
+  it('shows a refused PiP request instead of hiding the controls', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn().mockRejectedValue(new Error('PiP unavailable')),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({
+      tunedInScreenShares: {},
+      setVideoSlotError: (message: string | null) =>
+        useVoiceStore.setState({ videoSlotError: message }),
+    });
+    render(<VoiceControls />);
+    await act(async () => fireEvent.click(screen.getByTitle('More controls')));
+    await act(async () => fireEvent.click(screen.getByText('Pop Out User Frames')));
+
+    expect(useVoiceStore.getState().videoSlotError).toContain('Could not open PiP');
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not open PiP');
+    globalThis.electron = origElectron;
+  });
+
   it('calls electron.openPipWindow with screen options when Pop Out screen clicked', async () => {
     const mockOpenPip = vi.fn().mockResolvedValue(undefined);
     const origElectron = globalThis.electron;
