@@ -17,7 +17,7 @@ export class EgressDeniedError extends Error {
 
 // Hold the process-wide permit until the OS callback, even if a caller times out.
 let probeLookupPending = false;
-const PROBE_LOOKUP_BUSY = 'ERR_CONCORD_PROBE_LOOKUP_BUSY';
+export const PROBE_LOOKUP_BUSY = 'ERR_CONCORD_PROBE_LOOKUP_BUSY';
 
 function limitedProbeLookup(
   host: string,

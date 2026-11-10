@@ -2397,13 +2397,17 @@ ipcMain.handle('selfHosted:probeServer', async (event, url: unknown) => {
     event.senderFrame.frameTreeNodeId !== mainWindow.webContents.mainFrame.frameTreeNodeId ||
     !isTrustedAuthSender(event)
   ) {
+    console.warn('[selfHosted:probeServer] rejected — sender is not the active main frame');
     return {
       status: 'error',
       code: 'rejected',
       message: 'Self-hosted server probing is not available from this frame.',
     };
   }
-  if (probeInFlight) return { status: 'error', code: 'busy', message: '' };
+  if (probeInFlight) {
+    console.warn('[selfHosted:probeServer] refused — probe already in flight');
+    return { status: 'error', code: 'busy', message: '' };
+  }
   probeInFlight = true;
   try {
     return await handleProbeSelfHostedServer(url);

@@ -1,6 +1,7 @@
 import { classifyAddress } from './egressPolicy';
 import {
   EgressDeniedError,
+  PROBE_LOOKUP_BUSY,
   guardedRequest,
   probeResolver,
   type GuardedResponse,
@@ -193,6 +194,10 @@ export async function probeSelfHostedServer(
     if (err instanceof EgressDeniedError) {
       return egressDenialResult(err);
     }
+    if ((err as NodeJS.ErrnoException)?.code === PROBE_LOOKUP_BUSY) {
+      logProbeFailure('busy');
+      return error('busy', '');
+    }
     logProbeFailure('client_config_failed');
     return error(
       'client_config_failed',
@@ -212,6 +217,10 @@ export async function probeSelfHostedServer(
   } catch (err) {
     if (err instanceof EgressDeniedError) {
       return egressDenialResult(err);
+    }
+    if ((err as NodeJS.ErrnoException)?.code === PROBE_LOOKUP_BUSY) {
+      logProbeFailure('busy');
+      return error('busy', '');
     }
     logProbeFailure('capabilities_failed');
     return error(
