@@ -624,6 +624,20 @@ function imageContainerStyle(
   return undefined;
 }
 
+function saveableImageUrl(id: string, url: string | null): string | null {
+  const entry = blobUrlCache.get(id);
+  return url && entry?.url === url && entry.bytes <= SAVE_IMAGE_MAX_BYTES ? url : null;
+}
+
+function saveImageAs(id: string, mimeType: string, url: string | null): void {
+  const saveUrl = saveableImageUrl(id, url);
+  if (!saveUrl) return;
+  fetch(saveUrl)
+    .then((r) => r.arrayBuffer())
+    .then((bytes) => globalThis.electron.saveImageAs(bytes, `image-${id}${extFromMime(mimeType)}`))
+    .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
+}
+
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Declared above the focus hook, which now takes it as its `enabled` gate.
   // `file_type` is MIME-derived and PERSISTED at upload, so it is wrong for two
@@ -713,22 +727,11 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // Sync wrapper whose promise chain ends in `.catch`, so the promise is handled
   // (not floating) without the `void` operator, and callers invoke it directly.
   // All saveable blobs fit in the retained cache; larger live-only blobs do not.
-  const saveEntry = blobUrlCache.get(attachment.id);
-  const canSaveImage =
-    url !== null && saveEntry?.url === url && saveEntry.bytes <= SAVE_IMAGE_MAX_BYTES;
-  const handleSaveImage = useCallback((): void => {
-    const entry = blobUrlCache.get(attachment.id);
-    if (!url || entry?.url !== url || entry.bytes > SAVE_IMAGE_MAX_BYTES) return;
-    fetch(url)
-      .then((r) => r.arrayBuffer())
-      .then((bytes) =>
-        globalThis.electron.saveImageAs(
-          bytes,
-          `image-${attachment.id}${extFromMime(attachment.mime_type)}`
-        )
-      )
-      .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
-  }, [url, attachment.id, attachment.mime_type]);
+  const canSaveImage = saveableImageUrl(attachment.id, url) !== null;
+  const handleSaveImage = useCallback(
+    () => saveImageAs(attachment.id, attachment.mime_type, url),
+    [url, attachment.id, attachment.mime_type]
+  );
 
   const load = useCallback(async () => {
     if (loadingRef.current || urlRef.current || awaitingClickRef.current) return;
