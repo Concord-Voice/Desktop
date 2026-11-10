@@ -68,7 +68,7 @@ environment carries that flag.
 | Path (repo root) | What |
 |---|---|
 | `.worktrees/<session-id>/` | one worktree per dispatch. Created with `git worktree add`, never reused; an existing target is refused |
-| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. Common token and key shapes are redacted before writing |
+| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. New records omit prompts, replies, worker output, and free-form failure details; only metadata and a derived escalation flag are stored. Legacy records remain on disk and can contain secrets; queries project their metadata without returning raw content, while chain verification uses the original records |
 | `.agent-bus/workers/<session-id>.json` | marker file for the recursion guard |
 
 Both directories are gitignored at the repository root. The bridge never deletes

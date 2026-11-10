@@ -200,10 +200,10 @@ export class BridgeMcpServer {
   private async findEscalation(taskId: string): Promise<EscalationEvidence | null> {
     for (const record of this.auditLedger.query({ taskId, limit: 200 })) {
       const role = field(record, "execution", "agentRole");
-      const summary = field(record, "results", "outputSummary");
+      const highSeverityFinding = field(record, "results", "highSeverityFinding");
       const status = field(record, "execution", "status");
-      if (typeof role !== "string" || typeof summary !== "string" || status !== "COMPLETED") continue;
-      const evidence = { agentRole: role, outputSummary: summary };
+      if (typeof role !== "string" || highSeverityFinding !== true || status !== "COMPLETED") continue;
+      const evidence = { agentRole: role, outputSummary: "HIGH" };
       if (evaluateEscalation(evidence)) return evidence;
     }
     return null;

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { evaluateEscalation } from "../gate/activation.js";
+import { FLEET_MATRIX } from "../config/fleet-matrix.js";
 
 /**
  * Append-only, hash-chained audit ledger.
@@ -12,8 +14,7 @@ import path from "node:path";
  * reordered, inserted or deleted line is detected. This is tamper-EVIDENT,
  * not tamper-proof: whoever can write the file can rewrite the whole chain.
  *
- * Secrets that match the patterns in `redactSecrets` are replaced before any
- * string reaches disk.
+ * New records omit task content and worker output; legacy records remain on disk.
  */
 
 export const GENESIS_HASH = "0".repeat(64);
@@ -191,17 +192,32 @@ export class AuditLedger {
   private async append(entry: AuditEntryInput): Promise<LedgerRecord> {
     await fs.promises.mkdir(this.auditDir, { recursive: true, mode: 0o700 });
     const timestamp = new Date(entry.timestamp ?? Date.now()).toISOString();
+    const highSeverityFinding = evaluateEscalation({
+      agentRole: entry.execution.agentRole,
+      outputSummary: redactSecrets(entry.results.outputSummary ?? ""),
+    });
     const body = sanitize({
-      schema: "concord-bridge-audit-v2",
+      schema: "concord-bridge-audit-v3",
       task_id: entry.taskId,
       event: entry.event,
       timestamp,
-      initiator: entry.initiator,
-      admission: entry.admission,
-      execution: entry.execution,
-      worktree: entry.worktree,
-      prompt: { ...entry.prompt, contextFiles: entry.prompt.contextFiles ?? [], dialogueHistory: entry.prompt.dialogueHistory ?? [] },
-      results: entry.results,
+      initiator: { repliesUsed: entry.initiator.repliesUsed, maxDialogueTurns: entry.initiator.maxDialogueTurns },
+      admission: entry.admission ? { criterion: entry.admission.criterion.match(/^RC-[1-4]/)?.[0] ?? null } : undefined,
+      execution: {
+        agentRole: entry.execution.agentRole,
+        sovereignOwner: entry.execution.sovereignOwner,
+        harnessUsed: entry.execution.harnessUsed,
+        modelResolved: entry.execution.modelResolved,
+        effortPinned: entry.execution.effortPinned,
+        access: entry.execution.access,
+        durationMs: entry.execution.durationMs,
+        exitCode: entry.execution.exitCode,
+        signal: entry.execution.signal,
+        status: entry.execution.status,
+      },
+      worktree: { baseCommit: entry.worktree.baseCommit, headCommit: entry.worktree.headCommit },
+      prompt: { contextFileCount: entry.prompt.contextFiles?.length ?? 0, dialogueTurns: entry.prompt.dialogueHistory?.length ?? 0 },
+      results: { highSeverityFinding },
     });
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new Error("audit entry did not serialize to an object");
@@ -235,7 +251,48 @@ export class AuditLedger {
         continue;
       }
       if (options.taskId !== undefined && parsed.task_id !== options.taskId) continue;
-      results.push(parsed as LedgerRecord);
+      const record = parsed as LedgerRecord;
+      if (record.schema === "concord-bridge-audit-v3") {
+        results.push(record);
+      } else {
+        const execution = record.execution;
+        const output = record.results;
+        const role = execution && typeof execution === "object" && !Array.isArray(execution) ? execution.agentRole : undefined;
+        const status = execution && typeof execution === "object" && !Array.isArray(execution) ? execution.status : undefined;
+        const summary = output && typeof output === "object" && !Array.isArray(output) ? output.outputSummary : undefined;
+        const exec = execution && typeof execution === "object" && !Array.isArray(execution) ? execution : {};
+        const wt = record.worktree && typeof record.worktree === "object" && !Array.isArray(record.worktree) ? record.worktree : {};
+        const prompt = record.prompt && typeof record.prompt === "object" && !Array.isArray(record.prompt) ? record.prompt : {};
+        const admission = record.admission && typeof record.admission === "object" && !Array.isArray(record.admission) ? record.admission : {};
+        const fleet = Object.values(FLEET_MATRIX);
+        const known = (value: JsonValue | undefined, allowed: readonly (string | null)[]): string | null =>
+          typeof value === "string" && allowed.includes(value) ? value : null;
+        const commit = (value: JsonValue | undefined): string | null =>
+          typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64}|unknown)$/.test(value) ? value : null;
+        results.push({
+          schema: "concord-bridge-audit-legacy-projection",
+          task_id: record.task_id,
+          event: record.event,
+          timestamp: record.timestamp,
+          admission: { criterion: typeof admission.criterion === "string" ? admission.criterion.match(/^RC-[1-4]/)?.[0] ?? null : null },
+          execution: {
+            agentRole: known(role, Object.keys(FLEET_MATRIX)),
+            status: known(status, ["RUNNING", "COMPLETED", "AWAITING_INPUT", "PERMISSION_GATE", "FAILED", "CIRCUIT_BREAKER_EXHAUSTED"]),
+            harnessUsed: known(exec.harnessUsed, ["claude", "codex", "antigravity"]),
+            sovereignOwner: known(exec.sovereignOwner, fleet.map((row) => row.sovereignOwner)),
+            modelResolved: known(exec.modelResolved, fleet.flatMap((row) => [row.claudeModel, row.codexModel, row.agyModel])),
+            effortPinned: known(exec.effortPinned, ["low", "medium", "high", "xhigh", "max"]),
+            access: known(exec.access, ["read-only", "workspace-write", "isolated-write"]),
+            durationMs: typeof exec.durationMs === "number" && Number.isFinite(exec.durationMs) ? exec.durationMs : null,
+            exitCode: typeof exec.exitCode === "number" && Number.isFinite(exec.exitCode) ? exec.exitCode : null,
+          },
+          worktree: { baseCommit: commit(wt.baseCommit), headCommit: commit(wt.headCommit) },
+          prompt: { contextFileCount: Array.isArray(prompt.contextFiles) ? prompt.contextFiles.length : 0, dialogueTurns: Array.isArray(prompt.dialogueHistory) ? prompt.dialogueHistory.length : 0 },
+          results: { highSeverityFinding: typeof role === "string" && typeof summary === "string" && evaluateEscalation({ agentRole: role, outputSummary: summary }) },
+          prev_hash: record.prev_hash,
+          hash: record.hash,
+        });
+      }
     }
     return results;
   }

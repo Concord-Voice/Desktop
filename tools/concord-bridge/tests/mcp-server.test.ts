@@ -7,6 +7,7 @@ import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createBridgeMcpServer, resolveExecution, type BridgeMcpServer, type ToolResult } from "../src/server.js";
 import { getAgentConfig } from "../src/config/fleet-matrix.js";
 import { WORKER_ENV_FLAG } from "../src/runners/base.js";
+import { computeHash, GENESIS_HASH } from "../src/audit/ledger.js";
 import type { Elicitor } from "../src/gate/activation.js";
 import { FakeRunner, gitOut, makeTmpRepo, removeTmp } from "./helpers.js";
 
@@ -87,7 +88,7 @@ describe("Concord Bridge MCP server", () => {
     const [record] = server.ledger.query();
     const head = gitOut(repo, "rev-parse", "HEAD");
     expect(record.worktree).toMatchObject({ baseCommit: head, headCommit: head });
-    expect(record.prompt).toMatchObject({ contextFiles: ["README.md"] });
+    expect(record.prompt).toMatchObject({ contextFileCount: 1, dialogueTurns: 0 });
     expect(server.ledger.verifyChain().ok).toBe(true);
   });
 
@@ -205,7 +206,7 @@ describe("Concord Bridge MCP server", () => {
       expect(json(r).admitted_by).toBe("RC-1: path desktop/src/renderer/services/e2ee/epoch.ts");
       expect(elicitor).not.toHaveBeenCalled();
       expect(claude.calls[0]).toMatchObject({ model: "claude-mythos-5-1", effort: "max", access: "isolated-write" });
-      expect(server.ledger.query()[0].admission).toEqual({ criterion: "RC-1: path desktop/src/renderer/services/e2ee/epoch.ts" });
+      expect(server.ledger.query()[0].admission).toEqual({ criterion: "RC-1" });
     });
 
     it("admits RC-2 from the paths an existing branch changes", async () => {
@@ -239,11 +240,27 @@ describe("Concord Bridge MCP server", () => {
       }
     });
 
+    it("preserves RC-3 for legacy records without returning their raw contents", async () => {
+      const { server } = makeServer(repo, { elicitor: async () => "declined" });
+      fs.mkdirSync(server.ledger.auditDir, { recursive: true });
+      const old = {
+        schema: "concord-bridge-audit-v2", task_id: "legacy", event: "dispatch", timestamp: "2026-01-01T00:00:00.000Z",
+        execution: { agentRole: "red-team", status: "COMPLETED" }, prompt: { initialPrompt: "legacySecretA" },
+        results: { outputSummary: "P0 legacySecretB" }, prev_hash: GENESIS_HASH,
+      };
+      fs.writeFileSync(server.ledger.ledgerPath, JSON.stringify({ ...old, hash: computeHash(GENESIS_HASH, old) }) + "\n");
+      const queried = await server.executeTool("bridge_query_audit_log", { verify_chain: true });
+      expect(queried.content[0].text).not.toMatch(/legacySecret/);
+      expect(json(queried).chain).toMatchObject({ ok: true, entries: 1 });
+      const dispatch = await server.executeTool("bridge_dispatch_task", { agent_role: "red-team-critical", prompt: "prove", escalation_task_id: "legacy" });
+      expect(json(dispatch).admitted_by).toBe("RC-3: escalation from @red-team");
+    });
+
     it("admits RC-4 when the human approves through the injected elicitor", async () => {
       const { server } = makeServer(repo, { elicitor: async () => "approved" });
       const r = await server.executeTool("bridge_dispatch_task", { agent_role: "red-team-critical", prompt: "x" });
       expect(json(r).admitted_by).toBe("RC-4: RC-4 human override via elicitation");
-      expect(server.ledger.query()[0].admission).toEqual({ criterion: "RC-4: RC-4 human override via elicitation" });
+      expect(server.ledger.query()[0].admission).toEqual({ criterion: "RC-4" });
     });
 
     it("default elicitor refuses when no client is connected", async () => {
@@ -289,7 +306,7 @@ describe("Concord Bridge MCP server", () => {
         const ok = (await client.callTool({ name: "bridge_dispatch_task", arguments: { agent_role: "red-team-critical", prompt: "go" } })) as ToolResult;
         expect(asked).toMatch(/RC-4/);
         expect(json(ok).admitted_by).toMatch(/RC-4/);
-        expect(server.ledger.query()[0].initiator).toMatchObject({ harness: "test-client" });
+        expect(server.ledger.query()[0].initiator).toMatchObject({ repliesUsed: 0 });
 
         answer = false;
         const no = (await client.callTool({ name: "bridge_dispatch_task", arguments: { agent_role: "red-team-critical", prompt: "go" } })) as ToolResult;
@@ -324,14 +341,33 @@ describe("Concord Bridge MCP server", () => {
 
       const records = server.ledger.query();
       expect(records.map((x) => x.event)).toEqual(["reply", "dispatch"]);
-      expect(records[0].prompt).toMatchObject({
-        reply: "users",
-        dialogueHistory: [{ turn: 1, workerStatus: "AWAITING_INPUT", workerQuestion: "Which table?", dispatcherReply: "users" }],
-      });
+      expect(records[0].prompt).toMatchObject({ contextFileCount: 0, dialogueTurns: 1 });
+      expect(JSON.stringify(records)).not.toContain("Which table?");
+      expect(JSON.stringify(records)).not.toContain("users");
       expect(server.ledger.verifyChain()).toEqual({ ok: true, entries: 2 });
 
       const again = await server.executeTool("bridge_reply", { session_id: String(d.session_id), reply: "more" });
       expect(again.content[0].text).toMatch(/already COMPLETED/);
+    });
+
+    it("keeps live dialogue usable without retaining task or worker secrets", async () => {
+      const codex = new FakeRunner([
+        { status: "AWAITING_INPUT", question: "QuestionSecret", stdout: "OutputSecret" },
+        { status: "FAILED", stderr: "ErrorSecret", failureReason: "SpawnSecret" },
+      ]);
+      const { server } = makeServer(repo, { codex });
+      const d = json(await server.executeTool("bridge_dispatch_task", { agent_role: "backend-developer", prompt: "PromptSecret", branch: "BranchSecret" }));
+      expect(d.question).toBe("QuestionSecret");
+      await server.executeTool("bridge_reply", { session_id: String(d.session_id), reply: "ReplySecret" });
+      expect(codex.calls[1].prompt).toContain("QuestionSecret");
+      expect(codex.calls[1].prompt).toContain("ReplySecret");
+      const raw = fs.readFileSync(server.ledger.ledgerPath, "utf8");
+      const queried = (await server.executeTool("bridge_query_audit_log", {})).content[0].text;
+      for (const secret of ["PromptSecret", "BranchSecret", "QuestionSecret", "OutputSecret", "ReplySecret", "ErrorSecret", "SpawnSecret"]) {
+        expect(raw).not.toContain(secret);
+        expect(queried).not.toContain(secret);
+      }
+      expect(server.ledger.verifyChain().ok).toBe(true);
     });
 
     it("records PERMISSION_GATE and tells the worker a reply does not widen permissions", async () => {
@@ -344,7 +380,7 @@ describe("Concord Bridge MCP server", () => {
       expect(r.status).toBe("FAILED");
       expect(r.failure_reason).toBe("exit code 1");
       expect(claude.calls[1].prompt).toMatch(/does NOT change your sandbox/);
-      expect(server.ledger.query()[0].prompt).toMatchObject({ dialogueHistory: [{ workerStatus: "PERMISSION_GATE", dispatcherReply: "granted" }] });
+      expect(server.ledger.query()[0].prompt).toMatchObject({ dialogueTurns: 1 });
     });
 
     it("allows maxDialogueTurns replies, then reports budget exhaustion honestly", async () => {
