@@ -35,6 +35,12 @@ const handle = vi.fn();
  * not how it got bumped.
  */
 const audiocapRendererLossEpoch = vi.fn();
+/**
+ * The host's LIVE generation (`session?.generation ?? 0`). 0 by default: nothing is live,
+ * so the busy fence (#86 Task 7B pass 2) never fires in a case that does not ask for it.
+ * A case that needs "A's share is live" returns the generation A's start handed the host.
+ */
+const currentAudiocapGeneration = vi.fn(() => 0);
 
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/concord-test-userdata' },
@@ -46,7 +52,7 @@ vi.mock('../../../src/main/audiocapHost', () => ({
   startAudiocapHost: (...a: unknown[]) => startAudiocapHost(...a),
   stopAudiocapHost: (...a: unknown[]) => stopAudiocapHost(...a),
   killAudiocapHost: (...a: unknown[]) => killAudiocapHost(...a),
-  currentAudiocapGeneration: () => 1,
+  currentAudiocapGeneration: () => currentAudiocapGeneration(),
   audiocapRendererLossEpoch: (...a: unknown[]) => audiocapRendererLossEpoch(...a),
 }));
 
@@ -82,6 +88,9 @@ async function loadIpc() {
   const opened = reg.openConnection(svc.service.serviceId, mainWebContents as never, null);
   if (!opened.ok) throw new Error(opened.reason);
   reg.bindSender(mainWebContents as never, opened.record.connectionId, 'primary');
+  // #86 Task 7B pass 2 re-point: audiocap:start admits only the FOREGROUND primary, and the
+  // pre-#86 main window was the one visible window, so "the main window" is foreground.
+  reg.setForeground(opened.record.connectionId);
   let registered = false;
   const register = () => {
     mod.registerAudiocapIpc();
@@ -151,6 +160,8 @@ beforeEach(() => {
   startAudiocapHost.mockResolvedValue({ ok: true, generation: 1, perProcessAudio: true });
   audiocapRendererLossEpoch.mockReset();
   audiocapRendererLossEpoch.mockReturnValue(0);
+  currentAudiocapGeneration.mockReset();
+  currentAudiocapGeneration.mockReturnValue(0);
 });
 
 describe('audiocap:start — fence 1, the sender frame (A4, spec test 4)', () => {
@@ -914,6 +925,10 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
     };
     const A = open('https://api.concordvoice.chat', 11);
     const B = open(SELF, 12);
+    // #86 Task 7B pass 2 re-point: a start is admitted only from the FOREGROUND primary,
+    // so A (the connection every start below comes from unless it says otherwise) is
+    // foreground. A case that starts from B, or that needs A hidden, moves it first.
+    reg.setForeground(A.record.connectionId);
     ipc.registerAudiocapIpc(getRemoteSpaOrigin, () => null);
     const call = (channel: string) => {
       const h = handle.mock.calls.find((c) => c[0] === channel)?.[1] as
@@ -921,7 +936,7 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
       if (!h) throw new Error(channel + ' not registered');
       return h;
     };
-    return { reg, cap, A, B, call };
+    return { reg, cap, ipc, A, B, call };
   }
   const evOf = (c: { wc: unknown }, over: Record<string, unknown> = {}) => {
     const id = (c.wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
@@ -951,7 +966,8 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
   });
 
   it('start from a self-hosted primary succeeds too and binds THAT connection', async () => {
-    const { B, call } = await boot();
+    const { reg, B, call } = await boot();
+    reg.setForeground(B.record.connectionId);
     const r = await call('audiocap:start')(evOf(B), REQ);
     expect(r).toMatchObject({ ok: true });
     const owner = startAudiocapHost.mock.calls[0][2] as { ref: unknown };
@@ -1017,5 +1033,73 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
     await call('audiocap:start')(evOf(A), REQ);
     await call('audiocap:stop')(evOf(A, { detached: true }));
     expect(stopAudiocapHost).not.toHaveBeenCalled();
+  });
+  // ACCEPTED SECURITY FINDING (#86 Task 7B pass 2). System-audio capture starts only from
+  // the FOREGROUND primary: a hidden connection's view must not start a tap the user cannot
+  // see being started. Admission is the registry's (audiocap:start is app-global-mutate).
+  it('start from a HIDDEN primary is refused before any OS work', async () => {
+    const { reg, A, B, call } = await boot();
+    reg.setForeground(B.record.connectionId);
+    const r = await call('audiocap:start')(evOf(A), REQ);
+    expect(r).toEqual({ ok: false, reason: 'protocol-fault' });
+    expect(getSources).not.toHaveBeenCalled();
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+  });
+
+  it('a start whose connection stops being foreground during the enumeration is refused', async () => {
+    const { reg, A, B, call } = await boot();
+    let release!: (v: unknown) => void;
+    getSources.mockReturnValueOnce(new Promise((res) => (release = res)));
+    const pending = call('audiocap:start')(evOf(A), REQ) as Promise<unknown>;
+    reg.setForeground(B.record.connectionId);
+    release([{ id: 'window:42:0', name: 'Some App' }]);
+    expect(await pending).toEqual({ ok: false, reason: 'protocol-fault' });
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+  });
+
+  // ACCEPTED SECURITY FINDING, second half: no silent replace of another connection's share.
+  it('start is refused while ANOTHER connection owns a live share, and that share is not replaced', async () => {
+    const { reg, ipc, A, B, call } = await boot();
+    expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
+    currentAudiocapGeneration.mockReturnValue(startAudiocapHost.mock.calls[0][0] as number);
+    reg.setForeground(B.record.connectionId);
+    const r = await call('audiocap:start')(evOf(B), REQ);
+    expect(r).toEqual({ ok: false, reason: 'protocol-fault' });
+    expect(getSources).toHaveBeenCalledTimes(1);
+    expect(startAudiocapHost).toHaveBeenCalledTimes(1);
+    expect(stopAudiocapHost).not.toHaveBeenCalled();
+    expect(ipc.audiocapShareOwner()?.ref).toEqual(A.ref);
+  });
+
+  it("the owner restarting its own live share keeps today's behaviour (the new start supersedes)", async () => {
+    const { ipc, A, call } = await boot();
+    expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
+    currentAudiocapGeneration.mockReturnValue(startAudiocapHost.mock.calls[0][0] as number);
+    expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
+    expect(startAudiocapHost).toHaveBeenCalledTimes(2);
+    expect((startAudiocapHost.mock.calls[1][2] as { ref: unknown }).ref).toEqual(A.ref);
+    expect(ipc.audiocapShareOwner()?.ref).toEqual(A.ref);
+  });
+
+  it("once the other connection's share is no longer live, the foreground connection may start", async () => {
+    const { reg, ipc, A, B, call } = await boot();
+    expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
+    // The host retired A's session on its own (an interrupt or a crash): nothing is live.
+    currentAudiocapGeneration.mockReturnValue(0);
+    reg.setForeground(B.record.connectionId);
+    expect(await call('audiocap:start')(evOf(B), REQ)).toMatchObject({ ok: true });
+    expect(ipc.audiocapShareOwner()?.ref).toEqual(B.ref);
+  });
+
+  it("stop from the FOREGROUND connection B cannot end A's share; A may still end it while hidden", async () => {
+    const { reg, ipc, A, B, call } = await boot();
+    expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
+    reg.setForeground(B.record.connectionId);
+    await call('audiocap:stop')(evOf(B));
+    expect(stopAudiocapHost).not.toHaveBeenCalled();
+    expect(ipc.audiocapShareOwner()?.ref).toEqual(A.ref);
+    await call('audiocap:stop')(evOf(A));
+    expect(stopAudiocapHost).toHaveBeenCalledTimes(1);
+    expect(ipc.audiocapShareOwner()).toBeNull();
   });
 });

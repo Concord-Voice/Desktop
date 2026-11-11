@@ -20,6 +20,7 @@ import { desktopCapturer, type IpcMainInvokeEvent } from 'electron';
 
 import {
   audiocapRendererLossEpoch,
+  currentAudiocapGeneration,
   startAudiocapHost,
   stopAudiocapHost,
   type AudiocapStartResult,
@@ -33,7 +34,11 @@ import {
 } from '../connectionCapability';
 
 import { CHANNEL_CLASSES } from './channelClassification';
-import { requireConnectionSender, type ConnectionSender } from './connectionSender';
+import {
+  requireConnectionSender,
+  requireForegroundPrimary,
+  type ConnectionSender,
+} from './connectionSender';
 import { currentRemoteSpaOrigin, registerIpc } from './registry';
 
 /**
@@ -79,6 +84,44 @@ export function audiocapShareOwner(): OwnerBinding | null {
 }
 
 /**
+ * The generation this module handed `startAudiocapHost` for `shareOwner`'s share, or 0
+ * before one reached the host. Cleared with `shareOwner`.
+ */
+let ownedShareGeneration = 0;
+
+/**
+ * NO SILENT REPLACE (#86 Task 7B pass 2, accepted security finding). True while a
+ * connection other than `owner`'s owns a LIVE share: the host's live session is the one
+ * this module started for `shareOwner`. A start that passed this check would supersede
+ * that session inside `startAudiocapHost` and hand the tap to another connection.
+ *
+ * "Live" is the host's own answer (`currentAudiocapGeneration`, 0 when nothing is live),
+ * so a share the host retired on its own (an interrupt, a crash) blocks nobody, while a
+ * share still starting or capturing does. A pending start that has not reached the host
+ * yet is not live: only the foreground primary can start, so a second start can only come
+ * from a connection that became foreground since, and its epoch bump supersedes the first.
+ * The owner restarting its own share is not refused (the pre-#86 behaviour). What breaks
+ * it: comparing the window or the payload instead of the owner's connection, or reading
+ * the module's own generation mint instead of the host's live one.
+ */
+function anotherConnectionOwnsLiveShare(owner: OwnerBinding): boolean {
+  const current = shareOwner;
+  if (current === null || current.ref.connectionId === owner.ref.connectionId) return false;
+  return ownedShareGeneration !== 0 && currentAudiocapGeneration() === ownedShareGeneration;
+}
+
+/** True while the owner's connection is still the foreground one (re-checked after the await). */
+function isOwnerForeground(event: IpcMainInvokeEvent, owner: OwnerBinding): boolean {
+  const sender = requireForegroundPrimary(event, currentRemoteSpaOrigin());
+  return sender !== null && sender.ref.connectionId === owner.ref.connectionId;
+}
+
+function forgetShareOwner(): void {
+  shareOwner = null;
+  ownedShareGeneration = 0;
+}
+
+/**
  * The share path's OWN generation mint, monotonic and module-local.
  *
  * NOT `currentAudiocapGeneration()`, which returns `session?.generation ?? 0` — the
@@ -115,12 +158,18 @@ export async function handleAudiocapStart(
   request: unknown
 ): Promise<AudiocapStartResult> {
   // FENCE 1 -- first statement. A4 is specific about this: a validation that
-  // runs after any other work is a validation a future edit can reorder past. Any
-  // registered primary may start a share (spec §3.7); the share is bound to THAT
-  // connection's current generation, captured here, synchronously, before any await.
+  // runs after any other work is a validation a future edit can reorder past. Only the
+  // FOREGROUND primary may start a share (#86 Task 7B pass 2: the registry admits this
+  // channel as app-global-mutate); the share is bound to THAT connection's current
+  // generation, captured here, synchronously, before any await.
   if (sender.role !== 'primary') return { ok: false, reason: 'protocol-fault' };
   const owner = bindOwner('audiocap', sender.ref);
   if (!isOwnerPrimaryFrame(event, owner)) return { ok: false, reason: 'protocol-fault' };
+  // No silent replace: another connection's live share is refused, not superseded. The
+  // refusal reuses `protocol-fault`, the member this fence already answers with: the
+  // degrade union is closed and every member carries renderer copy, so a new reason is
+  // not additive.
+  if (anotherConnectionOwnsLiveShare(owner)) return { ok: false, reason: 'protocol-fault' };
 
   // FENCE 2. Read exactly the one field. An extra `systemAudio: true` is not
   // rejected, because rejecting it would tell a hostile renderer which fields
@@ -154,6 +203,9 @@ export async function handleAudiocapStart(
   // cannot land after the check but before the native host is registered.
   shareOperationEpoch += 1;
   const operationEpoch = shareOperationEpoch;
+  // A different connection's start (admitted only because no share of the old owner is
+  // live) must not inherit the old owner's generation.
+  if (shareOwner?.ref.connectionId !== owner.ref.connectionId) ownedShareGeneration = 0;
   shareOwner = owner;
   // A reload or renderer crash during the await below finds no session to kill, so the
   // start must notice it here instead, or it forks a tap for a document that is gone.
@@ -179,11 +231,18 @@ export async function handleAudiocapStart(
   if (!isOwnerPrimaryFrame(event, owner)) {
     return { ok: false, reason: 'protocol-fault' };
   }
+  // A start admitted while foreground is refused if its connection went to the background
+  // during the enumeration: a hidden connection must not start capture (#86 Task 7B pass 2).
+  if (!isOwnerForeground(event, owner)) {
+    return { ok: false, reason: 'protocol-fault' };
+  }
   if (!live.some((s) => s.id === sourceId)) {
     return { ok: false, reason: 'target-unresolved' };
   }
 
-  return startAudiocapHost(nextShareGeneration(), handle, owner);
+  const generation = nextShareGeneration();
+  ownedShareGeneration = generation;
+  return startAudiocapHost(generation, handle, owner);
 }
 
 /**
@@ -219,13 +278,14 @@ export function handleAudiocapStop(_sender: ConnectionSender, event: IpcMainInvo
   // there is no renderer's share to end, and the windowless probe is no renderer's.
   const owner = shareOwner;
   if (owner === null || !isOwnerPrimaryFrame(event, owner)) return;
-  shareOwner = null;
+  forgetShareOwner();
   shareOperationEpoch += 1;
   stopAudiocapHost();
 }
 
 /**
- * Registers both invokes behind their `connection-bound` admission (#86 Task 7B). The
+ * Registers `audiocap:start` behind `app-global-mutate` (the foreground primary, #86 Task 7B
+ * pass 2) and `audiocap:stop` behind `connection-bound` (#86 Task 7B). The
  * legacy `(getRemoteSpaOrigin, getMainWindow)` providers are gone: the remote-SPA origin
  * comes from the registry and the owner from the binding.
  *
@@ -245,7 +305,7 @@ export function registerAudiocapIpc(): void {
   });
   onGenerationAdvanced((id) => {
     if (shareOwner === null || shareOwner.ref.connectionId !== id) return;
-    shareOwner = null;
+    forgetShareOwner();
     shareOperationEpoch += 1;
     stopAudiocapHost();
   });

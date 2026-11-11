@@ -61,6 +61,12 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // #86 Task 7B: the screen-share picker's sources carry a thumbnail of every window
   // and screen, so a hidden view must not enumerate them (as for audiocap:start).
   'media:getDesktopSources': 'app-global-mutate',
+  // #86 Task 7B pass 2 (accepted security finding): a hidden connection must not start
+  // system-audio capture, so a start is admitted from the foreground primary only. The
+  // handler re-checks foreground after its await and refuses while ANOTHER connection
+  // owns a live share. audiocap:stop stays connection-bound: a hidden owner may still
+  // end its own share, and the handler admits the owner alone.
+  'audiocap:start': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
   // handler then narrows to trayOwner() when #87 names one, else the foreground
   // primary. With no owner set the effective admission is the foreground primary.
@@ -94,7 +100,6 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:googleSignIn': 'connection-bound',
   'sso:googleCancel': 'connection-bound',
   'selfHosted:probeServer': 'connection-bound',
-  'audiocap:start': 'connection-bound',
   'audiocap:stop': 'connection-bound',
   'open-external': 'connection-bound',
   'image:saveAs': 'connection-bound',
