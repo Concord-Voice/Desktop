@@ -76,6 +76,14 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // server: the native approval ceremony and the DNS work it starts are process-wide,
   // and a probe of another origin opens and activates that connection.
   'selfHosted:probeServer': 'app-global-mutate',
+  // #86 Phase-4 red-team RT2 (accepted security finding): an SSO sign-in opens the
+  // system browser on a consent tab and redeems the code with the embedded client
+  // secret, so a hidden view must not start one; the foreground primary only, like
+  // audiocap:start. The handler (ipc/sso.ts signIn) also refuses while ANOTHER
+  // connection owns that provider's flow (RT1). sso:appleCancel / sso:googleCancel
+  // stay connection-bound and owner-only, so a hidden owner may still cancel its own.
+  'sso:appleSignIn': 'app-global-mutate',
+  'sso:googleSignIn': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
   // handler then narrows to trayOwner() when #87 names one, else the foreground
   // primary. With no owner set the effective admission is the foreground primary.
@@ -104,9 +112,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:completeLink': 'connection-bound',
   'sso:completeMFA': 'connection-bound',
   'sso:abandonReservation': 'connection-bound',
-  'sso:appleSignIn': 'connection-bound',
   'sso:appleCancel': 'connection-bound',
-  'sso:googleSignIn': 'connection-bound',
   'sso:googleCancel': 'connection-bound',
   'audiocap:stop': 'connection-bound',
   'open-external': 'connection-bound',

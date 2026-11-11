@@ -245,6 +245,7 @@ describe('S1: custody and fetch come from the sender binding alone', () => {
 
   it('for the saas service the init is byte-identical to { ...init, credentials: "include" }', async () => {
     const saas = conn(SAAS, 3);
+    setForeground(saas.record.connectionId); // sso:*SignIn admits the foreground only (RT2)
     m.runApple.mockImplementation(
       async (p: { controlPlaneFetch: (u: string, i?: RequestInit) => Promise<Response> }) => {
         await p.controlPlaneFetch(`${SAAS}/api/v1/auth/sso/apple/session`, {
@@ -276,6 +277,8 @@ describe('SSO pending state is keyed by ConnectionId', () => {
     expect(started.value).toMatchObject({ kind: 'mfa_challenge' });
     const ownerA = (started.value as { credentialOwner: number }).credentialOwner;
 
+    // B must be the foreground to start a sign-in at all (RT2); A's challenge stays pending.
+    setForeground(B.record.connectionId);
     await call('sso:appleSignIn', B.wc, ORIGIN_B); // today this nulls the module-level pendingMFA
 
     const done = await call('sso:completeMFA', A.wc, ORIGIN_A, { ...MFA, credentialOwner: ownerA });

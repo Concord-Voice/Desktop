@@ -255,6 +255,7 @@ vi.mock('../../../../src/main/machineId', () => ({
 }));
 
 import { __revokeExplicitSessionForTest, approvedApiBase, registerSSOIPC } from '@/main/ipc/sso';
+import type { ConnectionId } from '@/shared/connectionIdentity';
 
 interface FakeInvokeEvent {
   senderFrame: { url: string };
@@ -327,7 +328,10 @@ describe('sso IPC handlers', () => {
   // custody forwards into tokenMocks with the service origin recorded on the
   // reservation, and the session fetch forwards into the net.fetch mock, so the
   // request-shape assertions below now pin the service session's fetch.
-  const boundByOrigin = new Map<string, { id: number; contents: unknown }>();
+  const boundByOrigin = new Map<
+    string,
+    { id: number; contents: unknown; connectionId: ConnectionId }
+  >();
   const bindFakeConnection = (origin: string, id: number): void => {
     const r = registerService(origin, {
       makeSession: () =>
@@ -347,7 +351,7 @@ describe('sso IPC handlers', () => {
     const o = openConnection(r.service.serviceId, contents, null);
     if (!o.ok) throw new Error(o.reason);
     bindSender(contents, o.record.connectionId, 'primary');
-    boundByOrigin.set(r.service.origin, { id, contents });
+    boundByOrigin.set(r.service.origin, { id, contents, connectionId: o.record.connectionId });
   };
   const originOf = (value: unknown): string | null => {
     if (typeof value !== 'string') return null;
@@ -360,6 +364,9 @@ describe('sso IPC handlers', () => {
   const asBound = (fake: { senderFrame: { url: string } | null }, apiBase: unknown) => {
     const target = boundByOrigin.get(originOf(apiBase) ?? '') ?? boundByOrigin.get(SAAS_API_BASE);
     if (!target) throw new Error('no bound saas connection');
+    // The sender is the view the user is looking at: sso:*SignIn admits the foreground
+    // primary only (#86 RT2); the connection-bound channels admit it either way.
+    setForeground(target.connectionId);
     return {
       sender: target.contents,
       senderFrame:
@@ -2043,6 +2050,7 @@ describe('sso connection fences (#86 7B)', () => {
     setRemoteSpaOriginSource(() => null);
     A = bound(ORIGIN_A, 1);
     B = bound(ORIGIN_B, 2);
+    setForeground(A.record.connectionId); // sso:*SignIn admits the foreground only (RT2)
     registerSSOIPC();
   });
 

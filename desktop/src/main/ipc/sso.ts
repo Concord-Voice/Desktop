@@ -437,7 +437,8 @@ function ownerNow(sender: ConnectionSender): OwnerBinding {
 
 /**
  * registerSSOIPC wires the eleven sso:* IPC channels through `registerIpc`
- * (connection-bound). The admitted sender's binding names the connection, its
+ * (connection-bound, except the two sign-in starts, which are app-global-mutate:
+ * foreground primary only, #86 RT2). The admitted sender's binding names the connection, its
  * service (the only API origin a handler dials) and its custody (the only custody a
  * handler touches). Pending SSO state, sign-in generations and loopbacks are keyed
  * by ConnectionId, so one connection can neither read nor clear another's.
@@ -467,7 +468,19 @@ export function registerSSOIPC(): void {
   onGenerationAdvanced((id, _from, _to, reason) => {
     pendingCompletion.delete(id);
     pendingMFA.delete(id);
-    if (reason === 'disposed') signInGeneration.delete(id);
+    if (reason === 'disposed') {
+      signInGeneration.delete(id);
+      // A disposed connection's provider flow can never finish usefully (its finish is
+      // fenced), so end it and release the provider: signIn refuses every other
+      // connection while this one owns it, and the reset in signIn's finally no longer
+      // matches once the generation entry above is gone.
+      for (const p of ['apple', 'google'] as const) {
+        if (flowOwner[p] !== id) continue;
+        flowOwner[p] = null;
+        if (p === 'apple') cancelActiveAppleFlow();
+        else cancelActiveGoogleFlow();
+      }
+    }
     for (const [port, entry] of active) {
       if (entry.owner.ref.connectionId !== id) continue;
       active.delete(port);
@@ -784,6 +797,13 @@ export function registerSSOIPC(): void {
     }
     const { apiBase } = checked;
     const id = sender.ref.connectionId;
+    // The provider module is single-flight process-wide, so `run` below cancels whatever
+    // flow is in flight. Refuse, never supersede, while ANOTHER connection owns this
+    // provider's flow, before any custody effect; a connection may restart its own.
+    const inFlight = flowOwner[provider];
+    if (inFlight !== null && inFlight !== id) {
+      throw new Error(`${channel} rejected: another connection's sign-in is in flight`);
+    }
     const { custody } = sender;
     const credentialOwner = custody.reserveCredentialOwner();
     const ctx: SignInContext = {
@@ -1037,7 +1057,8 @@ export function registerSSOIPC(): void {
 
   registerIpc(
     'sso:appleSignIn',
-    'connection-bound',
+    // Foreground primary only (RT2): a hidden view must not open a consent tab.
+    'app-global-mutate',
     (sender, _event, requestedApiBase: unknown) =>
       signIn(sender, requestedApiBase, 'apple', (apiBase, fetchFn, onSession) =>
         runAppleSignIn({
@@ -1081,7 +1102,8 @@ export function registerSSOIPC(): void {
 
   registerIpc(
     'sso:googleSignIn',
-    'connection-bound',
+    // Foreground primary only (RT2): a hidden view must not open a consent tab.
+    'app-global-mutate',
     (sender, _event, requestedApiBase: unknown) =>
       signIn(sender, requestedApiBase, 'google', (apiBase, fetchFn, onSession) =>
         runGoogleSignIn({

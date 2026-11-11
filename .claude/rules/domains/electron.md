@@ -1134,6 +1134,17 @@ not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isola
 | `pip-scoped` | a bound PiP or its primary | `untrusted-sender` |
 | `exempt-low-stakes` | the foreground primary | silent `undefined`, no log |
 
+**SSO sign-in starts are foreground-only and never supersede another connection (#86 RT1/RT2).**
+`sso:appleSignIn` and `sso:googleSignIn` are `app-global-mutate`: a start opens the system
+browser and redeems with the embedded client secret, so a hidden view must not reach it. The
+provider modules (`oauth/google/googleFlow.ts`, `oauth/apple/appleFlow.ts`) are single-flight
+PROCESS-WIDE and cancel the active flow on every start, so `signIn` in `ipc/sso.ts` refuses,
+before any custody effect, while `flowOwner[provider]` names ANOTHER connection; the same
+connection may restart its own. A `disposed` advance cancels the owner's flow and clears its
+slot, or the refusal would lock that provider until restart. Do not "simplify" the refusal into
+a supersede. `sso:appleCancel` / `sso:googleCancel` stay `connection-bound` and owner-only. Pinned by `tests/unit/main/ipc/ssoCrossConnection.test.ts`, which runs the real
+flow modules; see ADR-0051 § "Accepted security findings and their fixes".
+
 **The `registerIpc` rule.** `registerIpc(channel, class, handler, opts)` is the only sanctioned
 `ipcMain` caller. It throws, registering nothing, for a channel absent from `CHANNEL_CLASSES`
 (`src/main/ipc/channelClassification.ts`), for a class that differs from the table's, and for a

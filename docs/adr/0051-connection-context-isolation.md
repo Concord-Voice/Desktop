@@ -347,7 +347,8 @@ shell re-targets this class, and #87 may widen it for a capture-lease holder.
 
 ## Accepted security findings and their fixes
 
-Three findings were raised in review of this branch, accepted, and fixed on it.
+Three findings were raised in review of this branch, accepted, and fixed on it (S-1 to S-3); the
+Phase-4 red-team findings fixed on it follow them.
 
 **S-1 — A background connection could start system-audio capture, and a start from B silently
 replaced A's live share (MEDIUM).** `audiocap:start` was `connection-bound`.
@@ -375,6 +376,36 @@ Fix, in `desktop/src/main/main.ts`: `closePipsPinnedToStaleOrigin` is subscribed
 `onSpaStateChange`, and `setRemoteSpaState` is the only writer of the remote-SPA origin. Every
 write destroys each PiP whose pin no longer equals the current origin.
 
+**RT1 — A sign-in from connection B cancelled connection A's in-flight Google or Apple sign-in
+(MEDIUM, Phase-4 red-team).** `googleFlow.ts` and `appleFlow.ts` each hold one process-wide
+`activeFlow` and start every run by cancelling it. Only the explicit `sso:googleCancel` /
+`sso:appleCancel` were owner-checked, so a START was an unguarded cancel: A's loopback closed,
+A resolved `sso_cancelled`, and the only live consent tab was B's. B could repeat it on every
+retry. Fix, in `signIn` (`desktop/src/main/ipc/sso.ts`), the S-1 shape:
+
+- A sign-in is refused, before any custody effect, while ANOTHER connection owns that
+  provider's flow (`flowOwner`). It rejects with `<channel> rejected: another connection's
+  sign-in is in flight`, the same rejected-invoke shape as the unapproved-origin refusal.
+  Nothing is superseded; a connection may still restart its own flow.
+- On `disposed`, the owner's provider flow is cancelled and its `flowOwner` slot cleared.
+  Without that the refusal would lock the provider for every other connection until restart,
+  because the reset in `signIn`'s `finally` requires the generation entry dispose deletes.
+
+**RT2 — A hidden connection could start a sign-in (MEDIUM, Phase-4 red-team).**
+`sso:googleSignIn` and `sso:appleSignIn` were `connection-bound`, so a background view could
+open a "Concord Voice" consent tab naming any `client_id` its server chose, and main would
+redeem the code with the embedded Google client secret and post the id_token to that server.
+Fix: both are `app-global-mutate`. `sso:googleCancel` / `sso:appleCancel` stay
+`connection-bound` and owner-only, so a hidden owner can still cancel its own flow.
+
+`desktop/tests/unit/main/ipc/ssoCrossConnection.test.ts` pins both and runs the REAL provider
+flow modules; `sso.test.ts` mocks them, which is why neither finding showed there.
+**Residual (RT1):** only `disposed` releases the provider. After a reload or renderer loss of
+the owner, its stale flow runs to its own loopback timeout and another connection's sign-in on
+that provider is refused until then; the reloaded owner can restart its own flow at once. The
+unverified relay lead in the red-team report (a self-hosted server replaying CVNet's
+`state`/id_token at CVNet's `/session`) is server-side and predates #86.
+
 ### The development-build `saas` origin pin
 
 The `saas` service's API origin is resolved once, in main, by `pinFirstPartyApiOrigin()`
@@ -399,6 +430,7 @@ Each row is a security decision taken in review. The table of record is
 | Channel | Class on this branch | Why |
 |---|---|---|
 | `audiocap:start` | `app-global-mutate` | S-1 |
+| `sso:appleSignIn`, `sso:googleSignIn` | `app-global-mutate`; the handler also refuses while another connection owns that provider's flow | RT2, RT1 |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
