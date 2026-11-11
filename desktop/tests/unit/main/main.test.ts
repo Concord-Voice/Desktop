@@ -1389,6 +1389,57 @@ describe('main.ts', () => {
       expect(setUpdateFeedUrl).toHaveBeenCalledWith('http://localhost:8080');
     });
 
+    // #86 Task 9: serverUserId is renderer-supplied and is only ever input to the hash.
+    it('auth:storeRefreshToken passes a valid serverUserId through to the custody', async () => {
+      const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+      (storeRefreshToken as Mock).mockClear();
+      const data = {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId: 'user-123',
+      };
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
+      expect(result).toBe(41);
+      expect(storeRefreshToken).toHaveBeenCalledWith(data);
+    });
+
+    it.each([
+      ['empty', ''],
+      ['too long', 'x'.repeat(257)],
+      ['control character', 'user\u0001id'],
+      ['NUL', 'user\0id'],
+      ['newline', 'user\nid'],
+      ['not a string', 42],
+      ['object', { id: 'u' }],
+    ])('auth:storeRefreshToken rejects a serverUserId that is %s', async (_label, serverUserId) => {
+      const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+      (storeRefreshToken as Mock).mockClear();
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId,
+      });
+      expect(result).toEqual({ status: 'rejected' });
+      expect(storeRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('auth:storeRefreshToken never logs the serverUserId in clear', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId: 'secret-user\u0001',
+      });
+      const logged = JSON.stringify([...warn.mock.calls, ...log.mock.calls]);
+      expect(logged).not.toContain('secret-user');
+      warn.mockRestore();
+      log.mockRestore();
+    });
+
     it('auth:storeRefreshToken rejects untrusted sender frames', async () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       (storeRefreshToken as Mock).mockClear();

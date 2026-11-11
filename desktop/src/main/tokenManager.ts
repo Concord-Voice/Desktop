@@ -29,7 +29,13 @@ import { getMachineId } from './machineId';
 import { clearAttestationToken } from './attestationService';
 import { encryptForDisk, isSecureStorageAvailable, isUnprotectedCiphertext } from './secureStorage';
 import type { CredentialOwner, RefreshResult } from './ipcContract';
-import { isServiceId, type ServiceId } from '../shared/connectionIdentity';
+import {
+  isAccountKey,
+  isServiceId,
+  type AccountKey,
+  type ServiceId,
+} from '../shared/connectionIdentity';
+import { accountKeyFor } from './preferenceOwnership';
 import {
   profileIdForApiBase,
   profilePathsForApiBase,
@@ -57,6 +63,8 @@ interface TokenMeta {
   rememberMe: boolean;
   credentialOwner?: CredentialOwner;
   e2eeState?: E2EEPersistenceState;
+  /** #86 T9, additive: hex16 account handle. Absent or malformed reads as no account. */
+  accountKey?: AccountKey;
 }
 
 interface PersistedE2EEKeys {
@@ -92,6 +100,11 @@ export interface StoreRefreshTokenInput {
   rememberMe: boolean;
   apiBase: string;
   accessToken?: string;
+  /**
+   * #86 T9: the server's id for the signed-in user. Only input to `accountKeyFor`;
+   * never stored, logged or returned. Absent → this credential has no account key.
+   */
+  serverUserId?: string;
 }
 
 export type RestoreRefreshTokenResult =
@@ -156,6 +169,14 @@ export interface ProfileCustody {
   getCapabilities(): Promise<{ persistAvailable: boolean }>;
   /** R6 trigger for the connection registry. Returns the unsubscribe. */
   onCredentialEvent(listener: CredentialEventListener): () => void;
+  /**
+   * #86 T9: the current credential's account handle, or null. Set by a publish that
+   * carried `serverUserId` and by a restore of a meta file that holds one; cleared
+   * whenever the credential ends.
+   */
+  getAccountKey(): AccountKey | null;
+  /** In memory only; the next meta write carries it. Throws TypeError unless hex16 or null. */
+  setAccountKey(key: AccountKey | null): void;
   _resetForTesting(): void;
   _flushDiskWritesForTesting(): Promise<unknown>;
 }
@@ -245,6 +266,7 @@ function readMeta(metaFile: string): TokenMeta | null {
     }
     const credentialOwner = parsed.credentialOwner;
     const e2eeState = parsed.e2eeState;
+    const accountKey = parsed.accountKey;
     return {
       apiBase: parsed.apiBase,
       rememberMe: parsed.rememberMe,
@@ -254,6 +276,7 @@ function readMeta(metaFile: string): TokenMeta | null {
         ? { credentialOwner }
         : {}),
       ...(e2eeState === 'pending' || e2eeState === 'ready' ? { e2eeState } : {}),
+      ...(isAccountKey(accountKey) ? { accountKey } : {}),
     };
   } catch {
     return null;
@@ -385,6 +408,8 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
   let stagedE2EEKeys: StagedE2EEKeys | null = null;
   let reservedCredentialOwner: CredentialOwner | null = null;
   let allowLegacyE2EEMigration = false;
+  // #86 T9: the live credential's account handle (hex16 of the hashed server user id).
+  let inMemoryAccountKey: AccountKey | null = null;
   // Owner numbers are not unique. Restore adopts a profile's persisted owner,
   // which can move this counter backwards, and two profiles can persist the same
   // number. So every queued write re-checks the API base and the stored value
@@ -507,6 +532,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
           profileId: profileIdForApiBase(apiBase),
           credentialOwner,
           e2eeState,
+          ...(inMemoryAccountKey !== null ? { accountKey: inMemoryAccountKey } : {}),
         })
       );
       writeFileAtomic(activeProfileFile(), JSON.stringify({ apiBase }));
@@ -730,6 +756,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
   function publishRefreshToken(
     data: StoreRefreshTokenInput,
     owner: CredentialOwner,
+    accountKey: AccountKey | null,
     stagedKeys: E2EEKeyMaterial | null = null
   ): CredentialOwner {
     // Invalidate predecessor key custody before publishing the successor token.
@@ -745,6 +772,8 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     inMemoryRefreshToken = data.refreshToken;
     inMemoryRememberMe = data.rememberMe;
     inMemoryApiBase = data.apiBase;
+    // Replaced, never kept: a login without serverUserId has no account key.
+    inMemoryAccountKey = accountKey;
     cachedAccessToken = data.accessToken ?? null;
     lastProactiveRefreshTimestamp = 0;
     if (data.accessToken) {
@@ -781,10 +810,12 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
    * Each call creates a new owner and invalidates predecessor E2EE state.
    */
   function storeRefreshToken(data: StoreRefreshTokenInput): CredentialOwner {
+    // Derived before any state moves: a refused id throws with nothing changed.
+    const accountKey = accountKeyOf(data);
     const stagedKeys =
       stagedE2EEKeys?.generation === credentialGeneration ? stagedE2EEKeys.keys : null;
     const owner = nextCredentialOwner();
-    publishRefreshToken(data, owner, stagedKeys);
+    publishRefreshToken(data, owner, accountKey, stagedKeys);
     emitCredentialEvent('credential-start', owner);
     return owner;
   }
@@ -815,7 +846,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     ) {
       return null;
     }
-    return publishRefreshToken(data, owner);
+    return publishRefreshToken(data, owner, accountKeyOf(data));
   }
 
   function memoryRestoreResult(): RestoreRefreshTokenResult {
@@ -904,6 +935,9 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     stagedE2EEKeys = null;
     reservedCredentialOwner = null;
     allowLegacyE2EEMigration = legacyMeta;
+    // A meta without the field (pre-T9, or a login that carried no user id) restores
+    // with no account key; readMeta already dropped a malformed one.
+    inMemoryAccountKey = meta.accountKey ?? null;
     if (legacyMeta) {
       // Persist the owner + fail-closed marker before attempting the one-time
       // legacy E2EE migration. A crash now prompts for unlock instead of ever
@@ -1107,6 +1141,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     stagedE2EEKeys = null;
     reservedCredentialOwner = null;
     allowLegacyE2EEMigration = false;
+    inMemoryAccountKey = null;
     deleteFiles();
     if (endedOwner !== null) emitCredentialEvent('credential-end', endedOwner);
   }
@@ -1382,11 +1417,26 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     stagedE2EEKeys = null;
     reservedCredentialOwner = null;
     allowLegacyE2EEMigration = false;
+    inMemoryAccountKey = null;
     refreshOperation = null;
     proactiveRefreshCallback = null;
     lastProactiveRefreshTimestamp = 0;
     diskWrites = Promise.resolve();
     credentialListeners.clear();
+  }
+
+  /** `serverUserId` absent → null; present → its hash, or a TypeError for a refused id. */
+  function accountKeyOf(data: StoreRefreshTokenInput): AccountKey | null {
+    return data.serverUserId === undefined ? null : accountKeyFor(serviceId, data.serverUserId);
+  }
+
+  function getAccountKey(): AccountKey | null {
+    return inMemoryAccountKey;
+  }
+
+  function setAccountKey(key: AccountKey | null): void {
+    if (key !== null && !isAccountKey(key)) throw new TypeError('setAccountKey: not an AccountKey');
+    inMemoryAccountKey = key;
   }
 
   /** Resolve once every safeStorage disk write queued so far has settled. */
@@ -1419,6 +1469,8 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     getCredentialApiBase,
     getCapabilities,
     onCredentialEvent,
+    getAccountKey,
+    setAccountKey,
     _resetForTesting,
     _flushDiskWritesForTesting,
   });

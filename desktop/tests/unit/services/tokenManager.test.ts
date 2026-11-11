@@ -93,6 +93,7 @@ vi.mock('fs', () => ({
 import { createProfileCustody } from '@/main/tokenManager';
 import type { ProfileCustody } from '@/main/tokenManager';
 import { profilePathsForApiBase, serviceIdForApiBase } from '@/main/selfHostedProfile';
+import { preferenceScopeFor } from '@/main/preferenceOwnership';
 
 // The suite runs once per custody instance (#1618): every former module-level
 // call now goes through the instance created in beforeEach.
@@ -131,6 +132,7 @@ const {
 // async encrypt/decrypt to simulate a locked keychain or hold one in flight.
 import { safeStorage } from 'electron';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 // ─── JWT Test Helper ────────────────────────────────────────────────
 // Creates a minimal JWT with a given exp claim (seconds since epoch).
@@ -350,6 +352,187 @@ describe.each([
         status: 'ok',
         token: 'successor-token',
       });
+    });
+  });
+
+  // #86 Task 9: the custody's account handle. serverUserId is hashed with the custody's
+  // serviceId; neither it nor the origin is persisted in clear.
+  describe('accountKey', () => {
+    const expectedKey = (userId: string) =>
+      createHash('sha256')
+        .update(`${serviceIdForApiBase(origin)}\0${userId}`)
+        .digest('hex')
+        .slice(0, 16);
+
+    it('is null before any login', () => {
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is derived from serverUserId on storeRefreshToken', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+      expect(custody.getAccountKey()).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    it('persists accountKey in token-meta.json without the user id in clear', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: true,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      await flushDiskWrites();
+      const meta = String(diskFile('token-meta.json'));
+      expect(JSON.parse(meta)).toMatchObject({ accountKey: expectedKey('user-1') });
+      expect(meta).not.toContain('user-1');
+    });
+
+    it('restores the persisted accountKey after a main-process restart', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: true,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      await flushDiskWrites();
+      _resetForTesting();
+      expect(custody.getAccountKey()).toBeNull();
+      fsRead.impl = readMockDisk;
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 't' });
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+    });
+
+    it('still restores a meta without accountKey, with a null accountKey', async () => {
+      fsRead.impl = (path) => {
+        const file = String(path);
+        if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
+        if (file.endsWith('token-meta.json')) {
+          return JSON.stringify({ apiBase: origin, rememberMe: true });
+        }
+        return Buffer.from('v11stored-token');
+      };
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'stored-token' });
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it.each(['ABCDEF0123456789', '0123456789abcde', '0123456789abcdef0', 'zzzzzzzzzzzzzzzz', 7])(
+      'ignores a malformed persisted accountKey (%s) but still restores',
+      async (bad) => {
+        fsRead.impl = (path) => {
+          const file = String(path);
+          if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
+          if (file.endsWith('token-meta.json')) {
+            return JSON.stringify({ apiBase: origin, rememberMe: true, accountKey: bad });
+          }
+          return Buffer.from('v11stored-token');
+        };
+        expect(await restoreRefreshToken()).toMatchObject({ status: 'ok' });
+        expect(custody.getAccountKey()).toBeNull();
+      }
+    );
+
+    it('setAccountKey is read back by getAccountKey', () => {
+      const key = expectedKey('user-2') as never;
+      custody.setAccountKey(key);
+      expect(custody.getAccountKey()).toBe(key);
+    });
+
+    it('is cleared by clearTokens', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      clearTokens();
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is cleared by clearTokensIfOwner', () => {
+      const owner = storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(clearTokensIfOwner(owner)).toBe(true);
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is cleared by performLogout, so the preference scope is null again', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      const sid = serviceIdForApiBase(origin);
+      const record = { serviceId: sid } as never;
+      const service = { serviceId: sid, custody } as never;
+      expect(preferenceScopeFor(record, service)).toEqual({
+        serviceId: sid,
+        accountKey: expectedKey('user-1'),
+      });
+      mockNetFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      await performLogout('access-tok');
+      expect(custody.getAccountKey()).toBeNull();
+      expect(preferenceScopeFor(record, service)).toBeNull();
+    });
+
+    it('refuses a serverUserId the IPC guard refuses, before any state moves', () => {
+      const owner = storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(() =>
+        storeRefreshToken({
+          refreshToken: 't2',
+          rememberMe: false,
+          apiBase: origin,
+          serverUserId: 'user\0x',
+        } as never)
+      ).toThrow(TypeError);
+      expect(credentialOwnerIsCurrent(owner)).toBe(true);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+    });
+
+    it('is derived on an owner-scoped (SSO) publish too', () => {
+      const owner = reserveCredentialOwner();
+      expect(
+        storeRefreshTokenIfOwner(
+          {
+            refreshToken: 't',
+            rememberMe: false,
+            apiBase: origin,
+            serverUserId: 'user-3',
+          } as never,
+          owner
+        )
+      ).toBe(owner);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-3'));
+    });
+
+    it.each(['ABCDEF0123456789', 'short', 7])('setAccountKey refuses %s', (bad) => {
+      expect(() => custody.setAccountKey(bad as never)).toThrow(TypeError);
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is replaced, not kept, when the next login carries no serverUserId', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      storeRefreshToken({ refreshToken: 't2', rememberMe: false, apiBase: origin });
+      expect(custody.getAccountKey()).toBeNull();
     });
   });
 

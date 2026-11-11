@@ -339,8 +339,11 @@ import type {
  *        `connection:activate` (foreground primary → boolean), and the
  *        `connection:generation` push to the record's own webContents, which the
  *        preload accepts only when its generation is newer than the cached one.
- *        `connection:preferenceScope` is declared on the bridge; its handler
- *        lands with #86 Task 9.
+ *        `connection:preferenceScope` (any bound primary → its own
+ *        `{ serviceId, accountKey }`, or null until its custody holds an account).
+ *        `auth:storeRefreshToken` gains an optional `serverUserId` (bounded,
+ *        control-free; main hashes it into the account key and never stores it);
+ *        an older shell ignores the field.
  *
  *        The SERVER's spaIpcContract stays 19: a renderer that finds no
  *        `electron.connection` bridge runs the legacy single-connection path, and

@@ -1097,7 +1097,7 @@ not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isola
 | `connection:generation` | push | `{ connectionId, generation, reason }` | sent only to the record's own `webContents` | the preload delivers only a generation newer than the last one it saw, for its own `connectionId` and a known reason |
 | `connection:create` | invoke | `origin` → `{ status: 'opened', serviceId } \| { status: 'rejected', reason }` | `app-global-mutate`; one create at a time | `untrusted-sender \| not-foreground \| invalid-origin \| declined \| busy \| limit \| service-id-collision` |
 | `connection:activate` | invoke | `serviceId` → `boolean` | `app-global-mutate` | `false` |
-| `connection:preferenceScope` | invoke | → `PreferenceScope \| null` | `connection-bound` | declared on the bridge only; the handler lands with #86 Task 9, and until then the invoke rejects |
+| `connection:preferenceScope` | invoke | → `PreferenceScope \| null` | `connection-bound` (a bound primary; its own scope from the binding) | `null` for a refused sender and until the custody holds an account key; only `{ serviceId, accountKey }` ever crosses, never a path. The key is `hex16(sha256(compositeKey(serviceId, serverUserId)))`, from the optional `serverUserId` on `auth:storeRefreshToken` (bounded, control-free, never stored) or a restored `token-meta.json` `accountKey`; every credential clear drops it |
 
 - **`whoAmI` is the one raw `ipcMain.on` left by design** (`src/main/ipc/connection.ts`, with a
   line-level ESLint disable and its rationale). `sendSync` needs `event.returnValue` in the same

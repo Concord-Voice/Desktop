@@ -23,6 +23,9 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'connection:whoAmI': 'pip-scoped',
   'connection:create': 'app-global-mutate',
   'connection:activate': 'app-global-mutate',
+  // #86 T9: each primary reads only its own scope, so any bound primary may ask; a
+  // PiP has no preferences of its own.
+  'connection:preferenceScope': 'connection-bound',
 
   // App facts.
   // #86 Task 7B pass 2: pip-scoped because the PiP window renders App's main tree and

@@ -273,6 +273,7 @@ contextBridge.exposeInMainWorld('electron', {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    serverUserId?: string;
   }) =>
     ipcRenderer.invoke('auth:storeRefreshToken', data) as Promise<
       CredentialOwner | { status: 'rejected' }
@@ -913,6 +914,8 @@ export interface ElectronAPI {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    /** #86 T9: hashed in main into the connection's account key; never stored in clear. */
+    serverUserId?: string;
   }) => Promise<CredentialOwner | { status: 'rejected' }>;
   restoreSession: () => Promise<{
     status: string;

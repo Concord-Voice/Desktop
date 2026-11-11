@@ -9,6 +9,8 @@
 //                          commit approval → registerService → openConnectionView →
 //                          activate → append to connections.json.
 //   connection:activate    foreground primary only → boolean.
+//   connection:preferenceScope  any bound primary → its own { serviceId, accountKey },
+//                          or null until its custody holds an account (#86 T9).
 //   connection:generation  push to the record's OWN webContents on every generation advance.
 //
 // Invariants:
@@ -28,6 +30,7 @@ import {
   type ConnectionIdentity,
   type Generation,
   type GenerationReason,
+  type PreferenceScope,
   type ServiceId,
 } from '../../shared/connectionIdentity';
 import {
@@ -45,6 +48,7 @@ import {
 } from '../connectionRegistry';
 import type { ConnectionsFileEntry } from '../connectionsFile';
 import type { ConnectionCreateResult, ConnectionGenerationPush } from '../ipcContract';
+import { preferenceScopeFor } from '../preferenceOwnership';
 import { consumeCeremonyToken } from '../selfHostedCeremonyBudget';
 import { commitSelfHostedApproval, serviceIdForApiBase } from '../selfHostedProfile';
 import type { ConnectionViewLoader, OpenConnectionViewResult } from '../shellWindow';
@@ -212,7 +216,11 @@ async function openService(
   };
   let opened: OpenConnectionViewResult;
   try {
-    opened = await deps.openConnectionView(serviceId, deps.viewUrl?.() ?? DEFAULT_VIEW_URL, loadView);
+    opened = await deps.openConnectionView(
+      serviceId,
+      deps.viewUrl?.() ?? DEFAULT_VIEW_URL,
+      loadView
+    );
   } catch (err) {
     forgetIfOrphaned();
     throw err;
@@ -359,6 +367,15 @@ export function registerConnectionIpc<P extends ConnectionProbe>(deps: Connectio
     (_sender, _event, serviceId: unknown) =>
       isServiceId(serviceId) && deps.activateConnection(serviceId),
     { refusal: () => false }
+  );
+
+  // #86 T9: the sender's own scope, from its binding; the renderer names nothing. Only
+  // { serviceId, accountKey } or null ever crosses; a refused sender gets null too.
+  registerIpc(
+    'connection:preferenceScope',
+    'connection-bound',
+    (sender): PreferenceScope | null => preferenceScopeFor(sender.record, sender.service),
+    { refusal: () => null }
   );
 
   unsubscribeGenerationPush?.();

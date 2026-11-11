@@ -412,3 +412,68 @@ describe('connection:create X4 (no orphan service after a refused view)', () => 
     expect(getService(serviceIdForApiBase(NEW))).toBeUndefined();
   });
 });
+
+// #86 Task 9: connection:preferenceScope returns only { serviceId, accountKey } or null.
+describe('connection:preferenceScope', () => {
+  const KEY = '0123456789abcdef';
+  const withKey = (service: { custody: unknown }, key: string | null) => {
+    (service.custody as { getAccountKey: () => string | null }).getAccountKey = () => key;
+  };
+
+  it('is registered', () => {
+    expect(handlers.has('connection:preferenceScope')).toBe(true);
+  });
+
+  it('is null for a connection with no authenticated account', async () => {
+    const a = conn(A, 21);
+    withKey(a.service, null);
+    expect(await call('connection:preferenceScope', ev(a.wc))).toBeNull();
+  });
+
+  it('is exactly { serviceId, accountKey } for an authenticated connection', async () => {
+    const a = conn(A, 22);
+    withKey(a.service, KEY);
+    expect(await call('connection:preferenceScope', ev(a.wc))).toStrictEqual({
+      serviceId: a.service.serviceId,
+      accountKey: KEY,
+    });
+  });
+
+  it('answers from the sender binding: each connection gets its own scope', async () => {
+    const a = conn(A, 23);
+    const b = conn(B, 24);
+    withKey(a.service, KEY);
+    withKey(b.service, null);
+    expect(await call('connection:preferenceScope', ev(b.wc))).toBeNull();
+    expect(await call('connection:preferenceScope', ev(a.wc))).toMatchObject({ accountKey: KEY });
+  });
+
+  it('is null again once the custody account is cleared', async () => {
+    const a = conn(A, 25);
+    withKey(a.service, KEY);
+    withKey(a.service, null);
+    expect(await call('connection:preferenceScope', ev(a.wc))).toBeNull();
+  });
+
+  it('is refused (null) for an unbound sender, whatever any custody holds', async () => {
+    const a = conn(A, 26);
+    withKey(a.service, KEY);
+    expect(await call('connection:preferenceScope', ev(fakeWc(77)))).toBeNull();
+  });
+
+  it('is refused (null) for a frame not at an allowed URL', async () => {
+    const a = conn(A, 27);
+    withKey(a.service, KEY);
+    expect(
+      await call('connection:preferenceScope', ev(a.wc, undefined, 'https://evil.example/'))
+    ).toBeNull();
+  });
+
+  it('never returns a path, an origin or any key beyond the two scope fields', async () => {
+    const a = conn(A, 28);
+    withKey(a.service, KEY);
+    const out = (await call('connection:preferenceScope', ev(a.wc))) as Record<string, unknown>;
+    expect(Object.keys(out).sort()).toEqual(['accountKey', 'serviceId']);
+    expect(JSON.stringify(out)).not.toContain('a.example');
+  });
+});

@@ -76,6 +76,7 @@ import {
   isValidatedSelfHostedApiBase,
   loadApprovedSelfHostedOrigins,
 } from './selfHostedProfile';
+import { isServerUserId } from './preferenceOwnership';
 import { resolveForDisplay, type ResolveForDisplayResult } from './guardedRequest';
 import type { EgressDecision } from './egressPolicy';
 import {
@@ -2932,6 +2933,7 @@ function isStoreRefreshTokenPayload(data: unknown): data is {
   rememberMe: boolean;
   apiBase: string;
   accessToken?: string;
+  serverUserId?: string;
 } {
   return (
     isRecord(data) &&
@@ -2939,7 +2941,9 @@ function isStoreRefreshTokenPayload(data: unknown): data is {
     typeof data.rememberMe === 'boolean' &&
     isValidApiBase(data.apiBase) &&
     (data.accessToken === undefined ||
-      (typeof data.accessToken === 'string' && data.accessToken.length <= MAX_TOKEN_LENGTH))
+      (typeof data.accessToken === 'string' && data.accessToken.length <= MAX_TOKEN_LENGTH)) &&
+    // #86 T9: renderer-supplied, so bounded and control-free; only ever hashed.
+    (data.serverUserId === undefined || isServerUserId(data.serverUserId))
   );
 }
 
