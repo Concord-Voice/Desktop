@@ -143,6 +143,28 @@ describe('connectionsFile', () => {
       expect(fs.readdirSync(root)).toEqual([]);
     });
 
+    it('writes through a same-directory temp file: a failed rename keeps the old file, no .tmp', async () => {
+      await writeConnectionsFile(root, [entry(SAAS_ORIGIN)]);
+      const before = fs.readFileSync(connectionsFilePath(root));
+      const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+        throw new Error('EXDEV');
+      });
+      try {
+        await expect(writeConnectionsFile(root, [entry(SAAS_ORIGIN), entry(X)])).rejects.toThrow(
+          'EXDEV'
+        );
+        expect(rename).toHaveBeenCalledWith(
+          expect.stringMatching(/connections\.json\..+\.tmp$/),
+          connectionsFilePath(root)
+        );
+        expect(path.dirname(String(rename.mock.calls[0][0]))).toBe(root);
+        expect(fs.readFileSync(connectionsFilePath(root))).toEqual(before);
+        expect(fs.readdirSync(root).filter((f) => f.includes('.tmp'))).toEqual([]);
+      } finally {
+        rename.mockRestore();
+      }
+    });
+
     it('a failed write does not poison the queue for the next write', async () => {
       await expect(
         writeConnectionsFile(path.join(root, 'nope'), [entry(SAAS_ORIGIN)])

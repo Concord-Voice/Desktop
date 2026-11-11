@@ -141,6 +141,11 @@ vi.mock('electron', () => ({
   shell: { openExternal: vi.fn(() => Promise.resolve()) },
   session: { defaultSession: h.defaultSession, fromPath: vi.fn() },
 }));
+const writeConnectionsFile = vi.hoisted(() =>
+  vi.fn((_root: string, _entries: unknown[]) => Promise.resolve())
+);
+vi.mock('../../../src/main/connectionsFile', () => ({ writeConnectionsFile }));
+
 vi.mock('../../../src/main/billing/billingWindow', () => ({
   isBillingWebContents: () => false,
 }));
@@ -168,6 +173,7 @@ import {
   installDevConnectionMenu,
   layoutViews,
   openConnectionView,
+  restorePersistedConnections,
   sendToConnection,
   shellWindow,
 } from '../../../src/main/shellWindow';
@@ -592,5 +598,83 @@ describe('installDevConnectionMenu', () => {
     installDevConnectionMenu();
     expect(h.Menu.buildFromTemplate).not.toHaveBeenCalled();
     expect(h.Menu.setApplicationMenu).not.toHaveBeenCalled();
+  });
+});
+
+describe('restorePersistedConnections (#86 Task 6)', () => {
+  const at = (day: number) => `2026-11-0${day}T00:00:00.000Z`;
+  const entryFor = (service: Any, lastForegroundAt: string | null) => ({
+    serviceId: service.serviceId,
+    origin: service.origin,
+    addedAt: at(1),
+    lastForegroundAt,
+  });
+
+  it('opens one view per persisted self-hosted entry and shows the latest foreground', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    const b = register(SELF_B);
+    const asked: unknown[] = [];
+    writeConnectionsFile.mockClear();
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(saas, at(2)), entryFor(a, at(3)), entryFor(b, null)],
+      (origin) => {
+        asked.push(origin);
+        return register(origin) as never;
+      }
+    );
+    // The registry sees origins only: lastForegroundAt never reaches admission.
+    expect(asked).toEqual([SELF_A, SELF_B]);
+    expect(liveConnections().map((r) => r.serviceId)).toEqual([
+      saas.serviceId,
+      a.serviceId,
+      b.serviceId,
+    ]);
+    expect(foreground()?.serviceId).toBe(a.serviceId);
+    expect(writeConnectionsFile).not.toHaveBeenCalled(); // restoring layout records nothing
+  });
+
+  it('with no lastForegroundAt anywhere, shows the first entry in file order', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(a, null), entryFor(saas, null)],
+      (origin) => register(origin) as never
+    );
+    expect(foreground()?.serviceId).toBe(a.serviceId);
+  });
+
+  it('opens nothing for an entry the registry refuses', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections('/user-data', [entryFor(a, at(3))], () => null);
+    expect(liveConnections().map((r) => r.serviceId)).toEqual([saas.serviceId]);
+    expect(foreground()?.serviceId).toBe(saas.serviceId);
+  });
+
+  it('activateConnection stamps lastForegroundAt on a foreground change only', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(saas, null), entryFor(a, at(3))],
+      (origin) => register(origin) as never
+    );
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+    const [root, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(root).toBe('/user-data');
+    const stamped = written.find((e) => e.serviceId === saas.serviceId)?.lastForegroundAt;
+    expect(stamped).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(written.find((e) => e.serviceId === a.serviceId)?.lastForegroundAt).toBe(at(3));
+    activateConnection(saas.serviceId); // already the foreground
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
   });
 });
