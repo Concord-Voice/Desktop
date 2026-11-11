@@ -1841,3 +1841,166 @@ INFERRED and UNMEASURED distinct rather than collapsing evidence of different st
 sentence — see the evidence note,
 `docs/superpowers/reports/2026-09-23-3394-audiocap-capture-measurements.md`,
 for the raw TCC log entries and callback counts behind each one.
+
+## As-built addendum: issue 73 closeout (transport measurements)
+
+**What was measured, where, and how.** The three-process probe
+`desktop/scripts/audiocap-transport-probe/` runs production code end to end: the host and the
+capture child from `dist/main`, the unmodified addon loader, the production preload relay, and the
+renderer bridge bundled from source. The synthetic binary is staged under the release file name in
+a fresh directory under the OS temp directory and deleted on exit. Three 60 s runs were taken, each
+after 5 s discarded. Environment: Electron 45.0.0, Chrome 156.0.8078.48, Node 24.22.0, libuv
+1.52.1, macOS on Darwin 27.2.0, arm64, synthetic source, probe at commit `6ab1c735`.
+`performance.now()` resolution is 0.1 ms, and the page is not cross-origin isolated.
+
+Every frame read back from the track was bit-exact and carried the waveform phase its quantum was
+written with: 6000 of 6000 in each run. The engine re-stamps read-back timestamps by up to about
+0.15 ms either way (-148 to +150 µs over the three runs), so frames are paired in order, within
+1 ms, and by content.
+
+### Criterion 2: latency against S1
+
+Figures are milliseconds, given as the median and [range] over the three runs. S1's figures are
+from § D4 — RESULT of spike S1, finding 2 ("Paced, the path is effectively free").
+
+| Segment | p50 | p95 | p99 | max | n per run | Uncertainty (±) |
+|---|---|---|---|---|---|---|
+| S1 baseline | 0.1 | 0.1 | 0.2 | 0.2 | 200 | not recorded |
+| `L_generator` (E2 − E1, like for like with S1) | 0.1 [0.1, 0.1] | 0.2 [0.2, 0.2] | 0.2 [0.2, 0.2] | 1.0 [0.5, 1.2] | 6000 | 0.2 [0.2, 0.2] |
+| `L_transport` (E1 − E0, the utility-process hop S1 did not have) | 0.218 [0.162, 0.222] | 0.334 [0.307, 0.356] | 0.386 [0.364, 0.413] | 1.324 [1.141, 1.399] | 6000 | 0.215 [0.214, 0.220] |
+| `L_total` (E2 − E0, the criterion's quantity) | 0.291 [0.219, 0.312] | 0.451 [0.423, 0.466] | 0.508 [0.486, 0.541] | 1.424 [1.241, 1.499] | 6000 | 0.215 [0.214, 0.220] |
+
+Offset-free figures (each value minus the run's minimum), for the two segments that cross clocks:
+
+| Segment | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| `L_transport` | 0.223 [0.205, 0.250] | 0.361 [0.350, 0.362] | 0.414 [0.407, 0.418] | 1.367 [1.169, 1.404] |
+| `L_total` | 0.289 [0.237, 0.302] | 0.441 [0.441, 0.464] | 0.504 [0.498, 0.539] | 1.442 [1.231, 1.497] |
+
+Caveats:
+
+- S1 ran in one renderer on Electron 43.5.1, with the synthetic source and no utility process.
+  Only `L_generator` compares with it directly.
+- The synthetic stamp is taken in the capture process immediately before the ring push, so it holds
+  no device-buffer delay. Main reads the same clock (`uv_hrtime`) only for the synthetic source.
+- `L_generator` sits at the timer's resolution floor, 1 to 2 ticks of 0.1 ms. The comparison with
+  S1 cannot be resolved more finely than that.
+- The probe's own hook overhead was measured: p50 0, max 0.2 ms. Subtracting it changes no
+  percentile by more than one tick.
+- The real macOS tap stamps in a different clock domain on this runtime. That finding, its
+  proposed fix, and the real-device figure belong to issue 75.
+
+### Criterion 1: allocations
+
+Scope: `renderer isolate: bridge plus preload relay`. The heap pass runs on a fresh page load with
+no probe hooks installed. Figures are the median and [range] over the three runs.
+
+| Figure | Measured | Limit | Result |
+|---|---|---|---|
+| Sampled script-heap allocation per quantum | 1363 B [1350, 1383] | at most 2 KB (2048 B) | within |
+| Retained script-heap growth after GC over 60 s | 120 B [120, 1424] (runs: 120, 1424, 120) | at most 64 KB (65536 B), and not rising across the runs | within; not rising |
+| Largest gap between writes (the design's limit, raw) | 15.7 ms [15.2, 17.3] | at most 20 ms | within in every run |
+| Largest gap the transport added between writes (proposed basis for the limit, pending; see below) | 0.956 ms [0.914, 1.159] | at most 20 ms | within in every run |
+
+Beside those, for the record:
+
+| Figure | Measured |
+|---|---|
+| Largest write delay (capture to write, the maximum of `L_transport`) | 1.324 ms [1.141, 1.399] |
+| The source's own gap (E0) between the two quanta with the largest raw write gap | 15.672 ms [15.033, 17.079] |
+| Backing-store delta | 0 in every run |
+
+The per-quantum figure is each run's sampled bytes over its nominal quanta (run 1: 8182896 B over
+6003 quanta), then the median of the three runs. The nominal count is elapsed time × 100 minus
+sequence gaps, because the bridge has no delivered counter. No quantum was dropped: the sequence-gap and overrun deltas were
+0 in the heap window of every run.
+
+The five largest allocation sites, run 1:
+
+| Function | File | Line | Bytes |
+|---|---|---|---|
+| `handleQuantum` | `bridge.js` | 178 | 3451756 |
+| `candidate.onmessage` | `bridge.js` | 222 | 1252144 |
+| `childPort.onmessage` | `preload.js` | 145 | 981416 |
+| `channel.port1.onmessage` | `preload.js` | 154 | 939004 |
+| `decodeQuantumHeader` | `bridge.js` | 66 | 433320 |
+
+The heap profiler cannot see ArrayBuffer backing stores, so the heap figure covers control objects
+only. It does not by itself show that the payload is not copied. That property is pinned by
+`desktop/tests/unit/renderer/services/voice/screenAudioBridge.test.ts`, "names the backing buffer
+in `transfer`, so the buffer actually detaches": the transferred buffer is detached and its
+`byteLength` is 0. Copies inside the browser engine below `AudioData` are not measured.
+
+**Proposed criterion wording. Pending project-lead approval.**
+
+> In steady state the renderer hot path allocates only a bounded set of short-lived control
+> objects per quantum (measured: 1363 bytes) and its retained heap does not grow: script-heap
+> growth after garbage collection over 60 s was at most 1424 bytes (120 bytes in two of three
+> runs), no quantum was dropped, no write was delayed by more than 1.4 ms after capture, and the
+> transport added no gap between writes larger than 1.2 ms. The PCM payload is handed to
+> `AudioData` by transfer, not copied by the bridge.
+
+The allocation figure is the median of the three runs; the growth, delay and gap bounds are the
+worst run, so each "no more than" holds for every run.
+
+**Ruling put to the project lead: which gap the 20 ms limit judges.** The design's limit is on the
+raw gap between writes, and that was within 20 ms in all three recorded runs. The proposal is to
+judge it on the gap the transport adds (the write gap minus the capture gap between the same two
+quanta), with the raw gap recorded beside it. The reason: one 10 s run on an earlier build of the
+probe, which recorded only the raw gap, failed its 20 ms flag with a raw gap of 31.1 ms, while in
+the same run the largest capture-to-write delay was 9.2 ms and 999 of 1000 quanta were written with
+zero sequence gaps. That is what the synthetic source's pacing produces when it wakes late: it
+skips the missed slot without advancing the sequence number (`napi/addon.cc`, "late: skip the
+missed slots, never burst to catch up"). A gap the source never filled is not a write delayed by
+the transport.
+
+### Criterion 3: slow consumer
+
+The renderer's main thread busy-waits, so the bridge stops acking. Witnesses: W1, quanta missing
+by waveform phase; W2, the bridge's sequence gaps; W3, the capture child's overrun total.
+
+| Stall | W1 | W2 | W3 | Corrupted quanta |
+|---|---|---|---|---|
+| 80 ms (control) | 0 | 0 | 0 | 0 |
+| 300 ms | 14 | 14 | 14 | 0 |
+| 450 ms | 29 | 29 | 29 | 0 |
+
+The three witnesses agreed in every run. One earlier verification run of this pass dropped 28 at
+450 ms, again with all three witnesses equal. In each stall that dropped, the first gap came after
+exactly 16 stale quanta: 8 in flight on credit and 8 in the ring. A verification run with
+`--inject=nostall`, which makes the stall return at once, failed this pass with exit 1 ("a real
+stall must drop at least 1 quantum"), so the pass can fail.
+
+### Criterion 4: a killed capture child
+
+A crashed capture child is never respawned: the share continues video-only with the reason
+`child-crash`, and a new child exists only when the user starts screen audio again (invariant I6 in
+`audiocapHost.ts`).
+
+In every run, `SIGKILL` of the capture utility process gave exactly one interrupt with reason
+`child-crash`, the host generation read 0, writes had stopped within 1 s of the kill (none between
+1 s and 2 s after it), and no capture process existed 2 s later.
+
+### Record corrections
+
+**The watchdog functions did not return.** The first as-built addendum (utilityProcess host and
+PCM transport), § "The watchdog rail (§6c rail 3) was DELETED, not shipped inert", says the later
+share work "reintroduces all three alongside the capturing child". It did not: no `armWatchdog`,
+`noteAudiocapCreditAck` or `setAudiocapShareLive` function exists in `desktop/src`, and the host's
+"NO WATCHDOG RAIL HERE" comment in `audiocapHost.ts` records that the rail was not reintroduced
+when the capturing child arrived. The gap is kept open by decision in the addendum on start waiting
+for the tap (item 5, "What is still open, by decision rather than by gap") and again in
+§ "The hung-child gap — still undetected, by decision".
+
+**The spawn-listener timeout: still owed by this record, disputed by the code, and the listener is
+now reachable.** The same first
+addendum, § "Accepted residual: `reapChild`'s spawn listener on a fork that never spawns", says the
+listener is "unreachable here" because `startAudiocapHost`'s only caller was the once-per-launch
+capability probe, and that a bounded timeout is owed. That no longer holds: `handleAudiocapStart`
+(`desktop/src/main/ipc/audiocap.ts`) now calls `startAudiocapHost` for every share start, which a
+renderer can invoke repeatedly, and each start supersedes the previous child through `reapChild`.
+`reapChild` still arms a bare `once('spawn')` with no bound. The code's own comment on that
+listener (`audiocapHost.ts`, "`once('spawn')` rather than a timer") argues that no timer is needed,
+because a listener on a child that never spawns costs nothing; this ADR says a bounded timeout is
+owed. That disagreement is open and needs a decision, which the issue 73 pull request puts to the
+project lead.
