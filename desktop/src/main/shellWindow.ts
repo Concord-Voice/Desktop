@@ -302,6 +302,21 @@ function recordForeground(serviceId: ServiceId): void {
   });
 }
 
+/**
+ * Append the entries `connection:create` opened (#86 §3.7) to the restored list and
+ * write the whole list. An entry whose serviceId is already listed is kept as it is.
+ * Refuses (rejects, writing nothing) before startup restore has run: without the
+ * restored list, a write would replace the user's other connections.
+ */
+export function persistAddedConnections(added: readonly ConnectionsFileEntry[]): Promise<void> {
+  const state = persisted;
+  if (!state) return Promise.reject(new Error('connections.json not restored yet'));
+  const fresh = added.filter((a) => !state.entries.some((e) => e.serviceId === a.serviceId));
+  if (fresh.length === 0) return Promise.resolve();
+  state.entries = [...state.entries, ...fresh];
+  return writeConnectionsFile(state.root, state.entries);
+}
+
 function showConnection(serviceId: ServiceId, record: boolean): boolean {
   const target = liveConnections().find((r) => r.serviceId === serviceId && r.state !== 'disposed');
   if (!target) return false;

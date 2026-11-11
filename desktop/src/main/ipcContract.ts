@@ -1,3 +1,10 @@
+import type {
+  ConnectionId,
+  Generation,
+  GenerationReason,
+  ServiceId,
+} from '../shared/connectionIdentity';
+
 /**
  * IPC Contract Version — the compatibility boundary between shell and renderer.
  *
@@ -324,8 +331,45 @@
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.traySetStatus === 'function'`, and a shell
  *        below 33 keeps its static Open/Quit tray. Capability, not demand.
+ * - v34: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
+ *        registers through `registerIpc` behind an admission class. New:
+ *        `connection:whoAmI` (sendSync, once at preload evaluation → the
+ *        document's `ConnectionIdentity` or null), `connection:create` (foreground
+ *        primary; single-flight; probe → ceremony → open → activate),
+ *        `connection:activate` (foreground primary → boolean), and the
+ *        `connection:generation` push to the record's own webContents, which the
+ *        preload accepts only when its generation is newer than the cached one.
+ *        `connection:preferenceScope` is declared on the bridge; its handler
+ *        lands with #86 Task 9.
+ *
+ *        The SERVER's spaIpcContract stays 19: a renderer that finds no
+ *        `electron.connection` bridge runs the legacy single-connection path, and
+ *        only a bridge that answers null renders "connection unavailable".
+ *        Capability, not demand.
  */
-export const IPC_CONTRACT_VERSION = 33;
+export const IPC_CONTRACT_VERSION = 34;
+
+/** `connection:create` reply (#86 §3.7). The renderer never learns more than the reason. */
+export type ConnectionCreateResult =
+  | { status: 'opened'; serviceId: ServiceId }
+  | {
+      status: 'rejected';
+      reason:
+        | 'untrusted-sender'
+        | 'not-foreground'
+        | 'invalid-origin'
+        | 'declined'
+        | 'busy'
+        | 'limit'
+        | 'service-id-collision';
+    };
+
+/** `connection:generation` push payload, sent only to the record's own webContents. */
+export interface ConnectionGenerationPush {
+  connectionId: ConnectionId;
+  generation: Generation;
+  reason: GenerationReason;
+}
 
 /**
  * The oldest shell this repository's RENDERER actually runs on.

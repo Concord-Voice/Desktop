@@ -7,6 +7,8 @@ import { registerSSOIPC } from './ipc/sso';
 import { cancelActiveAppleFlow } from './oauth/apple/appleFlow';
 import { cancelActiveGoogleFlow } from './oauth/google/googleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
+import { registerConnectionIpc, type ConnectionCeremonyVerdict } from './ipc/connection';
+import { setRemoteSpaOriginSource } from './ipc/registry';
 import { registerAudiocapIpc } from './ipc/audiocap';
 import { registerBillingIpc } from './ipc/billing';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
@@ -150,6 +152,7 @@ import {
   type ConnectionSessionDeps,
 } from './connectionSession';
 import {
+  activateConnection,
   broadcastToPrimaries,
   createPipWindow,
   createShellWindow,
@@ -157,6 +160,7 @@ import {
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
+  persistAddedConnections,
   restorePersistedConnections,
   saasPrimary,
   saasPrimaryHandle,
@@ -1698,6 +1702,19 @@ app.whenReady().then(async () => {
   registerSaveImageHandler(shellWindow, getRemoteSpaBaseUrl);
   registerSSOIPC(getRemoteSpaBaseUrl);
   registerAttestationIpc(getRemoteSpaBaseUrl);
+  // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
+  // connection:whoAmI/create/activate and the connection:generation push. Before
+  // createWindow, so the first view's preload finds its whoAmI handler.
+  setRemoteSpaOriginSource(getRemoteSpaBaseUrl);
+  registerConnectionIpc({
+    openConnectionView,
+    activateConnection,
+    probe: probeConnectionOrigin,
+    ceremony: runConnectionCeremony,
+    writeConnections: persistAddedConnections,
+    serviceDeps: connectionServiceDeps,
+    viewUrl: () => (app.isPackaged ? 'app://concord/index.html' : DEV_SERVER_URL),
+  });
   // A LIVE per-process capture ended without the user asking (#3394 PR 2, contract 30):
   // the tap faulted mid-share, the child crashed, or it broke protocol after `started`.
   // `audiocapHost`'s `retire()` is the only caller, and it never calls this for a stop, a
@@ -2582,6 +2599,61 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
   }
 
   return probeSelfHostedServer(normalized.apiBase);
+}
+
+/** `connection:create`'s pre-ceremony step (#86 §3.7): what the dialog will state. */
+type ConnectionOriginProbe =
+  | { readonly status: 'error' }
+  | {
+      readonly status: 'ok';
+      readonly needsApproval: boolean;
+      readonly apiBase: string;
+      readonly address: string;
+      readonly dialog: Parameters<typeof requestSelfHostedApproval>[1];
+    };
+
+/**
+ * The same normalisation, resolution and tier rule as `handleProbeSelfHostedServer`,
+ * stopping before the dialog. `origin` is already canonical; a value the self-hosted
+ * normaliser would change is refused rather than silently re-homed.
+ */
+async function probeConnectionOrigin(origin: string): Promise<ConnectionOriginProbe> {
+  const normalized = normalizeSelfHostedUrl(origin);
+  if (!normalized.ok || new URL(normalized.apiBase).origin !== origin) return { status: 'error' };
+  const host = new URL(origin).hostname;
+  const resolved: ResolveForDisplayResult = await resolveForDisplay(host);
+  if (!resolved.ok) return { status: 'error' };
+  const approvalTier = approvalTierForApiBase(normalized.apiBase);
+  const needsApproval =
+    approvalTier === null || (resolved.decision.tier === 'tier2' && approvalTier !== 'tier2');
+  return {
+    status: 'ok',
+    needsApproval,
+    apiBase: normalized.apiBase,
+    address: resolved.address,
+    dialog: { host, address: resolved.addresses.join(', '), decision: resolved.decision },
+  };
+}
+
+/**
+ * The native ceremony, then the provisional probe it authorises (the same
+ * consent-is-not-proof rule as `handleProbeSelfHostedServer`). `connection.ts` spends
+ * the ceremony budget before calling this and commits the approval after it.
+ */
+async function runConnectionCeremony(
+  _origin: string,
+  probe: ConnectionOriginProbe
+): Promise<ConnectionCeremonyVerdict> {
+  if (probe.status !== 'ok') return { approved: false };
+  if (!(await requestSelfHostedApproval(shellWindow(), probe.dialog))) return { approved: false };
+  beginPendingApproval(probe.apiBase, probe.address);
+  let result: SelfHostedProbeResult;
+  try {
+    result = await probeSelfHostedServer(probe.apiBase);
+  } finally {
+    clearPendingApproval();
+  }
+  return result?.status === 'ok' ? { approved: true, address: probe.address } : { approved: false };
 }
 
 ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
