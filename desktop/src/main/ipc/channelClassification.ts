@@ -115,7 +115,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'app:flashFrame': 'connection-bound',
   'app:focusWindow': 'connection-bound',
   'spa:requestSelfHeal': 'connection-bound',
-  'pip:open': 'connection-bound',
+  'pip:open': 'app-global-mutate',
 
   // The PiP window and its opener.
   'pip:close': 'pip-scoped',

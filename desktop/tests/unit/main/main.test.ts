@@ -2905,6 +2905,26 @@ describe('main.ts', () => {
       closed?.();
       expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
     });
+    it('refuses pip:open from a BACKGROUND connection primary and builds no window (#86, foreground-only PiP)', async () => {
+      const { BrowserWindow } = await import('electron');
+      const before = (BrowserWindow as unknown as Mock).mock.calls.length;
+      // Another connection takes the foreground; the saas view is now a hidden primary.
+      const other = bindSelfHostedPrimary('https://pip-foreground.lan', { foreground: true });
+      try {
+        await expect(
+          handlers.get('pip:open')!(
+            {
+              sender: mockWebContents,
+              senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+            },
+            { id: 'background-opener-pip' }
+          )
+        ).rejects.toThrow();
+        expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
+      } finally {
+        other.dispose();
+      }
+    });
     // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
     // defense-in-depth). In this test environment isPackaged=false, so a
     // localhost URL satisfies the validator.
@@ -3613,7 +3633,11 @@ describe('main.ts', () => {
       try {
         const closeFirst = await openPip('reused-pip');
         closeFirst();
+        // pip:open is foreground-only (#86): the other connection must be foreground to open.
+        const priorForeground = connectionRegistry.foreground()?.connectionId ?? null;
+        connectionRegistry.setForeground(opened.record.connectionId);
         const closeSecond = await openPip('reused-pip', otherOwnerEvent as never);
+        if (priorForeground) connectionRegistry.setForeground(priorForeground);
         mockPipWindow.setAlwaysOnTop.mockClear();
 
         await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {

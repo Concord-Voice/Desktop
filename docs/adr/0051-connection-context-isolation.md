@@ -81,7 +81,7 @@ Main is the trusted shell and the only authority. `desktop/src/main/shellWindow.
   and calls `setVisible(false)` on every other view, after every geometry and foreground
   change.
 - **PiP windows** are `BrowserWindow`s built on their opener's session, never on a session the
-  caller names. Only a bound primary may open one (`pip:open` is `connection-bound`).
+  caller names. Only the foreground connection's bound primary may open one (`pip:open` is `app-global-mutate`), so a hidden view cannot raise an always-on-top window.
 - **Content protection** is applied to the `BaseWindow` at creation, before any child view is
   added.
 - **Explicit teardown.** A child view's `webContents` is not destroyed when its `BaseWindow`

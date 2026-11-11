@@ -3371,10 +3371,11 @@ function focusExistingPip(
 
 registerIpc(
   'pip:open',
-  'connection-bound',
+  'app-global-mutate',
   async (sender, event, opts: unknown): Promise<void> => {
-    // #178 re-expressed for #86: registerIpc admitted only a bound primary's own main
-    // frame (never a PiP or a subframe); the PiP belongs to that opener connection.
+    // #178 re-expressed for #86: registerIpc admitted only the FOREGROUND connection's
+    // bound primary main frame (never a PiP, a subframe or a hidden view, which must
+    // not raise an always-on-top window); the PiP belongs to that opener connection.
     // Defense-in-depth on top: the frame must also be a PiP-opener document and the
     // options must match the closed schema.
     const senderFrame = sender.frame;
