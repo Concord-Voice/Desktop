@@ -107,6 +107,8 @@ describe('lifecycle admission (main #198 isTrustedMainWindowSender cases)', () =
     bindSender(bg as never, o.record.connectionId, 'primary');
     expect(requireForegroundPrimary(event('app://concord/index.html', 51, bg), null)).toBeNull();
     setForeground(o.record.connectionId);
-    expect(requireForegroundPrimary(event('app://concord/index.html', 51, bg), null)).not.toBeNull();
+    expect(
+      requireForegroundPrimary(event('app://concord/index.html', 51, bg), null)
+    ).not.toBeNull();
   });
 });
