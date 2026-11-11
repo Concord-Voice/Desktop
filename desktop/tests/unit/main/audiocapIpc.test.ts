@@ -516,7 +516,15 @@ describe('audiocap:stop', () => {
   });
 
   it('reaps the child on a trusted sender', async () => {
-    const { handleAudiocapStop } = await loadIpc();
+    const { handleAudiocapStart, handleAudiocapStop } = await loadIpc();
+    // #86 Task 7B re-point: stop is owner-only, so this connection starts a share first.
+    await handleAudiocapStart(
+      trustedEvent,
+      { sourceId: 'window:42:0' },
+      getRemoteSpaOrigin,
+      getMainWindow
+    );
+    vi.mocked(stopAudiocapHost).mockClear();
     handleAudiocapStop(trustedEvent, getRemoteSpaOrigin, getMainWindow);
     expect(stopAudiocapHost).toHaveBeenCalledTimes(1);
   });
@@ -533,7 +541,15 @@ describe('audiocap:stop', () => {
   });
 
   it('uses the GRACEFUL stop, never the kill', async () => {
-    const { handleAudiocapStop } = await loadIpc();
+    const { handleAudiocapStart, handleAudiocapStop } = await loadIpc();
+    // #86 Task 7B re-point: stop is owner-only, so this connection starts a share first.
+    await handleAudiocapStart(
+      trustedEvent,
+      { sourceId: 'window:42:0' },
+      getRemoteSpaOrigin,
+      getMainWindow
+    );
+    vi.mocked(stopAudiocapHost).mockClear();
     handleAudiocapStop(trustedEvent, getRemoteSpaOrigin, getMainWindow);
     // `killAudiocapHost` destroys the tap just as well and reads none of the child's
     // teardown evidence: `handleStop` is the only caller of the addon's `status()`, so a
@@ -645,9 +661,12 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
     let flipped = false;
     const flippableEvent = {
       get senderFrame() {
+        // #86 Task 7B: `parent: null` so the PRE-await fence admits the main frame and
+        // the case reaches the re-check it exists to prove (senderMainFrame refuses a
+        // frame without it).
         return flipped
-          ? { url: 'app://concord/index.html', frameTreeNodeId: 999 }
-          : { url: 'app://concord/index.html', frameTreeNodeId: 1 };
+          ? { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 999 }
+          : { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 };
       },
       get sender() {
         return mainWebContents;
@@ -715,7 +734,15 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
   });
 
   it("stop: admits the main window's own main frame (happy path via getMainWindow)", async () => {
-    const { handleAudiocapStop } = await loadIpc();
+    const { handleAudiocapStart, handleAudiocapStop } = await loadIpc();
+    // #86 Task 7B re-point: stop is owner-only, so this connection starts a share first.
+    await handleAudiocapStart(
+      trustedEvent,
+      { sourceId: 'window:42:0' },
+      getRemoteSpaOrigin,
+      getMainWindow
+    );
+    vi.mocked(stopAudiocapHost).mockClear();
     handleAudiocapStop(trustedEvent, getRemoteSpaOrigin, getMainWindow);
     expect(stopAudiocapHost).toHaveBeenCalledTimes(1);
   });
@@ -778,9 +805,14 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
     const mainFrameGetter = vi.fn(() => {
       throw new Error('Object has been destroyed');
     });
-    const contentsWithDestroyedMainFrame = Object.defineProperty({}, 'mainFrame', {
+    // #86 Task 7B re-point: the throwing getter sits on the BOUND primary's webContents
+    // (restored below), so admission reaches it instead of refusing an unbound sender.
+    const realMainFrame = mainWebContents.mainFrame;
+    Object.defineProperty(mainWebContents, 'mainFrame', {
       get: mainFrameGetter,
+      configurable: true,
     });
+    const contentsWithDestroyedMainFrame = mainWebContents;
     const eventWithDestroyedMainFrame = {
       senderFrame: { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 },
       sender: contentsWithDestroyedMainFrame,
@@ -803,6 +835,11 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
     // Non-vacuity: proves the case reached the throwing `.mainFrame` getter rather than
     // being refused earlier by `isDestroyed()` or the `.webContents` getter.
     expect(mainFrameGetter).toHaveBeenCalled();
+    Object.defineProperty(mainWebContents, 'mainFrame', {
+      value: realMainFrame,
+      writable: true,
+      configurable: true,
+    });
   });
 
   /**
