@@ -26,7 +26,10 @@ const ROOT = path.resolve(__dirname, '../..');
 const REPO = path.resolve(ROOT, '..');
 const SCHEME = 'audiocap-probe';
 const ORIGIN = `${SCHEME}://probe`;
-const INJECT = (process.argv.find((arg) => arg.startsWith('--inject=')) ?? '').slice(9) || null;
+// Validated at the top of main(), before anything is staged.
+const INJECTS = new Set(['bitflip', 'nostall', 'measuredrop']);
+const INJECT_FLAG = process.argv.find((arg) => arg.startsWith('--inject='));
+const INJECT = INJECT_FLAG === undefined ? null : INJECT_FLAG.slice(9);
 const RELEASE_DIR = path.join(ROOT, 'native/concord-audiocap/build/Release');
 const SYNTHETIC = path.join(RELEASE_DIR, 'concord_audiocap_synthetic.node');
 const SHIPPED = path.join(RELEASE_DIR, 'concord_audiocap.node');
@@ -37,12 +40,40 @@ const SHIPPED = path.join(RELEASE_DIR, 'concord_audiocap.node');
 const STALE_LIMIT = 16;
 const SETTLE_QUANTA = 32;
 
+// `--measure` adds the latency and heap passes (design sections 4 and 6).
+// `--seconds=N` shortens each measured window for iteration; the record uses 60.
+const MEASURE = process.argv.includes('--measure');
+const MEASURE_PASSES = new Set(['latency', 'heap']);
+const SECONDS_FLAG = process.argv.find((arg) => arg.startsWith('--seconds='));
+const SECONDS_ARG = SECONDS_FLAG === undefined ? '' : SECONDS_FLAG.slice(10);
+const SECONDS = SECONDS_FLAG === undefined ? 60 : Number(SECONDS_ARG);
+const DISCARD_MS = 5000;
+const CALIBRATION_SAMPLES = 500;
+// Frames written just before the window closes are still in the track; this is
+// how long the processor is given to hand them back, and the bridge to count any
+// drop among them, before the counts and stats compare (20 quanta; at least 2).
+const DRAIN_MS = 200;
+const QUANTA_PER_SECOND = 100;
+const LIMITS = {
+  retainedGrowthBytes: 65536,
+  bytesPerQuantum: 2048,
+  largestTransportAddedGapMs: 20,
+};
+const measured = { timerResolutionMs: null, crossOriginIsolated: null, latency: null, heap: null };
+// oracle.mjs, imported once by main().
+let oracle = null;
+
 class CouldNotRun extends Error {}
+// A measurement pass whose preconditions did not hold. It exits 2 like CouldNotRun,
+// but only after the remaining passes and the record have run, so a void latency
+// pass still leaves the heap figures on the page.
+class Void extends Error {}
 
 let stage = null;
 let host = null;
 let win = null;
 let failed = 0;
+let voided = 0;
 let exiting = false;
 const interrupts = [];
 
@@ -55,31 +86,37 @@ function say(line) {
   console.log(line);
 }
 
+/** Delete the stage. Returns false when it could not be deleted. */
 function removeStage() {
-  if (stage === null) return;
+  if (stage === null) return true;
   try {
     fs.rmSync(stage, { recursive: true, force: true });
     stage = null;
+    return true;
   } catch (err) {
     say(`FAIL cleanup: could not delete the stage: ${errorText(err)}`);
+    return false;
   }
 }
 
 process.on('exit', removeStage);
 
+/** Tear down and exit; a cleanup step that failed raises the code to at least 2. */
 function finish(code) {
   if (exiting) return;
   exiting = true;
+  let cleanedUp = true;
   if (host !== null) {
     try {
       host.killAudiocapHost();
     } catch (err) {
       say(`FAIL cleanup: killAudiocapHost threw: ${errorText(err)}`);
+      cleanedUp = false;
     }
   }
   if (win !== null && !win.isDestroyed()) win.destroy();
-  removeStage();
-  app.exit(code);
+  if (!removeStage()) cleanedUp = false;
+  app.exit(cleanedUp ? code : Math.max(code, 2));
 }
 
 function couldNotRun(reason) {
@@ -90,7 +127,8 @@ function couldNotRun(reason) {
 
 /**
  * Run one pass and print its result line. A thrown `CouldNotRun` ends the probe
- * with exit 2; any other throw is a violated invariant and counts toward exit 1.
+ * with exit 2, or exit 1 when an earlier pass already failed; any other throw is
+ * a violated invariant and counts toward exit 1.
  */
 async function runPass(name, fn) {
   try {
@@ -100,9 +138,16 @@ async function runPass(name, fn) {
     return true;
   } catch (err) {
     say(`FAIL ${name}: ${errorText(err)}`);
+    if (err instanceof Void) {
+      voided += 1;
+      return false;
+    }
     if (err instanceof CouldNotRun) {
-      say('PROBE FAIL (could not run)');
-      finish(2);
+      // A measure pass prints what it had measured before the run ends. An earlier
+      // violated invariant is not masked: exit 1 over exit 2.
+      if (MEASURE_PASSES.has(name)) printMeasurements();
+      say(failed > 0 ? `PROBE FAIL (${failed}; could not run)` : 'PROBE FAIL (could not run)');
+      finish(failed > 0 ? 1 : 2);
       // app.exit() is already terminating the process; never settle, so no later
       // pass runs against a half-torn-down probe.
       return new Promise(() => undefined);
@@ -230,7 +275,6 @@ function serve(routes) {
 }
 
 async function openWindow() {
-  const oracle = await import(pathToFileURL(path.join(__dirname, 'oracle.mjs')).href);
   const header = fs.readFileSync(
     path.join(ROOT, 'native/concord-audiocap/rt/synthetic_source.h'),
     'utf8'
@@ -265,9 +309,14 @@ async function openWindow() {
       nodeIntegration: false,
     },
   });
+  // A measured window must stay visible (the latency pass is void otherwise), so
+  // in measure mode it sits above the other windows rather than behind them.
+  if (MEASURE) win.setAlwaysOnTop(true);
   win.webContents.on('console-message', (details) => {
-    if (typeof details.message === 'string' && details.message.startsWith('FAIL ')) {
-      say(details.message);
+    // FAIL lines carry a verdict; NOTE lines are logged and change none.
+    const line = details.message;
+    if (typeof line === 'string' && (line.startsWith('FAIL ') || line.startsWith('NOTE '))) {
+      say(line);
     }
   });
   win.webContents.on('preload-error', (_event, preload, error) => {
@@ -278,9 +327,494 @@ async function openWindow() {
     say('PROBE FAIL (could not run)');
     finish(2);
   });
-  const query = INJECT === null ? '' : `?inject=${encodeURIComponent(INJECT)}`;
+  await loadProbePage(null);
+}
+
+/** Load (or reload) the probe page; `mode` 'heap' loads it without hook or processor. */
+async function loadProbePage(mode) {
+  const params = new URLSearchParams();
+  if (INJECT !== null) params.set('inject', INJECT);
+  if (mode !== null) params.set('mode', mode);
+  const query = params.size === 0 ? '' : `?${params}`;
   await win.loadURL(`${ORIGIN}/${query}`);
   await page('window.__probeReady');
+}
+
+/** Design section 6: the renderer clock against main's `process.hrtime` (uv_hrtime). */
+async function calibrateClocks(calibrate) {
+  const samples = [];
+  for (let i = 0; i < CALIBRATION_SAMPLES; i++) {
+    const t0Ns = process.hrtime.bigint();
+    const perfMs = await page('performance.now()');
+    const t1Ns = process.hrtime.bigint();
+    samples.push({ t0Ns, perfMs, t1Ns });
+  }
+  return calibrate(samples);
+}
+
+/** min, p50 and max of each paired frame's timestamp minus its write's E0, in us. */
+function offsetSummary(values) {
+  if (values.length === 0) return null;
+  const { p50, max } = oracle.percentiles(values);
+  return { n: values.length, min: Math.min(...values), p50, max };
+}
+
+/**
+ * The read-back content verdict over the paired frames. Read-back that is never
+ * bit-exact is systematic (the engine converts the samples on the way back), so
+ * the pairing stands on timestamps alone. Read-back that is bit-exact for some
+ * frames and not others, or that carries another quantum's phase, means frames
+ * were dropped or mixed: a void.
+ */
+function judgeContent(rec) {
+  const { matched, unreadable, phaseMismatch, first } = rec.content;
+  if (unreadable === 0 && phaseMismatch === 0) {
+    return {
+      pairing: 'content+timestamp',
+      contentCheck: { ok: true, matched, format: rec.content.format },
+      contentVoid: null,
+    };
+  }
+  if (unreadable === rec.paired) {
+    return {
+      pairing: 'timestamp-only',
+      contentCheck: {
+        ok: false,
+        reason: first.reason,
+        firstIndex: first.index,
+        format: first.format,
+      },
+      contentVoid: null,
+    };
+  }
+  return {
+    pairing: null,
+    contentCheck: { ok: false, matched, unreadable, phaseMismatch, first },
+    contentVoid: `the read-back content is not systematic: of ${rec.paired} paired frames ${matched} matched, ${unreadable} were not bit-exact, ${phaseMismatch} carried another quantum's phase; first ${JSON.stringify(first)}`,
+  };
+}
+
+/** Await one setup step; a rejection means the pass could not run, not that it failed. */
+async function setup(what, step) {
+  try {
+    return await step();
+  } catch (err) {
+    throw new CouldNotRun(`${what} rejected: ${errorText(err)}`);
+  }
+}
+
+/**
+ * The write-gap figures, from the hook's E0 and E1 alone. An E1 gap is not all
+ * write delay: a late wake of the synthetic source in the capture process widens
+ * the E0 gap between the same two quanta as much. The transport-added gap is the
+ * E1 gap less that E0 gap, and only it is judged; the write delay is the largest
+ * raw L_transport.
+ */
+function writeGaps(rec, offsetMs) {
+  const n = rec.written;
+  let largestWriteGapMs = null;
+  let e0GapAtLargestWriteGapMs = null;
+  let largestTransportAddedGapMs = null;
+  let largestWriteDelayMs = null;
+  for (let i = 0; i < n; i++) {
+    const delay = rec.e1[i] - offsetMs - rec.e0[i] / 1000;
+    if (largestWriteDelayMs === null || delay > largestWriteDelayMs) largestWriteDelayMs = delay;
+  }
+  for (let i = 1; i < n; i++) {
+    const e1Gap = rec.e1[i] - rec.e1[i - 1];
+    const e0Gap = rec.e0[i] / 1000 - rec.e0[i - 1] / 1000;
+    if (largestWriteGapMs === null || e1Gap > largestWriteGapMs) {
+      largestWriteGapMs = e1Gap;
+      e0GapAtLargestWriteGapMs = e0Gap;
+    }
+    const added = e1Gap - e0Gap;
+    if (largestTransportAddedGapMs === null || added > largestTransportAddedGapMs) {
+      largestTransportAddedGapMs = added;
+    }
+  }
+  return {
+    largestWriteGapMs,
+    e0GapAtLargestWriteGapMs,
+    largestTransportAddedGapMs,
+    largestWriteDelayMs,
+  };
+}
+
+/**
+ * The latency pass (design section 6). Throws `Void` when a precondition of the
+ * window did not hold, after recording what it measured, and `CouldNotRun` when
+ * the processor, the timer or a calibration could not be set up.
+ */
+async function latencyPass() {
+  const { calibrate, percentiles } = oracle;
+  const cap = (SECONDS + 10) * QUANTA_PER_SECOND;
+  let started;
+  try {
+    started = await page(`__probe.startProcessor(${cap})`);
+  } catch (err) {
+    throw new CouldNotRun(`the track processor could not be set up: ${errorText(err)}`);
+  }
+  if (started !== 'started') throw new CouldNotRun(started);
+  await sleep(DISCARD_MS);
+  const resolution = await setup('__probe.timerResolution()', () =>
+    page('__probe.timerResolution()')
+  );
+  if (resolution === null) throw new CouldNotRun('performance.now() never ticked in 2000 readings');
+  measured.timerResolutionMs = resolution;
+  measured.crossOriginIsolated = await page('globalThis.crossOriginIsolated');
+  const before = await setup('the calibration before the window', () => calibrateClocks(calibrate));
+  const start = await page('__probe.beginWindow()');
+  const openedAt = Date.now();
+  if (INJECT === 'measuredrop') {
+    await sleep(2000);
+    await page('__probe.stall(300)');
+  }
+  await sleep(Math.max(0, openedAt + SECONDS * 1000 - Date.now()));
+  const end = await page('__probe.endWindow()');
+  await sleep(DRAIN_MS);
+  const rec = await page('__probe.latencyRecord()');
+  const after = await setup('the calibration after the window', () => calibrateClocks(calibrate));
+
+  const n = rec.written;
+  const offsetMs = (before.offsetMs + after.offsetMs) / 2;
+  // Recorded before any invariant or void rule can throw, so a failed or void
+  // window still reports them.
+  const gaps = writeGaps(rec, offsetMs);
+  measured.latency = { windowSeconds: SECONDS, written: n, ...gaps };
+  // Both snapshots: a fault among the window's last writes shows only after the drain.
+  check(
+    end.stats.faulted === false && rec.drainedStats.faulted === false,
+    'the bridge faulted in the latency window'
+  );
+  // seqGaps and overrun from the snapshot taken after the drain, so a drop among
+  // the window's last writes is counted too.
+  const deltas = {
+    seqGaps: rec.drainedStats.seqGaps - start.stats.seqGaps,
+    overrun: rec.drainedStats.overrun - start.stats.overrun,
+    bad: end.counts.bad - start.counts.bad,
+    contentMissing: end.counts.contentMissing - start.counts.contentMissing,
+  };
+  // A calibration's uncertaintyMs is its half round trip only; the timer
+  // resolution is added here, once for each calibration.
+  const driftLimitMs = before.uncertaintyMs + after.uncertaintyMs + 2 * resolution;
+  const drift = after.offsetMs - before.offsetMs;
+  const { pairing, contentCheck, contentVoid } = judgeContent(rec);
+  const voids = [];
+  if (n < SECONDS * QUANTA_PER_SECOND - 10) voids.push(`only ${n} writes in a ${SECONDS} s window`);
+  if (n !== rec.paired) voids.push(`E1 count ${n} != E2 count ${rec.paired}`);
+  if (rec.mismatches !== 0) {
+    voids.push(
+      `${rec.mismatches} processor frames did not pair with their quantum's E0 within ${rec.toleranceUs} us, first ${JSON.stringify(rec.firstMismatch)}`
+    );
+  }
+  if (contentVoid !== null) voids.push(contentVoid);
+  if (rec.overflow !== 0) voids.push(`${rec.overflow} writes overflowed the ${cap}-slot record`);
+  if (rec.processorError !== null) voids.push(`the processor failed: ${rec.processorError}`);
+  if (deltas.seqGaps !== 0 || deltas.overrun !== 0) {
+    voids.push(`seqGaps delta ${deltas.seqGaps}, overrun delta ${deltas.overrun}`);
+  }
+  if (deltas.bad !== 0) voids.push(`${deltas.bad} bad quanta in the window`);
+  if (deltas.contentMissing !== 0) {
+    voids.push(`${deltas.contentMissing} quanta missing from the waveform in the window`);
+  }
+  if (Math.abs(drift) > driftLimitMs) {
+    voids.push(`the calibration offset moved ${drift} ms (limit ${driftLimitMs} ms)`);
+  }
+  if (start.visibility !== 'visible' || end.visibility !== 'visible') {
+    voids.push(`visibilityState ${start.visibility} at start, ${end.visibility} at end`);
+  }
+  if (rec.visibilityChanges !== 0) {
+    voids.push(`${rec.visibilityChanges} visibilitychange events in the window`);
+  }
+  const common = {
+    windowSeconds: SECONDS,
+    written: n,
+    paired: rec.paired,
+    pairing,
+    toleranceUs: rec.toleranceUs,
+    contentCheck,
+    frameMinusE0Us: offsetSummary(rec.offset),
+    ...gaps,
+    largestWriteGapJudged:
+      n > 1 &&
+      deltas.seqGaps === 0 &&
+      deltas.overrun === 0 &&
+      deltas.bad === 0 &&
+      deltas.contentMissing === 0,
+    windowDeltas: deltas,
+    visibilityChanges: rec.visibilityChanges,
+    framesOutsideWindow: rec.outsideWindow,
+    calibrationBefore: before,
+    calibrationAfter: after,
+  };
+  if (voids.length > 0) {
+    measured.latency = {
+      void: voids,
+      ...common,
+      firstMismatch: rec.firstMismatch,
+      processorFrameTsHead: rec.headTs,
+      e0Head: rec.e0.slice(0, rec.headTs.length),
+    };
+    throw new Void(`void: ${voids.join('; ')}`);
+  }
+
+  const generator = [];
+  const generatorAdjusted = [];
+  const transport = [];
+  const total = [];
+  const totalAdjusted = [];
+  for (let i = 0; i < n; i++) {
+    const e0Ms = rec.e0[i] / 1000;
+    generator.push(rec.e2[i] - rec.e1[i]);
+    generatorAdjusted.push(rec.e2[i] - rec.e1[i] - rec.overhead[i]);
+    transport.push(rec.e1[i] - offsetMs - e0Ms);
+    total.push(rec.e2[i] - offsetMs - e0Ms);
+    totalAdjusted.push(rec.e2[i] - offsetMs - e0Ms - rec.overhead[i]);
+  }
+  const segment = (values) => {
+    const floor = Math.min(...values);
+    return {
+      absolute: percentiles(values),
+      offsetFree: percentiles(values.map((v) => v - floor)),
+    };
+  };
+  // One clock: each stamp is quantised to the resolution. Two clocks: the wider
+  // calibration bracket as well.
+  const quantisationMs = 2 * resolution;
+  const twoClockMs = Math.max(before.uncertaintyMs, after.uncertaintyMs) + quantisationMs;
+  const generatorRaw = segment(generator);
+  const overhead = percentiles(rec.overhead);
+  measured.latency = {
+    ...common,
+    offsetUsedMs: offsetMs,
+    L_generator: {
+      uncertaintyPlusMinusMs: quantisationMs,
+      // In whole ticks: a p99 of exactly two ticks reads 0.2000000030 against a
+      // 2 x resolution of 0.1999999881, so a float comparison would miss it.
+      atResolutionFloor: Math.round(generatorRaw.absolute.p99 / resolution) <= 2,
+      raw: generatorRaw,
+      adjusted: segment(generatorAdjusted),
+    },
+    L_transport: { uncertaintyPlusMinusMs: twoClockMs, raw: segment(transport) },
+    L_total: {
+      uncertaintyPlusMinusMs: twoClockMs,
+      raw: segment(total),
+      adjusted: segment(totalAdjusted),
+    },
+    hookOverheadMs: {
+      resolutionMs: resolution,
+      p50: overhead.p50,
+      p95: overhead.p95,
+      max: overhead.max,
+    },
+  };
+  return [
+    `n ${n}; pairing ${pairing}; L_total p50 ${measured.latency.L_total.raw.absolute.p50} ms (+/-${twoClockMs}); largest write gap ${gaps.largestWriteGapMs} ms (E0 gap ${gaps.e0GapAtLargestWriteGapMs} ms); largest transport-added gap ${gaps.largestTransportAddedGapMs} ms; largest write delay ${gaps.largestWriteDelayMs} ms`,
+  ];
+}
+
+/** Sum of selfSize over the sampling profile, and its largest sites by function and line. */
+function profileSites(head) {
+  let sampledBytes = 0;
+  const sites = new Map();
+  const stack = [head];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    sampledBytes += node.selfSize;
+    if (node.selfSize > 0) {
+      const { functionName, url, lineNumber } = node.callFrame;
+      const file = url.slice(url.lastIndexOf('/') + 1);
+      const key = `${functionName}\u0000${file}\u0000${lineNumber}`;
+      const site = sites.get(key) ?? { functionName, file, lineNumber, selfSize: 0 };
+      site.selfSize += node.selfSize;
+      sites.set(key, site);
+    }
+    stack.push(...node.children);
+  }
+  const top = [...sites.values()].sort((a, b) => b.selfSize - a.selfSize).slice(0, 5);
+  return { sampledBytes, top };
+}
+
+/** The heap pass (design section 4), on a fresh page load and a new host generation. */
+async function heapPass() {
+  try {
+    await loadProbePage('heap');
+  } catch (err) {
+    throw new CouldNotRun(`the heap page could not be prepared: ${errorText(err)}`);
+  }
+  const handle = windowHandleOf(win);
+  const result = await setup(`startAudiocapHost(2, ${handle})`, () =>
+    host.startAudiocapHost(2, handle)
+  );
+  if (!(result && result.ok === true)) {
+    throw new CouldNotRun(
+      `generation 2 did not start after the kill: startAudiocapHost(2, ${handle}) -> ${JSON.stringify(result)}`
+    );
+  }
+  check((await page('__probe.createBridge(2)')) === 2, 'the bridge was not built for generation 2');
+  let graph;
+  try {
+    graph = await page('__probe.startHeapGraph()');
+  } catch (err) {
+    throw new CouldNotRun(`the heap page's audio graph could not be built: ${errorText(err)}`);
+  }
+  if (graph !== 'running') throw new Void(`void: audioContext.state is ${graph}, not running`);
+  try {
+    await waitFor(
+      'signal at the analyser',
+      5000,
+      async () => (await page('__probe.heapState()')).peak > 0
+    );
+  } catch (err) {
+    throw new Void(`void: no quanta reach the audio graph: ${errorText(err)}`);
+  }
+  await sleep(DISCARD_MS);
+  const before = await page('__probe.heapState()');
+  const dbg = win.webContents.debugger;
+  const send = async (method, params) => {
+    try {
+      return await dbg.sendCommand(method, params);
+    } catch (err) {
+      throw new CouldNotRun(`${method} was rejected: ${errorText(err)}`);
+    }
+  };
+  try {
+    dbg.attach();
+  } catch (err) {
+    throw new CouldNotRun(`debugger.attach() threw: ${errorText(err)}`);
+  }
+  let usageBefore;
+  let usageAfter;
+  let profile;
+  let elapsedS;
+  // A detach that throws fails the pass once the record below is built. It is
+  // logged here too, for when the window itself threw first.
+  let detachFailure = null;
+  try {
+    await send('HeapProfiler.enable');
+    await send('HeapProfiler.collectGarbage');
+    usageBefore = await send('Runtime.getHeapUsage');
+    const t0 = process.hrtime.bigint();
+    await send('HeapProfiler.startSampling', {
+      samplingInterval: 1024,
+      includeObjectsCollectedByMajorGC: true,
+      includeObjectsCollectedByMinorGC: true,
+    });
+    // Nothing may call into the page here: every executeJavaScript allocates in
+    // the heap being sampled.
+    await sleep(SECONDS * 1000);
+    ({ profile } = await send('HeapProfiler.stopSampling'));
+    elapsedS = Number(process.hrtime.bigint() - t0) / 1e9;
+    await send('HeapProfiler.collectGarbage');
+    usageAfter = await send('Runtime.getHeapUsage');
+  } finally {
+    try {
+      dbg.detach();
+    } catch (err) {
+      detachFailure = `debugger.detach() threw: ${errorText(err)}`;
+      say(`FAIL heap: ${detachFailure}`);
+    }
+  }
+  const after = await page('__probe.heapState()');
+  const seqGaps = after.stats.seqGaps - before.stats.seqGaps;
+  const overrun = after.stats.overrun - before.stats.overrun;
+  const quantaNominal = Math.round(elapsedS * QUANTA_PER_SECOND) - seqGaps;
+  const { sampledBytes, top } = profileSites(profile.head);
+  measured.heap = {
+    scope: 'renderer isolate: bridge plus preload relay',
+    windowSeconds: SECONDS,
+    elapsedSeconds: elapsedS,
+    generation2Start: result,
+    sampledBytes,
+    quantaNominal,
+    denominatorNote: 'nominal: elapsed x 100 minus seqGaps; the bridge has no delivered counter',
+    bytesPerQuantum: sampledBytes / quantaNominal,
+    usedSizeBefore: usageBefore.usedSize,
+    usedSizeAfter: usageAfter.usedSize,
+    usedSizeDelta: usageAfter.usedSize - usageBefore.usedSize,
+    backingStorageSizeDelta:
+      typeof usageBefore.backingStorageSize === 'number' &&
+      typeof usageAfter.backingStorageSize === 'number'
+        ? usageAfter.backingStorageSize - usageBefore.backingStorageSize
+        : 'not exposed',
+    seqGapsDelta: seqGaps,
+    overrunDelta: overrun,
+    largestSites: top,
+  };
+  const voids = [];
+  if (before.audioState !== 'running' || after.audioState !== 'running') {
+    voids.push(`audioContext.state ${before.audioState} before, ${after.audioState} after`);
+  }
+  if (after.peak === 0) voids.push('no signal at the analyser after the window');
+  if (seqGaps !== 0 || overrun !== 0) {
+    voids.push(`seqGaps delta ${seqGaps}, overrun delta ${overrun} in the heap window`);
+  }
+  if (voids.length > 0) measured.heap.void = voids;
+  // A debugger left attached fails the pass, and a failure outranks a void.
+  if (detachFailure !== null) throw new Error(detachFailure);
+  if (voids.length > 0) throw new Void(`void: ${voids.join('; ')}`);
+  return [
+    `generation 2 -> ${JSON.stringify(result)}; ${sampledBytes} B sampled over ${quantaNominal} nominal quanta; usedSize delta ${measured.heap.usedSizeDelta} B`,
+  ];
+}
+
+/** Print the record. A measure pass that could not run still prints what it had. */
+function printMeasurements() {
+  const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' });
+  const env = {
+    gitSha: git.status === 0 ? git.stdout.trim() : `unavailable (git status ${git.status})`,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    uv: process.versions.uv,
+    osVersion: os.version(),
+    osRelease: os.release(),
+    arch: process.arch,
+    timerResolutionMs: measured.timerResolutionMs,
+    crossOriginIsolated: measured.crossOriginIsolated,
+    windowSeconds: SECONDS,
+  };
+  say('=== MEASURE JSON BEGIN ===');
+  say(JSON.stringify({ env, latency: measured.latency, heap: measured.heap }, null, 2));
+  say('=== MEASURE JSON END ===');
+}
+
+/** Print the record, then judge the limits, so the numbers show even when one trips. */
+function reportMeasurements() {
+  printMeasurements();
+  const flag = (name, value, limit) => {
+    if (value <= limit) return;
+    say(`FLAG ${name}: ${value} over ${limit}`);
+    failed += 1;
+  };
+  // A void heap window was not clean, so its figures are not judged.
+  if (measured.heap !== null && measured.heap.void === undefined) {
+    flag('retained-growth', measured.heap.usedSizeDelta, LIMITS.retainedGrowthBytes);
+    flag('sampled-allocation-per-quantum', measured.heap.bytesPerQuantum, LIMITS.bytesPerQuantum);
+  }
+  // The transport-added gap is from the hook's E0 and E1 alone, so it is judged on
+  // a void latency pass too, whenever the window dropped nothing, every quantum
+  // checked clean and none was missing from the waveform.
+  if (measured.latency !== null && measured.latency.largestWriteGapJudged === true) {
+    flag(
+      'largest-transport-added-gap',
+      measured.latency.largestTransportAddedGapMs,
+      LIMITS.largestTransportAddedGapMs
+    );
+  }
+}
+
+/** The command line, checked before anything is staged. Returns a reason, or null. */
+function flagFailure() {
+  if (INJECT !== null && !INJECTS.has(INJECT)) return `unknown --inject=${INJECT}`;
+  if (INJECT === 'measuredrop' && !MEASURE) return '--inject=measuredrop needs --measure';
+  if (SECONDS_FLAG !== undefined && !MEASURE) return `${SECONDS_FLAG} needs --measure`;
+  const stray = process.argv.find((arg) => arg.startsWith('--measure') && arg !== '--measure');
+  if (stray !== undefined) return `unknown flag ${stray}; the measure flag is exactly --measure`;
+  if (MEASURE && !(Number.isInteger(SECONDS) && SECONDS >= 1)) {
+    return `--seconds must be a positive integer, got ${JSON.stringify(SECONDS_ARG)}`;
+  }
+  return null;
 }
 
 async function main() {
@@ -288,7 +822,13 @@ async function main() {
   say(
     `=== audiocap transport probe (${process.platform}, electron ${process.versions.electron}) ===`
   );
+  const flags = flagFailure();
+  if (flags !== null) {
+    couldNotRun(flags);
+    return;
+  }
   if (INJECT !== null) say(`     inject = ${INJECT}`);
+  if (MEASURE) say(`     measure, ${SECONDS} s windows`);
   const guard = guardFailure() ?? buildStage();
   if (guard !== null) {
     couldNotRun(guard);
@@ -296,6 +836,7 @@ async function main() {
   }
   host = require(path.join(stage, 'dist/main/audiocapHost.js'));
   try {
+    oracle = await import(pathToFileURL(path.join(__dirname, 'oracle.mjs')).href);
     await openWindow();
   } catch (err) {
     couldNotRun(`the probe page could not be prepared: ${errorText(err)}`);
@@ -385,7 +926,7 @@ async function main() {
   });
 
   await runPass('slow consumer', async () => {
-    const { judgeStall } = await import(pathToFileURL(path.join(__dirname, 'oracle.mjs')).href);
+    const { judgeStall } = oracle;
     const notes = [];
     for (const ms of [80, 300, 450]) {
       const tag = `stall ${ms} ms`;
@@ -424,7 +965,10 @@ async function main() {
     return notes;
   });
 
-  // LAST: it ends the capture.
+  if (MEASURE) await runPass('latency', latencyPass);
+
+  // LAST on this page: it ends the capture, and only the heap pass (a fresh page
+  // and a new generation, no hook) may follow it.
   await runPass('kill', async () => {
     const utility = audiocapUtilityPid();
     const seen = interrupts.length;
@@ -466,14 +1010,31 @@ async function main() {
     ];
   });
 
-  say(failed === 0 ? 'PROBE PASS' : `PROBE FAIL (${failed})`);
-  finish(failed === 0 ? 0 : 1);
+  if (MEASURE) {
+    await runPass('heap', heapPass);
+    reportMeasurements();
+  }
+  // A violated invariant outranks a void: exit 1 over exit 2.
+  if (failed > 0) {
+    say(`PROBE FAIL (${failed})`);
+    finish(1);
+    return;
+  }
+  if (voided > 0) {
+    say(`PROBE FAIL (could not run: ${voided} void)`);
+    finish(2);
+    return;
+  }
+  say('PROBE PASS');
+  finish(0);
 }
 
 protocol.registerSchemesAsPrivileged([
   { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 app.on('window-all-closed', () => undefined);
+// The heap pass's AudioContext must run with no user gesture.
+if (MEASURE) app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 main().catch((err) => {
   say(`FAIL probe: ${errorText(err)}`);
@@ -481,8 +1042,12 @@ main().catch((err) => {
   finish(2);
 });
 
-// A hung probe must fail the job, not hang the runner.
-setTimeout(() => {
-  say('PROBE FAIL (timeout)');
-  finish(2);
-}, 120_000).unref();
+// A hung probe must fail the job, not hang the runner. A measure run adds two
+// windows, their 5 s discards and two calibrations.
+setTimeout(
+  () => {
+    say('PROBE FAIL (timeout)');
+    finish(2);
+  },
+  MEASURE && Number.isInteger(SECONDS) ? 180_000 + 2 * SECONDS * 1000 : 120_000
+).unref();
