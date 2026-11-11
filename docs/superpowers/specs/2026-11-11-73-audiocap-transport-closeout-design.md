@@ -53,8 +53,11 @@ Four files:
 | Port hand-over | Re-stated in the probe: `webContents.postMessage('audiocap:port', { generation }, [port])`. This is the one seam the probe re-implements; the probe fails with "could not run" if that call is no longer present in `main.ts` |
 
 The window follows the `desktop-engine-probe` precedent: `show: true`, a probe-only scheme served
-by `protocol.handle`. The probe passes `windowHandle: null` to `startAudiocapHost`; the synthetic
-backend ignores the target.
+by `protocol.handle`. The probe passes its own window's handle to `startAudiocapHost`. The host
+treats `null` as the start-up capability check and never opens a port for it, and the capture
+child resolves the handle before it starts, so the handle must name a live window. The synthetic
+backend then ignores the resolved target. (Corrected during implementation: the first draft said
+`null`.)
 
 ### 3.2 The synthetic binary reaches the production loader through a staged tree
 
