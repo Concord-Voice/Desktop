@@ -65,7 +65,6 @@ vi.mock('node:fs', () => ({
   renameSync: vi.fn(),
 }));
 
-
 vi.mock('../../../src/main/updateLogger', () => ({
   createUpdateLogger: vi.fn().mockReturnValue(mockLogger),
 }));

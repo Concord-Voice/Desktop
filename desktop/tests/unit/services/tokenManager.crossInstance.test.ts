@@ -29,11 +29,7 @@ vi.mock('electron', () => ({
 vi.mock('../../../src/main/machineId', () => ({ getMachineId: vi.fn(() => 'mid') }));
 vi.mock('../../../src/main/attestationService', () => ({ clearAttestationToken: vi.fn() }));
 
-import {
-  createProfileCustody,
-  custodyFor,
-  _resetAllCustodyForTesting,
-} from '@/main/tokenManager';
+import { createProfileCustody, custodyFor, _resetAllCustodyForTesting } from '@/main/tokenManager';
 import type { ProfileCustody } from '@/main/tokenManager';
 import { profilePathsForApiBase, serviceIdForApiBase } from '@/main/selfHostedProfile';
 
@@ -44,7 +40,7 @@ const ORIGIN_B = 'https://b.example:8443';
 const KEYS = {
   wrappingKeyBase64: 'wk',
   preferencesKeyBase64: 'pk',
-  wrappedPrivateKeyBase64: 'wpk',
+  wrappedPrivateKeyBase64: 'wpk', // pragma: allowlist secret
 };
 
 function makeJwt(exp: number): string {

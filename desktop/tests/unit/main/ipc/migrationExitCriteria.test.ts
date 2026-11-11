@@ -26,8 +26,14 @@ vi.mock('../../../../src/main/machineId', () => ({ getMachineId: vi.fn(() => 'mi
 vi.mock('../../../../src/main/attestationService', () => ({ clearAttestationToken: vi.fn() }));
 
 import * as tokenManager from '../../../../src/main/tokenManager';
-import { createProfileCustody, _resetAllCustodyForTesting } from '../../../../src/main/tokenManager';
-import { profilePathsForApiBase, serviceIdForApiBase } from '../../../../src/main/selfHostedProfile';
+import {
+  createProfileCustody,
+  _resetAllCustodyForTesting,
+} from '../../../../src/main/tokenManager';
+import {
+  profilePathsForApiBase,
+  serviceIdForApiBase,
+} from '../../../../src/main/selfHostedProfile';
 
 const DESKTOP = path.resolve(__dirname, '../../../..');
 const MAIN = path.join(DESKTOP, 'src/main');
@@ -38,7 +44,8 @@ function walk(dir: string): string[] {
     return statSync(full).isDirectory() ? walk(full) : full.endsWith('.ts') ? [full] : [];
   });
 }
-const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const stripComments = (src: string) =>
+  src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const MAIN_FILES = walk(MAIN).map((file) => ({
   file: path.relative(MAIN, file),
   code: stripComments(readFileSync(file, 'utf8')),
@@ -57,7 +64,9 @@ describe('S1: Task 5 custody shims are deleted', () => {
 
   it('no module-level setProactiveRefreshCallback export remains (the custody method does)', () => {
     const tm = MAIN_FILES.find((f) => f.file === 'tokenManager.ts')!;
-    expect(tm.code).not.toMatch(/export\s+(async\s+)?(function|const)\s+setProactiveRefreshCallback\b/);
+    expect(tm.code).not.toMatch(
+      /export\s+(async\s+)?(function|const)\s+setProactiveRefreshCallback\b/
+    );
   });
 
   it('no IPC handler file resolves custody by anything but the sender binding', () => {
@@ -72,10 +81,14 @@ describe('S1: Task 5 custody shims are deleted', () => {
 describe('X2: every registration goes through registerIpc', () => {
   it('no src/main file except ipc/registry.ts calls ipcMain.handle|on|once|handleOnce', () => {
     const offenders = MAIN_FILES.filter(
-      (f) => f.file !== path.join('ipc', 'registry.ts') && /\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(/.test(f.code)
+      (f) =>
+        f.file !== path.join('ipc', 'registry.ts') &&
+        /\bipcMain\s*\.\s*(handle|handleOnce|on|once)\s*\(/.test(f.code)
     );
     // connection:whoAmI is the one documented raw ipcMain.on (sendSync); it lives in connection.ts.
-    expect(offenders.map((f) => f.file).filter((f) => f !== path.join('ipc', 'connection.ts'))).toEqual([]);
+    expect(
+      offenders.map((f) => f.file).filter((f) => f !== path.join('ipc', 'connection.ts'))
+    ).toEqual([]);
   });
 
   it('TRANSITIONAL_RAW_IPCMAIN_FILES is deleted or empty in eslint.config.mjs', () => {
@@ -100,23 +113,31 @@ describe('docs: the stale v25 fallback chain is gone', () => {
 });
 
 describe('S1: the shims are not tokenManager exports', () => {
-  it.each(['liveCustody', 'restoreTargetCustody', 'custodyForApiBase', 'setProactiveRefreshCallback', 'getPersistedApiBase'])(
-    '%s is not exported',
-    (name) => {
-      expect(name in tokenManager).toBe(false);
-    }
-  );
+  it.each([
+    'liveCustody',
+    'restoreTargetCustody',
+    'custodyForApiBase',
+    'setProactiveRefreshCallback',
+    'getPersistedApiBase',
+  ])('%s is not exported', (name) => {
+    expect(name in tokenManager).toBe(false);
+  });
 });
 
 describe('S2/S3: custody isolation (runtime)', () => {
   const OA = 'https://a.example';
   const OB = 'https://b.example:8443';
-  const KEYS = { wrappingKeyBase64: 'wk', preferencesKeyBase64: 'pk', wrappedPrivateKeyBase64: 'wpk' };
+  const KEYS = {
+    wrappingKeyBase64: 'wk',
+    preferencesKeyBase64: 'pk',
+    wrappedPrivateKeyBase64: 'wpk', // pragma: allowlist secret
+  };
   const mk = (o: string) => createProfileCustody(serviceIdForApiBase(o), o);
 
   beforeEach(() => {
     userData.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-7b-'));
-    for (const m of ['log', 'warn', 'error', 'debug'] as const) vi.spyOn(console, m).mockImplementation(() => {});
+    for (const m of ['log', 'warn', 'error', 'debug'] as const)
+      vi.spyOn(console, m).mockImplementation(() => {});
   });
   afterEach(() => {
     _resetAllCustodyForTesting();

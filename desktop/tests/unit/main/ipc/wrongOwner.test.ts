@@ -55,8 +55,12 @@ vi.mock('../../../../src/main/oauth/google/googleFlow', () => ({
   runGoogleSignIn: m.runGoogle,
   cancelActiveGoogleFlow: vi.fn(),
 }));
-vi.mock('../../../../src/main/oauth/apple/idTokenVerifier', () => ({ verifyAppleIDToken: vi.fn() }));
-vi.mock('../../../../src/main/oauth/google/idTokenVerifier', () => ({ verifyGoogleIDToken: vi.fn() }));
+vi.mock('../../../../src/main/oauth/apple/idTokenVerifier', () => ({
+  verifyAppleIDToken: vi.fn(),
+}));
+vi.mock('../../../../src/main/oauth/google/idTokenVerifier', () => ({
+  verifyGoogleIDToken: vi.fn(),
+}));
 vi.mock('../../../../src/main/oauth/google/clientSecret', () => ({
   loadGoogleClientSecret: vi.fn(() => 'secret'),
 }));
@@ -94,7 +98,10 @@ import {
   registerService,
   setForeground,
 } from '../../../../src/main/connectionRegistry';
-import { _resetIpcRegistryForTesting, setRemoteSpaOriginSource } from '../../../../src/main/ipc/registry';
+import {
+  _resetIpcRegistryForTesting,
+  setRemoteSpaOriginSource,
+} from '../../../../src/main/ipc/registry';
 import { registerSSOIPC } from '../../../../src/main/ipc/sso';
 
 const SAAS = 'https://api.concordvoice.chat';
@@ -126,7 +133,12 @@ const ev = (wc: unknown) => {
   const id = (wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
   return {
     sender: wc,
-    senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: id, detached: false },
+    senderFrame: {
+      url: 'app://concord/index.html',
+      parent: null,
+      frameTreeNodeId: id,
+      detached: false,
+    },
   } as unknown as IpcMainInvokeEvent;
 };
 const call = async (channel: string, wc: unknown, ...args: unknown[]) => {
@@ -148,8 +160,18 @@ beforeEach(() => {
   _resetIpcRegistryForTesting();
   setRemoteSpaOriginSource(() => null);
   m.sessionFetchFor.mockImplementation(() => m.sessionFetch);
-  m.runApple.mockResolvedValue({ kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null });
-  m.runGoogle.mockResolvedValue({ kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null });
+  m.runApple.mockResolvedValue({
+    kind: 'tokens',
+    accessToken: 'at',
+    refreshToken: 'rt',
+    sessionId: null,
+  });
+  m.runGoogle.mockResolvedValue({
+    kind: 'tokens',
+    accessToken: 'at',
+    refreshToken: 'rt',
+    sessionId: null,
+  });
   A = conn(ORIGIN_A, 1);
   B = conn(ORIGIN_B, 2);
   setForeground(A.record.connectionId);
@@ -163,7 +185,21 @@ describe('wrong-owner: a sender bound to A supplying B apiBase', () => {
   it.each([
     ['sso:appleSignIn', [ORIGIN_B]],
     ['sso:googleSignIn', [ORIGIN_B]],
-    ['sso:completeRegistration', [ORIGIN_B, { provider: 'apple', ssoToken: 'x', username: 'u', passphrase: 'p', wrappedPrivateKey: 'w', keyDerivationSalt: 's', publicKey: 'k' }]],
+    [
+      'sso:completeRegistration',
+      [
+        ORIGIN_B,
+        {
+          provider: 'apple',
+          ssoToken: 'x',
+          username: 'u',
+          passphrase: 'p',
+          wrappedPrivateKey: 'w',
+          keyDerivationSalt: 's',
+          publicKey: 'k',
+        },
+      ],
+    ],
     ['sso:completeLink', [ORIGIN_B, { provider: 'apple', ssoToken: 'x', password: 'p' }]],
     ['sso:completeMFA', [ORIGIN_B, { ...MFA, credentialOwner: 101 }]],
   ])('%s is refused and dials nothing, writes nothing', async (channel, args) => {
@@ -195,10 +231,12 @@ describe('S1: custody and fetch come from the sender binding alone', () => {
   });
 
   it('the control-plane fetch goes through sessionFetchFor(sender.service), not net.fetch', async () => {
-    m.runApple.mockImplementation(async (p: { controlPlaneFetch: (u: string, i?: RequestInit) => Promise<Response> }) => {
-      await p.controlPlaneFetch(`${ORIGIN_A}/api/v1/auth/sso/apple/session`, { method: 'POST' });
-      return { kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null };
-    });
+    m.runApple.mockImplementation(
+      async (p: { controlPlaneFetch: (u: string, i?: RequestInit) => Promise<Response> }) => {
+        await p.controlPlaneFetch(`${ORIGIN_A}/api/v1/auth/sso/apple/session`, { method: 'POST' });
+        return { kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null };
+      }
+    );
     await call('sso:appleSignIn', A.wc, ORIGIN_A);
     expect(m.sessionFetchFor).toHaveBeenCalledWith(expect.objectContaining({ origin: ORIGIN_A }));
     expect(m.netFetch).not.toHaveBeenCalled();
@@ -207,10 +245,15 @@ describe('S1: custody and fetch come from the sender binding alone', () => {
 
   it('for the saas service the init is byte-identical to { ...init, credentials: "include" }', async () => {
     const saas = conn(SAAS, 3);
-    m.runApple.mockImplementation(async (p: { controlPlaneFetch: (u: string, i?: RequestInit) => Promise<Response> }) => {
-      await p.controlPlaneFetch(`${SAAS}/api/v1/auth/sso/apple/session`, { method: 'POST', headers: { 'X-Test': '1' } });
-      return { kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null };
-    });
+    m.runApple.mockImplementation(
+      async (p: { controlPlaneFetch: (u: string, i?: RequestInit) => Promise<Response> }) => {
+        await p.controlPlaneFetch(`${SAAS}/api/v1/auth/sso/apple/session`, {
+          method: 'POST',
+          headers: { 'X-Test': '1' },
+        });
+        return { kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: null };
+      }
+    );
     await call('sso:appleSignIn', saas.wc, SAAS);
     expect(m.sessionFetch).toHaveBeenCalledWith(`${SAAS}/api/v1/auth/sso/apple/session`, {
       method: 'POST',
@@ -221,7 +264,11 @@ describe('S1: custody and fetch come from the sender binding alone', () => {
 });
 
 describe('SSO pending state is keyed by ConnectionId', () => {
-  const challenge = { kind: 'mfa_challenge', mfaChallengeToken: 'challenge-token-A', methods: ['totp'] };
+  const challenge = {
+    kind: 'mfa_challenge',
+    mfaChallengeToken: 'challenge-token-A',
+    methods: ['totp'],
+  };
 
   it("B's sign-in does not clear A's pending MFA (A can still complete it)", async () => {
     m.runGoogle.mockResolvedValueOnce(challenge);
@@ -305,12 +352,16 @@ describe('apiBase-taking channels outside sso.ts are binding-derived (source enf
   it('S1: no src/main file other than tokenManager.ts uses a custody pointer shim', () => {
     const offenders = walk(SRC_MAIN)
       .filter((f) => !f.endsWith(`${path.sep}tokenManager.ts`))
-      .filter((f) => /\b(custodyForApiBase|liveCustody|restoreTargetCustody)\b/.test(readFileSync(f, 'utf8')));
+      .filter((f) =>
+        /\b(custodyForApiBase|liveCustody|restoreTargetCustody)\b/.test(readFileSync(f, 'utf8'))
+      );
     expect(offenders).toEqual([]);
   });
 
   it('S1: tokenManager.ts no longer exports custodyForApiBase', () => {
     const tm = readFileSync(path.join(SRC_MAIN, 'tokenManager.ts'), 'utf8');
-    expect(tm).not.toMatch(/export (async )?function custodyForApiBase|export const custodyForApiBase/);
+    expect(tm).not.toMatch(
+      /export (async )?function custodyForApiBase|export const custodyForApiBase/
+    );
   });
 });

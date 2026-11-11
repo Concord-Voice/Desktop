@@ -74,7 +74,10 @@ function writeUpdatePrefs(prefs: UpdatePrefs): void {
 
 let checkInterval: ReturnType<typeof setInterval> | null = null;
 /** Only liveness and `webContents.send` are read; main.ts fans the push out (#86 Task 4). */
-type RendererPushTarget = { isDestroyed(): boolean; readonly webContents: Pick<WebContents, 'send'> };
+type RendererPushTarget = {
+  isDestroyed(): boolean;
+  readonly webContents: Pick<WebContents, 'send'>;
+};
 
 let getWindow: (() => RendererPushTarget | null) | null = null;
 let releaseQuitVetoForUpdate: (() => void) | null = null;

@@ -1769,9 +1769,8 @@ describe('audiocap:stop spares the windowless app-start probe (#3394 PR 1, R4)',
 
   it('control: a stop during a REAL capture still stops it', async () => {
     const host = await loadHost();
-    const { handleAudiocapStart, handleAudiocapStop } = await import(
-      '../../../src/main/ipc/audiocap'
-    );
+    const { handleAudiocapStart, handleAudiocapStop } =
+      await import('../../../src/main/ipc/audiocap');
     const child = makeChild();
     fork.mockReturnValue(child);
     host.setAudiocapPortSink(vi.fn());

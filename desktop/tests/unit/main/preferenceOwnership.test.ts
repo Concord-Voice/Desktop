@@ -113,7 +113,7 @@ describe('prefsDirFor', () => {
   });
 
   it('refuses a dirKey that is not the scope service (no cross-service directory)', () => {
-    expect(() => prefsDirFor(root, 'fedcba9876543210', scope)).toThrow(TypeError);
+    expect(() => prefsDirFor(root, 'fedcba9876543210', scope)).toThrow(TypeError); // pragma: allowlist secret
     expect(() => prefsDirFor(root, '', scope)).toThrow(TypeError);
   });
 
