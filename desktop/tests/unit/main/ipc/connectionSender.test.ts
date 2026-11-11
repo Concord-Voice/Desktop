@@ -124,7 +124,7 @@ describe('requireConnectionSender', () => {
   });
 });
 
-describe('a PiP is held to the remote-SPA origin main loaded it from', () => {
+describe('a PiP is admitted for the remote SPA only while its pinned origin is current', () => {
   const SPA_B = 'https://spa-b.concordvoice.chat';
   function saasPip(pinned: string | null) {
     const s = conn(SAAS_ORIGIN, 1);
@@ -133,16 +133,42 @@ describe('a PiP is held to the remote-SPA origin main loaded it from', () => {
     return { s, wc };
   }
 
-  it('admits its own pinned origin after the remote SPA moved or went away', () => {
+  it('admits its pinned origin while that origin is still the current one', () => {
     const { wc } = saasPip(SPA);
     const e = ev(wc, main(`${SPA}/index.html#/pip/x`));
+    expect(requireConnectionSender(e, undefined, SPA)?.role).toBe('pip');
+  });
+
+  it('refuses its pinned origin once the remote SPA is turned off (current null)', () => {
+    const { wc } = saasPip(SPA);
+    expect(
+      requireConnectionSender(ev(wc, main(`${SPA}/index.html#/pip/x`)), undefined, null)
+    ).toBeNull();
+  });
+
+  it('refuses both its pinned origin and the new one after the remote SPA moved', () => {
+    const { wc } = saasPip(SPA);
+    expect(requireConnectionSender(ev(wc, main(`${SPA}/`)), undefined, SPA_B)).toBeNull();
+    expect(requireConnectionSender(ev(wc, main(`${SPA_B}/`)), undefined, SPA_B)).toBeNull();
+  });
+
+  it('still admits a pinned PiP from the packaged document whatever the current origin', () => {
+    const { wc } = saasPip(SPA);
+    const e = ev(wc, main('app://concord/index.html#/pip/x'));
+    expect(requireConnectionSender(e)?.role).toBe('pip');
     expect(requireConnectionSender(e, undefined, null)?.role).toBe('pip');
     expect(requireConnectionSender(e, undefined, SPA_B)?.role).toBe('pip');
   });
 
-  it('refuses a document of the CURRENT origin when that is not its pinned one', () => {
-    const { wc } = saasPip(SPA);
-    expect(requireConnectionSender(ev(wc, main(`${SPA_B}/`)), undefined, SPA_B)).toBeNull();
+  it('leaves the primary on the current origin whatever its PiP is pinned to', () => {
+    const { s } = saasPip(SPA);
+    expect(requireConnectionSender(ev(s.wc, main(`${SPA}/`)), undefined, SPA)?.role).toBe(
+      'primary'
+    );
+    expect(requireConnectionSender(ev(s.wc, main(`${SPA_B}/`)), undefined, SPA_B)?.role).toBe(
+      'primary'
+    );
+    expect(requireConnectionSender(ev(s.wc, main(`${SPA}/`)), undefined, SPA_B)).toBeNull();
   });
 
   it('refuses the remote SPA in an unpinned PiP even while it is current', () => {

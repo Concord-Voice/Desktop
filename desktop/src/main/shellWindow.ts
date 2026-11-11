@@ -525,8 +525,8 @@ export function disposeConnectionView(connectionId: ConnectionId): void {
  * whatever `options` names, sandboxed, and bound `'pip'` to that connection. Only a
  * bound, live primary may open one; anything else gets `null` and no window.
  * `remoteSpaOrigin` is the origin main will load the PiP from (null: bundled or
- * cached); it is pinned on the binding, so the PiP's own frame keeps admission
- * across a later remote-SPA transition.
+ * cached); it is pinned on the binding, and the PiP's own frame is admitted for the
+ * remote SPA only while that pin is still the current origin.
  */
 export function createPipWindow(
   opener: WebContents,

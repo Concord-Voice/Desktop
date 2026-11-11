@@ -3342,8 +3342,8 @@ registerIpc(
         },
         backgroundColor: '#000',
       },
-      // Pinned on the PiP's binding: its own frame keeps pip-scoped admission
-      // across a later remote-SPA transition, as `entry.remoteSpaUrl` does below.
+      // Pinned on the PiP's binding: its own frame keeps pip-scoped admission for
+      // the remote SPA only while this is still the current origin.
       pipSpaOriginOf(pipRemoteUrl)
     );
     if (!pip) return;

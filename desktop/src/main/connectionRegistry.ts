@@ -302,8 +302,8 @@ export function openConnection(
  *
  * `pipSpaOrigin` is the remote-SPA origin main loaded a PiP from (null: bundled or
  * cached). It is written once, with the binding, and read only for role `'pip'`:
- * the document a PiP holds is the one main loaded into it, whatever the remote-SPA
- * state says later (`pipSpaOriginFor`). Never renderer-supplied.
+ * it records the origin main loaded into the PiP, and admission requires it to equal
+ * the current remote-SPA origin (`pipSpaOriginFor`). Never renderer-supplied.
  */
 export function bindSender(
   wc: WebContents,

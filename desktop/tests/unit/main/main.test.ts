@@ -2851,20 +2851,33 @@ describe('main.ts', () => {
       closed();
     });
 
+    // A remote-SPA PiP keeps its own controls only while the origin main loaded it
+    // from is still the current one: turning the remote SPA off, or moving it to
+    // another origin, revokes them. A bundled PiP's app:// frame needs no remote
+    // origin, so it keeps them when the remote SPA comes up.
     it.each([
       {
         name: 'remote to bundled',
         initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
         nextRemoteSpaUrl: null,
         senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/transition-pip',
+        admitted: false,
+      },
+      {
+        name: 'remote to another remote origin',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa-b.example.test/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/transition-pip',
+        admitted: false,
       },
       {
         name: 'bundled to remote',
         initialRemoteSpaUrl: null,
         nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
         senderFrameUrl: 'app://concord/index.html#/pip/transition-pip',
+        admitted: true,
       },
-    ])('keeps PiP self controls working across a $name SPA transition', async (transition) => {
+    ])('PiP self controls across a $name SPA transition (admitted: $admitted)', async (transition) => {
       const { app } = await import('electron');
       const { setRemoteSpaState } = await import('../../../src/main/spaState');
       const originalPipFrame = pipFrame.current;
@@ -2877,8 +2890,9 @@ describe('main.ts', () => {
         parent: null,
       };
 
+      let closed: (() => void) | undefined;
       try {
-        const closed = await openPip('transition-pip', {
+        closed = await openPip('transition-pip', {
           sender: mockWebContents,
           senderFrame: {
             url: transition.senderFrameUrl,
@@ -2897,10 +2911,12 @@ describe('main.ts', () => {
         });
         await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'transition-pip' });
 
-        expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-        expect(mockPipWindow.close).toHaveBeenCalled();
-        closed();
+        expect(mockPipWindow.setAlwaysOnTop.mock.calls).toEqual(
+          transition.admitted ? [[false]] : []
+        );
+        expect(mockPipWindow.close).toHaveBeenCalledTimes(transition.admitted ? 1 : 0);
       } finally {
+        closed?.();
         setRemoteSpaState(null);
         testApp.isPackaged = false;
         pipFrame.current = originalPipFrame;

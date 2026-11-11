@@ -56,25 +56,30 @@ function frameUrl(frame: WebFrameMain): string | null {
 
 /**
  * The remote-SPA origin a sender's frame URL is checked against. A caller that
- * supplies none admits no remote SPA for anyone. Otherwise a primary is checked
- * against the CURRENT origin and a PiP against the origin main loaded it from
- * (pinned at bind): an SPA transition changes what the main view may load next,
- * not what an already-open PiP holds. An unpinned PiP gets null (fail closed).
+ * supplies none (`undefined`) or a current origin of `null` admits no remote SPA
+ * for anyone. Otherwise a primary is checked against the CURRENT origin, and a PiP
+ * against it only while it EQUALS the origin main loaded that PiP from (pinned at
+ * bind). Both must hold: the pin keeps a PiP opened before an SPA origin change
+ * from being admitted under a new origin it was never loaded from, and the
+ * current origin revokes a PiP once the remote SPA is turned off or moves. An
+ * unpinned or mismatched PiP gets null (fail closed); the packaged `app://` and
+ * dev documents are still admitted with null by `isPermittedFrameUrlForKind`.
  */
 function spaOriginForSender(
   wc: IpcMainEvent['sender'],
   role: BindingRole,
   remoteSpaOrigin: string | null | undefined
 ): string | null {
-  if (remoteSpaOrigin === undefined) return null;
-  return role === 'pip' ? pipSpaOriginFor(wc) : remoteSpaOrigin;
+  const current = remoteSpaOrigin ?? null;
+  if (current === null || role !== 'pip') return current;
+  return pipSpaOriginFor(wc) === current ? current : null;
 }
 
 /**
  * The admitted connection sender, or null. `roles` defaults to both; an empty
  * list admits nothing. `remoteSpaOrigin` matters only for `saas` and defaults to
  * null, so the remote SPA is admitted only when the caller supplies its origin;
- * a PiP is then held to its own pinned origin (`spaOriginForSender`).
+ * a PiP only while its pinned origin is that current one (`spaOriginForSender`).
  */
 export function requireConnectionSender(
   event: IpcMainEvent | IpcMainInvokeEvent,
