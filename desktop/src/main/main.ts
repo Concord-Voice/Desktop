@@ -117,7 +117,14 @@ import { resolveCachedSpa } from './spaCache/resolveCachedSpa';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
-import { consumePipOpenToken, isPipOpenOptions, MAX_PIP_WINDOWS } from './pipOpenPolicy';
+import {
+  consumePipOpenToken,
+  isPipId,
+  isPipOpenOptions,
+  MAX_PIP_WINDOWS,
+  MAX_PIP_WINDOWS_PER_CONNECTION,
+  releasePipOpenBudget,
+} from './pipOpenPolicy';
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
@@ -170,7 +177,11 @@ import {
 } from './shellWindow';
 import { runConnectionMigration } from './connectionMigration';
 import { readApprovalsFile } from './selfHostedApprovals';
-import { SAAS_SERVICE_ID, type ConnectionRef } from '../shared/connectionIdentity';
+import {
+  SAAS_SERVICE_ID,
+  type ConnectionId,
+  type ConnectionRef,
+} from '../shared/connectionIdentity';
 import {
   IPC_CONTRACT_VERSION,
   type CredentialOwner,
@@ -3239,8 +3250,37 @@ type PipWindowEntry = {
    */
   sessionToken: string;
 };
+/**
+ * #86 RT4: the PiP namespace is per connection. Invariant: every entry is keyed
+ * `<owner connectionId>:<renderer id>`, and every lookup builds its key from the
+ * SENDER's own connectionId (`pipKey`), so a connection can neither collide with,
+ * address nor observe another connection's PiP: a foreign id is exactly an absent
+ * one. The key is injective because neither half can contain ':' (connection ids
+ * are base64url; a PiP id must pass `isPipId`), and an id that fails `isPipId`
+ * names no PiP at all. Iterating `values()` (quit, content protection, stale-origin
+ * teardown) is process-wide on purpose.
+ */
 const pipWindows = new Map<string, PipWindowEntry>();
 let lastPipOpenRejectionLog = -Infinity;
+
+function pipKey(connectionId: ConnectionId, id: unknown): string | null {
+  return isPipId(id) ? `${connectionId}:${id}` : null;
+}
+
+/** #86 RT5: the live PiPs one connection holds, counted against its own cap. */
+function livePipCountFor(connectionId: ConnectionId): number {
+  let count = 0;
+  for (const entry of pipWindows.values()) {
+    if (entry.ownerRef.connectionId === connectionId) count += 1;
+  }
+  return count;
+}
+
+// #86 RT5: a disposed connection's PiPs are destroyed by its teardown, whose 'closed'
+// runs forgetWindow; its open-rate history is dropped here.
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason === 'disposed') releasePipOpenBudget(id);
+});
 
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
@@ -3282,12 +3322,14 @@ type PipIpcEvent = Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>;
 
 function resolvePipSender(
   event: PipIpcEvent,
+  connectionId: ConnectionId,
   id: unknown
 ): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
-  if (typeof id !== 'string' || id.length === 0) return null;
+  const key = pipKey(connectionId, id);
+  if (key === null) return null;
   const senderFrame = event.senderFrame;
   if (!senderFrame) return null;
-  const entry = pipWindows.get(id);
+  const entry = pipWindows.get(key);
   if (!entry || entry.window.isDestroyed()) return null;
   const isPipMainFrame =
     event.sender === entry.window.webContents &&
@@ -3307,16 +3349,17 @@ function resolvePipSender(
 }
 
 /**
- * #86: the PiP `id` names, resolved as above AND owned by the sender's own
- * connection. The binding is main-held, so a document of connection B can never
- * reach a PiP connection A opened, whatever frame ids the two happen to share.
+ * #86: the PiP `id` names, looked up in the sender's own connection's namespace
+ * (RT4) and resolved as above. The binding is main-held, so a document of
+ * connection B can never reach a PiP connection A opened, whatever ids or frame
+ * ids the two happen to share. The owner re-check is defence in depth.
  */
 function resolveOwnedPip(
   sender: ConnectionSender,
   event: PipIpcEvent,
   id: unknown
 ): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
-  const resolved = resolvePipSender(event, id);
+  const resolved = resolvePipSender(event, sender.ref.connectionId, id);
   if (!resolved || resolved.entry.ownerRef.connectionId !== sender.ref.connectionId) return null;
   return resolved;
 }
@@ -3389,12 +3432,21 @@ registerIpc(
 
     const opener = sender.record;
     const ownerRef = refOf(opener);
-    const existing = pipWindows.get(opts.id);
+    // #86 RT4: the opener's own namespace, so another connection's PiP of the same id
+    // is invisible here: no refusal, no focus, a fresh window.
+    const key = pipKey(ownerRef.connectionId, opts.id);
+    if (key === null) return rejectPipOpen();
+    const existing = pipWindows.get(key);
     if (existing) return focusExistingPip(existing, ownerRef, senderFrame.frameTreeNodeId);
 
-    // Failed loads spend a token so retries cannot bypass the window-churn limit. Both
-    // bounds are PROCESS-WIDE: every connection shares the 12-window cap and the bucket.
-    if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
+    // Failed loads spend a token so retries cannot bypass the window-churn limit.
+    // #86 RT5: the token bucket and a window cap are per connection, so one connection
+    // cannot spend another's budget; the 12-window ceiling stays process-wide.
+    if (
+      pipWindows.size >= MAX_PIP_WINDOWS ||
+      livePipCountFor(ownerRef.connectionId) >= MAX_PIP_WINDOWS_PER_CONNECTION ||
+      !consumePipOpenToken(ownerRef.connectionId)
+    )
       throw new Error('PiP could not be opened');
 
     // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener's
@@ -3448,7 +3500,7 @@ registerIpc(
       throw new Error('PiP could not be opened');
     }
 
-    pipWindows.set(opts.id, {
+    pipWindows.set(key, {
       window: pip,
       ownerRef,
       ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
@@ -3457,8 +3509,8 @@ registerIpc(
     });
 
     const forgetWindow = () => {
-      if (pipWindows.get(opts.id)?.window !== pip) return;
-      pipWindows.delete(opts.id);
+      if (pipWindows.get(key)?.window !== pip) return;
+      pipWindows.delete(key);
       sendToConnection(ownerRef, 'pip:closed', { id: opts.id });
     };
     pip.on('closed', forgetWindow);

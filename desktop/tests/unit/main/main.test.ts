@@ -947,6 +947,9 @@ describe('main.ts', () => {
       expect(fs.renameSync.mock.invocationCallOrder[0]).toBeLessThan(
         pip.setContentProtection.mock.invocationCallOrder[0]
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('canonicalizes the target value only after every live window accepts it', async () => {
@@ -1007,6 +1010,9 @@ describe('main.ts', () => {
         JSON.stringify({ enabled: true, previousEnabled: false, staged: true }),
         'utf-8'
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('reads the old value from a staged record after native failure in either direction', async () => {
@@ -1252,6 +1258,9 @@ describe('main.ts', () => {
       expect(pip.setContentProtection.mock.invocationCallOrder[0]).toBeLessThan(
         pip.loadURL.mock.invocationCallOrder[0]
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('rejects an untrusted sender and non-boolean payload without side effects', async () => {
@@ -3085,8 +3094,9 @@ describe('main.ts', () => {
       } finally {
         gate.resolve();
         await Promise.allSettled([first, ...duplicates]);
-        const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
-        close();
+        // shellWindow.ts and main.ts each add a 'closed' listener; run them all, or main's
+        // entry outlives the window and holds a slot of the saas cap (#86 RT5).
+        for (const [event, listener] of child.on.mock.calls) if (event === 'closed') listener();
       }
     });
 
@@ -3122,7 +3132,7 @@ describe('main.ts', () => {
     });
 
     it('limits simultaneous PiPs, still focuses an existing one, and reuses a closed slot', async () => {
-      const { MAX_PIP_WINDOWS, _resetPipOpenBudgetForTesting } =
+      const { MAX_PIP_WINDOWS, MAX_PIP_WINDOWS_PER_CONNECTION, _resetPipOpenBudgetForTesting } =
         await import('../../../src/main/pipOpenPolicy');
       const opened: Array<{ id: string; close: () => void }> = [];
       try {
@@ -3148,7 +3158,8 @@ describe('main.ts', () => {
           expect(close).toBeDefined();
           opened.push({ id, close });
         }
-        expect(opened.length).toBeGreaterThanOrEqual(7);
+        // #86 RT5: one connection alone stops at its own cap, below the process-wide ceiling.
+        expect(opened.length).toBe(MAX_PIP_WINDOWS_PER_CONNECTION);
         _resetPipOpenBudgetForTesting();
         await expect(
           handlers.get('pip:open')!(pipOwnerEvent, { id: 'over-cap' })
@@ -3677,6 +3688,245 @@ describe('main.ts', () => {
       });
       expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
       closeSecond();
+    });
+
+    // #86 Phase-4 red team, RT4 and RT5 (PoCs PIP-1 to PIP-5): the PiP id namespace and the
+    // open budget are per connection, under the process-wide ceiling. pip:open is
+    // foreground-only, so every opener below is made foreground for its own opens.
+    describe('#86 RT4/RT5: PiP ids and open budgets are per connection', () => {
+      let nextRtOrigin = 0;
+      let nextRtFrame = 9400;
+      const windowsBuilt = (): number => (MockBrowserWindow as Mock).mock.calls.length;
+      function saasConnectionId(): string {
+        const id = connectionRegistry.bindingFor(mockWebContents as never)?.connectionId;
+        if (!id) throw new Error('the saas view is not bound');
+        return id;
+      }
+      // A bound self-hosted primary on a localhost frame, which the unpackaged
+      // isValidPipOpenSender admits exactly as it would app://concord in a packaged build.
+      function selfHostedOpener() {
+        const svc = connectionRegistry.registerService(
+          `https://pip-rt-${(nextRtOrigin += 1)}.example`,
+          {
+            makeSession: () => ({}) as never,
+            makeCustody: () => ({}) as never,
+            isValidatedSelfHostedApiBase: () => true,
+          }
+        );
+        if (!svc.ok) throw new Error(svc.reason);
+        const frameTreeNodeId = (nextRtFrame += 1);
+        const frame = { url: 'http://localhost:3001/', frameTreeNodeId, parent: null };
+        const wc = {
+          id: frameTreeNodeId,
+          send: vi.fn(),
+          on: vi.fn(),
+          once: vi.fn(),
+          isDestroyed: vi.fn(() => false),
+          getURL: vi.fn(() => frame.url),
+          mainFrame: frame,
+        };
+        const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+        if (!opened.ok) throw new Error(opened.reason);
+        connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+        return {
+          wc,
+          connectionId: opened.record.connectionId as string,
+          event: { sender: wc, senderFrame: frame },
+          dispose: () => {
+            connectionRegistry.disposeConnection(opened.record.connectionId);
+            connectionRegistry.unregisterService(svc.service.serviceId);
+          },
+        };
+      }
+      const closers: Array<() => void> = [];
+      async function openAs(
+        connectionId: string,
+        event: unknown,
+        id: string
+      ): Promise<'opened' | 'refused'> {
+        connectionRegistry.setForeground(connectionId as never);
+        try {
+          closers.push(await openPip(id, event as never));
+          return 'opened';
+        } catch {
+          return 'refused';
+        } finally {
+          connectionRegistry.setForeground(saasConnectionId() as never);
+        }
+      }
+      function tokenPushed(send: Mock, id: string): string | undefined {
+        const push = send.mock.calls.filter((c) => c[0] === 'pip:opened').at(-1)?.[1] as
+          { id: string; token: string } | undefined;
+        return push?.id === id ? push.token : undefined;
+      }
+      afterEach(() => {
+        while (closers.length > 0) closers.pop()?.();
+        connectionRegistry.setForeground(saasConnectionId() as never);
+      });
+
+      it("RT4 (PIP-1): another connection cannot squat the saas pop-out id 'controls-main'", async () => {
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(evil.connectionId, evil.event, 'controls-main')).toBe('opened');
+          const before = windowsBuilt();
+          // The user pops out the saas voice controls (PersistentVoiceBar.tsx's fixed id).
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          expect(windowsBuilt() - before).toBe(1);
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it("RT4 (PIP-2): another connection's live PiP id looks exactly like an absent one", async () => {
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          mockPipWindow.focus.mockClear();
+          const before = windowsBuilt();
+          const probeLiveId = await openAs(evil.connectionId, evil.event, 'controls-main');
+          const probeIdleId = await openAs(evil.connectionId, evil.event, 'never-used-id');
+          expect({ probeLiveId, built: windowsBuilt() - before }).toEqual({
+            probeLiveId: probeIdleId,
+            built: 2,
+          });
+          // The saas PiP was neither focused nor otherwise touched by the probe.
+          expect(mockPipWindow.focus).not.toHaveBeenCalled();
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT4 (PIP-4): with colliding ids each connection reaches only its own PiP', async () => {
+        const evil = selfHostedOpener();
+        const results = (MockBrowserWindow as Mock).mock.results;
+        try {
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          const saasWindow = results[results.length - 1].value;
+          const saasToken = tokenPushed(mockWebContents.send, 'controls-main');
+          expect(await openAs(evil.connectionId, evil.event, 'controls-main')).toBe('opened');
+          const evilWindow = results[results.length - 1].value;
+          const evilToken = tokenPushed(evil.wc.send, 'controls-main');
+          expect(typeof saasToken).toBe('string');
+          expect(evilToken).not.toBe(saasToken);
+          const evilPipEvent = {
+            sender: evilWindow.webContents,
+            senderFrame: evilWindow.webContents.mainFrame,
+          };
+          const saasPipEvent = {
+            sender: saasWindow.webContents,
+            senderFrame: saasWindow.webContents.mainFrame,
+          };
+          // The attacker's own PiP frame gets ITS token for the shared id, never the saas one.
+          expect(
+            await handlers.get('pip:session')!(evilPipEvent as never, { id: 'controls-main' })
+          ).toEqual({ token: evilToken });
+          mockPipWindow.setAlwaysOnTop.mockClear();
+          mockPipWindow.close.mockClear();
+          await handlers.get('pip:setAlwaysOnTop')!(evil.event as never, {
+            id: 'controls-main',
+            flag: false,
+          });
+          await handlers.get('pip:close')!(evil.event as never, { id: 'controls-main' });
+          expect(mockPipWindow.setAlwaysOnTop.mock.contexts).toEqual([evilWindow]);
+          expect(mockPipWindow.close.mock.contexts).toEqual([evilWindow]);
+          // The attacker's PiP closes (its 'closed' listeners run); the saas entry survives it.
+          closers.pop()?.();
+          expect(
+            await handlers.get('pip:session')!(saasPipEvent as never, { id: 'controls-main' })
+          ).toEqual({ token: saasToken });
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT5 (PIP-3): another connection cannot exhaust the saas PiP window budget', async () => {
+        const { MAX_PIP_WINDOWS_PER_CONNECTION } = await import('../../../src/main/pipOpenPolicy');
+        const evil = selfHostedOpener();
+        try {
+          let attackerOpened = 0;
+          for (let n = 0; n < 12; n++) {
+            if ((await openAs(evil.connectionId, evil.event, `flood-${n}`)) !== 'opened') break;
+            attackerOpened += 1;
+          }
+          const saasResult = await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main');
+          expect(saasResult).toBe('opened');
+          expect(attackerOpened).toBe(MAX_PIP_WINDOWS_PER_CONNECTION);
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it("RT5: another connection's open-and-close churn spends none of the saas tokens", async () => {
+        const evil = selfHostedOpener();
+        try {
+          for (let n = 0; n < 8; n++) {
+            expect(await openAs(evil.connectionId, evil.event, `churn-${n}`)).toBe('opened');
+            closers.pop()?.();
+          }
+          // The attacker's own bucket is spent...
+          expect(await openAs(evil.connectionId, evil.event, 'churn-ninth')).toBe('refused');
+          // ...and the saas connection's is untouched.
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT5: the process-wide ceiling still bounds every connection together', async () => {
+        const { MAX_PIP_WINDOWS, MAX_PIP_WINDOWS_PER_CONNECTION } =
+          await import('../../../src/main/pipOpenPolicy');
+        const first = selfHostedOpener();
+        const second = selfHostedOpener();
+        try {
+          const openUntilRefused = async (
+            connectionId: string,
+            event: unknown,
+            prefix: string
+          ): Promise<number> => {
+            let opened = 0;
+            while ((await openAs(connectionId, event, `${prefix}-${opened}`)) === 'opened') {
+              opened += 1;
+            }
+            return opened;
+          };
+          const perConnection = [
+            await openUntilRefused(saasConnectionId(), pipOwnerEvent, 'ceiling-saas'),
+            await openUntilRefused(first.connectionId, first.event, 'ceiling-first'),
+          ];
+          expect(perConnection).toEqual([
+            MAX_PIP_WINDOWS_PER_CONNECTION,
+            MAX_PIP_WINDOWS - MAX_PIP_WINDOWS_PER_CONNECTION,
+          ]);
+          const before = windowsBuilt();
+          expect(await openAs(second.connectionId, second.event, 'over-ceiling')).toBe('refused');
+          expect(windowsBuilt()).toBe(before);
+          // A freed slot is reusable by a connection under its own cap.
+          closers.pop()?.();
+          expect(await openAs(second.connectionId, second.event, 'freed-slot')).toBe('opened');
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          first.dispose();
+          second.dispose();
+        }
+      });
+
+      it('RT5: disposing a connection releases its open budget', async () => {
+        const { _pipOpenBudgetHeldForTesting } = await import('../../../src/main/pipOpenPolicy');
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(evil.connectionId, evil.event, 'budget-held')).toBe('opened');
+          closers.pop()?.();
+          expect(_pipOpenBudgetHeldForTesting(evil.connectionId as never)).toBe(true);
+        } finally {
+          evil.dispose();
+        }
+        expect(_pipOpenBudgetHeldForTesting(evil.connectionId as never)).toBe(false);
+      });
     });
   });
 

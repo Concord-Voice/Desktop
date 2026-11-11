@@ -82,6 +82,7 @@ Main is the trusted shell and the only authority. `desktop/src/main/shellWindow.
   change.
 - **PiP windows** are `BrowserWindow`s built on their opener's session, never on a session the
   caller names. Only the foreground connection's bound primary may open one (`pip:open` is `app-global-mutate`), so a hidden view cannot raise an always-on-top window.
+  Each connection has its own PiP id namespace and open budget (RT4, RT5 below).
 - **Content protection** is applied to the `BaseWindow` at creation, before any child view is
   added.
 - **Explicit teardown.** A child view's `webContents` is not destroyed when its `BaseWindow`
@@ -427,6 +428,47 @@ involved, so a background view could do it. Fix:
 
 **Residual (RT3):** a failed load in a saas PiP no longer triggers self-heal of the main saas
 view; the PiP's own document is not recovered by it either way.
+
+**RT4 — One PiP id namespace for all connections: a squat and an existence oracle (LOW/MED,
+Phase-4 red-team).** `pipWindows` in `main.ts` was one process-wide `Map` keyed by the id the
+renderer supplies. A self-hosted view that opened a PiP named `controls-main` (the fixed id of
+CVNet's voice-controls pop-out) made CVNet's pop-out fail with "PiP could not be opened" while it
+stayed open, and a `pip:open` of that id was refused while CVNet held it and opened otherwise, so
+the view could tell when CVNet's controls were popped out. Fix, in `main.ts`:
+
+- Every entry is keyed `<owner connectionId>:<id>` by `pipKey`, and every lookup builds the key
+  from the sender's own connectionId: `pip:open`, `forgetWindow`, and `resolvePipSender` (which
+  `resolveOwnedPip` now passes `sender.ref.connectionId`, so `pip:close`, `pip:setAlwaysOnTop`
+  and `pip:session` too). Another connection's PiP of the same id is exactly an absent one, and
+  the connection check is enforced by the key; `resolveOwnedPip` keeps its owner re-check as
+  defence in depth.
+- The key is unambiguous because neither half can contain `:`: connection ids are base64url,
+  and a PiP id must pass `isPipId` (`pipOpenPolicy.ts`, the open schema's alphabet), which every
+  lookup now applies. Before, the `pip:*` lookups accepted any non-empty string.
+- Iterations over every PiP (quit, content protection, `closePipsPinnedToStaleOrigin`) stay
+  process-wide on purpose.
+
+**RT5 — One PiP open budget for all connections (LOW, Phase-4 red-team).** The 12-window cap
+and the 8-per-3 s token bucket were shared, so one connection's opens could leave another with
+no PiP. Foreground-only `pip:open` already narrowed this to a connection opening while it was
+foreground. Fix, in `pipOpenPolicy.ts` and `main.ts`:
+
+- The token bucket is per connection (8 new windows in 3 s each).
+- A connection may hold at most `MAX_PIP_WINDOWS_PER_CONNECTION` = 6 live PiPs, under the
+  unchanged process-wide `MAX_PIP_WINDOWS` = 12. Six is half the ceiling, so with one other
+  connection a connection always has room, and the ceiling cannot become an oracle about that
+  other connection. Six still covers the voice controls, the frames grid and four screen-share
+  pop-outs. Before, one connection could hold all 12.
+- The window count is derived from `pipWindows`, which teardown empties through each PiP's
+  `closed`; a `disposed` generation drops the connection's rate history
+  (`releasePipOpenBudget`). Connection ids are never minted twice, so the release refills no one.
+
+`desktop/tests/unit/main/main.test.ts` § "#86 RT4/RT5" ports the red-team PoCs PIP-1 to PIP-5.
+**Residual (RT5):** with three or more connections, two of them can fill the ceiling, and a
+refused open then tells the third that the others hold 12 PiPs. Each connection's PiPs are
+visible always-on-top windows, so this is not hidden activity. The churn bound is now per
+connection: the process-wide creation rate is 8 per 3 s times the number of connections that
+can be foreground in that window.
 
 ### The development-build `saas` origin pin
 
