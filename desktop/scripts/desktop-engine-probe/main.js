@@ -99,8 +99,49 @@ async function main() {
         url.protocol !== 'data:',
     });
   });
-  const { registerAttestationIpc } = require(path.join(bundleRoot, 'dist/main/ipc/attestation.js'));
-  registerAttestationIpc(() => null);
+  // #86: attestation:get-token is connection-bound. It admits only a main frame whose
+  // webContents is bound to a live connection and whose URL that service kind permits,
+  // and the preload reads its identity once, from connection:whoAmI. Each fixture
+  // window is therefore bound the way shellWindow.openConnectionView binds a view.
+  // Every module comes from the bundle attestation.js was loaded from, so Node's
+  // module cache hands both the same registry: the binding written here is the one
+  // the production handler reads.
+  const dist = (file) => require(path.join(bundleRoot, 'dist/main', file));
+  const registry = dist('connectionRegistry.js');
+  const { trackMainFrameNavigation } = dist('ipc/connectionSender.js');
+  const { registerConnectionIpc } = dist('ipc/connection.js');
+  const { registerAttestationIpc } = dist('ipc/attestation.js');
+  // main.ts's connectionServiceDeps. Its session configuration is not run: the fixture
+  // protocol handlers below own app:// and spa-cache:// on defaultSession.
+  const serviceDeps = {
+    makeSession: (base) =>
+      dist('connectionSession.js').sessionForService(
+        base.kind,
+        base.dirKey,
+        app.getPath('userData')
+      ),
+    makeCustody: (serviceId, origin) =>
+      dist('serviceCustody.js').makeServiceCustody(serviceId, origin, () => undefined),
+    // Only saas is registered here, and saas never asks; no self-hosted origin is approved.
+    isValidatedSelfHostedApiBase: () => false,
+  };
+  const registered = registry.registerService(
+    dist('firstPartyOrigin.js').pinFirstPartyApiOrigin(),
+    serviceDeps
+  );
+  assert(registered.ok, `the first-party origin must register (${registered.reason})`);
+  const saas = registered.service;
+  assert.equal(saas.kind, 'saas', 'the first-party origin must be the saas service');
+  registerAttestationIpc();
+  // Only connection:whoAmI is exercised. Creating or switching a connection fails closed.
+  registerConnectionIpc({
+    openConnectionView: async () => ({ ok: false, reason: 'unknown-service' }),
+    activateConnection: () => false,
+    probe: async () => ({ status: 'unavailable' }),
+    ceremony: async () => ({ approved: false }),
+    writeConnections: async () => undefined,
+    serviceDeps,
+  });
   for (const scheme of ['app', 'spa-cache']) {
     protocol.handle(scheme, (request) => {
       const url = new URL(request.url);
@@ -138,6 +179,14 @@ async function main() {
       },
     });
     windows.push(win);
+    // openConnectionView's order, all before the first load: open, bind as primary,
+    // then track main-frame navigation. The preload's whoAmI arrives before its
+    // document's commit is recorded (D1), so it needs both already in place.
+    const opened = registry.openConnection(saas.serviceId, win.webContents, null);
+    assert(opened.ok, `the ${scheme} window must open the saas connection (${opened.reason})`);
+    const { record } = opened;
+    registry.bindSender(win.webContents, record.connectionId, 'primary');
+    trackMainFrameNavigation(win.webContents);
     win.webContents.on('preload-error', (_event, preload, error) => {
       throw new Error(`preload failed: ${path.basename(preload)}: ${error.message}`);
     });
@@ -160,10 +209,17 @@ async function main() {
     const bridge = await runRendererProbe(
       win.webContents,
       `${scheme}:trusted-attestation`,
-      `(async () => ({ token: await window.electron.attestation.getToken(), node: typeof require, process: typeof process, secure: isSecureContext }))()`
+      `(async () => ({ token: await window.electron.attestation.getToken(), identity: window.electron.connection.whoAmI(), node: typeof require, process: typeof process, secure: isSecureContext }))()`
     );
     assert.deepEqual(bridge, {
       token: null,
+      identity: {
+        connectionId: record.connectionId,
+        generation: record.generation,
+        serviceId: saas.serviceId,
+        kind: 'saas',
+        apiOrigin: saas.origin,
+      },
       node: 'undefined',
       process: 'undefined',
       secure: true,
@@ -241,10 +297,25 @@ async function main() {
     const refused = await runRendererProbe(
       win.webContents,
       `${scheme}:untrusted-attestation`,
-      `window.electron.attestation.getToken().then(() => false, error => /untrusted sender frame/.test(error.message))`
+      `window.electron.attestation.getToken().then(() => ({ refused: false }), error => ({ refused: /untrusted sender frame/.test(error.message), identity: window.electron.connection.whoAmI(), protocol: location.protocol }))`
     );
-    assert.equal(refused, true, 'production IPC must refuse an untrusted renderer');
+    // The refusal must come from the frame URL. The window still holds the binding that
+    // admitted its trusted document above, and nothing in the probe rebinds a window,
+    // so an unbound or disposed window cannot pass this check by being refused for that.
+    const binding = registry.boundRecordFor(win.webContents);
+    assert(
+      binding?.record === record && binding.role === 'primary',
+      'the untrusted frame must be refused while its window is still bound to its connection'
+    );
+    assert.deepEqual(
+      refused,
+      { refused: true, identity: null, protocol: 'data:' },
+      'production IPC must refuse an untrusted frame of a bound window'
+    );
     checks.push({ origin: scheme, untrustedSenderRefusal: 'PASS' });
+    // shellWindow's dispose order: the connection, then its webContents. The registry
+    // holds one saas connection at a time, so the next origin could not open its own.
+    registry.disposeConnection(record.connectionId);
     win.destroy();
   }
   process.stdout.write(
