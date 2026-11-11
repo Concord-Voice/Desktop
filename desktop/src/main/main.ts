@@ -63,7 +63,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 // #86: custody is per service and reached only through the sender's binding or the
 // service record; main never picks one from a pointer.
-import { custodyFor } from './tokenManager';
+import { makeServiceCustody } from './serviceCustody';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
@@ -1383,23 +1383,20 @@ const connectionSessionDeps: ConnectionSessionDeps = {
 /** `saas` keeps `defaultSession`; a self-hosted service gets its own `fromPath` session. */
 const connectionServiceDeps: RegisterServiceDeps = {
   makeSession: (base) => sessionForService(base.kind, base.dirKey, app.getPath('userData')),
-  makeCustody: (serviceId, origin) => {
-    const custody = custodyFor(serviceId, origin);
-    // Proactive token refresh (#254): a refresh this custody makes (timer or
-    // sleep/wake) reaches this service's own view only, so its authStore stays
-    // current and no other connection ever sees the token.
-    custody.setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
+  // Proactive token refresh (#254): a refresh this custody makes (timer or
+  // sleep/wake) reaches this service's own view only, so its authStore stays
+  // current and no other connection ever sees the token.
+  makeCustody: (serviceId, origin) =>
+    makeServiceCustody(serviceId, origin, (owner, accessToken, sessionId, previousSessionId) => {
       for (const record of liveConnections()) {
-        if (record.serviceId !== serviceId) continue;
+        if (record.serviceId !== owner) continue;
         sendToConnection(refOf(record), 'auth:token-refreshed', {
           accessToken,
           sessionId,
           previousSessionId,
         });
       }
-    });
-    return custody;
-  },
+    }),
   isValidatedSelfHostedApiBase,
 };
 

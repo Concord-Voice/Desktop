@@ -31,6 +31,8 @@ export default [
       'dist/',
       'node_modules/',
       'coverage/**', // Istanbul HTML report artifacts
+      // Throwaway measurement spikes (#86 connection-footprint): run by hand, never shipped.
+      'spikes/**',
       '*.js',
       // Mirror the pre-commit hook's `files: '.(ts|tsx)$'` regex — .mjs/.mts
       // files are not scanned by the hook and are excluded here so that

@@ -10,11 +10,12 @@ vi.mock('electron', () => {
   };
 });
 
-// Mock tokenManager so getPersistedApiBase is controllable per test.
-vi.mock('@/main/tokenManager', () => {
-  const getPersistedApiBase = vi.fn();
-  return { getPersistedApiBase };
-});
+// The saas service's custody decides the signed-in state (#86 Task 7B); its
+// credential API base is controllable per test.
+const { getCredentialApiBase } = vi.hoisted(() => ({ getCredentialApiBase: vi.fn() }));
+vi.mock('@/main/connectionRegistry', () => ({
+  getService: (id: string) => (id === 'saas' ? { custody: { getCredentialApiBase } } : undefined),
+}));
 
 // Mock IPC contract version to a known value.
 vi.mock('@/main/ipcContract', () => ({ IPC_CONTRACT_VERSION: 7 }));
@@ -26,7 +27,6 @@ vi.mock('@/main/buildInfo', () => {
 });
 
 import { net } from 'electron';
-import { getPersistedApiBase } from '@/main/tokenManager';
 import { getBuildSha7 } from '@/main/buildInfo';
 import { getSpaHash, getSpaVersion, setSpaHash, setSpaVersion } from '@/main/spaState';
 import {
@@ -40,7 +40,7 @@ import {
 } from '@/main/spaLoader';
 
 const mockNet = net as unknown as { fetch: ReturnType<typeof vi.fn> };
-const mockGetApiBase = getPersistedApiBase as unknown as ReturnType<typeof vi.fn>;
+const mockGetApiBase = getCredentialApiBase;
 const mockGetBuildSha7 = getBuildSha7 as unknown as ReturnType<typeof vi.fn>;
 
 function mockConfigResponse(spaUrl: string | undefined, spaIpcContract: number | undefined) {

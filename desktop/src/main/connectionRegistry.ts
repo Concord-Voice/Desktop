@@ -188,6 +188,25 @@ export function registerService(
   return { ok: true, service };
 }
 
+/**
+ * Forget a service no connection uses (#86 Task 7B, X4): `connection:create` calls it
+ * when the view it registered the service for does not open, so a refused open
+ * leaves no orphan record behind. Refused, returning false, while any connection
+ * entry still names the service, so a live or still-disposing view never loses the
+ * record its binding points at. The custody cache and the session are not touched:
+ * a later `registerService` for the same origin gets the same custody back.
+ */
+export function unregisterService(id: ServiceId): boolean {
+  const service = services.get(id);
+  if (!service) return false;
+  for (const entry of connections.values()) {
+    if (entry.record.serviceId === id) return false;
+  }
+  services.delete(id);
+  serviceByOrigin.delete(service.origin);
+  return true;
+}
+
 export function getService(id: ServiceId): ServiceRecord | undefined {
   return services.get(id);
 }

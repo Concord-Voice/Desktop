@@ -67,7 +67,7 @@
 // | :1611 `audiocap:interrupted` send              | owner push        | saas primary (audiocap admits it alone, T7B)  |
 // | :1635 `audiocap:port` postMessage              | owner push        | saas primary (audiocap admits it alone, T7B)  |
 // | :1846 `update:rollback` send                   | updater push      | `broadcastToPrimaries`                        |
-// | :1857 `auth:token-refreshed` send              | connection push   | `sendToConnection(ref of liveCustody's view)` |
+// | :1857 `auth:token-refreshed` send              | connection push   | `sendToConnection(ref of the refreshing service's view)` |
 // | :1888 `audiocap:capability` send               | machine-fact push | `broadcastToPrimaries`                        |
 // | :2310/:2311/:2313/:2314 developer-mode toggle  | app-global-mutate | `foregroundWebContents()`                     |
 // | :3028 PiP spa-cache origin check               | PiP               | the opener's own `webContents.getURL()`       |

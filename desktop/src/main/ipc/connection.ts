@@ -37,6 +37,7 @@ import {
   onGenerationAdvanced,
   recordFor,
   registerService,
+  unregisterService,
   serviceForOrigin,
   type ConnectionRecord,
   type RegisterServiceDeps,
@@ -200,16 +201,25 @@ async function openService(
 ): Promise<ConnectionCreateResult> {
   const meanwhile = showExisting(deps, origin);
   if (meanwhile) return meanwhile;
+  // X4: only a service THIS call registers is forgotten when its view does not open.
+  // Checked synchronously with the register, so no other call can interleave.
+  const registeredHere = serviceForOrigin(origin) === undefined;
   const registered = registerService(origin, deps.serviceDeps);
   if (!registered.ok) return rejected(registerRefusal(registered.reason));
   const { serviceId } = registered.service;
-  const opened = await deps.openConnectionView(
-    serviceId,
-    deps.viewUrl?.() ?? DEFAULT_VIEW_URL,
-    loadView
-  );
+  const forgetIfOrphaned = (): void => {
+    if (registeredHere) unregisterService(serviceId);
+  };
+  let opened: OpenConnectionViewResult;
+  try {
+    opened = await deps.openConnectionView(serviceId, deps.viewUrl?.() ?? DEFAULT_VIEW_URL, loadView);
+  } catch (err) {
+    forgetIfOrphaned();
+    throw err;
+  }
   if (!opened.ok) {
     if (opened.reason === 'already-open') return showExisting(deps, origin) ?? rejected('limit');
+    forgetIfOrphaned();
     return rejected(openRefusal(opened.reason));
   }
   // The view is open whatever happens next; it is shown only if the opener still is.

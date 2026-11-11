@@ -152,7 +152,7 @@ export interface ProfileCustody {
   storeE2EEKeysIfOwner(data: E2EEKeyMaterial, owner: CredentialOwner): Promise<boolean>;
   restoreE2EEKeys(): Promise<E2EEKeyMaterial | null>;
   getCredentialCustodyState(): CredentialCustodyState;
-  getPersistedApiBase(): string | null;
+  getCredentialApiBase(): string | null;
   getCapabilities(): Promise<{ persistAvailable: boolean }>;
   /** R6 trigger for the connection registry. Returns the unsubscribe. */
   onCredentialEvent(listener: CredentialEventListener): () => void;
@@ -217,8 +217,8 @@ function writeActiveProfile(apiBase: string): void {
 }
 
 /**
- * The restart pointer. A downgraded shell and the transitional router below read
- * it; a custody instance never does for authorisation (spec §3.5).
+ * The restart pointer. A downgraded shell reads it, and a custody only to decide
+ * whether its own logout clears it; never for authorisation (spec §3.5).
  */
 function readActiveApiBase(): string | null {
   try {
@@ -859,6 +859,14 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
       );
       return { status: 'no_session' };
     }
+    // A meta naming another server's API base is not this profile's credential: a
+    // restore would hand this profile's refresh token to that server. Refused before
+    // any decrypt, and nothing from the meta is adopted.
+    if (new URL(meta.apiBase).origin !== apiOrigin) {
+      console.warn('[TokenManager] restoreRefreshToken: meta names another origin; refusing');
+      deleteFiles();
+      return { status: 'tampered' };
+    }
 
     let token: string;
     let shouldReEncrypt: boolean;
@@ -1337,7 +1345,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
    * The API base this profile's credential belongs to: memory first, then this
    * profile's own meta file. Never another profile's, and never the pointer.
    */
-  function getPersistedApiBase(): string | null {
+  function getCredentialApiBase(): string | null {
     if (inMemoryApiBase) return inMemoryApiBase;
     const meta = readMeta(instancePaths().metaFile);
     return meta?.apiBase || null;
@@ -1408,7 +1416,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     storeE2EEKeysIfOwner,
     restoreE2EEKeys,
     getCredentialCustodyState,
-    getPersistedApiBase,
+    getCredentialApiBase,
     getCapabilities,
     onCredentialEvent,
     _resetForTesting,
@@ -1436,110 +1444,11 @@ export function custodyFor(serviceId: ServiceId, apiOrigin: string): ProfileCust
   }
   const custody = createProfileCustody(serviceId, apiOrigin);
   custodyCache.set(serviceId, custody);
-  wireTransitionalRouting(custody);
   return custody;
 }
 
-/** Reset and forget every cached custody, and the transitional routing state. */
+/** Reset and forget every cached custody. */
 export function _resetAllCustodyForTesting(): void {
   for (const custody of custodyCache.values()) custody._resetForTesting();
   custodyCache.clear();
-  transitionalActive = null;
-  transitionalProactiveRefreshCallback = null;
-}
-
-// ─── TRANSITIONAL single-renderer routing (#86 Task 5; deleted in Task 7B) ───
-//
-// Until Task 7B gives every handler `sender.custody`, main.ts and ipc/sso.ts run
-// one renderer against per-service custody. Everything below exists only to route
-// their calls, and Task 7B deletes all of it with `custodyForApiBase`.
-//
-// The routing rule, stated so a reviewer can check it: a call that names an API
-// base goes to that base's custody. A call that names none goes to the ACTIVE
-// custody — the cached one that most recently started a credential lifecycle, or
-// that a restore last targeted — and to nothing when there is none. An owner-blind
-// wipe therefore reaches only the custody the renderer is on, and never one
-// chosen from disk or by default (the #2363 / electron.md v25 double-clear class).
-//
-// Known ceilings, all closed by Task 7A's sender binding:
-// - An owner-scoped call (clearTokensIfOwner, storeE2EEKeysIfOwner) carries only a
-//   number, which can collide across custodies, so a stale continuation from an
-//   earlier custody can pass the active custody's CAS when the numbers coincide.
-// - A custody the renderer moved away from keeps its in-memory credential until
-//   its logout or quit; its proactive refreshes are not forwarded to the renderer.
-// - Pre-credential key staging goes to the active custody, so a registration on a
-//   different server keeps its keys session-only (the #1288 failure mode).
-
-let transitionalActive: ProfileCustody | null = null;
-let transitionalProactiveRefreshCallback: ProactiveRefreshCallback | null = null;
-
-function wireTransitionalRouting(custody: ProfileCustody): void {
-  custody.onCredentialEvent((phase) => {
-    if (phase === 'credential-start') transitionalActive = custody;
-    else if (transitionalActive === custody) transitionalActive = null;
-  });
-  custody.setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
-    if (transitionalActive !== custody) return;
-    transitionalProactiveRefreshCallback?.(accessToken, sessionId, previousSessionId);
-  });
-}
-
-/** TRANSITIONAL: the custody of a call that names its API base. */
-export function custodyForApiBase(apiBase: string): ProfileCustody {
-  return custodyFor(serviceIdForApiBase(apiBase), new URL(apiBase).origin);
-}
-
-/** TRANSITIONAL: the custody the single renderer is on, or null. Memory only. */
-export function liveCustody(): ProfileCustody | null {
-  return transitionalActive;
-}
-
-/**
- * TRANSITIONAL: the custody a restore targets, which becomes the active one. The
- * active custody first (a soft reload); else the profile the restart pointer
- * names, exactly as `readActiveMeta` chose before #86: a pointer that names no
- * valid API base selects nothing, and the SaaS profile is the default only when
- * no pointer file exists at all.
- */
-export function restoreTargetCustody(): ProfileCustody | null {
-  if (transitionalActive) return transitionalActive;
-  const pointer = readActiveApiBase();
-  let target: ProfileCustody | null;
-  if (pointer) target = custodyForApiBase(pointer);
-  else if (fs.existsSync(activeProfileFile())) target = null;
-  else target = custodyForApiBase(DEFAULT_PROFILE_API_BASE);
-  transitionalActive = target;
-  return target;
-}
-
-/**
- * TRANSITIONAL fan-out: the one renderer's proactive-refresh listener. Each cached
- * custody forwards to it only while it is the active custody.
- */
-export function setProactiveRefreshCallback(cb: ProactiveRefreshCallback): void {
-  transitionalProactiveRefreshCallback = cb;
-}
-
-function readActiveMeta(): TokenMeta | null {
-  const activeApiBase = readActiveApiBase();
-  // A pointer without its meta is a login interrupted before its write landed:
-  // no session, never a fallback to another profile's older credential. So is a
-  // pointer that exists but names no valid API base.
-  if (activeApiBase) return readMeta(profilePathsForApiBase(activeApiBase).metaFile);
-  if (fs.existsSync(activeProfileFile())) return null;
-  return readMeta(profilePathsForApiBase(DEFAULT_PROFILE_API_BASE).metaFile);
-}
-
-/**
- * TRANSITIONAL: the API base the app was last signed in to, for the SPA loader and
- * the SSO base resolver (`apiBaseUrl.ts`). App-level and never an authorisation
- * input: the active custody's live credential first, then the restart pointer.
- */
-export function getPersistedApiBase(): string | null {
-  const active = transitionalActive;
-  if (active && active.getCredentialCustodyState().credentialOwner !== null) {
-    return active.getPersistedApiBase();
-  }
-  const meta = readActiveMeta();
-  return meta?.apiBase || null;
 }

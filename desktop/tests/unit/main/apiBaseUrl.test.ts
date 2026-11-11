@@ -33,10 +33,12 @@ describe('getApiBaseUrl', () => {
     vi.unstubAllEnvs();
   });
 
-  it('prefers the persisted apiBase from tokenManager when present', () => {
+  // #86 Task 7B: the app-wide "last signed in" base is gone. A stored credential's
+  // base never selects the server; the sender's service origin does.
+  it('never resolves to a persisted apiBase, even when one exists', () => {
     mocked.persistedApiBase = 'https://staging.concordvoice.chat';
     mocked.isPackaged = true;
-    expect(getApiBaseUrl()).toBe('https://staging.concordvoice.chat');
+    expect(getApiBaseUrl()).toBe('https://api.concordvoice.chat');
   });
 
   it('falls back to the production SaaS endpoint in packaged builds', () => {

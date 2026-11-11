@@ -32,9 +32,6 @@ vi.mock('../../../src/main/attestationService', () => ({ clearAttestationToken: 
 import {
   createProfileCustody,
   custodyFor,
-  custodyForApiBase,
-  liveCustody,
-  restoreTargetCustody,
   _resetAllCustodyForTesting,
 } from '@/main/tokenManager';
 import type { ProfileCustody } from '@/main/tokenManager';
@@ -223,7 +220,7 @@ describe('tokenManager cross-instance isolation', () => {
       await seed(saas, SAAS, 'rt-saas');
       expect(fs.existsSync(profilePathsForApiBase(SAAS).tokenFile)).toBe(true);
 
-      expect(A.getPersistedApiBase()).toBeNull();
+      expect(A.getCredentialApiBase()).toBeNull();
       await expect(A.restoreRefreshToken()).resolves.toEqual({ status: 'no_session' });
       expect(A.getCredentialCustodyState()).toEqual({
         credentialOwner: null,
@@ -232,23 +229,6 @@ describe('tokenManager cross-instance isolation', () => {
     } finally {
       saas._resetForTesting();
     }
-  });
-
-  describe('transitional routing (#86 Task 5; deleted with custodyForApiBase in Task 7B)', () => {
-    it('an ended credential leaves no active custody, so a repeated owner-blind clear reaches nothing', () => {
-      const a = custodyForApiBase(ORIGIN_A);
-      a.storeRefreshToken({ refreshToken: 'rt-a', rememberMe: false, apiBase: ORIGIN_A });
-      expect(liveCustody()).toBe(a);
-      a.clearTokens();
-      expect(liveCustody()).toBeNull();
-    });
-
-    it('a restore targets nothing for an unreadable pointer, and SaaS only when no pointer exists', () => {
-      expect(restoreTargetCustody()?.apiOrigin).toBe(SAAS);
-      _resetAllCustodyForTesting();
-      fs.writeFileSync(path.join(userData.dir, 'active-profile.json'), '{"apiBase":"nope"}');
-      expect(restoreTargetCustody()).toBeNull();
-    });
   });
 
   describe('onCredentialEvent', () => {
