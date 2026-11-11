@@ -2762,6 +2762,7 @@ describe('main.ts', () => {
       pipFrame.current = {
         url: transition.senderFrameUrl,
         frameTreeNodeId: 88,
+        parent: null,
       };
 
       try {
@@ -2769,7 +2770,8 @@ describe('main.ts', () => {
           sender: mockWebContents,
           senderFrame: {
             url: transition.senderFrameUrl,
-            frameTreeNodeId: 41,
+            frameTreeNodeId: 77,
+            parent: null,
           },
         });
         const pipMainFrameEvent = pipMainFrame();
