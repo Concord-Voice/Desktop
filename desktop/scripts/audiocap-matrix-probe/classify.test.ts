@@ -1,10 +1,15 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   applyRule,
   classifyConsent,
   classifyMatrix,
   classifyRevoke,
+  incompleteCells,
   parseLiveness,
 } from './classify.mjs';
 
@@ -84,10 +89,12 @@ describe('parseLiveness', () => {
     expect(parseLiveness(missing)).toBeNull();
   });
 
-  it('reads a missing faulted field as faulted, so the run is a fault', () => {
+  // Fail closed: an unexplained fault is `other`, which stops the rule; only a fault
+  // stage is the acceptable refusal `fault`.
+  it('reads a missing faulted field as faulted, so the run is other', () => {
     const read = parseLiveness(LIVENESS_BLOCK.replace('  faulted: false,\n', ''));
     expect(read?.faulted).toBe(true);
-    expect(classifyConsent(read, null, 1.0)).toBe('fault');
+    expect(classifyConsent(read, null, 1.0)).toBe('other');
   });
 
   it('parseLiveness reads a line split across chunks', () => {
@@ -104,16 +111,21 @@ describe('parseLiveness', () => {
 });
 
 describe('classifyConsent', () => {
-  it('classifyConsent of null counters is fault', () => {
-    expect(classifyConsent(null, null, 1.0)).toBe('fault');
+  // No counters and no fault stage: the OS ended the process (spec section 3: other).
+  it('classifyConsent of null counters is other', () => {
+    expect(classifyConsent(null, null, 1.0)).toBe('other');
+  });
+
+  it('is fault when a fault stage is set even with no counters', () => {
+    expect(classifyConsent(null, 'start', 1.0)).toBe('fault');
   });
 
   it('is fault when a fault stage is set', () => {
     expect(classifyConsent(counters(2000, 2000), 'target', 1.0)).toBe('fault');
   });
 
-  it('is fault when the counters say faulted', () => {
-    expect(classifyConsent(counters(2000, 2000, { faulted: true }), null, 1.0)).toBe('fault');
+  it('is other when the counters say faulted but no stage is set', () => {
+    expect(classifyConsent(counters(2000, 2000, { faulted: true }), null, 1.0)).toBe('other');
   });
 
   it('carries at exactly half the control ratio', () => {
@@ -172,6 +184,10 @@ describe('classifyRevoke', () => {
 
   it('a fault stage is fault', () => {
     expect(classifyRevoke(counters(2000, 2000), 'run', control, 10, 10)).toBe('fault');
+  });
+
+  it('no counters and no fault stage is other', () => {
+    expect(classifyRevoke(null, null, control, 10, 10)).toBe('other');
   });
 });
 
@@ -276,5 +292,80 @@ describe('applyRule', () => {
       cell('C4', 'granted', 'not-determined', ['silent', 'silent']),
     ];
     expect(applyRule(cells, null, ['microphone']).rule).toBe('C');
+  });
+});
+
+describe('incompleteCells', () => {
+  const cell = (id: string, screen: string, microphone: string, runs: number) => ({
+    id,
+    screen,
+    microphone,
+    enumerable: true,
+    runs: Array(runs).fill('carries'),
+  });
+  // Spec section 5: C1 to C5 are needed to close, two runs each; R1 is taken.
+  const complete = () => [
+    cell('C1', 'granted', 'granted', 2),
+    cell('C2', 'granted', 'denied', 2),
+    cell('C3', 'denied', 'granted', 2),
+    cell('C4', 'denied', 'denied', 2),
+    cell('C5', 'not-determined', 'not-determined', 2),
+  ];
+
+  it('is empty for a complete set of rows', () => {
+    expect(incompleteCells(complete(), 'no-effect')).toEqual([]);
+  });
+
+  it('names a required cell with no rows', () => {
+    const cells = complete().filter((c) => c.id !== 'C4');
+    expect(incompleteCells(cells, 'no-effect')).toEqual(['C4 has no rows']);
+  });
+
+  it('names a cell with one run of two', () => {
+    const cells = complete();
+    cells[1] = cell('C2', 'granted', 'denied', 1);
+    expect(incompleteCells(cells, 'no-effect')).toEqual(['C2 has 1 of 2 runs']);
+  });
+
+  it('names a control that does not read granted, granted', () => {
+    const cells = complete();
+    cells[0] = cell('C1', 'granted', 'denied', 2);
+    expect(incompleteCells(cells, 'no-effect')).toEqual(['C1 does not read granted, granted']);
+  });
+
+  it('names a missing revoke run', () => {
+    expect(incompleteCells(complete(), null)).toEqual(['the revoke run R1 has no row']);
+  });
+});
+
+describe('classify.mjs CLI', () => {
+  const row = (label: string, screen: string, microphone: string) =>
+    JSON.stringify({
+      label,
+      kind: 'consent',
+      screen,
+      microphone,
+      enumerable: true,
+      faultStage: null,
+      counters: counters(2000, 2000),
+      seconds: 10,
+    });
+
+  // The runner can stop early; a rows file that holds only the control must not
+  // read as Rule A.
+  it('gives Rule C for a rows file that holds only the control', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-'));
+    const file = path.join(dir, 'rows.jsonl');
+    fs.writeFileSync(
+      file,
+      `ROW ${row('C1', 'granted', 'granted')}\nROW ${row('C1', 'granted', 'granted')}\n`
+    );
+    const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
+    const run = spawnSync(process.execPath, [cli, file], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('rule C');
+    expect(run.stdout).toContain('reason C2 has no rows');
+    expect(run.stdout).toContain('reason the revoke run R1 has no row');
   });
 });

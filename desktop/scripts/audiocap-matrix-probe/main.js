@@ -21,8 +21,15 @@
 // USAGE. Development build, darwin only; it refuses when packaged.
 //
 //     cd desktop && npm run build:main && npm run build:native
-//     ./node_modules/.bin/electron scripts/audiocap-matrix-probe \
+//     open -n -W -a node_modules/electron/dist/Electron.app --stdout "$PWD/rows.out" \
+//       --args "$PWD/scripts/audiocap-matrix-probe" \
 //       --label C1 --title <part of one window's title> --kind consent --seconds 20
+//
+// `open -a` launches the bundle under its own identity, so the grants read and used
+// are the bundle's own (spec section 5, "Cells"); `--stdout` is how its ROW line is
+// kept, and the runner directory must be an absolute path. The terminal form,
+// `./node_modules/.bin/electron scripts/audiocap-matrix-probe ...`, runs under the
+// terminal's grants instead: use it only for a run whose grants do not matter.
 //
 //   --label      required; 1 to 64 of [A-Za-z0-9._-]. Printed instead of the title.
 //   --title      a case-sensitive substring of exactly one enumerated window's name,
@@ -35,16 +42,17 @@
 // not its application's name: a Terminal window's name does not contain "Terminal"
 // (macOS 27.2, Electron 45.0.0, the first local run).
 //
-// A consent cell runs under the bundle's own identity so the grants being toggled
-// are the ones read here (spec section 5, "Cells").
-//
 // OUTPUT. `ROW {label, kind, osRelease, osVersion, osBuild, electron, buildKind,
-// screen, microphone, enumerable, faultStage, counters, seconds}` and exit 0, or
-// `FAIL <reason>` and exit 2 with no row: the run did not happen. `counters: null`
-// means the child printed no liveness block (it died, or no capture started), and
-// classify.mjs reads that as a fault, never as silence. `enumerable` is false only
-// for a --window-id the fence's enumeration does not list; the run still goes
-// ahead, because what the child does with such a handle is the evidence.
+// screen, microphone, windowId, enumerable, enumerationFailed, faultStage, counters,
+// seconds}` and exit 0, or `FAIL <reason>` and exit 2 with no row: the run did not
+// happen. `counters: null` means the child printed no liveness block (it died, or no
+// capture started); with no fault stage classify.mjs reads that as `other`, never as
+// silence. `windowId` is the handle the run used, so a later cell can target the same
+// window with --window-id. `enumerable` is false for a --window-id the fence's
+// enumeration does not list, and `enumerationFailed` is true when the enumeration
+// itself rejected (the bundle holds no Screen Recording grant), so only --window-id
+// can run. Either way the run goes ahead, because what the child does with such a
+// handle is the evidence.
 //
 // macOS ships no `timeout`, so bound the run from outside (a background kill or a
 // perl alarm). As for the target probe, judge it by its ROW or FAIL line.
@@ -271,11 +279,21 @@ async function main(parsed) {
 
   // Copied from FENCE 4 in desktop/src/main/ipc/audiocap.ts (the getSources call at
   // line 175): the same types and options, so `enumerable` is the fence's answer.
-  const live = await desktopCapturer.getSources({
-    types: ['window'],
-    thumbnailSize: { width: 0, height: 0 },
-    fetchWindowIcons: false,
-  });
+  // It rejects ("Failed to get sources.") when the bundle holds no Screen Recording
+  // grant, which is the very cell a screen-denied run measures. So a failed
+  // enumeration is recorded, not fatal; only --title needs the list.
+  let live = null;
+  try {
+    live = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: false,
+    });
+  } catch {
+    if (title !== undefined) {
+      return fail('window enumeration failed (no Screen Recording grant?); give --window-id');
+    }
+  }
 
   let handle = windowId;
   if (title !== undefined) {
@@ -288,7 +306,7 @@ async function main(parsed) {
   }
   // The fence compares whole source ids; a --window-id has only the handle, so the
   // handles are compared. For --title this is true by construction.
-  const enumerable = live.some((s) => windowHandle(s.id) === handle);
+  const enumerable = live !== null && live.some((s) => windowHandle(s.id) === handle);
 
   const run = await runCapture(handle, seconds, parseLiveness);
   if (run.error) return fail(run.error);
@@ -303,7 +321,9 @@ async function main(parsed) {
     buildKind: 'development',
     screen,
     microphone,
+    windowId: handle,
     enumerable,
+    enumerationFailed: live === null,
     faultStage: run.faultStage,
     counters: run.counters,
     seconds,

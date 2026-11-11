@@ -156,7 +156,9 @@ and never reads audio: it keeps the port but attaches no listener.
   `callbackTotal`, `quantaTotal`, `overrunTotal`. Never a PID, never a title.
 
 **Cells.** Run under the development Electron bundle's own identity
-(`open -n -W -a desktop/node_modules/electron/dist/Electron.app --args <runner dir> ...`).
+(`open -n -W -a <absolute path>/desktop/node_modules/electron/dist/Electron.app --stdout <file>
+--args <absolute runner dir> ...`; `open -a` does not find a relative bundle path, and
+`--stdout` keeps the row).
 The check that this identity is the one being toggled: the runner's reading must change after
 each toggle, otherwise stop.
 

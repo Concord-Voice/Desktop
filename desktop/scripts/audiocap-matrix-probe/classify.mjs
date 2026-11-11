@@ -33,6 +33,9 @@ const NUMERIC_FIELDS = [
 const CONSENT_CLASSES = new Set(['fault', 'carries', 'silent', 'dead', 'other']);
 const GRANTS = ['screen', 'microphone'];
 const CONTROL_LABEL = 'C1';
+// Spec section 5: the cells needed to close, and the runs each needs.
+const REQUIRED_CELLS = ['C1', 'C2', 'C3', 'C4', 'C5'];
+const RUNS_PER_CELL = 2;
 
 /**
  * @typedef {object} Counters
@@ -83,18 +86,17 @@ export function parseLiveness(stderrText) {
   return counters;
 }
 
-function isFault(counters, faultStage) {
-  return (
-    (faultStage !== null && faultStage !== undefined) ||
-    counters === null ||
-    counters === undefined ||
-    counters.faulted !== false
-  );
-}
+// `fault` is the acceptable refusal with a reason (spec section 3), so only a fault
+// stage earns it. No counters, or counters that say faulted with no stage, is the OS
+// ending the process or an unexplained fault: `other`, which stops the rule.
+const hasStage = (faultStage) => faultStage !== null && faultStage !== undefined;
+const readable = (counters) =>
+  counters !== null && counters !== undefined && counters.faulted === false;
 
 /** One consent run's class (spec section 3). */
 export function classifyConsent(counters, faultStage, controlRatio) {
-  if (isFault(counters, faultStage)) return 'fault';
+  if (hasStage(faultStage)) return 'fault';
+  if (!readable(counters)) return 'other';
   const { callbackTotal, signalTotal } = counters;
   if (callbackTotal === 0) return 'dead';
   // `silent` is tested before `carries`: the two are disjoint for any positive
@@ -110,7 +112,9 @@ export function classifyMatrix(kind, counters, faultStage) {
   // Signal on an exclude run crossed the exclusion however the run ended, so it is a
   // leak even when the run also faulted.
   if (kind === 'exclude' && counters.signalTotal > 0) return 'leak';
-  if (isFault(counters, faultStage) || !(counters.callbackTotal > 0)) return 'finding';
+  if (hasStage(faultStage) || !readable(counters) || !(counters.callbackTotal > 0)) {
+    return 'finding';
+  }
   if (kind === 'include' && counters.signalTotal > 0) return 'pass';
   if (kind === 'exclude' && counters.signalTotal === 0) return 'pass';
   return 'finding';
@@ -118,7 +122,8 @@ export function classifyMatrix(kind, counters, faultStage) {
 
 /** The mid-share revoke run's class, against the both-granted control. */
 export function classifyRevoke(counters, faultStage, control, controlSeconds, seconds) {
-  if (isFault(counters, faultStage)) return 'fault';
+  if (hasStage(faultStage)) return 'fault';
+  if (!readable(counters)) return 'other';
   const expected = 0.5 * (control.callbackTotal / controlSeconds) * seconds;
   // A run whose expected callback count cannot be computed cannot be judged.
   if (!(expected > 0)) return 'other';
@@ -138,6 +143,26 @@ function cellClass(runs) {
 }
 
 const pairKey = (cell) => JSON.stringify([cell.screen, cell.microphone]);
+
+/**
+ * What the rows lack before the rule can be applied (spec section 5): each of C1 to
+ * C5 with two runs, a control that reads granted for both, and the revoke run R1.
+ * Every gap is a Rule C reason, so a runner that stopped early cannot read as Rule A.
+ */
+export function incompleteCells(cells, revoke) {
+  const reasons = [];
+  for (const id of REQUIRED_CELLS) {
+    const runs = cells.find((c) => c.id === id)?.runs?.length ?? 0;
+    if (runs === 0) reasons.push(`${id} has no rows`);
+    else if (runs < RUNS_PER_CELL) reasons.push(`${id} has ${runs} of ${RUNS_PER_CELL} runs`);
+  }
+  const control = cells.find((c) => c.id === CONTROL_LABEL);
+  if (control && (control.screen !== 'granted' || control.microphone !== 'granted')) {
+    reasons.push(`${CONTROL_LABEL} does not read granted, granted`);
+  }
+  if (revoke === null || revoke === undefined) reasons.push('the revoke run R1 has no row');
+  return reasons;
+}
 
 /**
  * Applies Rules A, B and C to the consent cells and the revoke result.
@@ -226,7 +251,7 @@ function readRows(file) {
 }
 
 function usable(row) {
-  return !isFault(row.counters, row.faultStage) && row.counters.callbackTotal > 0;
+  return !hasStage(row.faultStage) && readable(row.counters) && row.counters.callbackTotal > 0;
 }
 
 function ratioText(counters) {
@@ -320,7 +345,9 @@ function main(argv) {
   console.log(`revoke: ${revoke ?? 'not run'}`);
   console.log(`never requested: ${neverRequested.join(', ') || 'none'}`);
 
-  const out = applyRule([...cells.values()], revoke, neverRequested);
+  const gaps = incompleteCells([...cells.values()], revoke);
+  const ruled = applyRule([...cells.values()], revoke, neverRequested);
+  const out = gaps.length > 0 ? { rule: 'C', reasons: [...gaps, ...(ruled.reasons ?? [])] } : ruled;
   console.log(`rule ${out.rule}`);
   if (out.rule === 'B') {
     for (const p of out.predicate) {
