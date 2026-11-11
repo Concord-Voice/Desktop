@@ -1912,8 +1912,9 @@ describe('main.ts', () => {
       // this guards the refactor or harness where it does not.
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       (probeSelfHostedServer as Mock).mockClear();
+      // #86: no sender means no binding, so admission refuses it before the handler.
       const result = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
+        { senderFrame: { url: 'app://concord/index.html' } },
         'https://real.lan'
       );
       expect(result).toEqual({
