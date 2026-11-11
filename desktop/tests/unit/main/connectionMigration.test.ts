@@ -21,10 +21,12 @@ const deps = { isValidatedSelfHostedApiBase: (o: string) => o === X };
 
 function snapshot(dir: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const f of fs.readdirSync(dir)) {
-    const p = path.join(dir, f);
-    if (fs.statSync(p).isFile()) {
-      out[f] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (d.isFile()) {
+      out[d.name] = crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(path.join(dir, d.name)))
+        .digest('hex');
     }
   }
   return out;

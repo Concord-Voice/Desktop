@@ -1,3 +1,4 @@
+import type * as AudiocapProtocolModule from '../../../src/shared/audiocapProtocol';
 // @vitest-environment node
 /**
  * Tests for the audiocap utilityProcess host (#3195, ADR-0043).
@@ -1205,7 +1206,7 @@ describe('start settles on the started ack, not on hello (#3394 PR 1, spec C1)',
   // the child, and only reaching the real (mocked) START_ACK_TIMEOUT_MS may.
   it('START_ACK_TIMEOUT_MS is genuinely distinct from HANDSHAKE_TIMEOUT_MS (#3394 PR 1, C8)', async () => {
     vi.doMock('../../../src/shared/audiocapProtocol', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../../../src/shared/audiocapProtocol')>();
+      const actual = await importOriginal<typeof AudiocapProtocolModule>();
       return { ...actual, START_ACK_TIMEOUT_MS: 30_000 };
     });
     vi.useFakeTimers();

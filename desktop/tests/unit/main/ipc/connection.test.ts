@@ -1,3 +1,5 @@
+import type * as ConnectionRegistryModule from '../../../../src/main/connectionRegistry';
+import type * as SelfHostedProfileModule from '../../../../src/main/selfHostedProfile';
 // @vitest-environment node
 // connection:* channels (spec 2026-11-09-86-connection-context-isolation §3.7;
 // plan Task 7A step 4): whoAmI, create, activate and the generation push.
@@ -28,7 +30,7 @@ vi.mock('electron', () => ({
 
 // Wrapped, not replaced: the real registry runs, the spy only records and supplies deps.
 vi.mock('../../../../src/main/connectionRegistry', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../src/main/connectionRegistry')>();
+  const actual = await importOriginal<typeof ConnectionRegistryModule>();
   return {
     ...actual,
     registerService: vi.fn((origin: string) => actual.registerService(origin, regDeps as never)),
@@ -38,7 +40,7 @@ vi.mock('../../../../src/main/selfHostedCeremonyBudget', () => ({
   consumeCeremonyToken: vi.fn(() => true),
 }));
 vi.mock('../../../../src/main/selfHostedProfile', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../../src/main/selfHostedProfile')>()),
+  ...(await importOriginal<typeof SelfHostedProfileModule>()),
   commitSelfHostedApproval: vi.fn(() => true),
 }));
 

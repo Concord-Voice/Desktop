@@ -1,3 +1,4 @@
+import type * as RuntimeServerBaseModule from '@/renderer/services/system/runtimeServerBase';
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 
 const IDENTITY = {
@@ -13,7 +14,7 @@ const runtimeMocks = vi.hoisted(() => ({
   resetRuntimeServerBase: vi.fn(),
 }));
 vi.mock('@/renderer/services/system/runtimeServerBase', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/runtimeServerBase')>()),
+  ...(await importOriginal<typeof RuntimeServerBaseModule>()),
   setRuntimeServerBase: runtimeMocks.setRuntimeServerBase,
   resetRuntimeServerBase: runtimeMocks.resetRuntimeServerBase,
 }));

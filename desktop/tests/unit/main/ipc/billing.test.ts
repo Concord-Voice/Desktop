@@ -1,3 +1,4 @@
+import type * as BillingWindowModule from '@/main/billing/billingWindow';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // frameValidation is real (pure URL parsing): localhost:3001 is trusted, an arbitrary https
@@ -7,7 +8,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
 }));
 vi.mock('@/main/billing/billingWindow', async (importActual) => {
-  const actual = await importActual<typeof import('@/main/billing/billingWindow')>();
+  const actual = await importActual<typeof BillingWindowModule>();
   return { ...actual, openBillingWindow: vi.fn() };
 });
 
