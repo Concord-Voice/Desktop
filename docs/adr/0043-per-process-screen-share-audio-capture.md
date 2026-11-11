@@ -1879,7 +1879,8 @@ Offset-free figures (each value minus the run's minimum), for the two segments t
 
 Caveats:
 
-- S1 ran in one renderer on Electron 43.5.1, with the synthetic source and no utility process.
+- S1 ran in one renderer on Electron 43.5.1, with audio generated in that renderer (not this
+  addon's synthetic source), and no addon or utility process.
   Only `L_generator` compares with it directly.
 - The synthetic stamp is taken in the capture process immediately before the ring push, so it holds
   no device-buffer delay. Main reads the same clock (`uv_hrtime`) only for the synthetic source.
