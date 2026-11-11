@@ -28,7 +28,8 @@
  * or http://localhost:3000.evil.com/.
  */
 
-import type { IpcMainInvokeEvent, WebFrameMain } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent, WebFrameMain } from 'electron';
+import type { ServiceKind } from '../../shared/connectionIdentity';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from '../spaCache/manifestSchema';
 
 const LOCAL_DEV_PATTERN = /^http:\/\/localhost:\d+(\/|$)/;
@@ -78,6 +79,63 @@ export function isPermittedFrameUrl(url: string, remoteSpaOrigin: string | null)
   if (LOCAL_DEV_PATTERN.test(url)) return true;
   if (remoteSpaOrigin && url.startsWith(remoteSpaOrigin + '/')) return true;
   return false;
+}
+
+/** True only for the post-#830 bundled renderer, `app://concord` — NOT `spa-cache://`.
+ * Same protocol + exact-host parse as {@link isBundledAppUrl}, for the same reasons. */
+function isAppSchemeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'app:' && parsed.host === BUNDLED_APP_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/** True if the frame URL is permitted for a connection of `kind` (#86 spec §3.3, C7).
+ *
+ * `saas` keeps today's allowlist exactly ({@link isPermittedFrameUrl}). A
+ * self-hosted connection runs only the bundled `app://concord` renderer (or the
+ * Vite dev server): it never loads the remote SPA, the `spa-cache://` LKG copy of
+ * it, or the legacy `file://` build, so none of those may speak for it — a CVNet
+ * document inside a self-hosted view would otherwise hold that service's custody.
+ * Any other `kind` value fails closed. */
+export function isPermittedFrameUrlForKind(
+  url: string,
+  kind: ServiceKind,
+  remoteSpaOrigin: string | null
+): boolean {
+  if (kind === 'saas') return isPermittedFrameUrl(url, remoteSpaOrigin);
+  if (kind === 'selfhost') return isAppSchemeUrl(url) || LOCAL_DEV_PATTERN.test(url);
+  return false;
+}
+
+/** The sender frame only when it IS its webContents' current main frame, or null.
+ *
+ * Three tests, all required. `parent === null` refuses a subframe. The
+ * `frameTreeNodeId` match against `event.sender.mainFrame` (the `audiocap.ts` /
+ * `trayStatus.ts` precedent) also refuses a frame that is the root of a different
+ * frame tree, such as a fenced frame, which has no parent either. `detached` refuses
+ * the previous document of the main frame: after a cross-origin navigation it can
+ * still send IPC from its unload handlers, and it shares the main frame's
+ * `frameTreeNodeId` (Electron 33 breaking change, "frame properties may retrieve
+ * detached WebFrameMain instances"). Admitting it would hand the outgoing
+ * document the new document's generation.
+ *
+ * `senderFrame` is read ONCE, so the frame that passed is the frame the caller goes
+ * on to use. It is null once the frame has navigated or been destroyed, and reading
+ * a property of a disposed `WebFrameMain` or of a destroyed `webContents` throws;
+ * all of these refuse. Admission for the #86 connection primitives (`requireOwner`,
+ * `requireConnectionSender`). */
+export function senderMainFrame(event: IpcMainEvent | IpcMainInvokeEvent): WebFrameMain | null {
+  try {
+    const frame = event.senderFrame;
+    if (!frame || frame.detached || frame.parent !== null) return null;
+    return frame.frameTreeNodeId === event.sender.mainFrame.frameTreeNodeId ? frame : null;
+  } catch {
+    // Not logged: Electron's "disposed" error says nothing a refusal does not.
+    return null;
+  }
 }
 
 /** Return the sender frame only when it belongs to a permitted renderer origin. */
