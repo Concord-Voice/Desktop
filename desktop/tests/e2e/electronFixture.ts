@@ -13,9 +13,12 @@
  *   2. After launch, `app.getPath('userData')` is checked again; a mismatch closes the
  *      app and throws before any test body runs.
  *
- * Why the unpackaged shell loads http://localhost:3001: main loads every view from the
- * dev renderer URL when `app.isPackaged` is false. This fixture serves the BUILT
- * `dist/renderer` there, so the views run the shipped bundle, not a Vite dev server.
+ * Why the renderer is the Vite dev server on http://localhost:3001: an unpackaged shell
+ * (`app.isPackaged` false) loads every view from that fixed dev URL, and `npm run dev`
+ * pairs it with exactly this server. Serving `dist/renderer` there instead mixes a dev
+ * shell with the production CSP, whose loopback-stripped connect-src (csp-prod-strip.ts)
+ * refuses every localhost plane (measured: 'TypeError: Failed to fetch', 0 plane
+ * requests). The fixture never edits a CSP; Vite applies the repo's own dev CSP.
  *
  * No production code reads an e2e-only variable. HOME is the OS's own; DEVTOOLS=0 is
  * the existing dev switch that keeps detached DevTools from opening; `--use-mock-keychain`
@@ -24,14 +27,13 @@
 import { test as base, expect, _electron, type ElectronApplication } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer, type ViteDevServer } from 'vite';
 import { RENDERER_ORIGIN, startStubPlane, type StubPlane } from './fixtures/controlPlaneStub';
 
 const DESKTOP_DIR = path.resolve(__dirname, '..', '..');
 const DIST_MAIN = path.join(DESKTOP_DIR, 'dist', 'main');
-const DIST_RENDERER = path.join(DESKTOP_DIR, 'dist', 'renderer');
 const SEED_SCRIPT = path.join(__dirname, 'fixtures', 'seedProfile.cjs');
 const RENDERER_PORT = Number(new URL(RENDERER_ORIGIN).port);
 
@@ -50,6 +52,11 @@ interface Fixtures {
   planes: Planes;
 }
 
+interface WorkerFixtures {
+  /** The dev renderer every view loads; one per worker so its transform cache is reused. */
+  renderer: ViteDevServer;
+}
+
 /** Resolves symlinks in the longest existing prefix (macOS: /var -> /private/var). */
 function real(p: string): string {
   let head = path.resolve(p);
@@ -66,51 +73,24 @@ export function isBeneath(root: string, candidate: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-const CONTENT_TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.wasm': 'application/wasm',
-  '.woff2': 'font/woff2',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-};
-
-/** Serves the built renderer where the unpackaged shell looks for its dev server. */
-async function serveBuiltRenderer(): Promise<http.Server> {
-  if (!fs.existsSync(path.join(DIST_RENDERER, 'index.html'))) {
-    throw new Error('dist/renderer/index.html missing — run `npm run build` first');
+/** Starts the repo's Vite dev server where the unpackaged shell looks for it. */
+async function startDevRenderer(): Promise<ViteDevServer> {
+  const server = await createServer({
+    configFile: path.join(DESKTOP_DIR, 'vite.config.ts'),
+    root: DESKTOP_DIR,
+    clearScreen: false,
+    logLevel: 'warn',
+    server: { port: RENDERER_PORT, strictPort: true },
+  });
+  try {
+    await server.listen();
+  } catch (err) {
+    await server.close();
+    const code = (err as NodeJS.ErrnoException).code;
+    throw code === 'EADDRINUSE' || String(err).includes('already in use')
+      ? new Error(`port ${RENDERER_PORT} is in use — stop the other Vite dev server first`)
+      : err;
   }
-  const server = http.createServer((req, res) => {
-    const pathname = decodeURIComponent((req.url ?? '/').split('?')[0]);
-    const candidate = path.join(DIST_RENDERER, path.normalize(pathname));
-    const inside = isBeneath(DIST_RENDERER, candidate);
-    const file =
-      inside && fs.existsSync(candidate) && fs.statSync(candidate).isFile()
-        ? candidate
-        : path.join(DIST_RENDERER, 'index.html');
-    res.writeHead(200, {
-      'Content-Type': CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream',
-      'Cache-Control': 'no-store',
-    });
-    fs.createReadStream(file).pipe(res);
-  });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', (err: NodeJS.ErrnoException) =>
-      reject(
-        err.code === 'EADDRINUSE'
-          ? new Error(`port ${RENDERER_PORT} is in use — stop the Vite dev server first`)
-          : err
-      )
-    );
-    server.listen(RENDERER_PORT, '127.0.0.1', () => resolve());
-  });
   return server;
 }
 
@@ -145,7 +125,16 @@ function seedProfile(home: string, origins: string[]): { userData: string; servi
   return JSON.parse(line) as { userData: string; serviceIds: string[] };
 }
 
-export const test = base.extend<Fixtures>({
+export const test = base.extend<Fixtures, WorkerFixtures>({
+  renderer: [
+    async ({}, use) => {
+      const server = await startDevRenderer();
+      await use(server);
+      await server.close();
+    },
+    { scope: 'worker' },
+  ],
+
   planes: async ({}, use) => {
     const a = await startStubPlane();
     const b = await startStubPlane();
@@ -153,12 +142,12 @@ export const test = base.extend<Fixtures>({
     await Promise.all([a.stop(), b.stop()]);
   },
 
-  app: async ({ planes }, use, testInfo) => {
+  app: async ({ planes, renderer }, use, testInfo) => {
     if (!fs.existsSync(path.join(DIST_MAIN, 'main.js'))) {
       throw new Error('dist/main/main.js missing — run `npm run build` first');
     }
     const home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'concord-e2e-'));
-    const renderer = await serveBuiltRenderer();
+    if (renderer.httpServer?.listening !== true) throw new Error('dev renderer is not listening');
     let app: ElectronApplication | null = null;
     try {
       const seeded = seedProfile(home, [planes.a.origin, planes.b.origin]);
@@ -221,8 +210,6 @@ export const test = base.extend<Fixtures>({
         await app.close().catch(() => undefined);
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }
-      renderer.closeAllConnections();
-      await new Promise<void>((resolve) => renderer.close(() => resolve()));
       fs.rmSync(home, { recursive: true, force: true });
     }
   },
