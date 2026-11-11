@@ -15,15 +15,6 @@ const MAIN_RAW_ERR_CONSOLE_SELECTOR = {
 
 // #86 Task 7A → 7B: main-process files that still call ipcMain directly. Task 7B removes
 // each entry as it migrates that file to registerIpc; the list must be empty after 7B.
-const TRANSITIONAL_RAW_IPCMAIN_FILES = [
-  'src/main/permissionManager.ts',
-  'src/main/ipc/attestation.ts',
-  'src/main/ipc/billing.ts',
-  'src/main/ipc/openExternal.ts',
-  'src/main/ipc/saveImage.ts',
-  'src/main/ipc/versionInfo.ts',
-];
-
 export default [
   // Global ignores (replaces ignorePatterns)
   {
@@ -286,15 +277,14 @@ export default [
   // raw-err selector. registry.ts is the one sanctioned caller and keeps only the block
   // above. Locked by tests/unit/main/eslint-no-raw-ipcmain.test.ts.
   //
-  // TRANSITIONAL (#86 Task 7A → 7B): the files in TRANSITIONAL_RAW_IPCMAIN_FILES still
-  // register their handlers directly. Task 7B migrates each one to registerIpc and
-  // deletes it from that list in the same commit; the list must be empty when 7B lands.
-  // A NEW file is covered the moment it exists. `connection:whoAmI` (src/main/ipc/
+  // #86 Task 7B: every src/main IPC registration goes through registerIpc
+  // (src/main/ipc/registry.ts is the one file allowed to call ipcMain directly). A NEW
+  // file is covered the moment it exists. `connection:whoAmI` (src/main/ipc/
   // connection.ts) is a synchronous `ipcMain.on` + `returnValue` by design and carries a
   // line-level disable with its rationale.
   {
     files: ['src/main/**/*.{ts,tsx}'],
-    ignores: ['src/main/ipc/registry.ts', ...TRANSITIONAL_RAW_IPCMAIN_FILES],
+    ignores: ['src/main/ipc/registry.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',

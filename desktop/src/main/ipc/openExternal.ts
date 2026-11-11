@@ -1,5 +1,6 @@
-import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
-import { requireTrustedSender } from './frameValidation';
+import { shell } from 'electron';
+import { CHANNEL_CLASSES } from './channelClassification';
+import { registerIpc } from './registry';
 
 /**
  * open-external IPC handler — routes renderer link clicks to `shell.openExternal`
@@ -16,8 +17,6 @@ import { requireTrustedSender } from './frameValidation';
  * renderer check is a security regression — and vice-versa.
  */
 
-const CHANNEL = 'open-external';
-
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
 function isAllowedUrl(url: string): boolean {
@@ -28,8 +27,6 @@ function isAllowedUrl(url: string): boolean {
     return false;
   }
 }
-
-type RemoteSpaOriginProvider = () => string | null;
 
 export interface OpenExternalResult {
   ok: boolean;
@@ -44,32 +41,29 @@ export interface OpenExternalResult {
  * wire the live value after the SPA loader decides which build to serve. Left
  * undefined in unit tests that only exercise the bundled/localhost frame paths.
  */
-export function registerOpenExternalHandler(
-  remoteSpaOriginProvider?: RemoteSpaOriginProvider
-): void {
-  ipcMain.handle(
-    CHANNEL,
-    async (event: IpcMainInvokeEvent, url: unknown): Promise<OpenExternalResult> => {
-      const remoteSpaOrigin = remoteSpaOriginProvider?.() ?? null;
-      if (!requireTrustedSender(event, remoteSpaOrigin)) {
-        return { ok: false, reason: 'untrusted-sender' };
-      }
+export function registerOpenExternalHandler(): void {
+  // #86 Task 7B: `connection-bound` through registerIpc; a refused sender gets the
+  // existing `untrusted-sender` result.
+  registerIpc(
+    'open-external',
+    CHANNEL_CLASSES['open-external'],
+    async (_sender, _event, url: unknown): Promise<OpenExternalResult> => {
       if (typeof url !== 'string') {
         return { ok: false, reason: 'invalid-url' };
       }
       if (!isAllowedUrl(url)) {
         return { ok: false, reason: 'invalid-protocol' };
       }
-      // shell.openExternal can reject (OS denies, no protocol handler, sandbox
-      // restriction). Convert rejections into the structured {ok, reason}
-      // contract so renderers never see the IPC invoke itself reject and can
-      // branch on result.ok alone.
       try {
         await shell.openExternal(url);
         return { ok: true };
       } catch {
         return { ok: false, reason: 'open-failed' };
       }
+    },
+    {
+      refusal: (): Promise<OpenExternalResult> =>
+        Promise.resolve({ ok: false, reason: 'untrusted-sender' }),
     }
   );
 }

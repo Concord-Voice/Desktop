@@ -1140,13 +1140,11 @@ channel already registered. Admission is synchronous: the wrapper reads `event.s
 resolves the binding and calls the handler in the same tick, and `registry.ts` must contain no
 `await` (the registry suite greps it). A refused `handle` returns `opts.refusal(reason)` or
 `{ status: 'rejected', reason }`. An ESLint `no-restricted-syntax` selector in the `src/main/**`
-block bans raw `ipcMain.handle|on|once|handleOnce` outside `registry.ts`. **Transitional state
-(#86 Task 7A → 7B):** the files still listed in `TRANSITIONAL_RAW_IPCMAIN_FILES`
-(`eslint.config.mjs`) register directly and are exempt from that selector; Task 7B migrates
-each and deletes the list (`tests/unit/main/ipc/migrationExitCriteria.test.ts` X2). Until then,
-`tests/unit/main/ipc/channelClassification.test.ts` is red by design, because it requires every
-classified channel to be registered through `registerIpc` and no raw registration outside the
-registry. `connection:whoAmI` stays the one raw `ipcMain.on`, with its line-level disable. Changing a row of the table is a
+block bans raw `ipcMain.handle|on|once|handleOnce` outside `registry.ts`. **The migration is
+complete (#86 Task 7B, X2):** every `src/main` registration goes through `registerIpc`, the
+transitional exemption list is deleted (`tests/unit/main/ipc/migrationExitCriteria.test.ts`),
+and `tests/unit/main/ipc/channelClassification.test.ts` requires every classified channel to be
+registered through `registerIpc` and no raw registration outside the registry. `connection:whoAmI` stays the one raw `ipcMain.on`, with its line-level disable. Changing a row of the table is a
 security decision, because a wider class lets a background or self-hosted connection reach the
 channel.
 
@@ -1257,9 +1255,9 @@ this file's job is only to record the version number and point there, not to dup
 cross-checked against it (`crossCheckApiBase`), never used to choose a custody. The third
 invariant is `defaultSession` ⇒ `saas`: only the `saas` connection and its PiPs run on
 `defaultSession`, `openConnectionView` refuses a non-saas connection that reaches it (R1),
-and every self-hosted service gets its own `fromPath` session. Handlers not yet migrated
-(the `TRANSITIONAL_RAW_IPCMAIN_FILES` list) still validate with `requireTrustedSender` and the
-checks described below until #86 Task 7B moves them; see § "IPC contract v34".
+and every self-hosted service gets its own `fromPath` session. Every handler is admitted by
+`registerIpc` (#86 Task 7B); the frame checks described below are what that admission applies
+per service kind; see § "IPC contract v34".
 
 **Custody has no pointer path (#86 Task 7B, S1/S3).** The Task 5 shims (`liveCustody`,
 `restoreTargetCustody`, `custodyForApiBase`, and the module-level `setProactiveRefreshCallback`
@@ -1616,9 +1614,8 @@ custody. What a compromised **foreground** document can still reach through
 `app-global-mutate` channels (developer mode, hardware acceleration, relaunch, `update:*`,
 content protection, `permission:request`/`openSettings`, `connection:create`/`activate`) is
 the same set the single renderer could reach before #86. A **background** document cannot
-reach them. #88 re-targets that exposure. Containment holds only for channels registered
-through `registerIpc`: a file still on `TRANSITIONAL_RAW_IPCMAIN_FILES` admits any trusted
-frame, background or not, until Task 7B migrates it.
+reach them. #88 re-targets that exposure. Containment covers every channel: since #86 Task 7B
+no `src/main` file registers outside `registerIpc`.
 
 **If this risk profile changes** (e.g., a future feature elevates the renderer's attack surface), revisit `will-navigate` to either suppress externalization for programmatic navigation or introduce a host allowlist (Option B/C from #754's brainstorm).
 

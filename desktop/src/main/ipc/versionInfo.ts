@@ -1,5 +1,7 @@
-import { app, ipcMain, type WebContents } from 'electron';
+import { app, type WebContents } from 'electron';
 import { getRemoteSpaUrl, getSpaHash, getSpaVersion, onSpaStateChange } from '../spaState';
+import { CHANNEL_CLASSES } from './channelClassification';
+import { registerIpc } from './registry';
 
 // Path-anchored so a URL like `https://evil.com/proxy/spa/abc/` doesn't
 // extract a hash; only top-level `/spa/<hash>` is valid per the SPA-deploy
@@ -29,13 +31,23 @@ export function getCurrentSpaDisplayHash(url: string | null): string | null {
 }
 
 /** Only liveness and `webContents.send` are read; main.ts fans the push out (#86 Task 4). */
-type RendererPushTarget = { isDestroyed(): boolean; readonly webContents: Pick<WebContents, 'send'> };
+type RendererPushTarget = {
+  isDestroyed(): boolean;
+  readonly webContents: Pick<WebContents, 'send'>;
+};
 
 export function registerVersionInfoIpc(getWindow: () => RendererPushTarget | null): void {
-  ipcMain.handle('window:getVersionString', (): VersionString => ({
-    appVersion: app.getVersion(),
-    spaHash: getCurrentSpaDisplayHash(getRemoteSpaUrl()),
-  }));
+  // #86 Task 7B: `app-global-read` through registerIpc. A refused sender reads an
+  // empty version rather than the app's facts.
+  registerIpc(
+    'window:getVersionString',
+    CHANNEL_CLASSES['window:getVersionString'],
+    (): VersionString => ({
+      appVersion: app.getVersion(),
+      spaHash: getCurrentSpaDisplayHash(getRemoteSpaUrl()),
+    }),
+    { refusal: (): VersionString => ({ appVersion: '', spaHash: null }) }
+  );
 
   onSpaStateChange((url) => {
     const win = getWindow();

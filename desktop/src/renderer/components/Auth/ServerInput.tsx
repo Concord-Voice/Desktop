@@ -204,6 +204,12 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         onConnect(result.apiBase);
         return;
       }
+      // #86 Task 7B (contract v34): main opened the approved server in its own
+      // connection and activated it. This view is never re-homed, so it only settles.
+      if (result.status === 'opened-in-connection') {
+        setState({ k: 'idle' });
+        return;
+      }
       if (result.code === 'address_not_allowed') {
         // Never render `message` raw here — it is an enum token, not user-facing copy.
         setState({ k: 'refused', text: REFUSAL_COPY[result.message] ?? GENERIC_REFUSAL });

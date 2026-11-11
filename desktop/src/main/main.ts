@@ -152,7 +152,6 @@ import {
   broadcastToPrimaries,
   createPipWindow,
   createShellWindow,
-  foregroundPrimaryHandle,
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
@@ -1706,12 +1705,12 @@ app.whenReady().then(async () => {
     for (const { origin } of readApprovalsFile()) registerConnectionService(origin);
   }
 
-  registerOpenExternalHandler(getRemoteSpaBaseUrl);
+  registerOpenExternalHandler();
   // #1729 — native Save-As for decrypted image attachments. Lazy window provider
   // (mirrors registerPermissionHandlers) so the dialog parents to the live window.
-  registerSaveImageHandler(shellWindow, getRemoteSpaBaseUrl);
+  registerSaveImageHandler(shellWindow);
   registerSSOIPC();
-  registerAttestationIpc(getRemoteSpaBaseUrl);
+  registerAttestationIpc();
   // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
   // connection:whoAmI/create/activate and the connection:generation push. Before
   // createWindow, so the first view's preload finds its whoAmI handler.
@@ -1791,7 +1790,7 @@ app.whenReady().then(async () => {
   // view until Task 7B binds the share's owner connection.
   registerAudiocapIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
-  registerBillingIpc(getRemoteSpaBaseUrl, shellWindow);
+  registerBillingIpc(shellWindow);
   // Status-aware tray (tray-status spec §4): the binding-admitted primary main frame of
   // trayOwner() or, with none, the foreground connection + 20/s bucket + exact shape.
   registerTrayStatusIpc();
@@ -1815,7 +1814,7 @@ app.whenReady().then(async () => {
 
   // OS permission management (#197) — JIT prompting replaces proactive startup requests.
   // Camera/mic/screen/notifications are requested when the feature is first used.
-  registerPermissionHandlers(foregroundPrimaryHandle, getRemoteSpaBaseUrl);
+  registerPermissionHandlers(sendToConnection);
 
   // ─── Update safety: startup validation (#384) ─────────────────────
   // Must run before createWindow() so we can stash rollback info,

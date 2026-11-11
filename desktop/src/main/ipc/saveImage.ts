@@ -1,7 +1,8 @@
-import { dialog, ipcMain, type BaseWindow, type IpcMainInvokeEvent } from 'electron';
+import { dialog, type BaseWindow } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { isPermittedFrameUrl } from './frameValidation';
+import { CHANNEL_CLASSES } from './channelClassification';
+import { registerIpc } from './registry';
 
 /**
  * image:saveAs IPC handler — writes a decrypted image attachment to a
@@ -18,13 +19,10 @@ import { isPermittedFrameUrl } from './frameValidation';
  *      the renderer.
  */
 
-const CHANNEL = 'image:saveAs';
-
 // Cap the accepted payload — a compromised renderer cannot drive an unbounded
 // disk write. Image attachments are bounded far below this server-side.
 const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 
-type RemoteSpaOriginProvider = () => string | null;
 type WindowProvider = () => BaseWindow | null;
 
 export interface SaveImageResult {
@@ -42,22 +40,13 @@ export function safeImageName(name: unknown): string {
   return cleaned.length > 0 ? cleaned.slice(0, 255) : 'image';
 }
 
-export function registerSaveImageHandler(
-  windowProvider: WindowProvider,
-  remoteSpaOriginProvider?: RemoteSpaOriginProvider
-): void {
-  ipcMain.handle(
-    CHANNEL,
-    async (
-      event: IpcMainInvokeEvent,
-      bytes: unknown,
-      suggestedName: unknown
-    ): Promise<SaveImageResult> => {
-      const senderUrl = event.senderFrame?.url ?? '';
-      if (!isPermittedFrameUrl(senderUrl, remoteSpaOriginProvider?.() ?? null)) {
-        return { ok: false, reason: 'untrusted-sender' };
-      }
-
+export function registerSaveImageHandler(windowProvider: WindowProvider): void {
+  // #86 Task 7B: `connection-bound` through registerIpc; a refused sender gets the
+  // existing `untrusted-sender` result.
+  registerIpc(
+    'image:saveAs',
+    CHANNEL_CLASSES['image:saveAs'],
+    async (_sender, _event, bytes: unknown, suggestedName: unknown): Promise<SaveImageResult> => {
       // Electron structured-clones ArrayBuffer / TypedArrays across the IPC boundary.
       let buf: Buffer;
       if (bytes instanceof ArrayBuffer) {
@@ -87,6 +76,10 @@ export function registerSaveImageHandler(
         // never leak the OS error or the path into the result.
         return { ok: false, reason: 'write-failed' };
       }
+    },
+    {
+      refusal: (): Promise<SaveImageResult> =>
+        Promise.resolve({ ok: false, reason: 'untrusted-sender' }),
     }
   );
 }

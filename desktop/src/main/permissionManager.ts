@@ -11,8 +11,10 @@
  * - Push events (permission:changed) notify the renderer of status changes
  */
 
-import { app, BrowserWindow, ipcMain, Notification, shell, systemPreferences } from 'electron';
-import { requireTrustedSender } from './ipc/frameValidation';
+import { app, Notification, shell, systemPreferences } from 'electron';
+import type { ConnectionRef } from '../shared/connectionIdentity';
+import { CHANNEL_CLASSES } from './ipc/channelClassification';
+import { registerIpc } from './ipc/registry';
 import { isSecureStorageAvailable } from './secureStorage';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -225,44 +227,57 @@ export function openSystemSettings(type: OsPermissionType): void {
 
 // ─── IPC Registration ─────────────────────────────────────────────────
 
-export function registerIpcHandlers(
-  getMainWindow: () => Pick<BrowserWindow, 'isDestroyed' | 'webContents'> | null,
-  getRemoteSpaBaseUrl: () => string | null
-): void {
-  ipcMain.handle('permission:checkAll', (event) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    return checkAllPermissions();
-  });
+/** Pushes to one connection's primary; a stale ref is a no-op (`sendToConnection`). */
+export type ConnectionPush = (ref: ConnectionRef, channel: string, ...args: unknown[]) => unknown;
 
-  ipcMain.handle('permission:check', (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    return checkPermission(type as OsPermissionType);
-  });
+function requireKnownType(type: string): OsPermissionType {
+  if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
+    throw new Error(`Unknown permission type: ${type}`);
+  }
+  return type as OsPermissionType;
+}
 
-  ipcMain.handle('permission:request', async (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    const status = await requestPermission(type as OsPermissionType);
+/**
+ * #86 Task 7B: every channel goes through `registerIpc`. The two reads are
+ * `app-global-read`, the request and the settings deep link `app-global-mutate`
+ * (foreground primary only, so a hidden view cannot raise an OS prompt). A refused
+ * sender resolves `undefined`, as before. `permission:changed` goes only to the
+ * requesting connection, and only while its generation is still current.
+ */
+export function registerIpcHandlers(push: ConnectionPush): void {
+  const refused = () => undefined;
+  registerIpc(
+    'permission:checkAll',
+    CHANNEL_CLASSES['permission:checkAll'],
+    () => checkAllPermissions(),
+    { refusal: refused }
+  );
 
-    // Notify renderer of the new status
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('permission:changed', { type, status });
-    }
+  registerIpc(
+    'permission:check',
+    CHANNEL_CLASSES['permission:check'],
+    (_sender, _event, type: string) => checkPermission(requireKnownType(type)),
+    { refusal: refused }
+  );
 
-    return status;
-  });
+  registerIpc(
+    'permission:request',
+    CHANNEL_CLASSES['permission:request'],
+    async (sender, _event, type: string): Promise<OsPermissionStatus | undefined> => {
+      const known = requireKnownType(type);
+      const status = await requestPermission(known);
+      push(sender.ref, 'permission:changed', { type: known, status });
+      return status;
+    },
+    { refusal: (): Promise<OsPermissionStatus | undefined> => Promise.resolve(undefined) }
+  );
 
-  ipcMain.handle('permission:openSettings', (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    openSystemSettings(type as OsPermissionType);
-  });
+  registerIpc(
+    'permission:openSettings',
+    CHANNEL_CLASSES['permission:openSettings'],
+    (_sender, _event, type: string) => {
+      openSystemSettings(requireKnownType(type));
+    },
+    { refusal: refused }
+  );
 }
