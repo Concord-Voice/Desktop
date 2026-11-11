@@ -401,9 +401,13 @@ Fix: both are `app-global-mutate`. `sso:googleCancel` / `sso:appleCancel` stay
 
 `desktop/tests/unit/main/ipc/ssoCrossConnection.test.ts` pins both and runs the REAL provider
 flow modules; `sso.test.ts` mocks them, which is why neither finding showed there.
-**Residual (RT1):** only `disposed` releases the provider. After a reload or renderer loss of
-the owner, its stale flow runs to its own loopback timeout and another connection's sign-in on
-that provider is refused until then; the reloaded owner can restart its own flow at once. The
+**Release on any advance (review finding on the RT1 fix, MEDIUM).** The first RT1 fix released
+the provider only on `disposed`, so after the owner reloaded or lost its renderer, every other
+connection's sign-in on that provider was refused until the stale flow's 5-minute timeout. Any
+generation advance of the owner now cancels its flow and releases the provider (R4 in the same
+test file); the flow's finish was already fenced. Decision (Mark, 2026-11-11): accept this;
+reject letting the foreground supersede a background owner's flow, because that reopens RT1
+(a view that becomes foreground could take over a sign-in in progress). The
 unverified relay lead in the red-team report (a self-hosted server replaying CVNet's
 `state`/id_token at CVNet's `/session`) is server-side and predates #86.
 

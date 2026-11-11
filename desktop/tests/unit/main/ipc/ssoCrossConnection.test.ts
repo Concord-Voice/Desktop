@@ -105,6 +105,7 @@ vi.mock('../../../../src/main/machineId', () => ({
 import {
   _resetConnectionRegistryForTesting,
   bindSender,
+  advanceGeneration,
   disposeConnection,
   openConnection,
   registerService,
@@ -367,6 +368,29 @@ describe('#86 RT1/RT2: SSO sign-in authority across connections (real provider f
       await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledTimes(1));
       disposeConnection(A.connectionId as never);
       // The disposal itself ends A's flow; nothing else has started.
+      await vi.waitFor(() => expect(mocked.fakeHandles[0].__closeCalls).toBeGreaterThan(0));
+      await expect(aResult).resolves.toMatchObject({ kind: 'error', code: 'sso_cancelled' });
+      setForeground(B.connectionId);
+      const bResult = signIn(B.event(), B_ORIGIN) as Promise<unknown>;
+      await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledTimes(2));
+      mocked.fakeHandles[1].__resolve({ code: 'code-for-B', state: 'state-B' });
+      await expect(bResult).resolves.toMatchObject({ kind: 'tokens' });
+    }
+  );
+
+  it.each([
+    ['sso:googleSignIn', 'document'],
+    ['sso:appleSignIn', 'document'],
+    ['sso:googleSignIn', 'renderer-gone'],
+    ['sso:appleSignIn', 'renderer-gone'],
+  ] as const)(
+    'R4 [%s, %s]: any advance of the flow owner ends its flow and releases the provider',
+    async (channel, reason) => {
+      const signIn = handler(channel);
+      const aResult = signIn(A.event(), A_ORIGIN) as Promise<unknown>;
+      await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledTimes(1));
+      // A reloads (or loses its renderer) mid-consent: its finish is fenced anyway.
+      advanceGeneration(A.connectionId as never, reason);
       await vi.waitFor(() => expect(mocked.fakeHandles[0].__closeCalls).toBeGreaterThan(0));
       await expect(aResult).resolves.toMatchObject({ kind: 'error', code: 'sso_cancelled' });
       setForeground(B.connectionId);

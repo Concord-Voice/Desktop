@@ -468,18 +468,17 @@ export function registerSSOIPC(): void {
   onGenerationAdvanced((id, _from, _to, reason) => {
     pendingCompletion.delete(id);
     pendingMFA.delete(id);
-    if (reason === 'disposed') {
-      signInGeneration.delete(id);
-      // A disposed connection's provider flow can never finish usefully (its finish is
-      // fenced), so end it and release the provider: signIn refuses every other
-      // connection while this one owns it, and the reset in signIn's finally no longer
-      // matches once the generation entry above is gone.
-      for (const p of ['apple', 'google'] as const) {
-        if (flowOwner[p] !== id) continue;
-        flowOwner[p] = null;
-        if (p === 'apple') cancelActiveAppleFlow();
-        else cancelActiveGoogleFlow();
-      }
+    if (reason === 'disposed') signInGeneration.delete(id);
+    // After ANY advance the owner's flow can never finish usefully (its finish is fenced
+    // by isLive), so end it and release the provider now rather than at its 5-minute
+    // timeout: signIn refuses every other connection while this one owns it. Safe for
+    // the flow's own reserve, whose 'credential-start' advance fires before signIn sets
+    // flowOwner. A stale signIn's finally then no longer matches and leaves it alone.
+    for (const p of ['apple', 'google'] as const) {
+      if (flowOwner[p] !== id) continue;
+      flowOwner[p] = null;
+      if (p === 'apple') cancelActiveAppleFlow();
+      else cancelActiveGoogleFlow();
     }
     for (const [port, entry] of active) {
       if (entry.owner.ref.connectionId !== id) continue;
