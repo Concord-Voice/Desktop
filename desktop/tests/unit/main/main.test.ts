@@ -524,6 +524,45 @@ const foreignIpcEvent = {
   sender: { id: 99 },
   senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 99 },
 };
+// #86 Task 7B: a bound primary of a self-hosted service, registered and bound the way
+// shellWindow does it. The pre-#86 probe cases assert that a probe returns the probe's own
+// result. Under #86 that holds only when the probed origin is the SENDER'S OWN service:
+// another origin opens in its own connection, which '#86 … probeServer from the saas view'
+// locks. So those cases probe from a primary of the service they probe. `dispose()` closes
+// the connection and gives the foreground back to whoever held it.
+let nextSelfHostedFrame = 8800;
+function bindSelfHostedPrimary(origin: string, opts: { foreground?: boolean } = {}) {
+  const frameUrl = 'app://concord/index.html';
+  const svc = connectionRegistry.registerService(origin, {
+    makeSession: () => ({}) as never,
+    makeCustody: () => ({}) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!svc.ok) throw new Error(`registerService refused ${origin}: ${svc.reason}`);
+  const frameTreeNodeId = (nextSelfHostedFrame += 1);
+  const wc = {
+    id: frameTreeNodeId,
+    send: vi.fn(),
+    on: vi.fn(),
+    once: vi.fn(),
+    getURL: vi.fn(() => frameUrl),
+    loadURL: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    mainFrame: { url: frameUrl, frameTreeNodeId },
+  };
+  const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+  if (!opened.ok) throw new Error(`openConnection refused ${origin}: ${opened.reason}`);
+  connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+  const before = connectionRegistry.foreground()?.connectionId ?? null;
+  if (opts.foreground) connectionRegistry.setForeground(opened.record.connectionId);
+  return {
+    event: { sender: wc, senderFrame: { url: frameUrl, frameTreeNodeId, parent: null } },
+    dispose: () => {
+      connectionRegistry.disposeConnection(opened.record.connectionId);
+      if (before) connectionRegistry.setForeground(before);
+    },
+  };
+}
 let appOnCallbacks: Map<string, CallbackFn>;
 let sessionHandlers: {
   permissionRequest?: CallbackFn;
@@ -1889,18 +1928,24 @@ describe('main.ts', () => {
         capabilities: {},
       });
 
-      const result = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
-        'https://homelab.lan'
-      );
+      // #86 7B: the probed origin is the sender's own service (see bindSelfHostedPrimary).
+      const homelab = bindSelfHostedPrimary('https://homelab.lan', { foreground: true });
+      try {
+        const result = await handlers.get('selfHosted:probeServer')!(
+          homelab.event,
+          'https://homelab.lan'
+        );
 
-      expect(result).toEqual({
-        status: 'ok',
-        apiBase: 'https://homelab.lan',
-        clientConfig: {},
-        capabilities: {},
-      });
-      expect(probeSelfHostedServer).toHaveBeenCalledWith('https://homelab.lan');
+        expect(result).toEqual({
+          status: 'ok',
+          apiBase: 'https://homelab.lan',
+          clientConfig: {},
+          capabilities: {},
+        });
+        expect(probeSelfHostedServer).toHaveBeenCalledWith('https://homelab.lan');
+      } finally {
+        homelab.dispose();
+      }
     });
 
     it('selfHosted:probeServer rejects an event carrying no sender id (Gitar, #2668)', async () => {
@@ -2131,9 +2176,15 @@ describe('main.ts', () => {
       const ok = { status: 'ok', apiBase: 'https://real.lan' };
       (probeSelfHostedServer as Mock).mockResolvedValue(ok);
 
-      expect(
-        await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://real.lan')
-      ).toEqual(ok);
+      // #86 7B: the probed origin is the sender's own service (see bindSelfHostedPrimary).
+      const real = bindSelfHostedPrimary('https://real.lan', { foreground: true });
+      try {
+        expect(
+          await handlers.get('selfHosted:probeServer')!(real.event, 'https://real.lan')
+        ).toEqual(ok);
+      } finally {
+        real.dispose();
+      }
       expect(isValidatedSelfHostedApiBase('https://real.lan')).toBe(true);
       expect(approvalStore.records).toHaveLength(1);
 
@@ -2329,12 +2380,19 @@ describe('main.ts', () => {
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
 
       // An origin approved before the bucket drained is unaffected — no dialog, so
-      // no token, so the throttle must not touch it.
-      const approved = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
-        'https://burst0.lan'
-      );
-      expect(approved).toEqual({ status: 'ok' });
+      // no token, so the throttle must not touch it. #86 7B: probed from its own
+      // service's primary, which is NOT foreground: an approved origin needs no dialog,
+      // so it needs no foreground either.
+      const burst0 = bindSelfHostedPrimary('https://burst0.lan');
+      try {
+        const approved = await handlers.get('selfHosted:probeServer')!(
+          burst0.event,
+          'https://burst0.lan'
+        );
+        expect(approved).toEqual({ status: 'ok' });
+      } finally {
+        burst0.dispose();
+      }
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
     });
   });
@@ -2361,20 +2419,35 @@ describe('main.ts', () => {
         return { status: 'ok' };
       });
 
-      const senderA = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 7 } };
-      const senderB = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 8 } };
+      // #86 7B: the slot is keyed by connection, so "same sender" is one bound
+      // connection and "another sender" is a second one. Each probes its own service
+      // (see bindSelfHostedPrimary). Only one connection can be foreground, and a hidden
+      // one never raises the dialog, so B's origin is approved up front: B then needs no
+      // ceremony, and the single-flight gate it must pass is the same one.
+      const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
+      commitSelfHostedApproval('https://third.lan', '10.0.0.5');
+      const A = bindSelfHostedPrimary('https://inflight.lan', { foreground: true });
+      const B = bindSelfHostedPrimary('https://third.lan');
+      try {
+        const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://inflight.lan');
+        const refused = await handlers.get('selfHosted:probeServer')!(
+          A.event,
+          'https://other.lan'
+        );
+        const third = handlers.get('selfHosted:probeServer')!(B.event, 'https://third.lan');
 
-      const first = handlers.get('selfHosted:probeServer')!(senderA, 'https://inflight.lan');
-      const refused = await handlers.get('selfHosted:probeServer')!(senderA, 'https://other.lan');
-      const third = handlers.get('selfHosted:probeServer')!(senderB, 'https://third.lan');
+        expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
 
-      expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
-
-      release();
-      await expect(first).resolves.toEqual({ status: 'ok' });
-      await expect(third).resolves.toEqual({ status: 'ok' });
-      // The refused call must not have dialled or prompted for its own origin.
-      expect(probeSelfHostedServer).toHaveBeenCalledTimes(2);
+        release();
+        await expect(first).resolves.toEqual({ status: 'ok' });
+        await expect(third).resolves.toEqual({ status: 'ok' });
+        // The refused call must not have dialled or prompted for its own origin.
+        expect(probeSelfHostedServer).toHaveBeenCalledTimes(2);
+      } finally {
+        release();
+        B.dispose();
+        A.dispose();
+      }
     });
 
     it('releases the slot after a probe settles, including on rejection', async () => {
@@ -2387,15 +2460,20 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockReset();
       (probeSelfHostedServer as Mock).mockRejectedValueOnce(new Error('boom'));
 
-      const sender = { senderFrame: { url: 'app://concord/index.html' }, sender: { id: 9 } };
-      await expect(
-        handlers.get('selfHosted:probeServer')!(sender, 'https://flaky.lan')
-      ).rejects.toThrow('boom');
+      // #86 7B: one bound connection probing its own service (see bindSelfHostedPrimary).
+      const flaky = bindSelfHostedPrimary('https://flaky.lan', { foreground: true });
+      try {
+        await expect(
+          handlers.get('selfHosted:probeServer')!(flaky.event, 'https://flaky.lan')
+        ).rejects.toThrow('boom');
 
-      (probeSelfHostedServer as Mock).mockResolvedValueOnce({ status: 'ok' });
-      await expect(
-        handlers.get('selfHosted:probeServer')!(sender, 'https://flaky.lan')
-      ).resolves.toEqual({ status: 'ok' });
+        (probeSelfHostedServer as Mock).mockResolvedValueOnce({ status: 'ok' });
+        await expect(
+          handlers.get('selfHosted:probeServer')!(flaky.event, 'https://flaky.lan')
+        ).resolves.toEqual({ status: 'ok' });
+      } finally {
+        flaky.dispose();
+      }
     });
   });
 
@@ -5646,17 +5724,23 @@ describe('main.ts', () => {
      * caller can assert the registration itself happened (the non-vacuity check every
      * other case in this block relies on).
      */
+    // #86 Task 7B: the listener delivers to the share's OWNER connection only, so every
+    // case hands it the owner binding of the saas view (this file's main window), read
+    // from the fresh registry. `staleOwner` is the same connection one generation back.
+    type InterruptListener = (interrupt: Record<string, unknown>, owner?: unknown) => void;
     async function captureInterruptListener(): Promise<{
-      listener: (interrupt: Record<string, unknown>) => void;
+      listener: InterruptListener;
       spy: ReturnType<typeof vi.spyOn>;
+      owner: unknown;
+      staleOwner: unknown;
     }> {
       vi.resetModules();
       const hostModule = await import('../../../src/main/audiocapHost');
-      let captured: ((interrupt: Record<string, unknown>) => void) | null = null;
+      let captured: InterruptListener | null = null;
       const spy = vi
         .spyOn(hostModule, 'setAudiocapInterruptListener')
         .mockImplementation((listener) => {
-          captured = listener as (interrupt: Record<string, unknown>) => void;
+          captured = listener as InterruptListener;
         });
 
       mockWebContents.send.mockClear();
@@ -5674,7 +5758,17 @@ describe('main.ts', () => {
         'function'
       );
 
-      return { listener: captured!, spy };
+      const reg = await import('../../../src/main/connectionRegistry');
+      const binding = reg.bindingFor(mockWebContents as never);
+      const record = binding ? reg.recordFor(binding.connectionId) : undefined;
+      expect(record, 'the saas view is not a bound connection').toBeDefined();
+      const ref = reg.refOf(record!);
+      return {
+        listener: captured!,
+        spy,
+        owner: { kind: 'audiocap', ref },
+        staleOwner: { kind: 'audiocap', ref: { ...ref, generation: ref.generation - 1 } },
+      };
     }
 
     function interruptPushes() {
@@ -5682,9 +5776,9 @@ describe('main.ts', () => {
     }
 
     it('sends the exact channel and payload when the host reports an interrupt', async () => {
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
-      listener({ generation: 4, reason: 'child-crash' });
+      listener({ generation: 4, reason: 'child-crash' }, owner);
 
       expect(interruptPushes()).toEqual([
         ['audiocap:interrupted', { generation: 4, reason: 'child-crash' }],
@@ -5693,11 +5787,27 @@ describe('main.ts', () => {
       spy.mockRestore();
     });
 
+    it('pushes nothing with no owner, or to an owner whose generation has moved on', async () => {
+      // #86 Task 7B: owner-only. Before #86 an ownerless interrupt went to the main
+      // window; now nobody hears it, and neither does the owner's previous document.
+      const { listener, spy, owner, staleOwner } = await captureInterruptListener();
+
+      listener({ generation: 4, reason: 'child-crash' });
+      listener({ generation: 4, reason: 'child-crash' }, staleOwner);
+      expect(interruptPushes()).toEqual([]);
+
+      // Control: the same harness does deliver to the current owner.
+      listener({ generation: 4, reason: 'child-crash' }, owner);
+      expect(interruptPushes()).toHaveLength(1);
+
+      spy.mockRestore();
+    });
+
     it('sends a NEW object, never the input reference, and carries no extra field', async () => {
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
       const input = { generation: 4, reason: 'child-crash', extra: 'nope' };
-      listener(input);
+      listener(input, owner);
 
       const pushes = interruptPushes();
       expect(pushes).toHaveLength(1);
@@ -5713,10 +5823,10 @@ describe('main.ts', () => {
       // Non-vacuity: `captureInterruptListener` already asserts the listener was
       // registered, so this case's zero pushes cannot be explained by "nothing was ever
       // wired" -- only by the `isDestroyed()` guard this case exists to pin.
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
       mockWebContents.isDestroyed.mockReturnValueOnce(true);
-      listener({ generation: 4, reason: 'child-crash' });
+      listener({ generation: 4, reason: 'child-crash' }, owner);
 
       expect(interruptPushes()).toEqual([]);
 
