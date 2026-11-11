@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <mach/mach_time.h>
+
 namespace {
 
 OSStatus g_tapStatus = noErr;
@@ -50,6 +52,34 @@ OSStatus testAudioDeviceCreateIOProcID(AudioObjectID, AudioDeviceIOProc proc, vo
 }
 
 }  // namespace
+
+#ifdef CONCORD_TEST_SLEPT_SECONDS
+// Sleep simulation. On a Mac that has not slept since boot, mach_continuous_time()
+// and mach_absolute_time() read identical values, so the clock-domain test cannot
+// tell the two domains apart (it reports VACUOUS). Building with
+// -DCONCORD_TEST_SLEPT_SECONDS=<n> shadows mach_continuous_time() with
+// mach_absolute_time() plus n seconds in host ticks, for BOTH the code under test
+// (tap_backend.mm, included below) and this test. Both then see a Mac that slept
+// n seconds, so a stamp taken in the mach_absolute_time domain is off by n s and
+// the test fails deterministically on any Mac.
+//
+// Limit: this proves which clock domain nowStampNs stamps in. It does NOT prove
+// that uv_hrtime reads mach_continuous_time on Electron 45; that is a separate,
+// recorded finding.
+namespace {
+uint64_t simulatedSleepTicks() {
+  static const uint64_t ticks = [] {
+    mach_timebase_info_data_t tb = {};
+    mach_timebase_info(&tb);
+    const uint64_t ns = static_cast<uint64_t>(CONCORD_TEST_SLEPT_SECONDS) * 1000000000ULL;
+    return ns * tb.denom / tb.numer;
+  }();
+  return ticks;
+}
+uint64_t simulatedContinuousTime() { return mach_absolute_time() + simulatedSleepTicks(); }
+}  // namespace
+#define mach_continuous_time() simulatedContinuousTime()
+#endif
 
 #define AudioHardwareCreateProcessTap testAudioHardwareCreateProcessTap
 #define AudioObjectGetPropertyData testAudioObjectGetPropertyData
@@ -181,6 +211,61 @@ void testCreateIoProcForwardsSuccessOutput() {
   CHECK(g_callbackCalls == 1);
 }
 
+// nowStampNs feeds QuantumPump, which is seeded from uv_hrtime. On Electron 45
+// that reads mach_continuous_time, which keeps counting through sleep, while
+// mach_absolute_time does not. The two differ by the time the Mac has slept
+// since boot, so BOTH branches of nowStampNs (null timestamp, and a timestamp
+// with a valid host time) must land in the continuous domain. Testing both
+// means a fix to one branch alone fails this test.
+//
+// Outcome and exit status:
+//   FAIL     -> a CHECK failed, g_failures > 0, the process exits 1.
+//   PASS     -> both branches agree and the offset is >= 1 s, so the domains
+//               are distinguishable; exits 0.
+//   VACUOUS  -> both branches agree but the offset is < 1 s: a Mac that has
+//               not slept since boot cannot tell the domains apart, so this
+//               proves nothing. It is NOT a failure and does not change the
+//               exit status (0), which is why it is printed loudly.
+void testNowStampIsInContinuousDomain() {
+  constexpr long long kToleranceNs = 1000000LL;      // 1 ms
+  constexpr long long kVacuousBelowNs = 1000000000LL;  // 1 s
+
+  const long long contNs0 = static_cast<long long>(macos::hostTimeToNs(mach_continuous_time()));
+  const long long absNs0 = static_cast<long long>(macos::hostTimeToNs(mach_absolute_time()));
+  const long long offsetNs = contNs0 - absNs0;
+  std::printf("clock offset mach_continuous_time - mach_absolute_time = %.3f ms\n",
+              static_cast<double>(offsetNs) / 1.0e6);
+
+  // (a) null timestamp branch.
+  const long long nullStamp = static_cast<long long>(macos::nowStampNs(nullptr));
+  const long long refA = static_cast<long long>(macos::hostTimeToNs(mach_continuous_time()));
+  const long long diffA = nullStamp - refA;
+
+  // (b) valid-host-time branch, host time read just before the call.
+  AudioTimeStamp ts = {};
+  ts.mHostTime = mach_absolute_time();
+  ts.mFlags = kAudioTimeStampHostTimeValid;
+  const long long hostStamp = static_cast<long long>(macos::nowStampNs(&ts));
+  const long long refB = static_cast<long long>(macos::hostTimeToNs(mach_continuous_time()));
+  const long long diffB = hostStamp - refB;
+
+  std::printf("nowStampNs(nullptr)    - continuous = %.3f ms\n", static_cast<double>(diffA) / 1.0e6);
+  std::printf("nowStampNs(hostValid)  - continuous = %.3f ms\n", static_cast<double>(diffB) / 1.0e6);
+
+  const int failuresBefore = g_failures;
+  CHECK(diffA > -kToleranceNs && diffA < kToleranceNs);
+  CHECK(diffB > -kToleranceNs && diffB < kToleranceNs);
+
+  if (g_failures != failuresBefore) {
+    std::printf("clock-domain: FAIL (offset %.3f ms)\n", static_cast<double>(offsetNs) / 1.0e6);
+  } else if (offsetNs < kVacuousBelowNs) {
+    std::printf("clock-domain: *** VACUOUS *** (offset < 1 s; domains indistinguishable, "
+                "not a PASS; exit status unaffected)\n");
+  } else {
+    std::printf("clock-domain: PASS\n");
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -194,6 +279,7 @@ int main() {
   testCreateAggregatePreservesUntouchedErrorOutput();
   testCreateIoProcForwardsErrorOutputAndClearsCallbackSlots();
   testCreateIoProcPreservesUntouchedErrorOutput();
+  testNowStampIsInContinuousDomain();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

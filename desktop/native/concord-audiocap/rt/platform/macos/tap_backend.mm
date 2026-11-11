@@ -62,10 +62,12 @@ namespace {
 std::atomic<HalApi::IoProcFn> g_ioProcFn{nullptr};
 std::atomic<void*>            g_ioProcCtx{nullptr};
 
-/// mach_absolute_time converted to nanoseconds -- the SAME domain uv_hrtime
-/// reports, which is what HostServices::nowNs returns. QuantumPump's budget is
-/// measured against that clock, so a device-clock value here would measure the
-/// silence budget in the wrong unit.
+/// Mach host ticks converted to nanoseconds. It converts whatever tick count it
+/// is given and names no clock itself: mach_absolute_time and
+/// mach_continuous_time count in the same unit (mach_time.h: "like
+/// mach_absolute_time, but advances during sleep") and share this timebase, so
+/// the clock DOMAIN is chosen by the caller. nowStampNs below is the only
+/// caller on the callback path, and it chooses mach_continuous_time.
 ///
 /// Returns 0 ONLY when the timebase is unreadable, and callers must treat that
 /// as "no usable stamp" rather than as time zero: a zero stamp makes
@@ -79,13 +81,56 @@ u64 hostTimeToNs(u64 hostTime) noexcept {
   return (hostTime * static_cast<u64>(tb.numer)) / static_cast<u64>(tb.denom);
 }
 
+/// How far mach_continuous_time has run ahead of mach_absolute_time, in host
+/// ticks: the total time this Mac has slept since boot.
+///
+/// READ ORDER IS THE GUARD'S FIRST HALF. At any one instant the continuous
+/// clock is at or ahead of the absolute one, and reading it SECOND can only
+/// move it further ahead, so `total >= awake` holds whenever both clocks are
+/// monotonic. The comparison is the second half: it keeps the subtraction from
+/// wrapping to ~2^64 if the kernel's commpage update ever breaks that
+/// argument, which rests on nothing this file controls. Its fallback, 0, is
+/// the pre-fix stamp (the absolute domain) -- wrong by the sleep time, which
+/// is the defect being fixed, but never a stamp centuries in the future.
+///
+/// Two commpage reads, no syscall, no allocation, no lock: safe on the IO
+/// thread.
+u64 sleepOffsetTicks() noexcept {
+  const u64 awake = static_cast<u64>(mach_absolute_time());
+  const u64 total = static_cast<u64>(mach_continuous_time());
+  return (total > awake) ? (total - awake) : 0u;
+}
+
 /// A monotonic stamp for this callback, or 0 if the machine cannot give one.
+///
+/// THE DOMAIN IS mach_continuous_time, because that is what the pump is seeded
+/// from: QuantumPump's budget is measured against HostServices::nowNs, which is
+/// uv_hrtime (napi/addon.cc), and on Electron 45 uv_hrtime reads
+/// mach_continuous_time (read from a disassembly of the shipped framework --
+/// a fact about that runtime, not a libuv guarantee, so re-check it on an
+/// Electron major bump). A stamp in the mach_absolute_time domain sits behind
+/// that clock by the time the Mac has slept since boot, so the silence budget
+/// could not latch until a capture outlived every sleep since boot.
+///
+/// BOTH branches land in that domain. Core Audio's mHostTime is in
+/// mach_absolute_time ticks (CoreAudioBaseTypes.h), so it is moved across by
+/// the sleep offset IN TICKS and converted ONCE: a 0 timebase then still yields
+/// 0, never a bare offset that would pass for a real stamp. The fallback has no
+/// host time to move and reads the continuous clock directly.
+///
+/// ponytail: the offset is read when the callback runs, not at mHostTime's
+/// instant. If the Mac slept between the two -- a buffer captured before sleep
+/// and delivered after wake -- the stamp is late by that sleep. For an input
+/// stamp, which is in the past, it is still no later than the continuous
+/// clock's now, and a buffer straddling a sleep is not worth a per-callback
+/// correction.
 u64 nowStampNs(const AudioTimeStamp* inputTime) noexcept {
   const bool hostValid =
       (inputTime != nullptr &&
        (inputTime->mFlags & kAudioTimeStampHostTimeValid) != 0);
-  return hostValid ? hostTimeToNs(static_cast<u64>(inputTime->mHostTime))
-                   : hostTimeToNs(static_cast<u64>(mach_absolute_time()));
+  return hostValid
+             ? hostTimeToNs(static_cast<u64>(inputTime->mHostTime) + sleepOffsetTicks())
+             : hostTimeToNs(static_cast<u64>(mach_continuous_time()));
 }
 
 OSStatus ioProcThunk(AudioObjectID, const AudioTimeStamp*,

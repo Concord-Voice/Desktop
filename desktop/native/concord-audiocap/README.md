@@ -245,6 +245,12 @@ clang++ -std=c++17 -Wall -Wextra -Werror -fobjc-arc -pthread -I. \
     -o /tmp/macos_partial_handle_test && /tmp/macos_partial_handle_test
 ```
 
+The same file checks that the tap stamps callbacks in the `mach_continuous_time` domain, the one
+`uv_hrtime` reads on Electron 45. On a Mac that has not slept since boot the two clocks agree and
+that check reports VACUOUS. Add `-DCONCORD_TEST_SLEPT_SECONDS=5` to the command above to run it
+against a simulated 5 s of sleep, where it fails if either branch of `nowStampNs` is in the wrong
+domain.
+
 `rt_contract_test.cc` is the backend-contract, gate and teardown suite; it uses a bare
 `CHECK` macro and no framework, and **only its exit status is a signal**. Its printed
 check count varies between runs by design — the concurrent cases `CHECK` inside spin
