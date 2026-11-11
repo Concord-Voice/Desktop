@@ -344,6 +344,20 @@ jobs:
             }
           "
 
+      # The transport end to end, in three real processes: main, the capture
+      # utility process, and a renderer running the production preload relay and
+      # bridge. It needs the synthetic binary built above and a real window, so it
+      # runs on the macOS arm64 row only. The probe stages the synthetic binary in
+      # a temp directory under the release file name and deletes it on every exit;
+      # that binary never enters the checkout under that name.
+      - name: Run the three-process transport probe
+        if: matrix.loadable == 'yes' && runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          npm run build:main
+          npm run build:preload
+          ./node_modules/.bin/electron scripts/audiocap-transport-probe
+
       # The cross-compiled row cannot dlopen either binary, so it proves only that
       # BOTH targets linked — which is the regression this row exists to catch.
       - name: Confirm both targets linked when they cannot be loaded
