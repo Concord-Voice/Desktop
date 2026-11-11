@@ -1,0 +1,382 @@
+/**
+ * Electron e2e fixture for connection-context isolation (#86 Task 10).
+ *
+ * Launches the BUILT shell (`npm run build` first) as an unpackaged app with HOME
+ * pointed at a fresh temp dir, two in-process stub planes, and a profile seeded with
+ * both planes approved and persisted. Nothing here needs a backend.
+ *
+ * Profile safety, in two layers:
+ *   1. Before launch, `fixtures/seedProfile.cjs` runs under the Electron binary with the
+ *      same environment, resolves userData through the built `pinUserDataPath`, and
+ *      refuses (exit 3) unless it lands beneath the temp root. The shell is never
+ *      launched against an unchecked path.
+ *   2. After launch, `app.getPath('userData')` is checked again; a mismatch closes the
+ *      app and throws before any test body runs.
+ *
+ * Why the unpackaged shell loads http://localhost:3001: main loads every view from the
+ * dev renderer URL when `app.isPackaged` is false. This fixture serves the BUILT
+ * `dist/renderer` there, so the views run the shipped bundle, not a Vite dev server.
+ *
+ * No production code reads an e2e-only variable. HOME is the OS's own; DEVTOOLS=0 is
+ * the existing dev switch that keeps detached DevTools from opening; `--use-mock-keychain`
+ * is Chromium's switch that keeps safeStorage off the login keychain.
+ */
+import { test as base, expect, _electron, type ElectronApplication } from '@playwright/test';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { RENDERER_ORIGIN, startStubPlane, type StubPlane } from './fixtures/controlPlaneStub';
+
+const DESKTOP_DIR = path.resolve(__dirname, '..', '..');
+const DIST_MAIN = path.join(DESKTOP_DIR, 'dist', 'main');
+const DIST_RENDERER = path.join(DESKTOP_DIR, 'dist', 'renderer');
+const SEED_SCRIPT = path.join(__dirname, 'fixtures', 'seedProfile.cjs');
+const RENDERER_PORT = Number(new URL(RENDERER_ORIGIN).port);
+
+// The `electron` package's node entry exports the binary path, not the API.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ELECTRON_BINARY = require('electron') as unknown as string;
+
+export interface Planes {
+  a: StubPlane;
+  b: StubPlane;
+}
+
+interface Fixtures {
+  app: ElectronApplication;
+  userData: string;
+  planes: Planes;
+}
+
+/** Resolves symlinks in the longest existing prefix (macOS: /var -> /private/var). */
+function real(p: string): string {
+  let head = path.resolve(p);
+  const tail: string[] = [];
+  while (!fs.existsSync(head)) {
+    tail.unshift(path.basename(head));
+    head = path.dirname(head);
+  }
+  return path.join(fs.realpathSync(head), ...tail);
+}
+
+export function isBeneath(root: string, candidate: string): boolean {
+  const rel = path.relative(real(root), real(candidate));
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+};
+
+/** Serves the built renderer where the unpackaged shell looks for its dev server. */
+async function serveBuiltRenderer(): Promise<http.Server> {
+  if (!fs.existsSync(path.join(DIST_RENDERER, 'index.html'))) {
+    throw new Error('dist/renderer/index.html missing — run `npm run build` first');
+  }
+  const server = http.createServer((req, res) => {
+    const pathname = decodeURIComponent((req.url ?? '/').split('?')[0]);
+    const candidate = path.join(DIST_RENDERER, path.normalize(pathname));
+    const inside = isBeneath(DIST_RENDERER, candidate);
+    const file =
+      inside && fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+        ? candidate
+        : path.join(DIST_RENDERER, 'index.html');
+    res.writeHead(200, {
+      'Content-Type': CONTENT_TYPES[path.extname(file)] ?? 'application/octet-stream',
+      'Cache-Control': 'no-store',
+    });
+    fs.createReadStream(file).pipe(res);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', (err: NodeJS.ErrnoException) =>
+      reject(
+        err.code === 'EADDRINUSE'
+          ? new Error(`port ${RENDERER_PORT} is in use — stop the Vite dev server first`)
+          : err
+      )
+    );
+    server.listen(RENDERER_PORT, '127.0.0.1', () => resolve());
+  });
+  return server;
+}
+
+function launchEnv(home: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  // An inherited ELECTRON_RUN_AS_NODE would start a bare node, not the shell.
+  delete env.ELECTRON_RUN_AS_NODE;
+  // The saas view keeps its default dev origin; nothing outside the test may steer it.
+  delete env.CONCORD_DEV_API_BASE;
+  env.HOME = home;
+  // macOS resolves appData through NSHomeDirectory(), which ignores HOME (measured: the
+  // seed guard refused with userData under the real ~/Library). CFFIXED_USER_HOME is
+  // Foundation's own override; no Concord code reads it.
+  env.CFFIXED_USER_HOME = home;
+  env.DEVTOOLS = '0';
+  return env;
+}
+
+function seedProfile(home: string, origins: string[]): { userData: string; serviceIds: string[] } {
+  const result = spawnSync(
+    ELECTRON_BINARY,
+    [SEED_SCRIPT, DIST_MAIN, home, JSON.stringify({ origins })],
+    { env: launchEnv(home), encoding: 'utf8', timeout: 60_000 }
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `profile seed refused (exit ${String(result.status)}): ${result.stderr.trim() || 'no output'}`
+    );
+  }
+  const line = result.stdout.trim().split('\n').pop() ?? '';
+  return JSON.parse(line) as { userData: string; serviceIds: string[] };
+}
+
+export const test = base.extend<Fixtures>({
+  planes: async ({}, use) => {
+    const a = await startStubPlane();
+    const b = await startStubPlane();
+    await use({ a, b });
+    await Promise.all([a.stop(), b.stop()]);
+  },
+
+  app: async ({ planes }, use) => {
+    if (!fs.existsSync(path.join(DIST_MAIN, 'main.js'))) {
+      throw new Error('dist/main/main.js missing — run `npm run build` first');
+    }
+    const home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'concord-e2e-'));
+    const renderer = await serveBuiltRenderer();
+    let app: ElectronApplication | null = null;
+    try {
+      const seeded = seedProfile(home, [planes.a.origin, planes.b.origin]);
+      if (!isBeneath(home, seeded.userData)) {
+        throw new Error(`seeded userData ${seeded.userData} is outside ${home}`);
+      }
+      app = await _electron.launch({
+        args: ['--use-mock-keychain', path.join(DIST_MAIN, 'main.js')],
+        cwd: DESKTOP_DIR,
+        env: launchEnv(home),
+        timeout: 60_000,
+      });
+      await installMainRequire(app);
+      const userData = await app.evaluate(({ app: electronApp }) =>
+        electronApp.getPath('userData')
+      );
+      if (!isBeneath(home, userData)) {
+        throw new Error(`userData resolved to ${userData}, outside ${home} — refusing to run`);
+      }
+      const shellLog: string[] = [];
+      const keep = (chunk: Buffer): void => {
+        shellLog.push(...chunk.toString('utf8').split('\n').filter(Boolean));
+        shellLog.splice(0, Math.max(0, shellLog.length - 40));
+      };
+      app.process().stdout?.on('data', keep);
+      app.process().stderr?.on('data', keep);
+      for (const origin of [planes.a.origin, planes.b.origin]) {
+        const deadline = Date.now() + 60_000;
+        while (!(await viewReady(app, origin))) {
+          if (Date.now() > deadline) {
+            throw new Error(
+              `view for ${origin} never became ready\nshell: ${JSON.stringify(
+                await describeShell(app)
+              )}\nlog:\n${shellLog.join('\n')}`
+            );
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+      await use(app);
+    } finally {
+      if (app) {
+        const child = app.process();
+        await app.close().catch(() => undefined);
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }
+      renderer.closeAllConnections();
+      await new Promise<void>((resolve) => renderer.close(() => resolve()));
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  },
+
+  userData: async ({ app }, use) => {
+    await use(await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData')));
+  },
+});
+
+export { expect };
+
+// ── Main-process probes ────────────────────────────────────────────────────────────
+// Each function below is serialised into the shell's main process by app.evaluate, so
+// it must be self-contained. `__e2eRequire` (installed once per launch, test-only) hands
+// back the shell's OWN module instances from the require cache and refuses to load a
+// module main.ts has not already loaded, so a probe can never read a second copy.
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type MainRequire = (module: string) => any;
+
+async function installMainRequire(app: ElectronApplication): Promise<void> {
+  await app.evaluate((_electron, dir) => {
+    const main = (process as unknown as { mainModule?: NodeJS.Module }).mainModule;
+    if (!main) throw new Error('no main module in the shell process');
+    const join = (main.require('node:path') as typeof import('node:path')).join;
+    // Module._cache — the one cache main.ts's own `require` calls populate.
+    const cache = (main.constructor as unknown as { _cache: Record<string, unknown> })._cache;
+    const e2eRequire = (name: string): unknown => {
+      const file = join(dir, `${name}.js`);
+      if (!cache[file]) throw new Error(`shell module not loaded: ${name}`);
+      return main.require(file);
+    };
+    (globalThis as unknown as { __e2eRequire: unknown }).__e2eRequire = e2eRequire;
+  }, DIST_MAIN);
+}
+
+/** True once `origin`'s primary view has loaded the renderer and has a connection identity. */
+export async function viewReady(app: ElectronApplication, origin: string): Promise<boolean> {
+  return app.evaluate(async (_electron, o) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const registry = req('connectionRegistry');
+    const service = registry.serviceForOrigin(o);
+    if (!service) return false;
+    const record = registry
+      .liveConnections()
+      .find((r: { serviceId: string }) => r.serviceId === service.serviceId);
+    if (!record || record.webContents.isLoading()) return false;
+    if (!record.webContents.getURL().startsWith('http://localhost:3001')) return false;
+    try {
+      return (await record.webContents.executeJavaScript(
+        'Boolean(window.electron && window.electron.connection && window.electron.connection.whoAmI())'
+      )) as boolean;
+    } catch {
+      return false;
+    }
+  }, origin);
+}
+
+/** Services and live connections as main sees them — for failure messages. */
+export async function describeShell(app: ElectronApplication): Promise<unknown> {
+  return app.evaluate(async () => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const registry = req('connectionRegistry');
+    const bridges: unknown[] = [];
+    for (const r of registry.liveConnections()) {
+      bridges.push(
+        await r.webContents
+          .executeJavaScript(
+            'JSON.stringify({ electron: typeof window.electron, connection: typeof (window.electron && window.electron.connection), whoAmI: window.electron && window.electron.connection ? window.electron.connection.whoAmI() : "absent" })'
+          )
+          .catch((e: unknown) => `executeJavaScript threw: ${String(e)}`)
+      );
+    }
+    return {
+      bridges,
+      services: registry
+        .allServices()
+        .map((s: { serviceId: string; kind: string; origin: string }) => [
+          s.serviceId,
+          s.kind,
+          s.origin,
+        ]),
+      connections: registry
+        .liveConnections()
+        .map(
+          (r: {
+            serviceId: string;
+            state: string;
+            webContents: { getURL(): string; isLoading(): boolean };
+          }) => [r.serviceId, r.state, r.webContents.getURL(), r.webContents.isLoading()]
+        ),
+    };
+  });
+}
+
+export async function serviceIdFor(app: ElectronApplication, origin: string): Promise<string> {
+  const id = await app.evaluate((_electron, o) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    return (req('connectionRegistry').serviceForOrigin(o)?.serviceId ?? null) as string | null;
+  }, origin);
+  if (id === null) throw new Error(`no service registered for ${origin}`);
+  return id;
+}
+
+/** The primary webContents id of `serviceId`'s live connection. */
+export async function primaryOf(app: ElectronApplication, serviceId: string): Promise<number> {
+  const id = await app.evaluate((_electron, sid) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const record = req('connectionRegistry')
+      .liveConnections()
+      .find((r: { serviceId: string }) => r.serviceId === sid);
+    return (record?.webContents.id ?? null) as number | null;
+  }, serviceId);
+  if (id === null) throw new Error(`no live connection for ${serviceId}`);
+  return id;
+}
+
+/** Values of every `plane` cookie in `serviceId`'s session jar. */
+export async function cookiesFor(app: ElectronApplication, serviceId: string): Promise<string[]> {
+  return app.evaluate(async (_electron, sid) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const service = req('connectionRegistry').getService(sid);
+    if (!service) throw new Error('unknown service');
+    const cookies = (await service.session.cookies.get({ name: 'plane' })) as { value: string }[];
+    return cookies.map((c) => c.value);
+  }, serviceId);
+}
+
+/** A stable identity for a webContents' session: its storage path. */
+export async function sessionOf(app: ElectronApplication, webContentsId: number): Promise<string> {
+  return app.evaluate(({ webContents, session }, id) => {
+    const wc = webContents.fromId(id);
+    if (!wc) throw new Error('no such webContents');
+    if (wc.session === session.defaultSession) return '<defaultSession>';
+    return wc.session.storagePath ?? '<in-memory>';
+  }, webContentsId);
+}
+
+export interface LiveRef {
+  connectionId: string;
+  generation: number;
+}
+
+/** The current `{ connectionId, generation }` of `serviceId`'s live connection. */
+export async function generationOf(app: ElectronApplication, serviceId: string): Promise<LiveRef> {
+  const ref = await app.evaluate((_electron, sid) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const record = req('connectionRegistry')
+      .liveConnections()
+      .find((r: { serviceId: string }) => r.serviceId === sid);
+    return record
+      ? { connectionId: record.connectionId as string, generation: record.generation as number }
+      : null;
+  }, serviceId);
+  if (ref === null) throw new Error(`no live connection for ${serviceId}`);
+  return ref;
+}
+
+/** Evaluates `code` in a webContents' main world and returns its (awaited) value. */
+export async function execIn<T>(
+  app: ElectronApplication,
+  webContentsId: number,
+  code: string
+): Promise<T> {
+  return app.evaluate(
+    ({ webContents }, { id, src }) => {
+      const wc = webContents.fromId(id);
+      if (!wc) throw new Error('no such webContents');
+      return wc.executeJavaScript(src);
+    },
+    { id: webContentsId, src: code }
+  ) as Promise<T>;
+}
