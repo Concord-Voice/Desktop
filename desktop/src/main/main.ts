@@ -127,6 +127,7 @@ import {
   getRemoteSpaBaseUrl,
   getRemoteSpaUrl,
   getSpaHash,
+  onSpaStateChange,
   setRemoteSpaState,
 } from './spaState';
 import {
@@ -135,6 +136,7 @@ import {
   getService,
   liveConnections,
   onGenerationAdvanced,
+  pipSpaOriginFor,
   recordFor,
   refOf,
   registerService,
@@ -153,6 +155,7 @@ import {
   broadcastToPrimaries,
   createPipWindow,
   createShellWindow,
+  destroyPip,
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
@@ -3226,6 +3229,29 @@ function destroyPipWindowsForQuit(): void {
     if (!pip.isDestroyed()) pip.destroy();
   }
 }
+
+/**
+ * Invariant: after every remote-SPA state write, no open PiP is pinned to a remote
+ * origin other than the current one. Admission refuses such a PiP on every
+ * pip-scoped channel, its own `pip:close` included, and the window is frameless,
+ * so leaving it open would strand it until quit. The predicate is admission's own
+ * (`pipSpaOriginFor` against the current origin), so a PiP is torn down exactly
+ * when it would be refused: one that pinned nothing (bundled, cached, self-hosted)
+ * is never touched, and one whose pin is still current (same origin, new hash)
+ * stays open. Teardown is `destroyPip`, the path `disposeConnectionView` uses:
+ * destroy() cannot be vetoed by a renderer beforeunload guard, and the 'closed'
+ * it guarantees pushes `pip:closed` and drops the registry membership once.
+ */
+function closePipsPinnedToStaleOrigin(): void {
+  const current = getRemoteSpaBaseUrl();
+  for (const { window: pip } of [...pipWindows.values()]) {
+    if (pip.isDestroyed()) continue;
+    const pinned = pipSpaOriginFor(pip.webContents);
+    if (pinned !== null && pinned !== current) destroyPip(pip.webContents);
+  }
+}
+// setRemoteSpaState is the only writer of the remote-SPA origin, and runs this.
+onSpaStateChange(closePipsPinnedToStaleOrigin);
 
 /**
  * Resolve the PiP `id` names together with WHICH of the two permitted

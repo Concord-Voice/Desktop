@@ -2877,44 +2877,163 @@ describe('main.ts', () => {
         senderFrameUrl: 'app://concord/index.html#/pip/transition-pip',
         admitted: true,
       },
-    ])('PiP self controls across a $name SPA transition (admitted: $admitted)', async (transition) => {
+    ])(
+      'PiP self controls across a $name SPA transition (admitted: $admitted)',
+      async (transition) => {
+        const { app } = await import('electron');
+        const { setRemoteSpaState } = await import('../../../src/main/spaState');
+        const originalPipFrame = pipFrame.current;
+        const testApp = app as unknown as { isPackaged: boolean };
+        testApp.isPackaged = true;
+        setRemoteSpaState(transition.initialRemoteSpaUrl);
+        pipFrame.current = {
+          url: transition.senderFrameUrl,
+          frameTreeNodeId: 88,
+          parent: null,
+        };
+
+        let closed: (() => void) | undefined;
+        try {
+          closed = await openPip('transition-pip', {
+            sender: mockWebContents,
+            senderFrame: {
+              url: transition.senderFrameUrl,
+              frameTreeNodeId: 77,
+              parent: null,
+            },
+          });
+          const pipMainFrameEvent = pipMainFrame();
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+          mockPipWindow.setAlwaysOnTop.mockClear();
+          mockPipWindow.close.mockClear();
+
+          await handlers.get('pip:setAlwaysOnTop')!(pipMainFrameEvent, {
+            id: 'transition-pip',
+            flag: false,
+          });
+          await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'transition-pip' });
+
+          expect(mockPipWindow.setAlwaysOnTop.mock.calls).toEqual(
+            transition.admitted ? [[false]] : []
+          );
+          expect(mockPipWindow.close).toHaveBeenCalledTimes(transition.admitted ? 1 : 0);
+        } finally {
+          closed?.();
+          setRemoteSpaState(null);
+          testApp.isPackaged = false;
+          pipFrame.current = originalPipFrame;
+        }
+      }
+    );
+
+    // A remote-SPA PiP whose pinned origin stops being current is refused on every
+    // pip-scoped channel, its own pip:close included, and it is frameless, so main
+    // tears it down at the transition rather than strand it until quit. A PiP whose
+    // pin is still the current origin (same origin, new hash) stays open.
+    it.each([
+      {
+        name: 'remote to bundled',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: null,
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: true,
+      },
+      {
+        name: 'remote to another remote origin',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa-b.example.test/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: true,
+      },
+      {
+        name: 'remote to the same origin at a new hash',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: false,
+      },
+      {
+        name: 'bundled to remote',
+        initialRemoteSpaUrl: null,
+        nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
+        senderFrameUrl: 'app://concord/index.html#/pip/stale-pin-pip',
+        closesPip: false,
+      },
+    ])(
+      'a $name SPA transition closes the PiP only if its pin went stale (closes: $closesPip)',
+      async (transition) => {
+        const { app } = await import('electron');
+        const { setRemoteSpaState } = await import('../../../src/main/spaState');
+        const originalPipFrame = pipFrame.current;
+        const testApp = app as unknown as { isPackaged: boolean };
+        testApp.isPackaged = true;
+        setRemoteSpaState(transition.initialRemoteSpaUrl);
+        pipFrame.current = { url: transition.senderFrameUrl, frameTreeNodeId: 88, parent: null };
+
+        let closed: (() => void) | undefined;
+        try {
+          closed = await openPip('stale-pin-pip', {
+            sender: mockWebContents,
+            senderFrame: { url: transition.senderFrameUrl, frameTreeNodeId: 77, parent: null },
+          });
+          mockPipWindow.destroy.mockClear();
+          mockPipWindow.close.mockClear();
+          const pushesBefore = mockWebContents.send.mock.calls.length;
+
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+          // The same state written again (a re-entered fallback) before Electron
+          // emits 'closed' must not tear the window down a second time.
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+
+          expect(mockPipWindow.destroy).toHaveBeenCalledTimes(transition.closesPip ? 1 : 0);
+          // Not close(): a renderer beforeunload guard must not be able to veto it.
+          expect(mockPipWindow.close).not.toHaveBeenCalled();
+
+          // Electron guarantees 'closed' after destroy(); its handling runs once.
+          closed();
+          closed = undefined;
+          const closedPushes = mockWebContents.send.mock.calls
+            .slice(pushesBefore)
+            .filter((call) => call[0] === 'pip:closed');
+          expect(closedPushes).toEqual([['pip:closed', { id: 'stale-pin-pip' }]]);
+        } finally {
+          closed?.();
+          setRemoteSpaState(null);
+          testApp.isPackaged = false;
+          pipFrame.current = originalPipFrame;
+        }
+      }
+    );
+
+    it('leaves a PiP that pinned no remote origin open across every SPA transition', async () => {
       const { app } = await import('electron');
       const { setRemoteSpaState } = await import('../../../src/main/spaState');
       const originalPipFrame = pipFrame.current;
       const testApp = app as unknown as { isPackaged: boolean };
       testApp.isPackaged = true;
-      setRemoteSpaState(transition.initialRemoteSpaUrl);
-      pipFrame.current = {
-        url: transition.senderFrameUrl,
-        frameTreeNodeId: 88,
-        parent: null,
-      };
+      setRemoteSpaState(null);
+      const frameUrl = 'app://concord/index.html#/pip/unpinned-pip';
+      pipFrame.current = { url: frameUrl, frameTreeNodeId: 88, parent: null };
 
       let closed: (() => void) | undefined;
       try {
-        closed = await openPip('transition-pip', {
+        closed = await openPip('unpinned-pip', {
           sender: mockWebContents,
-          senderFrame: {
-            url: transition.senderFrameUrl,
-            frameTreeNodeId: 77,
-            parent: null,
-          },
+          senderFrame: { url: frameUrl, frameTreeNodeId: 77, parent: null },
         });
-        const pipMainFrameEvent = pipMainFrame();
-        setRemoteSpaState(transition.nextRemoteSpaUrl);
-        mockPipWindow.setAlwaysOnTop.mockClear();
+        mockPipWindow.destroy.mockClear();
         mockPipWindow.close.mockClear();
-
-        await handlers.get('pip:setAlwaysOnTop')!(pipMainFrameEvent, {
-          id: 'transition-pip',
-          flag: false,
-        });
-        await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'transition-pip' });
-
-        expect(mockPipWindow.setAlwaysOnTop.mock.calls).toEqual(
-          transition.admitted ? [[false]] : []
-        );
-        expect(mockPipWindow.close).toHaveBeenCalledTimes(transition.admitted ? 1 : 0);
+        for (const url of [
+          'https://spa.example.test/spa/a/index.html',
+          'https://spa.example.test/spa/b/index.html',
+          'https://spa-b.example.test/index.html',
+          null,
+          null,
+        ]) {
+          setRemoteSpaState(url);
+        }
+        expect(mockPipWindow.destroy).not.toHaveBeenCalled();
+        expect(mockPipWindow.close).not.toHaveBeenCalled();
       } finally {
         closed?.();
         setRemoteSpaState(null);

@@ -476,7 +476,11 @@ export function broadcastToPrimaries(channel: string, ...args: unknown[]): void 
   for (const contents of primaries()) sendTo(contents, channel, args);
 }
 
-function destroyPip(pipContents: WebContents): void {
+/**
+ * Tear down one PiP this module built. Idempotent: the map entry goes first, so a
+ * second call finds nothing; Electron then guarantees 'closed' exactly once.
+ */
+export function destroyPip(pipContents: WebContents): void {
   const pip = pipWindows.get(pipContents);
   pipWindows.delete(pipContents);
   try {
