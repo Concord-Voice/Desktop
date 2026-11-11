@@ -4,6 +4,31 @@ import eslintReact from '@eslint-react/eslint-plugin';
 import eslintPluginEslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import eslintConfigPrettier from 'eslint-config-prettier';
 
+// Shared by both src/main/** `no-restricted-syntax` blocks below (the second replaces the
+// first's rule key for the files it matches, so it must carry this selector too).
+const MAIN_RAW_ERR_CONSOLE_SELECTOR = {
+  selector:
+    'CallExpression[callee.type="MemberExpression"][callee.object.name="console"][callee.property.name=/^(error|warn)$/] > Identifier:last-child:not(:first-child)',
+  message:
+    'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (refresh tokens, response-body fragments). Use `(err as Error).message` instead. See internal-reference "Console error logging". If the raw argument is intentional (e.g., a safe structured detail), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
+};
+
+// #86 Task 7A → 7B: main-process files that still call ipcMain directly. Task 7B removes
+// each entry as it migrates that file to registerIpc; the list must be empty after 7B.
+const TRANSITIONAL_RAW_IPCMAIN_FILES = [
+  'src/main/main.ts',
+  'src/main/permissionManager.ts',
+  'src/main/ipc/attestation.ts',
+  'src/main/ipc/audiocap.ts',
+  'src/main/ipc/billing.ts',
+  'src/main/ipc/openExternal.ts',
+  'src/main/ipc/saveImage.ts',
+  'src/main/ipc/sso.ts',
+  'src/main/ipc/trayStatus.ts',
+  'src/main/ipc/versionInfo.ts',
+  'src/main/ipc/windowControls.ts',
+];
+
 export default [
   // Global ignores (replaces ignorePatterns)
   {
@@ -82,6 +107,7 @@ export default [
         projectService: {
           allowDefaultProject: [
             'src/main/__lint-fixture__.ts',
+            'src/main/__ipc-lint-fixture__.ts',
             'src/renderer/__lint-fixture__.tsx',
             // Top-level build-tooling configs (outside rootDir: "./src")
             'vite.config.ts',
@@ -251,13 +277,36 @@ export default [
   {
     files: ['src/main/**/*.{ts,tsx}'],
     rules: {
+      'no-restricted-syntax': ['error', MAIN_RAW_ERR_CONSOLE_SELECTOR],
+    },
+  },
+
+  // #86 §3.7: every IPC channel registers through `registerIpc` (src/main/ipc/registry.ts),
+  // which admits the sender by its connection binding before the handler runs. A raw
+  // `ipcMain.handle|on|once|handleOnce` anywhere else skips that admission, so it is
+  // banned. This block REPLACES the one above's `no-restricted-syntax` for the files it
+  // matches (a scoped block replaces a rule key wholesale), which is why it repeats the
+  // raw-err selector. registry.ts is the one sanctioned caller and keeps only the block
+  // above. Locked by tests/unit/main/eslint-no-raw-ipcmain.test.ts.
+  //
+  // TRANSITIONAL (#86 Task 7A → 7B): the files in TRANSITIONAL_RAW_IPCMAIN_FILES still
+  // register their handlers directly. Task 7B migrates each one to registerIpc and
+  // deletes it from that list in the same commit; the list must be empty when 7B lands.
+  // A NEW file is covered the moment it exists. `connection:whoAmI` (src/main/ipc/
+  // connection.ts) is a synchronous `ipcMain.on` + `returnValue` by design and carries a
+  // line-level disable with its rationale.
+  {
+    files: ['src/main/**/*.{ts,tsx}'],
+    ignores: ['src/main/ipc/registry.ts', ...TRANSITIONAL_RAW_IPCMAIN_FILES],
+    rules: {
       'no-restricted-syntax': [
         'error',
+        MAIN_RAW_ERR_CONSOLE_SELECTOR,
         {
           selector:
-            'CallExpression[callee.type="MemberExpression"][callee.object.name="console"][callee.property.name=/^(error|warn)$/] > Identifier:last-child:not(:first-child)',
+            'CallExpression[callee.type="MemberExpression"][callee.object.name="ipcMain"][callee.property.name=/^(handle|on|once|handleOnce)$/]',
           message:
-            'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (refresh tokens, response-body fragments). Use `(err as Error).message` instead. See internal-reference "Console error logging". If the raw argument is intentional (e.g., a safe structured detail), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
+            'Register IPC channels with registerIpc (src/main/ipc/registry.ts), never raw ipcMain.handle/on/once/handleOnce: the registry admits the sender by its connection binding and the channel must be classified in ipc/channelClassification.ts. See electron.md § IPC contract v34.',
         },
       ],
     },
