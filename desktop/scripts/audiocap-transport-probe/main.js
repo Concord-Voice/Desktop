@@ -30,6 +30,12 @@ const INJECT = (process.argv.find((arg) => arg.startsWith('--inject=')) ?? '').s
 const RELEASE_DIR = path.join(ROOT, 'native/concord-audiocap/build/Release');
 const SYNTHETIC = path.join(RELEASE_DIR, 'concord_audiocap_synthetic.node');
 const SHIPPED = path.join(RELEASE_DIR, 'concord_audiocap.node');
+// After a stall the quanta already in flight (credit bound 8) and in the ring (8
+// slots) arrive first, stale: at most 16 before the first gap shows. The bridge's
+// overrun total lags a drop by up to 8 more, so the witnesses are read 32 fresh
+// quanta after the stall, never sooner.
+const STALE_LIMIT = 16;
+const SETTLE_QUANTA = 32;
 
 class CouldNotRun extends Error {}
 
@@ -375,6 +381,88 @@ async function main() {
     );
     return [
       `${delta} quanta in 3 s, ${after.checked} checked in all; stats ${JSON.stringify(stats)}`,
+    ];
+  });
+
+  await runPass('slow consumer', async () => {
+    const { judgeStall } = await import(pathToFileURL(path.join(__dirname, 'oracle.mjs')).href);
+    const notes = [];
+    for (const ms of [80, 300, 450]) {
+      const tag = `stall ${ms} ms`;
+      const control = ms === 80;
+      // Counts and stats in one page turn, so no quantum lands between the two.
+      const [before, beforeStats] = await page('[__probe.counts(), __probe.stats()]');
+      await page(`__probe.stall(${ms})`);
+      let after = null;
+      let stats = null;
+      await waitFor(`${tag}: ${SETTLE_QUANTA} quanta checked after the stall`, 2000, async () => {
+        [after, stats] = await page('[__probe.counts(), __probe.stats()]');
+        return after.checked >= after.stallEnd + SETTLE_QUANTA;
+      });
+      const content = after.contentMissing - before.contentMissing;
+      const seqGaps = stats.seqGaps - beforeStats.seqGaps;
+      const overrun = stats.overrun - beforeStats.overrun;
+      const verdict = judgeStall({ content, seqGaps, overrun, control });
+      check(verdict.ok, `${tag}: ${verdict.reason}`);
+      check(
+        after.bad === 0,
+        `${tag}: ${after.bad} bad quanta, first ${JSON.stringify(after.firstBad)}`
+      );
+      check(stats.faulted === false, `${tag}: the bridge faulted`);
+      let gapNote = '';
+      if (!control) {
+        check(after.firstGapAt !== null, `${tag}: no content gap after the stall ended`);
+        const stale = after.firstGapAt - after.stallEnd - 1;
+        check(
+          stale <= STALE_LIMIT,
+          `${tag}: the first gap came after ${stale} stale quanta (at most ${STALE_LIMIT})`
+        );
+        gapNote = `, first gap after ${stale} stale quanta`;
+      }
+      notes.push(`${tag} -> content ${content}, seqGaps ${seqGaps}, overrun ${overrun}${gapNote}`);
+    }
+    return notes;
+  });
+
+  // LAST: it ends the capture.
+  await runPass('kill', async () => {
+    const utility = audiocapUtilityPid();
+    const seen = interrupts.length;
+    const killedAt = Date.now();
+    const until = (ms) => sleep(Math.max(0, killedAt + ms - Date.now()));
+    process.kill(utility.pid, 'SIGKILL');
+    await until(1000);
+    const checkedAt1s = (await page('__probe.counts()')).checked;
+    await until(2000);
+    const checkedAt2s = (await page('__probe.counts()')).checked;
+    const survivors = app
+      .getAppMetrics()
+      .filter((m) => m.type === 'Utility' && m.serviceName === 'node.mojom.NodeService');
+    await until(5000);
+    const arrived = interrupts.slice(seen);
+    check(
+      arrived.length === 1,
+      `${arrived.length} interrupts within 5 s of the SIGKILL, expected exactly 1: ${JSON.stringify(arrived)}`
+    );
+    check(
+      arrived[0].reason === 'child-crash',
+      `the interrupt reason is ${arrived[0].reason}, expected child-crash`
+    );
+    const generation = host.currentAudiocapGeneration();
+    check(
+      generation === 0,
+      `currentAudiocapGeneration() is ${generation} after the kill, expected 0`
+    );
+    check(
+      checkedAt2s === checkedAt1s,
+      `writes continued after the kill: ${checkedAt1s} checked at 1 s, ${checkedAt2s} at 2 s`
+    );
+    check(
+      survivors.length === 0,
+      `a node utility process exists 2 s after the kill: ${survivors.map((m) => m.pid).join(', ')}`
+    );
+    return [
+      `utility ${utility.pid} killed; interrupt ${JSON.stringify(arrived[0])}; ${checkedAt1s} checked at 1 s and 2 s; no node utility at 2 s`,
     ];
   });
 

@@ -24,6 +24,10 @@ let firstBad = null;
 let contentMissing = 0;
 let lastWriteMs = null;
 let prevPhase = null;
+// Set at the end of each stall(): `checked` at that moment, and the `checked`
+// count of the first quantum after it whose phase shows a gap.
+let stallEnd = null;
+let firstGapAt = null;
 
 // Preallocated once: the hook copies into this on every quantum, so the probe
 // adds no per-quantum allocation of its own to the page it is watching.
@@ -69,7 +73,11 @@ function inspect(audioData) {
     noteBad(verdict.reason, { index: verdict.index });
     return;
   }
-  if (prevPhase !== null) contentMissing += missingQuanta(prevPhase, verdict.phase);
+  if (prevPhase !== null) {
+    const missing = missingQuanta(prevPhase, verdict.phase);
+    contentMissing += missing;
+    if (missing > 0 && stallEnd !== null && firstGapAt === null) firstGapAt = checked;
+  }
   prevPhase = verdict.phase;
 }
 
@@ -124,7 +132,7 @@ globalThis.__probe = {
     return bridge.generation;
   },
   counts() {
-    return { checked, bad, firstBad, contentMissing, lastWriteMs };
+    return { checked, bad, firstBad, contentMissing, lastWriteMs, stallEnd, firstGapAt };
   },
   stats() {
     return bridge === null ? null : bridge.stats();
@@ -133,10 +141,16 @@ globalThis.__probe = {
     return shape;
   },
   // Busy-waits on this thread, so the bridge's port handler cannot run meanwhile.
+  // `--inject=nostall` returns at once, so the slow-consumer pass sees no drop and
+  // must fail: the proof that it can.
   stall(ms) {
-    const end = performance.now() + ms;
     let spins = 0;
-    while (performance.now() < end) spins += 1;
+    if (inject !== 'nostall') {
+      const end = performance.now() + ms;
+      while (performance.now() < end) spins += 1;
+    }
+    stallEnd = checked;
+    firstGapAt = null;
     return spins;
   },
 };
