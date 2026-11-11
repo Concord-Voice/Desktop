@@ -168,10 +168,19 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function isStale(artifact, sources) {
+// ponytail: whole input directories, not a file list that drifts as imports change; an
+// unrelated edit under them asks for a rebuild it did not strictly need.
+function isStale(artifact, inputs) {
   if (!fs.existsSync(artifact)) return true;
   const built = fs.statSync(artifact).mtimeMs;
-  return sources.some((src) => fs.statSync(path.join(ROOT, src)).mtimeMs > built);
+  const newer = (file) => fs.statSync(file).mtimeMs > built;
+  return inputs.some((input) => {
+    const abs = path.join(ROOT, input);
+    if (fs.statSync(abs).isFile()) return newer(abs);
+    return fs
+      .readdirSync(abs, { recursive: true })
+      .some((rel) => fs.statSync(path.join(abs, rel)).isFile() && newer(path.join(abs, rel)));
+  });
 }
 
 /** Every precondition the passes rely on. Returns a reason, or null when all hold. */
@@ -179,15 +188,18 @@ function guardFailure() {
   if (app.isPackaged) return 'the probe refuses to run in a packaged app';
   const build = 'run `npm run build:main && npm run build:preload`';
   const hostJs = path.join(ROOT, 'dist/main/audiocapHost.js');
-  if (isStale(hostJs, ['src/main/audiocapHost.ts', 'src/main/audiocapChild.ts'])) {
+  // tsconfig.main.json compiles src/main and src/shared; the preload bundle also
+  // imports from src/main.
+  if (isStale(hostJs, ['src/main', 'src/shared'])) {
     return `dist/main is missing or older than its source; ${build}`;
   }
   const preloadJs = path.join(ROOT, 'dist/preload/preload.js');
-  if (isStale(preloadJs, ['src/preload/preload.ts', 'src/preload/audiocapRelay.ts'])) {
+  if (isStale(preloadJs, ['src/preload', 'src/shared', 'src/main'])) {
     return `dist/preload/preload.js is missing or older than its source; ${build}`;
   }
-  if (!fs.existsSync(SYNTHETIC)) {
-    return 'the synthetic addon is missing; run `npm run build:native -- --synthetic`';
+  const native = 'native/concord-audiocap';
+  if (isStale(SYNTHETIC, [`${native}/rt`, `${native}/napi`, `${native}/binding.gyp`])) {
+    return 'the synthetic addon is missing or older than its source; run `npm run build:native -- --synthetic`';
   }
   const mainTs = fs.readFileSync(path.join(ROOT, 'src/main/main.ts'), 'utf8');
   if (!mainTs.includes("webContents.postMessage('audiocap:port'")) {
