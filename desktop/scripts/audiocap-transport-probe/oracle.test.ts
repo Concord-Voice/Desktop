@@ -106,6 +106,16 @@ describe('missingQuanta', () => {
   it('reads a duplicated quantum as 46 missing', () => {
     for (const p of [0, 12, 46]) expect(missingQuanta(p, p)).toBe(46);
   });
+
+  it('flags a reordered pair at every step around the swap', () => {
+    for (const p of [0, 12, 46]) {
+      const at = (i: number) => (p + 10 * i) % 47;
+      // Delivered 0, 2, 1, 3 instead of 0, 1, 2, 3.
+      expect(missingQuanta(at(0), at(2))).toBe(1);
+      expect(missingQuanta(at(2), at(1))).toBe(45);
+      expect(missingQuanta(at(1), at(3))).toBe(1);
+    }
+  });
 });
 
 describe('percentiles', () => {
