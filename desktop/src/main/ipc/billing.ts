@@ -6,7 +6,7 @@
  * then does main open the launcher window; the renderer never chooses where
  * the view may navigate after that.
  */
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, type BaseWindow, type IpcMainInvokeEvent } from 'electron';
 
 import {
   openBillingWindow,
@@ -18,7 +18,7 @@ import { requireTrustedSender } from './frameValidation';
 
 export function registerBillingIpc(
   getRemoteSpaBaseUrl: () => string | null,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BaseWindow | null
 ): void {
   ipcMain.handle(
     'billing:open',

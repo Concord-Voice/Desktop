@@ -57,6 +57,9 @@ export function createTokenBucket(ratePerSec: number, now: () => number): () => 
   };
 }
 
+/** The admitted window: only its liveness and its `webContents` are read (#86 Task 4). */
+type MainWindowHandle = () => Pick<BrowserWindow, 'isDestroyed' | 'webContents'> | null;
+
 /**
  * True only for the main window's own main frame, on a trusted origin. `senderFrame`
  * is read once (inside `requireTrustedSender`), so the frame whose URL passed is the
@@ -67,7 +70,7 @@ export function createTokenBucket(ratePerSec: number, now: () => number): () => 
 function isMainWindowMainFrame(
   event: IpcMainInvokeEvent,
   remoteSpaOrigin: string | null,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: MainWindowHandle
 ): boolean {
   const senderFrame = requireTrustedSender(event, remoteSpaOrigin);
   if (!senderFrame) return false;
@@ -86,7 +89,7 @@ function isMainWindowMainFrame(
 
 export function registerTrayStatusIpc(
   getRemoteSpaBaseUrl: () => string | null,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: MainWindowHandle
 ): void {
   const allow = createTokenBucket(TRAY_STATUS_RATE_PER_SEC, () => Date.now());
   let loggedMalformed = false;

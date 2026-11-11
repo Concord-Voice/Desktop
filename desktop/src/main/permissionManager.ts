@@ -226,7 +226,7 @@ export function openSystemSettings(type: OsPermissionType): void {
 // ─── IPC Registration ─────────────────────────────────────────────────
 
 export function registerIpcHandlers(
-  getMainWindow: () => BrowserWindow | null,
+  getMainWindow: () => Pick<BrowserWindow, 'isDestroyed' | 'webContents'> | null,
   getRemoteSpaBaseUrl: () => string | null
 ): void {
   ipcMain.handle('permission:checkAll', (event) => {

@@ -20,7 +20,7 @@ vi.mock('@/main/spaLoader', () => ({
 const { mockLoadURL, mockLoadFile, mockWebContents, mockGetAllWindows } = vi.hoisted(() => {
   const loadURL = vi.fn();
   const loadFile = vi.fn();
-  const webContents = { loadURL, loadFile };
+  const webContents = { loadURL, loadFile, isDestroyed: () => false };
   const getAllWindows = vi.fn(() => [{ webContents, isDestroyed: () => false }]);
   return {
     mockLoadURL: loadURL,
@@ -43,6 +43,16 @@ vi.mock('electron', () => ({
   BrowserWindow: {
     getAllWindows: mockGetAllWindows,
   },
+}));
+
+// #86 Task 4: self-heal targets the saas connection's view, not a BrowserWindow scan.
+// Each live mock "window" stands in for that view, so the per-test overrides of
+// mockGetAllWindows (e.g. the no-window race) keep their meaning.
+vi.mock('@/main/connectionRegistry', () => ({
+  liveConnections: () =>
+    mockGetAllWindows()
+      .filter((w: { isDestroyed: () => boolean }) => !w.isDestroyed())
+      .map((w: { webContents: unknown }) => ({ serviceId: 'saas', webContents: w.webContents })),
 }));
 
 // Module under test — imported AFTER mocks are registered.

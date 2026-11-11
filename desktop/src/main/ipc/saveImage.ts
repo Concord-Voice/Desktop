@@ -1,4 +1,4 @@
-import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { dialog, ipcMain, type BaseWindow, type IpcMainInvokeEvent } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { isPermittedFrameUrl } from './frameValidation';
@@ -25,7 +25,7 @@ const CHANNEL = 'image:saveAs';
 const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 
 type RemoteSpaOriginProvider = () => string | null;
-type WindowProvider = () => BrowserWindow | null;
+type WindowProvider = () => BaseWindow | null;
 
 export interface SaveImageResult {
   ok: boolean;

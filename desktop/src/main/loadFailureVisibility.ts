@@ -1,7 +1,7 @@
-import { dialog, type BrowserWindow } from 'electron';
+import { dialog, type BaseWindow } from 'electron';
 import { closeSplash } from './splashWindow';
 
-export function revealLoadFailure(window: BrowserWindow | null, message: string): void {
+export function revealLoadFailure(window: BaseWindow | null, message: string): void {
   closeSplash();
   if (window && !window.isDestroyed()) {
     window.show();

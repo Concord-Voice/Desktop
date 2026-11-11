@@ -36,7 +36,7 @@ type RemoteSpaOriginProvider = () => string | null;
  * `whenReady` before `createWindow` assigns the window, and `main.ts` nulls it on `closed`,
  * so the lookup has to happen per call rather than once at registration.
  */
-type MainWindowProvider = () => BrowserWindow | null;
+type MainWindowProvider = () => Pick<BrowserWindow, 'isDestroyed' | 'webContents'> | null;
 
 /**
  * FENCE 1, shared by both handlers so the start and the stop cannot drift apart (#3394 PR 1,

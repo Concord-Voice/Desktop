@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type BaseWindow } from 'electron';
 import { DEFAULT_CLIENT_BEHAVIOR, type ClientBehavior } from '../../shared/clientBehavior';
 
 let cachedClientBehavior: ClientBehavior = DEFAULT_CLIENT_BEHAVIOR;
@@ -25,7 +25,7 @@ export function getCachedClientBehavior(): ClientBehavior {
   return cachedClientBehavior;
 }
 
-export function registerWindowControlsIpc(getWindow: () => BrowserWindow | null): void {
+export function registerWindowControlsIpc(getWindow: () => BaseWindow | null): void {
   ipcMain.handle('window:setClientBehavior', (_event, value: unknown) => {
     // Runtime input validation at the IPC trust boundary. A compromised
     // renderer could send arbitrary shapes; reject silently and keep the

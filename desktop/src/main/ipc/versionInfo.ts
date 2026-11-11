@@ -1,4 +1,4 @@
-import { app, ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type WebContents } from 'electron';
 import { getRemoteSpaUrl, getSpaHash, getSpaVersion, onSpaStateChange } from '../spaState';
 
 // Path-anchored so a URL like `https://evil.com/proxy/spa/abc/` doesn't
@@ -28,7 +28,10 @@ export function getCurrentSpaDisplayHash(url: string | null): string | null {
   return getSpaVersion() || extractSpaHash(url) || getSpaHash() || null;
 }
 
-export function registerVersionInfoIpc(getWindow: () => BrowserWindow | null): void {
+/** Only liveness and `webContents.send` are read; main.ts fans the push out (#86 Task 4). */
+type RendererPushTarget = { isDestroyed(): boolean; readonly webContents: Pick<WebContents, 'send'> };
+
+export function registerVersionInfoIpc(getWindow: () => RendererPushTarget | null): void {
   ipcMain.handle('window:getVersionString', (): VersionString => ({
     appVersion: app.getVersion(),
     spaHash: getCurrentSpaDisplayHash(getRemoteSpaUrl()),

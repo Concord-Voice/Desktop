@@ -192,6 +192,11 @@ export function getService(id: ServiceId): ServiceRecord | undefined {
   return services.get(id);
 }
 
+/** Every registered service, live or not (the dev Connections menu). Grants nothing. */
+export function allServices(): ServiceRecord[] {
+  return [...services.values()];
+}
+
 export function serviceForOrigin(origin: string): ServiceRecord | undefined {
   const canonical = canonicalOrigin(origin);
   if (canonical === null) return undefined;

@@ -1,0 +1,596 @@
+// @vitest-environment node
+// #86 Task 4 — BaseWindow composition and connection views (spec §3.9).
+// RED step: src/main/shellWindow.ts does not exist yet.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const h = vi.hoisted(() => {
+  const state = {
+    calls: [] as string[],
+    packaged: true,
+    bounds: { x: 0, y: 0, width: 1280, height: 720 },
+    windows: [] as Array<Record<string, any>>,
+    views: [] as Array<Record<string, any>>,
+    pips: [] as Array<Record<string, any>>,
+    pipOptions: [] as Array<Record<string, any>>,
+  };
+  function makeWc(ses: unknown) {
+    const handlers = new Map<string, Array<(...a: any[]) => void>>();
+    let destroyed = false;
+    const wc: Record<string, any> = {
+      session: ses,
+      handlers,
+      mainFrame: { frameTreeNodeId: 1 },
+      on: vi.fn((e: string, f: (...a: any[]) => void) => {
+        handlers.set(e, [...(handlers.get(e) ?? []), f]);
+        return wc;
+      }),
+      once: vi.fn((e: string, f: (...a: any[]) => void) => {
+        handlers.set(e, [...(handlers.get(e) ?? []), f]);
+        return wc;
+      }),
+      emit(e: string, ...a: unknown[]) {
+        for (const f of handlers.get(e) ?? []) f(...a);
+      },
+      loadURL: vi.fn(() => {
+        state.calls.push('loadURL');
+        return Promise.resolve();
+      }),
+      send: vi.fn(),
+      close: vi.fn(() => {
+        state.calls.push('wc.close');
+        destroyed = true;
+      }),
+      isDestroyed: vi.fn(() => destroyed),
+      setWindowOpenHandler: vi.fn(),
+      getURL: vi.fn(() => ''),
+    };
+    return wc;
+  }
+  class BaseWindow {
+    opts: Record<string, any>;
+    handlers = new Map<string, Array<(...a: any[]) => void>>();
+    contentView = {
+      children: [] as unknown[],
+      addChildView: vi.fn((v: unknown) => {
+        state.calls.push('addChildView');
+        this.contentView.children.push(v);
+      }),
+      removeChildView: vi.fn((v: unknown) => {
+        state.calls.push('removeChildView');
+        this.contentView.children = this.contentView.children.filter((c) => c !== v);
+      }),
+    };
+    setContentProtection = vi.fn(() => state.calls.push('protect'));
+    maximize = vi.fn();
+    show = vi.fn();
+    getContentBounds = vi.fn(() => ({ ...state.bounds }));
+    isDestroyed = vi.fn(() => false);
+    constructor(opts: Record<string, any>) {
+      this.opts = opts;
+      state.windows.push(this as never);
+    }
+    on(e: string, f: (...a: any[]) => void) {
+      this.handlers.set(e, [...(this.handlers.get(e) ?? []), f]);
+      return this;
+    }
+    emit(e: string, ...a: unknown[]) {
+      for (const f of this.handlers.get(e) ?? []) f(...a);
+    }
+  }
+  class WebContentsView {
+    opts: Record<string, any>;
+    webContents: Record<string, any>;
+    setBounds = vi.fn();
+    setVisible = vi.fn();
+    constructor(opts: Record<string, any>) {
+      this.opts = opts;
+      this.webContents = makeWc(opts?.webPreferences?.session);
+      state.views.push(this as never);
+    }
+  }
+  class BrowserWindow {
+    opts: Record<string, any>;
+    webContents: Record<string, any>;
+    destroy = vi.fn(() => state.calls.push('pip.destroy'));
+    isDestroyed = vi.fn(() => false);
+    handlers = new Map<string, Array<(...a: any[]) => void>>();
+    constructor(opts: Record<string, any>) {
+      this.opts = opts;
+      this.webContents = makeWc(opts?.webPreferences?.session);
+      state.pips.push(this as never);
+      state.pipOptions.push(opts);
+    }
+    on(e: string, f: (...a: any[]) => void) {
+      this.handlers.set(e, [...(this.handlers.get(e) ?? []), f]);
+      return this;
+    }
+    loadURL = vi.fn();
+    setContentProtection = vi.fn();
+    close = vi.fn();
+  }
+  const mk = (name: string) => ({ name, protocol: { handle: vi.fn() }, fetch: vi.fn() });
+  return {
+    state,
+    makeWc,
+    mk,
+    BaseWindow,
+    WebContentsView,
+    BrowserWindow,
+    defaultSession: mk('default'),
+    Menu: {
+      buildFromTemplate: vi.fn((t: unknown) => ({ template: t })),
+      getApplicationMenu: vi.fn(() => null),
+      setApplicationMenu: vi.fn(),
+    },
+  };
+});
+
+vi.mock('electron', () => ({
+  app: {
+    get isPackaged() {
+      return h.state.packaged;
+    },
+    getPath: () => '/tmp/concord-test-userdata',
+    getVersion: () => '1.2.3',
+  },
+  BaseWindow: h.BaseWindow,
+  BrowserWindow: h.BrowserWindow,
+  WebContentsView: h.WebContentsView,
+  Menu: h.Menu,
+  net: { fetch: vi.fn() },
+  shell: { openExternal: vi.fn(() => Promise.resolve()) },
+  session: { defaultSession: h.defaultSession, fromPath: vi.fn() },
+}));
+vi.mock('../../../src/main/billing/billingWindow', () => ({
+  isBillingWebContents: () => false,
+}));
+
+import {
+  _resetConnectionRegistryForTesting,
+  MAX_LIVE_CONNECTIONS,
+  bindingFor,
+  foreground,
+  liveConnections,
+  onGenerationAdvanced,
+  recordFor,
+  refOf,
+  registerService,
+} from '../../../src/main/connectionRegistry';
+import { assertDefaultSessionIsSaas } from '../../../src/main/connectionSession';
+import {
+  activateConnection,
+  broadcastToPrimaries,
+  createPipWindow,
+  createShellWindow,
+  disposeConnectionView,
+  foregroundView,
+  foregroundWebContents,
+  installDevConnectionMenu,
+  layoutViews,
+  openConnectionView,
+  sendToConnection,
+  shellWindow,
+} from '../../../src/main/shellWindow';
+
+const SAAS_ORIGIN = 'https://api.concordvoice.chat';
+const SELF_A = new URL('https://a.example').origin;
+const SELF_B = new URL('https://b.example:8443').origin;
+
+type Any = Record<string, any>;
+const calls = h.state.calls;
+
+let custodyListeners: Map<string, (phase: string, owner: number | null) => void>;
+let deps: Any;
+let wireBinding: unknown;
+
+function register(origin: string): Any {
+  const r = registerService(origin, {
+    makeSession: () =>
+      (origin === SAAS_ORIGIN ? h.defaultSession : h.mk(`session:${origin}`)) as never,
+    makeCustody: () =>
+      ({
+        onCredentialEvent: (l: (phase: string, owner: number | null) => void) => {
+          custodyListeners.set(origin, l);
+          return () => custodyListeners.delete(origin);
+        },
+      }) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!r.ok) throw new Error(`register failed: ${r.reason}`);
+  return r.service;
+}
+
+async function mustOpen(serviceId: string, url = 'app://concord/index.html'): Promise<Any> {
+  const r = await openConnectionView(serviceId as never, url);
+  if (!r.ok) throw new Error(`open failed: ${r.reason}`);
+  return r.record;
+}
+
+const lastView = () => h.state.views[h.state.views.length - 1];
+const viewOf = (rec: Any) => rec.view as Any;
+
+beforeEach(() => {
+  _resetConnectionRegistryForTesting();
+  h.state.calls.length = 0;
+  h.state.windows.length = 0;
+  h.state.views.length = 0;
+  h.state.pips.length = 0;
+  h.state.pipOptions.length = 0;
+  h.state.packaged = true;
+  h.state.bounds = { x: 0, y: 0, width: 1280, height: 720 };
+  h.Menu.buildFromTemplate.mockClear();
+  h.Menu.setApplicationMenu.mockClear();
+  custodyListeners = new Map();
+  wireBinding = undefined;
+  deps = {
+    windowOptions: { width: 1280, height: 720 },
+    preloadPath: '/app/preload.js',
+    contentProtectionEnabled: true,
+    applyContentProtectionAtCreation: vi.fn(() => calls.push('protect')),
+    wireAudiocapRendererLoss: vi.fn((wc: unknown) => {
+      calls.push('wire');
+      wireBinding = bindingFor(wc as never);
+    }),
+    attachTrayResetHooks: vi.fn(() => calls.push('tray')),
+    resetDeepLinkDelivery: vi.fn(),
+    prepareSession: vi.fn(),
+    isQuitting: vi.fn(() => false),
+    onClose: vi.fn(),
+  };
+  createShellWindow(deps as never);
+  deps.resetDeepLinkDelivery.mockClear();
+  calls.length = 0;
+});
+
+describe('createShellWindow', () => {
+  it('applies content protection on the BaseWindow before any child view or load', async () => {
+    _resetConnectionRegistryForTesting();
+    h.state.calls.length = 0;
+    createShellWindow(deps as never);
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    expect(deps.applyContentProtectionAtCreation).toHaveBeenCalledWith(
+      shellWindow(),
+      true,
+      expect.any(String)
+    );
+    const protect = calls.indexOf('protect');
+    expect(protect).toBeGreaterThanOrEqual(0);
+    expect(protect).toBeLessThan(calls.indexOf('addChildView'));
+    expect(protect).toBeLessThan(calls.indexOf('loadURL'));
+  });
+
+  it("'close' with isQuitting true returns early without preventDefault (#1383)", () => {
+    deps.isQuitting.mockReturnValue(true);
+    const event = { preventDefault: vi.fn() };
+    (shellWindow() as unknown as Any).emit('close', event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(deps.onClose).not.toHaveBeenCalled();
+  });
+
+  it("'close' routes to the client-behaviour handler when not quitting", () => {
+    const event = { preventDefault: vi.fn() };
+    (shellWindow() as unknown as Any).emit('close', event);
+    expect(deps.onClose).toHaveBeenCalledWith(event);
+  });
+
+  it("'closed' closes every live child webContents explicitly", async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    const recS = await mustOpen(saas.serviceId);
+    const recA = await mustOpen(a.serviceId);
+    (shellWindow() as unknown as Any).emit('closed');
+    expect(recS.webContents.close).toHaveBeenCalledTimes(1);
+    expect(recA.webContents.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('openConnectionView', () => {
+  it('wires audiocap loss and tray hooks before loadURL, with the view bound as primary', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const rec = await mustOpen(saas.serviceId);
+    expect(deps.wireAudiocapRendererLoss).toHaveBeenCalledWith(rec.webContents);
+    expect(deps.attachTrayResetHooks).toHaveBeenCalledWith(rec.webContents);
+    expect(calls.indexOf('wire')).toBeLessThan(calls.indexOf('loadURL'));
+    expect(calls.indexOf('tray')).toBeLessThan(calls.indexOf('loadURL'));
+    expect(wireBinding).toEqual({ connectionId: rec.connectionId, role: 'primary' });
+    expect(bindingFor(rec.webContents)).toEqual({
+      connectionId: rec.connectionId,
+      role: 'primary',
+    });
+    expect(rec.webContents.loadURL).toHaveBeenCalledWith('app://concord/index.html');
+  });
+
+  it("resets deep-link delivery on the view's did-start-loading", async () => {
+    const saas = register(SAAS_ORIGIN);
+    const rec = await mustOpen(saas.serviceId);
+    rec.webContents.emit('did-start-loading');
+    expect(deps.resetDeepLinkDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds the view on the service's own session with a locked-down renderer", async () => {
+    const a = register(SELF_A);
+    await mustOpen(a.serviceId);
+    const prefs = lastView().opts.webPreferences;
+    expect(prefs.session).toBe(a.session);
+    expect(prefs.sandbox).toBe(true);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.nodeIntegration).toBeFalsy();
+    expect(prefs.preload).toBe('/app/preload.js');
+  });
+
+  it('refuses an unregistered service', async () => {
+    const r = await openConnectionView('selfhost-0123456789abcdef' as never, 'app://concord/');
+    expect(r).toEqual({ ok: false, reason: 'unknown-service' });
+    expect(liveConnections()).toEqual([]);
+  });
+
+  it('refuses a second open of the same service and leaks no view', async () => {
+    const a = register(SELF_A);
+    await mustOpen(a.serviceId);
+    const second = await openConnectionView(a.serviceId, 'app://concord/');
+    expect(second).toEqual({ ok: false, reason: 'already-open' });
+    expect(liveConnections()).toHaveLength(1);
+    for (const v of h.state.views.slice(1)) expect(v.webContents.close).toHaveBeenCalled();
+  });
+
+  it('refuses the MAX_LIVE_CONNECTIONS + 1th connection and closes the surplus view', async () => {
+    for (let i = 0; i < MAX_LIVE_CONNECTIONS; i++) {
+      await mustOpen(register(`https://h${i}.example`).serviceId);
+    }
+    const extra = register('https://extra.example');
+    const r = await openConnectionView(extra.serviceId, 'app://concord/');
+    expect(r).toEqual({ ok: false, reason: 'limit' });
+    expect(liveConnections()).toHaveLength(MAX_LIVE_CONNECTIONS);
+    for (const v of h.state.views.slice(MAX_LIVE_CONNECTIONS)) {
+      expect(v.webContents.close).toHaveBeenCalled();
+    }
+  });
+
+  it('reports session-unavailable when session setup throws, warns, and still opens saas', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    deps.prepareSession.mockImplementation((service: Any) => {
+      if (service.kind === 'selfhost') throw new Error('fromPath failed');
+    });
+    const failed = await openConnectionView(a.serviceId, 'app://concord/');
+    expect(failed).toEqual({ ok: false, reason: 'session-unavailable' });
+    expect(warn).toHaveBeenCalled();
+    expect(liveConnections()).toEqual([]);
+    const ok = await openConnectionView(saas.serviceId, 'app://concord/');
+    expect(ok.ok).toBe(true);
+    expect(liveConnections()).toHaveLength(1);
+    expect(h.state.views.some((v) => v.opts.webPreferences.session === h.defaultSession)).toBe(
+      true
+    );
+    warn.mockRestore();
+  });
+
+  it('refuses a self-hosted view that landed on defaultSession (R1) and closes it', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const r = registerService(SELF_A, {
+      makeSession: () => h.defaultSession as never,
+      makeCustody: () => ({ onCredentialEvent: () => () => {} }) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error('register');
+    const result = await openConnectionView(r.service.serviceId, 'app://concord/');
+    expect(result.ok).toBe(false);
+    expect(liveConnections()).toEqual([]);
+    expect(lastView().webContents.close).toHaveBeenCalled();
+    warn.mockRestore();
+    err.mockRestore();
+  });
+
+  it('keeps the default session saas-only with saas and one self-hosted view open', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    await mustOpen(saas.serviceId);
+    await mustOpen(a.serviceId);
+    const live = liveConnections().map((c) => c.webContents);
+    expect(() => assertDefaultSessionIsSaas(live as never, bindingFor, recordFor)).not.toThrow();
+  });
+});
+
+describe('generation hooks', () => {
+  async function opened() {
+    const saas = register(SAAS_ORIGIN);
+    const rec = await mustOpen(saas.serviceId);
+    const reasons: string[] = [];
+    onGenerationAdvanced((_id, _from, _to, reason) => reasons.push(reason));
+    return { rec, saas, reasons };
+  }
+
+  it("a main-frame did-start-navigation advances the generation with 'document'", async () => {
+    const { rec, reasons } = await opened();
+    rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    expect(reasons).toEqual(['document']);
+    expect(rec.generation).toBe(2);
+  });
+
+  it('a subframe navigation does not advance the generation', async () => {
+    const { rec, reasons } = await opened();
+    rec.webContents.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+    expect(reasons).toEqual([]);
+    expect(rec.generation).toBe(1);
+  });
+
+  it("render-process-gone advances with 'renderer-gone'", async () => {
+    const { rec, reasons } = await opened();
+    rec.webContents.emit('render-process-gone', {}, { reason: 'crashed' });
+    expect(reasons).toEqual(['renderer-gone']);
+  });
+
+  it.each(['credential-start', 'credential-end'] as const)(
+    "custody '%s' advances with that reason",
+    async (phase) => {
+      const { reasons } = await opened();
+      custodyListeners.get(SAAS_ORIGIN)?.(phase, 1);
+      expect(reasons).toEqual([phase]);
+    }
+  );
+
+  it('a credential event after dispose does not throw or advance anything', async () => {
+    const { rec } = await opened();
+    disposeConnectionView(rec.connectionId);
+    const reasons: string[] = [];
+    onGenerationAdvanced((_i, _f, _t, r) => reasons.push(r));
+    expect(() => custodyListeners.get(SAAS_ORIGIN)?.('credential-end', 1)).not.toThrow();
+    expect(reasons).toEqual([]);
+  });
+});
+
+describe('sendToConnection / broadcastToPrimaries', () => {
+  it('delivers to a current ref and returns true', async () => {
+    const rec = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    expect(sendToConnection(refOf(rec), 'chan', 1, 'x')).toBe(true);
+    expect(rec.webContents.send).toHaveBeenCalledWith('chan', 1, 'x');
+  });
+
+  it('drops a stale ref: false and webContents.send not called', async () => {
+    const rec = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    const stale = refOf(rec);
+    rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+    expect(sendToConnection(stale, 'chan')).toBe(false);
+    expect(rec.webContents.send).not.toHaveBeenCalled();
+    expect(sendToConnection(refOf(rec), 'chan')).toBe(true);
+  });
+
+  it('drops a ref for a disposed connection', async () => {
+    const rec = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    const ref = refOf(rec);
+    disposeConnectionView(rec.connectionId);
+    expect(sendToConnection(ref, 'chan')).toBe(false);
+  });
+
+  it('returns false when the webContents is destroyed', async () => {
+    const rec = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    rec.webContents.isDestroyed.mockReturnValue(true);
+    expect(sendToConnection(refOf(rec), 'chan')).toBe(false);
+    expect(rec.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('broadcastToPrimaries reaches every live primary', async () => {
+    const s = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    const a = await mustOpen(register(SELF_A).serviceId);
+    broadcastToPrimaries('update:state', { v: 1 });
+    expect(s.webContents.send).toHaveBeenCalledWith('update:state', { v: 1 });
+    expect(a.webContents.send).toHaveBeenCalledWith('update:state', { v: 1 });
+  });
+});
+
+describe('activateConnection and layoutViews', () => {
+  it('makes only the target visible and records it as foreground', async () => {
+    const s = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    const a = await mustOpen(register(SELF_A).serviceId);
+    expect(activateConnection(a.serviceId)).toBe(true);
+    expect(viewOf(a).setVisible).toHaveBeenLastCalledWith(true);
+    expect(viewOf(s).setVisible).toHaveBeenLastCalledWith(false);
+    expect(foreground()?.connectionId).toBe(a.connectionId);
+    expect(foregroundWebContents()).toBe(a.webContents);
+    expect(foregroundView()).toBe(viewOf(a));
+    expect(activateConnection(s.serviceId)).toBe(true);
+    expect(viewOf(s).setVisible).toHaveBeenLastCalledWith(true);
+    expect(viewOf(a).setVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  it('returns false for an unknown or not-live service', async () => {
+    const saas = register(SAAS_ORIGIN);
+    expect(activateConnection('selfhost-0123456789abcdef' as never)).toBe(false);
+    expect(activateConnection(saas.serviceId)).toBe(false);
+  });
+
+  it.each(['resize', 'maximize', 'enter-full-screen'])(
+    "layoutViews after '%s' sets the foreground bounds to getContentBounds()",
+    async (event) => {
+      const s = await mustOpen(register(SAAS_ORIGIN).serviceId);
+      const a = await mustOpen(register(SELF_A).serviceId);
+      activateConnection(s.serviceId);
+      h.state.bounds = { x: 0, y: 0, width: 1920, height: 1080 };
+      (shellWindow() as unknown as Any).emit(event);
+      expect(viewOf(s).setBounds).toHaveBeenLastCalledWith({
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+      });
+      expect(viewOf(a).setVisible).toHaveBeenLastCalledWith(false);
+    }
+  );
+
+  it('layoutViews can be called directly and is a no-op with no foreground', () => {
+    expect(() => layoutViews()).not.toThrow();
+  });
+});
+
+describe('disposeConnectionView', () => {
+  it("orders: 'disposed' generation, then PiPs destroyed, then removeChildView, then close", async () => {
+    const s = await mustOpen(register(SAAS_ORIGIN).serviceId);
+    activateConnection(s.serviceId);
+    const pip = createPipWindow(s.webContents as never, { width: 320, height: 240 });
+    expect(pip).not.toBeNull();
+    calls.length = 0;
+    onGenerationAdvanced((_i, _f, _t, reason) => calls.push(`advance:${reason}`));
+    disposeConnectionView(s.connectionId);
+    const order = ['advance:disposed', 'pip.destroy', 'removeChildView', 'wc.close'].map((c) =>
+      calls.indexOf(c)
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(foregroundWebContents()).toBeNull();
+    expect(recordFor(s.connectionId)).toBeUndefined();
+  });
+
+  it('is a no-op for an unknown connection id', () => {
+    expect(() => disposeConnectionView('nope' as never)).not.toThrow();
+  });
+});
+
+describe('createPipWindow', () => {
+  it('runs on the owner session, locked down, and binds role pip to the opener connection', async () => {
+    const a = register(SELF_A);
+    const rec = await mustOpen(a.serviceId);
+    const pip = createPipWindow(
+      rec.webContents as never,
+      {
+        width: 320,
+        height: 240,
+        webPreferences: { preload: '/app/preload.js', session: h.defaultSession },
+      } as never
+    );
+    expect(pip).not.toBeNull();
+    const prefs = h.state.pipOptions[0].webPreferences;
+    expect(prefs.session).toBe(a.session);
+    expect(prefs.sandbox).toBe(true);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.nodeIntegration).toBeFalsy();
+    const pipWc = h.state.pips[0].webContents;
+    expect(bindingFor(pipWc as never)).toEqual({ connectionId: rec.connectionId, role: 'pip' });
+    expect(rec.pips.has(pipWc)).toBe(true);
+  });
+
+  it('refuses an opener that is not a bound primary and builds no window', () => {
+    const stranger = h.makeWc(h.defaultSession);
+    expect(createPipWindow(stranger as never, { width: 1, height: 1 })).toBeNull();
+    expect(h.state.pips).toHaveLength(0);
+  });
+});
+
+describe('installDevConnectionMenu', () => {
+  it('builds a Connections menu only when the app is not packaged', () => {
+    h.state.packaged = false;
+    installDevConnectionMenu();
+    expect(h.Menu.buildFromTemplate).toHaveBeenCalled();
+    expect(JSON.stringify(h.Menu.buildFromTemplate.mock.calls)).toContain('Connections');
+    expect(h.Menu.setApplicationMenu).toHaveBeenCalled();
+  });
+
+  it('builds nothing when packaged', () => {
+    h.state.packaged = true;
+    installDevConnectionMenu();
+    expect(h.Menu.buildFromTemplate).not.toHaveBeenCalled();
+    expect(h.Menu.setApplicationMenu).not.toHaveBeenCalled();
+  });
+});

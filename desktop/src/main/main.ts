@@ -9,7 +9,6 @@ import { cancelActiveGoogleFlow } from './oauth/google/googleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
 import { registerAudiocapIpc } from './ipc/audiocap';
 import { registerBillingIpc } from './ipc/billing';
-import { isBillingWebContents } from './billing/billingWindow';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import {
   initTray,
@@ -38,32 +37,30 @@ import { loadWindowState, attachWindowState } from './windowState';
 import { isWayland } from './waylandDetect';
 import { deriveCloseAction, deriveMinimizeAction } from '../shared/clientBehavior';
 import { SPA_FALLBACK_MESSAGE } from '../shared/spaIpcTypes';
-import { isSupportedDesktopClientVersion } from '../shared/stableDesktopVersion';
 import {
   app,
   autoUpdater as electronAutoUpdater,
-  BrowserWindow,
   clipboard,
   desktopCapturer,
   dialog,
   ipcMain,
   nativeImage,
-  net,
   powerMonitor,
   protocol,
   screen,
-  session,
-  shell,
+  type BaseWindow,
+  type BrowserWindow,
   type IpcMainInvokeEvent,
+  type WebContents,
 } from 'electron';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 // TRANSITIONAL (#86 Task 5): one renderer over per-service custody. A call that
 // names an API base uses custodyForApiBase; one that names none uses the active
 // custody (liveCustody), or no custody at all. Task 7B replaces all of these with
 // the sender's own custody.
 import {
+  custodyFor,
   custodyForApiBase,
   liveCustody,
   restoreTargetCustody,
@@ -103,7 +100,6 @@ import {
   runDeferredCleanup,
   type SentinelResult,
 } from './updateSafety';
-import { resolveAppProtocolPath } from './appProtocol';
 import {
   resolveSpaSource,
   isUnexpectedBundled,
@@ -115,7 +111,6 @@ import {
   type SpaLoadDecision,
 } from './spaLoader';
 import { CONFIG_TIMEOUT_MS, SPA_RETRY_DELAYS_MS } from './spaTiming';
-import { handleCacheProtocolRequest } from './spaCache/cacheProtocol';
 import { getLiveDir } from './spaCache/cacheStore';
 import { populateCacheFromRemote } from './spaCache/populateCache';
 import { resolveCachedSpa } from './spaCache/resolveCachedSpa';
@@ -136,6 +131,39 @@ import {
   setRemoteSpaState,
 } from './spaState';
 import { isPermittedFrameUrl, requireTrustedSender } from './ipc/frameValidation';
+import {
+  bindingFor,
+  boundRecordFor,
+  getService,
+  liveConnections,
+  recordFor,
+  refOf,
+  registerService,
+  type ConnectionRecord,
+  type RegisterServiceDeps,
+  type ServiceRecord,
+} from './connectionRegistry';
+import {
+  configureConnectionSession,
+  installNavigationGate,
+  sessionForService,
+  type ConnectionSessionDeps,
+} from './connectionSession';
+import {
+  broadcastToPrimaries,
+  createPipWindow,
+  createShellWindow,
+  foregroundPrimaryHandle,
+  foregroundWebContents,
+  installDevConnectionMenu,
+  openConnectionView,
+  saasPrimary,
+  saasPrimaryHandle,
+  sendToConnection,
+  shellWindow,
+} from './shellWindow';
+import { readApprovalsFile } from './selfHostedApprovals';
+import { SAAS_SERVICE_ID, type ConnectionRef } from '../shared/connectionIdentity';
 import {
   IPC_CONTRACT_VERSION,
   type CredentialOwner,
@@ -262,7 +290,7 @@ function contentProtectionSupported(): boolean {
 // visible, while failing to apply `true` leaves it UNPROTECTED while the stored
 // preference says otherwise. Only the second is a privacy downgrade.
 function applyContentProtectionAtCreation(
-  window: BrowserWindow,
+  window: BaseWindow,
   enabled: boolean,
   label: string
 ): void {
@@ -284,8 +312,9 @@ function applyContentProtectionAtCreation(
   }
 }
 
-function getContentProtectionWindows(): BrowserWindow[] {
-  const windows = mainWindow ? [mainWindow] : [];
+function getContentProtectionWindows(): BaseWindow[] {
+  const shell = shellWindow();
+  const windows: BaseWindow[] = shell ? [shell] : [];
   for (const { window } of pipWindows.values()) windows.push(window);
   return windows.filter((window) => !window.isDestroyed());
 }
@@ -361,7 +390,8 @@ if (app.isPackaged) {
   ]);
 }
 
-let mainWindow: BrowserWindow | null = null;
+// #86 Task 4: there is no `mainWindow`. The shell is a `BaseWindow` (`shellWindow()`)
+// and each connection is a view; see the consumer table at the top of shellWindow.ts.
 // Two INDEPENDENT readiness flags, never one shared flag: a pre-22 SPA signals
 // only 'invite:renderer-ready', and a shared flag would make main believe the
 // friend subscription is live when it is not (#945).
@@ -875,11 +905,20 @@ function sendDeepLink(kind: DeepLinkKind, code: string): void {
   }
   gate.lastCode = code;
   gate.lastAt = Date.now();
+  // Deep links are saas-only (§3.7): never delivered to a self-hosted view.
+  const saas = saasPrimary();
+  if (!saas) return;
   if (kind === 'friend') {
-    mainWindow?.webContents.send('deeplink:friend-code', { code });
+    sendToConnection(refOf(saas), 'deeplink:friend-code', { code });
     return;
   }
-  mainWindow?.webContents.send('invite:received', { code });
+  sendToConnection(refOf(saas), 'invite:received', { code });
+}
+
+/** The saas view's contents while it is live; deep-link delivery's only target. */
+function saasDeliveryTarget(): WebContents | null {
+  const contents = saasPrimary()?.webContents;
+  return contents && !contents.isDestroyed() ? contents : null;
 }
 
 /** Window edge: deliver whatever the window held back, newest only. */
@@ -895,7 +934,7 @@ function flushDeepLinkGate(kind: DeepLinkKind): void {
     gate.timer = setTimeout(() => flushDeepLinkGate(kind), DEEP_LINK_EMIT_WINDOW_MS);
   }
   if (code === gate.lastCode) return;
-  if (!mainWindow || mainWindow.isDestroyed() || !isRendererReadyFor(kind)) {
+  if (!saasDeliveryTarget() || !isRendererReadyFor(kind)) {
     // The renderer went away inside the window — hand the code back to its
     // queue instead of dropping it; the next drain delivers it.
     queueDeepLink({ kind, code });
@@ -906,7 +945,7 @@ function flushDeepLinkGate(kind: DeepLinkKind): void {
 
 /** True once the entry is accounted for: sent, or held for the window edge. */
 function emitDeepLink(entry: PendingDeepLink): boolean {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!saasDeliveryTarget()) return false;
   if (!isRendererReadyFor(entry.kind)) return false;
 
   const gate = deepLinkEmitGates[entry.kind];
@@ -1076,7 +1115,7 @@ let isQuitting = false;
  * createWindow to keep cognitive complexity in check.
  */
 async function loadDevRendererWithFallback(
-  window: BrowserWindow,
+  contents: WebContents,
   bundledPath: string
 ): Promise<void> {
   const devServerUrl = 'http://localhost:3001';
@@ -1094,9 +1133,9 @@ async function loadDevRendererWithFallback(
         reject(new Error('timeout'));
       });
     });
-    await window.loadURL(devServerUrl);
+    await contents.loadURL(devServerUrl);
   } catch {
-    await window.loadFile(bundledPath);
+    await contents.loadFile(bundledPath);
   }
 }
 
@@ -1109,18 +1148,18 @@ type SpaLoadOutcome = 'remote' | 'cache' | 'bundled';
  * layer, so a failure here leaves a blank window with no further fallback —
  * surface it to the splash error overlay. Always clears remote-SPA state first.
  */
-async function loadBundledFallback(window: BrowserWindow): Promise<'bundled'> {
+async function loadBundledFallback(contents: WebContents): Promise<'bundled'> {
   // Clear state so PiP and origin-only consumers see a consistent "not in
   // remote-SPA mode" signal even on re-entry.
   setRemoteSpaState(null);
   try {
-    await window.loadURL('app://concord/index.html');
+    await contents.loadURL('app://concord/index.html');
     // Covers genuine bundled mode AND the remote→bundled fallback, so the
     // effective mode is always reflected accurately. Best-effort: never throws.
     await captureSpaHash('bundled');
   } catch (err) {
     console.error('[SpaLoader] bundled app:// loadURL failed:', (err as Error).message);
-    revealLoadFailure(window, 'Could not load application — please reinstall');
+    revealLoadFailure(shellWindow(), 'Could not load application — please reinstall');
   }
   return 'bundled';
 }
@@ -1133,14 +1172,14 @@ async function loadBundledFallback(window: BrowserWindow): Promise<'bundled'> {
  * and treat it like bundled for origin/attestation purposes (captureSpaHash
  * fetches the cache's index.html via the protocol handler, which serves it).
  */
-async function tryCacheLoad(window: BrowserWindow): Promise<'cache' | null> {
+async function tryCacheLoad(contents: WebContents): Promise<'cache' | null> {
   const cached = resolveCachedSpa();
   if (!cached) {
     return null;
   }
   try {
     setRemoteSpaState(null);
-    await window.loadURL(cached.url);
+    await contents.loadURL(cached.url);
     await captureSpaHash('bundled');
     console.debug('[SpaLoader] served signed last-known-good cache');
     return 'cache';
@@ -1171,13 +1210,13 @@ async function tryCacheLoad(window: BrowserWindow): Promise<'cache' | null> {
  * mode actually loaded.
  */
 async function applySpaDecision(
-  window: BrowserWindow,
+  contents: WebContents,
   decision: SpaLoadDecision
 ): Promise<SpaLoadOutcome> {
   if (decision.mode === 'remote' && decision.url) {
     try {
       setRemoteSpaState(decision.url);
-      await window.loadURL(decision.url, SPA_NO_CACHE_LOAD_OPTIONS);
+      await contents.loadURL(decision.url, SPA_NO_CACHE_LOAD_OPTIONS);
       // Capture the entry HTML hash for client attestation (#677). Best-effort:
       // captureSpaHash never throws, so this cannot break the load path.
       await captureSpaHash('remote', decision.url);
@@ -1195,11 +1234,11 @@ async function applySpaDecision(
       setRemoteSpaState(null);
       // The remote loadURL threw — a genuine remote failure, so the cache may
       // bridge the gap (#1870).
-      const cacheMode = await tryCacheLoad(window);
+      const cacheMode = await tryCacheLoad(contents);
       if (cacheMode) {
         return cacheMode;
       }
-      return loadBundledFallback(window);
+      return loadBundledFallback(contents);
     }
   }
 
@@ -1207,13 +1246,13 @@ async function applySpaDecision(
   // failure (config fetch failed / 5xx) — never for expected-bundled reasons or
   // an IPC-mismatch (those must not be masked by a stale cache).
   if (isTransientRemoteFailure(decision.reason)) {
-    const cacheMode = await tryCacheLoad(window);
+    const cacheMode = await tryCacheLoad(contents);
     if (cacheMode) {
       return cacheMode;
     }
   }
 
-  return loadBundledFallback(window);
+  return loadBundledFallback(contents);
 }
 
 // ponytail: a wrapper rather than an exported arm/disarm pair — a caller that
@@ -1224,12 +1263,12 @@ async function applySpaDecision(
 // the paths where applySpaDecision resolves without navigating at all. Fail-closed
 // by construction: forgetting to disarm is not expressible at a call site.
 async function applySpaDecisionCarryingDeepLink(
-  window: BrowserWindow,
+  contents: WebContents,
   decision: SpaLoadDecision
 ): Promise<SpaLoadOutcome> {
   const releaseCarry = carryDeepLinkAcrossNextLoad();
   try {
-    return await applySpaDecision(window, decision);
+    return await applySpaDecision(contents, decision);
   } finally {
     releaseCarry();
   }
@@ -1247,14 +1286,14 @@ async function applySpaDecisionCarryingDeepLink(
 // (SPA_RETRY_DELAYS_MS is declared beside DEEP_LINK_CARRY_MAX_AGE_MS, which is
 // derived from it.)
 
-function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
+function scheduleSpaSourceRetry(contents: WebContents, attempt = 0): void {
   if (attempt >= SPA_RETRY_DELAYS_MS.length) return;
   setTimeout(() => {
     void (async () => {
       // Abort if the window is gone, or if we are already in remote mode (a
       // prior retry or a manual reload succeeded — getRemoteSpaUrl is non-null
       // only when the remote SPA is loaded).
-      if (window.isDestroyed() || getRemoteSpaUrl() !== null) return;
+      if (contents.isDestroyed() || getRemoteSpaUrl() !== null) return;
       const decision = await resolveSpaSource();
       if (decision.mode === 'remote' && decision.url) {
         console.debug('[SpaLoader/retry] remote SPA reachable on warm network — switching');
@@ -1264,10 +1303,10 @@ function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
         // when we actually reached remote; otherwise keep retrying.
         // Main initiated this swap, so a code already delivered to the outgoing
         // document is carried into its successor (#2363).
-        const mode = await applySpaDecisionCarryingDeepLink(window, decision);
+        const mode = await applySpaDecisionCarryingDeepLink(contents, decision);
         if (mode === 'remote') return;
       }
-      scheduleSpaSourceRetry(window, attempt + 1);
+      scheduleSpaSourceRetry(contents, attempt + 1);
     })();
   }, SPA_RETRY_DELAYS_MS[attempt]);
 }
@@ -1276,10 +1315,10 @@ function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
  * Load the packaged renderer: try the remote SPA first (Tier 3), fall back
  * to the bundled file on any failure. Extracted to keep createWindow simple.
  */
-async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string): Promise<void> {
+async function loadPackagedRenderer(contents: WebContents): Promise<void> {
   const decision = await resolveSpaSource();
   console.debug(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
-  await applySpaDecision(window, decision);
+  await applySpaDecision(contents, decision);
 
   // #830 Option C: surface a non-blocking diagnostic event if the bundled
   // fallback fired for an unexpected reason (config fetch failed, network
@@ -1298,29 +1337,188 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
   // banner may be retracted; see SpaFallbackKind in shared/spaIpcTypes.ts.
   if (decision.mode === 'bundled' && isUnexpectedBundled(decision.reason)) {
     const kind = classifyFallbackReason(decision.reason);
+    // The document this load produced; a push to a successor is dropped (#86 §3.7).
+    const binding = bindingFor(contents);
+    const record = binding ? recordFor(binding.connectionId) : undefined;
+    const ref = record ? refOf(record) : null;
     setTimeout(() => {
-      // Guard against window destroyed during the 2s delay (rapid quit, crash).
-      if (window.isDestroyed()) return;
-      window.webContents.send('app:configFetchFailed', {
+      if (ref === null) return;
+      sendToConnection(ref, 'app:configFetchFailed', {
         reason: SPA_FALLBACK_MESSAGE[kind],
         kind,
       });
     }, 2000);
     // Self-heal the cold-start race: retry on a warm network and switch to
     // remote if it becomes reachable (#1742 follow-up launch-time retry).
-    scheduleSpaSourceRetry(window);
+    scheduleSpaSourceRetry(contents);
   }
 }
 
+const DEV_SERVER_URL = 'http://localhost:3001';
+const bundledRendererPath = path.join(__dirname, '../renderer/index.html');
+
+/** What every connection session is configured from (connectionSession.ts). */
+const connectionSessionDeps: ConnectionSessionDeps = {
+  // Read at each use, as the pre-#86 gates did, rather than snapshotted at import.
+  get isPackaged(): boolean {
+    return app.isPackaged;
+  },
+  bundleRoot: path.resolve(__dirname, '../renderer'),
+  getLiveDir,
+  remoteSpaOrigin: getRemoteSpaBaseUrl,
+  bindingFor,
+  recordFor,
+  getService,
+};
+
+/** `saas` keeps `defaultSession`; a self-hosted service gets its own `fromPath` session. */
+const connectionServiceDeps: RegisterServiceDeps = {
+  makeSession: (base) => sessionForService(base.kind, base.dirKey, app.getPath('userData')),
+  makeCustody: (serviceId, origin) => custodyFor(serviceId, origin),
+  isValidatedSelfHostedApiBase,
+};
+
+function prepareConnectionSession(service: ServiceRecord): void {
+  configureConnectionSession(service.session, service, connectionSessionDeps);
+}
+
+/**
+ * Register (or find) the service for `origin` and configure its session (#86 §3.3).
+ * Null, with a fixed warning, when it is refused or its session cannot be created
+ * (Review Focus 2: a profile directory that cannot be created must not stop `saas`).
+ */
+function registerConnectionService(origin: string): ServiceRecord | null {
+  try {
+    const result = registerService(origin, connectionServiceDeps);
+    if (!result.ok) {
+      console.warn(`[connections] service not registered (${result.reason})`);
+      return null;
+    }
+    prepareConnectionSession(result.service);
+    return result.service;
+  } catch {
+    // Fixed text: the error can carry a path under the user's profile.
+    console.warn('[connections] service session unavailable; service not registered');
+    return null;
+  }
+}
+
+/**
+ * main.ts's own listeners on every connection view. shellWindow.ts runs this before
+ * the view's first load (its invariant 1), with the view already bound.
+ */
+function wireConnectionView(contents: WebContents, service: ServiceRecord): void {
+  // A RENDERER CREATED OR RELOADED AFTER THE SNAPSHOT SETTLED HEARS NOTHING FROM THE
+  // change listener in the ready path — the push already happened. Re-send on every load:
+  // the value is a machine fact, identical on every hello, so a duplicate is idempotent
+  // and ordering-insensitive. Without this, an SPA-loader swap leaves the renderer on the
+  // pre-addon rungs for the life of the session (spec §4.1 delivery). `null` sends
+  // nothing: absence IS the fail-closed state, and the renderer's initial store value
+  // already represents it.
+  //
+  // GUARDED WITH `isDestroyed()`. #3198's Phase-8 pass measured on real Electron that a
+  // `?.` null check does not cover a destroyed object; the try/catch stays as the
+  // backstop for the state no synchronous check can exclude, and swallowing is safe
+  // because the next load re-pushes. `contents`, not a module-scope variable: this
+  // listener belongs to THIS view.
+  contents.on('did-finish-load', () => {
+    const capability = audiocapMachineCapability();
+    if (capability === null) return;
+    if (contents.isDestroyed()) return;
+    try {
+      contents.send('audiocap:capability', { perProcessAudio: capability });
+    } catch {
+      /* destroyed between the check and the send; the next load re-pushes. See above. */
+    }
+  });
+
+  // Cmd/Ctrl+Opt+I toggles DevTools when Developer Mode is enabled.
+  // (TEMPORARY — remove before BETA along with Developer Mode feature.)
+  // `detach`: a view has no BrowserWindow to dock DevTools into.
+  contents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const isToggleCombo =
+      input.key.toLowerCase() === 'i' && input.alt && (input.meta || input.control);
+    if (!isToggleCombo) return;
+    if (!readDeveloperModePref()) return;
+    if (contents.isDevToolsOpened()) {
+      contents.closeDevTools();
+    } else {
+      contents.openDevTools({ mode: 'detach' });
+    }
+  });
+
+  // Log renderer crashes to diagnose voice join segfaults. Deep links are saas-only.
+  contents.on('render-process-gone', (_event, details) => {
+    if (service.kind === 'saas') resetDeepLinkDelivery();
+    console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
+  });
+}
+
+// Client Behavior [X] close intercept (#806). When the user clicks the
+// native close button, route based on the cached Client Behavior:
+//   - 'tray'    -> hide() (stays running, accessed from system tray, #1099)
+//   - 'toolbar' -> minimize() (stays running in the OS taskbar)
+//   - 'quit'    -> app.quit() (graceful full-app shutdown)
+// event.preventDefault() suppresses the default close -> destroy path so the
+// hide/minimize fall-throughs can take over. The 'quit' branch also calls
+// preventDefault so app.quit can run its before-quit hooks without racing
+// a window-destroy mid-shutdown.
+//
+// isQuitting guard (#1383): createShellWindow's 'close' listener returns before
+// calling this once a genuine quit is underway — before-quit has already set
+// isQuitting = true — so this close proceeds (no preventDefault) and Electron's own
+// app.quit() sequence is never vetoed. This also resolves the 'quit' branch's
+// re-entrancy: app.quit() -> before-quit sets the flag -> re-fired close ->
+// early return -> window destroys -> quit completes.
+//
+// Trayless fallback (#1099): if action='tray' but the tray failed to
+// initialize (sandboxed env, missing StatusNotifier host, etc.),
+// hide() would strand an invisible, unrecoverable resident
+// process on Windows/Linux (macOS still has Dock activate). Quit instead so
+// a trayless session degrades to a recoverable state. window-all-closed's
+// !isTrayActive() branch alone is not enough: preventDefault()+hide() means
+// the window never actually closes, so window-all-closed never fires.
+function interceptShellClose(event: Electron.Event): void {
+  const win = shellWindow();
+  if (!win) return;
+  const action = deriveCloseAction(getCachedClientBehavior());
+
+  if (action === 'tray') {
+    event.preventDefault();
+    if (isTrayActive()) {
+      win.hide();
+    } else {
+      app.quit();
+    }
+  } else if (action === 'toolbar') {
+    event.preventDefault();
+    win.minimize();
+  } else {
+    // action === 'quit'
+    event.preventDefault();
+    app.quit();
+  }
+}
+
+/** TRANSITIONAL (#86 Task 4 → 7B): updater and SPA-version pushes reach every primary. */
+const broadcastPushTarget = {
+  isDestroyed: (): boolean => false,
+  webContents: { send: broadcastToPrimaries },
+};
+
 const createWindow = async (): Promise<void> => {
-  // Build the per-platform BrowserWindow config (#806). Pure factory so
+  // Build the per-platform window config (#806). Pure factory so
   // each platform gets the correct titleBarStyle / titleBarOverlay shape:
   //   - darwin → hiddenInset (preserves traffic-light controls)
   //   - win32 / linux → hidden + titleBarOverlay (native min/max/close)
-  const baseConfig = buildBrowserWindowConfig({
+  // #86: the chrome options go to the BaseWindow; `webPreferences` go, unchanged,
+  // to every connection view (plus that service's session).
+  const preloadPath = path.join(__dirname, '../preload/preload.js');
+  const { webPreferences, ...windowConfig } = buildBrowserWindowConfig({
     platform: process.platform,
     isWayland: isWayland(),
-    preloadPath: path.join(__dirname, '../preload/preload.js'),
+    preloadPath,
     isPackaged: app.isPackaged,
   });
 
@@ -1330,167 +1528,57 @@ const createWindow = async (): Promise<void> => {
   const savedState = loadWindowState();
   const contentProtectionEnabled = readContentProtectionPref();
 
-  mainWindow = new BrowserWindow({
-    ...baseConfig,
-    x: savedState.x,
-    y: savedState.y,
-    width: savedState.width,
-    height: savedState.height,
+  // Content protection is applied inside createShellWindow, before any view exists.
+  const win = createShellWindow({
+    windowOptions: {
+      ...windowConfig,
+      x: savedState.x,
+      y: savedState.y,
+      width: savedState.width,
+      height: savedState.height,
+    },
+    preloadPath,
+    webPreferences,
+    viewBackgroundColor: windowConfig.backgroundColor,
+    contentProtectionEnabled,
+    applyContentProtectionAtCreation,
+    // #3394 C15: wired by openConnectionView BEFORE the first load — the renderer is
+    // live long before the awaited load resolves, and a wire registered later sees
+    // only future events. `killAudiocapCapture` spares the windowless probe.
+    wireAudiocapRendererLoss,
+    // Status-aware tray (tray-status spec §3/§4): a renderer reload / crash / hang
+    // drops the tray back to neutral (R17).
+    attachTrayResetHooks,
+    resetDeepLinkDelivery,
+    prepareSession: prepareConnectionSession,
+    isQuitting: () => isQuitting,
+    onClose: interceptShellClose,
+    onClosed: () => {
+      // #974/#975: a window-less SSO flow (apple or google) has no UI to deliver
+      // its result to — tear both down so the loopback listener and 5-minute
+      // deadline don't outlive the renderer (teardown trigger (b) in each flow's
+      // documented lifecycle).
+      cancelActiveAppleFlow();
+      cancelActiveGoogleFlow();
+      resetDeepLinkDelivery();
+    },
+    wireView: wireConnectionView,
+    devConnectionUrl: DEV_SERVER_URL,
   });
-  applyContentProtectionAtCreation(mainWindow, contentProtectionEnabled, 'main window');
-  resetDeepLinkDelivery();
 
   if (savedState.isMaximized) {
-    mainWindow.maximize();
+    win.maximize();
   }
-
-  mainWindow.webContents.on('did-start-loading', () => {
-    resetDeepLinkDelivery();
-  });
-
-  // #3394 C15: a reload or renderer crash must not leave the capture child's OS tap running.
-  // WIRED BEFORE THE FIRST LOAD, not after it: the renderer is live, shown and able to invoke
-  // `audiocap:start` long before the awaited load below resolves (`did-finish-load`, plus up
-  // to CONFIG_TIMEOUT_MS of `captureSpaHash` in remote mode), and a loss inside that window
-  // reached no listener at all -- a wire registered later sees only FUTURE events. The initial
-  // load's own `did-navigate` is harmless: no capture exists yet, and `killAudiocapCapture`
-  // spares the windowless app-start probe, which overlaps the first load by design.
-  wireAudiocapRendererLoss(mainWindow.webContents);
-
-  // A RENDERER CREATED OR RELOADED AFTER THE SNAPSHOT SETTLED HEARS NOTHING FROM THE
-  // change listener in the ready path — the push already happened. Re-send on every load:
-  // the value is a machine fact, identical on every hello, so a duplicate is idempotent
-  // and ordering-insensitive. Without this, an SPA-loader swap leaves the renderer on the
-  // pre-addon rungs for the life of the session (spec §4.1 delivery). Registered here,
-  // with the window's first webContents listener, because the initial load is issued
-  // further down this same function.
-  //
-  // `null` sends nothing: absence IS the fail-closed state, and the renderer's initial
-  // store value already represents it.
-  //
-  // GUARDED WITH `isDestroyed()`, NOT `mainWindow?.`, AND THE MECHANISM IS NOT THE ONE THIS
-  // PR FIRST WROTE DOWN. #3198's Phase-8 adversarial pass measured it on real Electron
-  // 44.1.1 (10 scenarios, `redteam/poc/electron-send-throw-probe.js`) and the result
-  // corrects us: reading `.webContents` off a DESTROYED `BrowserWindow` throws
-  // `Object has been destroyed` on the PROPERTY ACCESS, before `.send` is reached, and a
-  // `?.` null check does not cover it. A disposed render FRAME does not throw at all --
-  // neither a crashed renderer nor a saved `webContents` handle used after destroy. So the
-  // check that matters is `isDestroyed()`, which is what `main.ts:885`/`:896`/`:1291`
-  // already use. The try/catch stays as the backstop for the state no synchronous check can
-  // exclude, and swallowing is safe because the value is a machine fact the next load
-  // re-pushes.
-  //
-  // `win`, not the module-scope `mainWindow`: this listener belongs to THIS window's
-  // webContents, and the same pass measured a second-window case where the module variable
-  // had already been nulled while this window was alive -- the push was dropped silently.
-  const win = mainWindow;
-  win.webContents.on('did-finish-load', () => {
-    const capability = audiocapMachineCapability();
-    if (capability === null) return;
-    if (win.isDestroyed()) return;
-    try {
-      win.webContents.send('audiocap:capability', { perProcessAudio: capability });
-    } catch {
-      /* destroyed between the check and the send; the next load re-pushes. See above. */
-    }
-  });
 
   // Wire resize/move/maximize/unmaximize/close listeners that persist
   // bounds to window-state.json with 500ms debounce (#806).
-  attachWindowState(mainWindow);
+  attachWindowState(win);
 
   // Register the window-control + version-info IPC surfaces (#806). The
   // factory closures defer the window lookup so the late-bind window
   // reference is always current (handles the brief teardown window).
-  registerWindowControlsIpc(() => mainWindow);
-  registerVersionInfoIpc(() => mainWindow);
-
-  const bundledPath = path.join(__dirname, '../renderer/index.html');
-
-  // Register before loading any URL — ready-to-show fires during loadURL
-  // and the listener must be attached first to avoid a race condition where
-  // the event fires before the handler is registered (window never shows).
-  mainWindow.once('ready-to-show', () => {
-    closeSplash();
-    mainWindow?.show();
-  });
-
-  if (app.isPackaged) {
-    await loadPackagedRenderer(mainWindow, bundledPath);
-  } else {
-    await loadDevRendererWithFallback(mainWindow, bundledPath);
-    // Always open DevTools in dev mode regardless of load path
-    if (process.env.DEVTOOLS !== '0') {
-      mainWindow.webContents.openDevTools();
-    }
-  }
-
-  // Open DevTools at startup if Developer Mode preference is enabled.
-  // Applies to packaged builds (bundled or remote SPA) and to dev fallback.
-  if (readDeveloperModePref() && !mainWindow.webContents.isDevToolsOpened()) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
-
-  // Cmd/Ctrl+Opt+I toggles DevTools when Developer Mode is enabled.
-  // (TEMPORARY — remove before BETA along with Developer Mode feature.)
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.type !== 'keyDown') return;
-    const isToggleCombo =
-      input.key.toLowerCase() === 'i' && input.alt && (input.meta || input.control);
-    if (!isToggleCombo) return;
-    if (!readDeveloperModePref()) return;
-    if (mainWindow?.webContents.isDevToolsOpened()) {
-      mainWindow.webContents.closeDevTools();
-    } else {
-      mainWindow?.webContents.openDevTools({ mode: 'detach' });
-    }
-  });
-
-  // Client Behavior [X] close intercept (#806). When the user clicks the
-  // native close button, route based on the cached Client Behavior:
-  //   - 'tray'    -> hide() (stays running, accessed from system tray, #1099)
-  //   - 'toolbar' -> minimize() (stays running in the OS taskbar)
-  //   - 'quit'    -> app.quit() (graceful full-app shutdown)
-  // event.preventDefault() suppresses the default close -> destroy path so the
-  // hide/minimize fall-throughs can take over. The 'quit' branch also calls
-  // preventDefault so app.quit can run its before-quit hooks without racing
-  // a window-destroy mid-shutdown.
-  //
-  // isQuitting guard (#1383): once a genuine quit is underway, before-quit has
-  // already fired and set isQuitting = true. We MUST let this close proceed
-  // (no preventDefault) or we veto Electron's own app.quit() sequence and the
-  // app becomes unquittable. This also resolves the 'quit' branch's
-  // re-entrancy: app.quit() -> before-quit sets the flag -> re-fired close ->
-  // early return here -> window destroys -> quit completes.
-  //
-  // Trayless fallback (#1099): if action='tray' but the tray failed to
-  // initialize (sandboxed env, missing StatusNotifier host, etc.),
-  // mainWindow.hide() would strand an invisible, unrecoverable resident
-  // process on Windows/Linux (macOS still has Dock activate). Quit instead so
-  // a trayless session degrades to a recoverable state. window-all-closed's
-  // !isTrayActive() branch alone is not enough: preventDefault()+hide() means
-  // the window never actually closes, so window-all-closed never fires.
-  mainWindow.on('close', (event) => {
-    if (!mainWindow) return;
-    if (isQuitting) return;
-    const action = deriveCloseAction(getCachedClientBehavior());
-
-    if (action === 'tray') {
-      event.preventDefault();
-      if (isTrayActive()) {
-        mainWindow.hide();
-      } else {
-        app.quit();
-      }
-    } else if (action === 'toolbar') {
-      event.preventDefault();
-      mainWindow.minimize();
-    } else {
-      // action === 'quit'
-      event.preventDefault();
-      app.quit();
-    }
-  });
+  registerWindowControlsIpc(shellWindow);
+  registerVersionInfoIpc(() => broadcastPushTarget);
 
   // Client Behavior [-] minimize intercept (#806). When the user clicks the
   // native minimize button AND their Client Behavior config routes minimize
@@ -1502,39 +1590,58 @@ const createWindow = async (): Promise<void> => {
   // would strand the window invisibly with no taskbar entry. Skip the
   // redirect so the native minimize stands and the window stays recoverable
   // from the taskbar.
-  mainWindow.on('minimize', () => {
-    if (!mainWindow) return;
+  win.on('minimize', () => {
     const action = deriveMinimizeAction(getCachedClientBehavior());
     if (action === 'tray' && isTrayActive()) {
-      mainWindow.restore();
-      mainWindow.hide();
+      win.restore();
+      win.hide();
     }
     // else: leave native minimize -> toolbar as-is
   });
 
-  // Status-aware tray (tray-status spec §3/§4): window focus gates the mention
-  // burst, and a renderer reload / crash / hang drops the tray back to neutral
-  // (R17) so it never keeps live voice controls for a session that is gone.
-  mainWindow.on('focus', () => setTrayWindowFocused(true));
-  mainWindow.on('blur', () => setTrayWindowFocused(false));
-  attachTrayResetHooks(mainWindow.webContents);
+  // Status-aware tray (tray-status spec §3/§4): window focus gates the mention burst.
+  win.on('focus', () => setTrayWindowFocused(true));
+  win.on('blur', () => setTrayWindowFocused(false));
 
-  mainWindow.on('closed', () => {
-    // #974/#975: a window-less SSO flow (apple or google) has no UI to deliver
-    // its result to — tear both down so the loopback listener and 5-minute
-    // deadline don't outlive the renderer (teardown trigger (b) in each flow's
-    // documented lifecycle).
-    cancelActiveAppleFlow();
-    cancelActiveGoogleFlow();
-    mainWindow = null;
-    resetDeepLinkDelivery();
-  });
+  installDevConnectionMenu();
 
-  // Log renderer crashes to diagnose voice join segfaults
-  mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    resetDeepLinkDelivery();
-    console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
-  });
+  // The splash closes and the window shows on the saas view's first finished load.
+  // A BaseWindow has no 'ready-to-show' (BrowserWindow alone declares it), so the
+  // view's own `did-finish-load` stands in. A bundled load that fails reveals the
+  // window through revealLoadFailure instead.
+  const loadSaasView = async (contents: WebContents): Promise<void> => {
+    contents.once('did-finish-load', () => {
+      closeSplash();
+      shellWindow()?.show();
+    });
+    if (app.isPackaged) {
+      await loadPackagedRenderer(contents);
+    } else {
+      await loadDevRendererWithFallback(contents, bundledRendererPath);
+    }
+  };
+
+  const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(PRODUCTION_API_BASE);
+  const opened = saas
+    ? await openConnectionView(saas.serviceId, 'app://concord/index.html', loadSaasView)
+    : null;
+  if (!opened?.ok) {
+    console.error('[MAIN] the saas connection could not be opened');
+    revealLoadFailure(win, 'Could not load application — please reinstall');
+    return;
+  }
+  const contents = opened.record.webContents;
+
+  // Always open DevTools in dev mode regardless of load path.
+  if (!app.isPackaged && process.env.DEVTOOLS !== '0') {
+    contents.openDevTools({ mode: 'detach' });
+  }
+
+  // Open DevTools at startup if Developer Mode preference is enabled.
+  // Applies to packaged builds (bundled or remote SPA) and to dev fallback.
+  if (readDeveloperModePref() && !contents.isDevToolsOpened()) {
+    contents.openDevTools({ mode: 'detach' });
+  }
 };
 
 // Track rollback result so we can notify the renderer after window creation
@@ -1556,35 +1663,23 @@ app.whenReady().then(async () => {
   // rather than merely tidying a duplicate.
   registerInviteProtocolClient();
 
-  // app:// protocol handler (#830) — serves the bundled SPA from the asar
-  // bundle root. The pure resolver in appProtocol.ts validates the URL,
-  // rejects path-traversal, and returns the absolute file path. Here we
-  // wrap that with net.fetch which handles asar bundle paths transparently.
-  if (app.isPackaged) {
-    const bundleRoot = path.resolve(__dirname, '../renderer');
-    protocol.handle('app', async (request) => {
-      const result = resolveAppProtocolPath(request.url, bundleRoot);
-      if (!result.ok || !result.absolutePath) {
-        return new Response(null, { status: result.status });
-      }
-      // pathToFileURL is the canonical cross-platform-safe path→file://
-      // transformation. String concat (`'file://' + absolutePath`) works
-      // on macOS/Linux but produces malformed URLs on Windows where
-      // path.resolve emits drive-letter paths like C:\app\...
-      return net.fetch(pathToFileURL(result.absolutePath).href);
-    });
-
-    // spa-cache:// protocol handler (#1870) — serves the VERIFIED last-known-good
-    // SPA cache from the live cache dir. The pure resolver in cacheProtocol.ts
-    // mirrors appProtocol.ts's path-traversal rejection; getLiveDir resolves the
-    // pinned userData path lazily at request time.
-    protocol.handle(SPA_CACHE_SCHEME, (request) => handleCacheProtocolRequest(request, getLiveDir));
+  // #86 §3.3: every session — `saas`'s `defaultSession` and each self-hosted
+  // service's `fromPath` session — is configured by configureConnectionSession when
+  // its service is registered: `app://` (#830) and, for `saas` only, `spa-cache://`
+  // (#1870), the permission/device/HID handlers and the KLIPY injector (#626).
+  // Registering `saas` here configures `defaultSession` before any window exists.
+  registerConnectionService(PRODUCTION_API_BASE);
+  // Development builds only: every approved self-hosted origin, so the dev
+  // Connections menu can open it. Packaged builds open nothing but `saas` until the
+  // connections file restores more (#86 Task 6).
+  if (!app.isPackaged) {
+    for (const { origin } of readApprovalsFile()) registerConnectionService(origin);
   }
 
   registerOpenExternalHandler(getRemoteSpaBaseUrl);
   // #1729 — native Save-As for decrypted image attachments. Lazy window provider
   // (mirrors registerPermissionHandlers) so the dialog parents to the live window.
-  registerSaveImageHandler(() => mainWindow, getRemoteSpaBaseUrl);
+  registerSaveImageHandler(shellWindow, getRemoteSpaBaseUrl);
   registerSSOIPC(getRemoteSpaBaseUrl);
   registerAttestationIpc(getRemoteSpaBaseUrl);
   // A LIVE per-process capture ended without the user asking (#3394 PR 2, contract 30):
@@ -1607,8 +1702,11 @@ app.whenReady().then(async () => {
   // retires the session. Both setters only capture the late-bound `mainWindow` and guard
   // it, so registering them first costs nothing and no later `await` can reorder them.
   setAudiocapInterruptListener((interrupt) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('audiocap:interrupted', {
+    // #86 Task 4: the saas view is the only one audiocap:start admits (Task 7B binds
+    // the owner), so it is the only one a capture can belong to.
+    const owner = saasPrimaryHandle();
+    if (!owner || owner.isDestroyed()) return;
+    owner.webContents.send('audiocap:interrupted', {
       generation: interrupt.generation,
       reason: interrupt.reason,
     });
@@ -1629,10 +1727,11 @@ app.whenReady().then(async () => {
   // is the opposite of the capability push (below), which swallows because its value is
   // monotone and re-pushed on the next `did-finish-load`. A port is neither.
   setAudiocapPortSink((generation, port) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
+    const owner = saasPrimaryHandle();
+    if (!owner || owner.isDestroyed()) {
       throw new Error('audiocap port sink: no live window');
     }
-    mainWindow.webContents.postMessage('audiocap:port', { generation }, [port]);
+    owner.webContents.postMessage('audiocap:port', { generation }, [port]);
   });
 
   // #3198 PR 3 — the `audiocap:start` invoke. This is the ONE audiocap handler the
@@ -1643,36 +1742,14 @@ app.whenReady().then(async () => {
   // The window provider (#3394 PR 1, R5) narrows admission from "a permitted origin" to
   // "the main window's own main frame" -- a PiP shares the origin. Late-bound like
   // `registerWindowControlsIpc(() => mainWindow)`: `createWindow` has not run yet here, and
-  // the `closed` handler nulls the variable.
-  registerAudiocapIpc(getRemoteSpaBaseUrl, () => mainWindow);
+  // the `closed` handler nulls the variable. #86 Task 4: "the main window" is the saas
+  // view until Task 7B binds the share's owner connection.
+  registerAudiocapIpc(getRemoteSpaBaseUrl, saasPrimaryHandle);
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
-  registerBillingIpc(getRemoteSpaBaseUrl, () => mainWindow);
-  // Status-aware tray (tray-status spec §4): trusted frame + the main window's own
+  registerBillingIpc(getRemoteSpaBaseUrl, shellWindow);
+  // Status-aware tray (tray-status spec §4): trusted frame + the foreground view's own
   // main frame (a PiP shares the origin) + 20/s bucket + exact closed-enum shape.
-  registerTrayStatusIpc(getRemoteSpaBaseUrl, () => mainWindow);
-  // Permission request handler: explicitly allow app-required permissions, deny risky ones.
-  // Notifications are allowed (JIT-managed by permissionManager #197).
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const denied = ['geolocation'];
-    if (denied.includes(permission)) {
-      callback(false);
-      return;
-    }
-    callback(true);
-  });
-
-  // Permission check handler: Chromium queries this synchronously to verify grants.
-  // Default to true so internal checks (e.g. WebAuthn/FIDO2) aren't silently blocked.
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    const denied = ['geolocation'];
-    return !denied.includes(permission);
-  });
-
-  // Device permission handler: allow camera, microphone, speaker, and HID (security keys)
-  session.defaultSession.setDevicePermissionHandler((details) => {
-    return ['camera', 'microphone', 'speaker', 'hid'].includes(details.deviceType ?? '');
-  });
-
+  registerTrayStatusIpc(getRemoteSpaBaseUrl, foregroundPrimaryHandle);
   // NO TLS certificate pinning on api.concordvoice.chat — deliberate, do not
   // re-add (#658 reverted). Cloudflare serves that host from a MANAGED edge
   // certificate that it rotates on its own schedule with a NEW keypair. The pin
@@ -1691,54 +1768,15 @@ app.whenReady().then(async () => {
   // of bricking the fleet. Only ever pin a keypair Concord controls end to end.
   // See docs/policies/api-tls-trust-model.md.
 
-  // HID device selection: auto-select for WebAuthn hardware security keys
-  session.defaultSession.on('select-hid-device', (event, details, callback) => {
-    event.preventDefault();
-    if (details.deviceList && details.deviceList.length > 0) {
-      callback(details.deviceList[0].deviceId);
-    } else {
-      callback('');
-    }
-  });
-
   // OS permission management (#197) — JIT prompting replaces proactive startup requests.
   // Camera/mic/screen/notifications are requested when the feature is first used.
-  registerPermissionHandlers(() => mainWindow, getRemoteSpaBaseUrl);
-
-  // KLIPY media proxy auth injection (#626): <img>/<video> src attributes
-  // send plain GETs without Authorization headers. This interceptor injects
-  // the cached JWT so the authenticated media proxy returns 200 instead of 401.
-  // Origin-restricted: only injects when the request targets the known API base.
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*/api/v1/klipy/media*'] },
-    (details, callback) => {
-      // Memory only, synchronously per request: the active custody's token and origin.
-      const custody = liveCustody();
-      const token = custody?.getCachedAccessToken() ?? null;
-      const apiOrigin = custody?.getApiBaseOrigin() ?? null;
-      if (token && apiOrigin) {
-        try {
-          const requestOrigin = new URL(details.url).origin;
-          if (requestOrigin === apiOrigin) {
-            details.requestHeaders['Authorization'] = `Bearer ${token}`;
-            const clientVersion = app.getVersion();
-            if (isSupportedDesktopClientVersion(clientVersion)) {
-              details.requestHeaders['X-Concord-Client-Version'] = clientVersion;
-            }
-          }
-        } catch {
-          // Malformed URL — skip injection
-        }
-      }
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
+  registerPermissionHandlers(foregroundPrimaryHandle, getRemoteSpaBaseUrl);
 
   // ─── Update safety: startup validation (#384) ─────────────────────
   // Must run before createWindow() so we can stash rollback info,
   // but after initAutoUpdater() so the logger is available.
   initAutoUpdater(
-    () => mainWindow,
+    () => broadcastPushTarget,
     () => {
       isQuitting = true;
     },
@@ -1826,12 +1864,12 @@ app.whenReady().then(async () => {
   // Open/Quit and the two update rows are main-direct (spec §4); everything that
   // changes client state goes to the renderer as a closed-enum `tray:action`.
   setTrayActionSender((action) => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send(TRAY_ACTION, action);
+    const contents = foregroundWebContents();
+    if (!contents) return;
+    contents.send(TRAY_ACTION, action);
   });
   initTray({
-    getMainWindow: () => mainWindow,
+    getMainWindow: shellWindow,
     createWindow,
     downloadUpdate,
     installUpdate: safeQuitAndInstall,
@@ -1843,7 +1881,7 @@ app.whenReady().then(async () => {
     const rollback = rollbackResult;
     // Delay slightly to ensure renderer IPC listeners are registered
     setTimeout(() => {
-      mainWindow?.webContents.send('update:rollback', {
+      broadcastToPrimaries('update:rollback', {
         fromVersion: rollback.fromVersion,
         toVersion: rollback.toVersion,
         message: `Update to v${rollback.toVersion} failed. You are still on v${rollback.fromVersion}.`,
@@ -1853,8 +1891,15 @@ app.whenReady().then(async () => {
 
   // Proactive token refresh (#254): notify renderer when main process
   // refreshes the token (timer or sleep/wake), so authStore stays current.
+  // TRANSITIONAL (#86 Task 4 → 7B): tokenManager forwards a refresh only from the
+  // live custody, so it goes to that custody's connection and to no other.
   setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
-    mainWindow?.webContents.send('auth:token-refreshed', {
+    const custody = liveCustody();
+    const record = liveConnections().find(
+      (r) => custody !== null && getService(r.serviceId)?.custody === custody
+    );
+    if (!record) return;
+    sendToConnection(refOf(record), 'auth:token-refreshed', {
       accessToken,
       sessionId,
       previousSessionId,
@@ -1869,7 +1914,7 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (shellWindow() === null) {
       void createWindow();
     }
   });
@@ -1881,11 +1926,9 @@ app.whenReady().then(async () => {
   // reason (see that comment). `audiocapHost.ts` already wraps its call to this listener in
   // a try/catch, so a throw here cannot wedge the handshake -- but relying on the CALLER's
   // catch is what left the two copies asymmetric in the first place, and the check is one
-  // line. Here the module-scope `mainWindow` IS the right target: this runs once in
-  // `whenReady`, not per window.
+  // line. #86: a machine fact grants nothing, so it reaches every live view.
   setAudiocapCapabilityListener((perProcessAudio) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('audiocap:capability', { perProcessAudio });
+    broadcastToPrimaries('audiocap:capability', { perProcessAudio });
   });
 
   // ─── concord-audiocap capability probe (#3195, ADR-0043) ──────────
@@ -2138,7 +2181,7 @@ ipcMain.handle('app:setContentProtection', async (event, enabled: unknown): Prom
     return false;
   }
 
-  const updated: BrowserWindow[] = [];
+  const updated: BaseWindow[] = [];
   try {
     for (const window of getContentProtectionWindows()) {
       window.setContentProtection(enabled);
@@ -2184,13 +2227,17 @@ ipcMain.handle('spa:reloadLatest', async (event) => {
     console.warn('[SpaLoader/reload] rejected spa:reloadLatest from untrusted frame');
     return { mode: 'bundled', changed: false, rejected: true };
   }
-  if (!mainWindow || !app.isPackaged) return { mode: 'bundled', changed: false };
+  // The remote SPA runs only in the saas view (#86 §3.4).
+  const saasContents = saasPrimary()?.webContents;
+  if (!saasContents || saasContents.isDestroyed() || !app.isPackaged) {
+    return { mode: 'bundled', changed: false };
+  }
   const before = getSpaHash();
   const decision = await resolveSpaSource();
   console.debug(`[SpaLoader/reload] ${decision.mode}: ${decision.reason}`);
   // Main initiated this swap (the renderer only TRIGGERED it), so a code already
   // delivered to the outgoing document is carried into its successor (#2363).
-  const outcome = await applySpaDecisionCarryingDeepLink(mainWindow, decision);
+  const outcome = await applySpaDecisionCarryingDeepLink(saasContents, decision);
   // Collapse the internal 'cache' outcome to 'bundled' for the renderer-facing
   // IPC contract (#1870): the signed LKG cache is a local fallback origin, not a
   // remote SPA, and no renderer consumer distinguishes it — checkForUpdate's
@@ -2261,14 +2308,15 @@ ipcMain.handle('app:setBadgeCount', (event, count: unknown) => {
 ipcMain.handle('app:flashFrame', (event, flash: unknown) => {
   if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
   if (typeof flash !== 'boolean') return;
-  mainWindow?.flashFrame(flash);
+  shellWindow()?.flashFrame(flash);
 });
 
 ipcMain.handle('app:focusWindow', (event) => {
   if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  const win = shellWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
   }
 });
 
@@ -2305,13 +2353,15 @@ ipcMain.handle('app:getDeveloperMode', () => readDeveloperModePref());
 ipcMain.handle('app:setDeveloperMode', (event, enabled: boolean) => {
   if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
   writeDeveloperModePref(enabled);
-  if (!mainWindow) return;
+  // app-global-mutate (#86 §3.7): the foreground view's DevTools.
+  const contents = foregroundWebContents();
+  if (!contents) return;
   if (enabled) {
-    if (!mainWindow.webContents.isDevToolsOpened()) {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    if (!contents.isDevToolsOpened()) {
+      contents.openDevTools({ mode: 'detach' });
     }
-  } else if (mainWindow.webContents.isDevToolsOpened()) {
-    mainWindow.webContents.closeDevTools();
+  } else if (contents.isDevToolsOpened()) {
+    contents.closeDevTools();
   }
 });
 
@@ -2359,7 +2409,7 @@ export function buildApprovalDialogCopy(p: ApprovalDialogParams): {
 
 const defaultShowMessageBox = (w: unknown, o: unknown): Promise<{ response: number }> =>
   w
-    ? dialog.showMessageBox(w as BrowserWindow, o as Electron.MessageBoxOptions)
+    ? dialog.showMessageBox(w as BaseWindow, o as Electron.MessageBoxOptions)
     : dialog.showMessageBox(o as Electron.MessageBoxOptions);
 
 /** Exported for unit test. showMessageBox is injected (the applicationsFolderGate pattern). */
@@ -2480,9 +2530,9 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
       console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
       return { status: 'error', code: 'too_many_prompts', message: '' };
     }
-    // `mainWindow` is read HERE, at ceremony time — not at handler registration,
+    // The shell window is read HERE, at ceremony time — not at handler registration,
     // when the auth window does not yet exist.
-    const approved = await requestSelfHostedApproval(mainWindow, {
+    const approved = await requestSelfHostedApproval(shellWindow(), {
       host: parsed.hostname,
       // Every resolved address, not just the representative: the user consents to the
       // whole set the name answers with, so the whole set is what the dialog states.
@@ -2913,6 +2963,8 @@ ipcMain.handle('auth:getMachineId', (event, apiBase?: unknown) => {
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
 type PipWindowEntry = {
   window: BrowserWindow;
+  /** The opener's document when the PiP opened; its pushes go there or nowhere. */
+  ownerRef: ConnectionRef;
   ownerFrameTreeNodeId: number;
   remoteSpaUrl: string | null;
   /**
@@ -2925,6 +2977,12 @@ type PipWindowEntry = {
   sessionToken: string;
 };
 const pipWindows = new Map<string, PipWindowEntry>();
+
+/** The connection `sender` is the live PRIMARY view of, or null (PiPs open no PiP). */
+function boundOpener(sender: WebContents): ConnectionRecord | null {
+  const bound = boundRecordFor(sender);
+  return bound?.role === 'primary' ? bound.record : null;
+}
 
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
@@ -2990,8 +3048,15 @@ ipcMain.handle(
       return;
     }
 
+    // #86 R8: built by shellWindow on the OPENER's session and bound 'pip' to its
+    // connection. Only a bound primary may open one.
+    const opener = boundOpener(event.sender);
+    if (!opener) {
+      console.warn('[pip:open] rejected — sender is not a connection view');
+      return;
+    }
     const contentProtectionEnabled = readContentProtectionPref();
-    const pip = new BrowserWindow({
+    const pip = createPipWindow(event.sender, {
       width: opts.width || 320,
       height: opts.height || 240,
       minWidth: 160,
@@ -3014,22 +3079,25 @@ ipcMain.handle(
       },
       backgroundColor: '#000',
     });
+    if (!pip) return;
     applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
+    // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener's
+    // PiP loads the bundled renderer whatever the remote-SPA state says.
+    const pipRemoteUrl = opener.serviceId === SAAS_SERVICE_ID ? remoteUrl : null;
 
     // Load PiP route (hash-based routing)
     if (!app.isPackaged) {
       pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
-    } else if (remoteUrl) {
+    } else if (pipRemoteUrl) {
       // Tier 3: PiP windows load from the remote SPA, including the
       // `/spa/<sha>/` path component. Origin-only would fall through to
       // nginx's catch-all and redirect to the marketing site (#802).
-      pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
+      pip.loadURL(buildRemotePipUrl(pipRemoteUrl, opts.id));
     } else if (
-      (mainWindow?.webContents.getURL() ?? '').startsWith(
-        `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`
-      )
+      opener.serviceId === SAAS_SERVICE_ID &&
+      opener.webContents.getURL().startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`)
     ) {
-      // #1870: the main window is serving from the signed last-known-good cache
+      // #1870: the opener is serving from the signed last-known-good cache
       // (setRemoteSpaState(null) means remoteUrl is null, but the cache origin is
       // the active shell). Load the PiP child from the SAME cache origin so it
       // renders the cached shell, not the possibly-older bundled asset. The
@@ -3043,23 +3111,25 @@ ipcMain.handle(
     }
 
     const sessionToken = mintPipSessionToken();
+    const ownerRef = refOf(opener);
     pipWindows.set(opts.id, {
       window: pip,
+      ownerRef,
       ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
-      remoteSpaUrl: remoteUrl,
+      remoteSpaUrl: pipRemoteUrl,
       sessionToken,
     });
 
     pip.on('closed', () => {
       pipWindows.delete(opts.id);
-      mainWindow?.webContents.send('pip:closed', { id: opts.id });
+      sendToConnection(ownerRef, 'pip:closed', { id: opts.id });
     });
 
     // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
     // main renderer's signaling proxy must already know the capability when the
     // PiP's own renderer finishes booting and issues its first RPC; a pull would
     // race that boot. The PiP window gets its copy by pulling 'pip:session'.
-    mainWindow?.webContents.send('pip:opened', { id: opts.id, token: sessionToken });
+    sendToConnection(ownerRef, 'pip:opened', { id: opts.id, token: sessionToken });
   }
 );
 
@@ -3111,7 +3181,9 @@ ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
 });
 
 ipcMain.on('invite:renderer-ready', (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  // Deep links are saas-only (#86 §3.7): only the saas view can be ready for them.
+  const saasContents = saasDeliveryTarget();
+  if (!saasContents || event.sender !== saasContents) return;
   inviteRendererReady = true;
   drainPendingDeepLinks();
 });
@@ -3120,7 +3192,8 @@ ipcMain.on('invite:renderer-ready', (event) => {
 // 'invite:renderer-ready' so an SPA that only knows the invite channel can never
 // arm the friend one — see emitDeepLink above.
 ipcMain.on('deeplink:renderer-ready', (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  const saasContents = saasDeliveryTarget();
+  if (!saasContents || event.sender !== saasContents) return;
   friendRendererReady = true;
   drainPendingDeepLinks();
 });
@@ -3139,119 +3212,25 @@ if (gotTheLock) {
   app.on('second-instance', (_event, argv: string[]) => {
     handleInviteDeepLinksFromArgv(argv, 'second-instance');
     // Someone tried to run a second instance, focus our window
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+    const win = shellWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
   });
 } else {
   app.quit();
 }
 
-/**
- * Packaged-mode same-origin navigation allowlist for the `will-navigate` gate.
- * Returns true when `parsedUrl` is a permitted in-window navigation target:
- *   - the active remote SPA origin (origin-equality), OR
- *   - the bundled `app://concord` origin, OR
- *   - the signed last-known-good cache `spa-cache://concord` origin (#1870).
- *
- * For the two non-special schemes, compare protocol + host (WHATWG `URL.origin`
- * is the literal "null" for non-special schemes — same gotcha as
- * pipUrl.ts:isValidPipOpenSender). A remote/compromised page cannot reach
- * `app://` or `spa-cache://` here: no branch matches a remote-origin frame, and
- * Chromium scheme-gating blocks remote→privileged navigation independently.
- *
- * Extracted from the will-navigate handler so that handler stays within the
- * cognitive-complexity budget (S3776) as origins are added.
- */
-function isPermittedPackagedNavTarget(parsedUrl: URL, spaOrigin: string | null): boolean {
-  if (spaOrigin && parsedUrl.origin === spaOrigin) {
-    return true;
-  }
-  if (parsedUrl.protocol === 'app:' && parsedUrl.host === 'concord') {
-    return true;
-  }
-  return parsedUrl.protocol === `${SPA_CACHE_SCHEME}:` && parsedUrl.host === SPA_CACHE_HOST;
-}
-
-// Security: validate navigation. After #754: extends with externalization
-// safety net — bare <a href="https://..."> clicks (or programmatic
-// navigation) route to the OS browser via shell.openExternal instead of
-// silently failing. https-only, symmetric with setWindowOpenHandler.
-// See internal-reference
-// and internal-reference "External-link scheme policy".
-//
-// Window-open policy: every in-app window.open / target=_blank is denied, and
-// https: is handed to the OS browser. https-only after #754 tightening (passive
-// nav is held to a stricter scheme set than the user-clicked Markdown-link IPC
-// path). Registered below on EVERY web contents, not per window: the PiP window
-// once had no handler at all, so its window.open created an app-owned child.
-function externalizeWindowOpen({ url }: { url: string }): { action: 'deny' } {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'https:') {
-      // Fire-and-forget — main process can't surface a result here. .catch
-      // suppresses unhandled-rejection if the OS denies (sandbox, no handler).
-      // Symmetric with the IPC handler at src/main/ipc/openExternal.ts.
-      shell.openExternal(url).catch(() => {});
-    }
-    // http: intentionally rejected — Electron app externalization is
-    // https-only. Markdown-rendered chat links keep http: via
-    // the open-external IPC handler (different consent model).
-  } catch {
-    // Invalid URL — ignore (no externalization, deny in-app open).
-  }
-  return { action: 'deny' };
-}
-
+// Security: validate navigation and window.open on EVERY web contents (#754, #86 §3.3).
+// installNavigationGate resolves the contents' connection binding at each event:
+// a bound view may navigate only to the targets of its connection kind (packaged:
+// `app://concord` for every kind, the remote SPA origin and `spa-cache://concord`
+// for `saas` only; dev: any localhost), an https: target goes to the OS browser,
+// every in-app window.open is denied, and an unbound contents fails closed. The
+// billing sheet's own Stripe-only gate stays first (billing/billingWindow.ts).
 app.on('web-contents-created', (_, contents) => {
-  contents.setWindowOpenHandler(externalizeWindowOpen);
-
-  contents.on('will-navigate', (event, navigationUrl) => {
-    // The billing view runs its own Stripe-only gate (billing/billingWindow.ts).
-    if (isBillingWebContents(contents)) return;
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(navigationUrl);
-    } catch {
-      // Malformed URL — fail closed. Do not navigate, do not externalize.
-      event.preventDefault();
-      return;
-    }
-
-    if (app.isPackaged) {
-      // Packaged release: allow same-origin SPA navigation within the active
-      // remote SPA origin, the bundled `app://concord` origin, or the signed
-      // last-known-good cache `spa-cache://concord` origin (#1870). This permits
-      // in-window navigations these origins legitimately perform — chunk reloads,
-      // programmatic location.assign, and full-page reloads from the error-
-      // boundary "Reload" / resetService.softRestart() crash-recovery paths
-      // (load-bearing for the cache, which is exactly the degraded-network state
-      // where recovery matters). See isPermittedPackagedNavTarget for the
-      // protocol+host comparison rationale and why a remote page cannot reach the
-      // privileged schemes here.
-      if (isPermittedPackagedNavTarget(parsedUrl, getRemoteSpaBaseUrl())) {
-        return;
-      }
-      // Block in-window navigation to anything else.
-      event.preventDefault();
-      // Drift safety net: route https: navigations to OS browser so a
-      // future bare-<a> link or SPA-driven redirect doesn't silently fail.
-      // .catch suppresses unhandled-rejection (OS deny) — symmetric with
-      // setWindowOpenHandler and the IPC handler.
-      if (parsedUrl.protocol === 'https:') {
-        shell.openExternal(navigationUrl).catch(() => {});
-      }
-      // Other schemes (javascript:, data:, file:, http:, vbscript:, ...)
-      // are silently dropped after preventDefault — fail-closed posture.
-    } else if (parsedUrl.hostname !== 'localhost') {
-      // Dev mode: allow any localhost port (HMR), block everything else.
-      event.preventDefault();
-      if (parsedUrl.protocol === 'https:') {
-        shell.openExternal(navigationUrl).catch(() => {});
-      }
-    }
-  });
+  installNavigationGate(contents, connectionSessionDeps);
 
   // SPA self-heal main-process detection (#753, ADR-0001) — runs outside
   // the renderer bundle, so it survives renderer-side corruption that
@@ -3269,7 +3248,7 @@ app.on('web-contents-created', (_, contents) => {
         remoteSpaBaseDir: getRemoteSpaBaseDir(),
       });
       if (isMainFrame && validatedURL === 'app://concord/index.html' && errorCode !== -3) {
-        revealLoadFailure(mainWindow, 'Could not load application — please reinstall');
+        revealLoadFailure(shellWindow(), 'Could not load application — please reinstall');
       }
     }
   );

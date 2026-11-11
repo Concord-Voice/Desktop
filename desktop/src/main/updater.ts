@@ -4,7 +4,7 @@ import {
   type UpdateDownloadedEvent,
   type ProgressInfo,
 } from 'electron-updater';
-import { app, net, type BrowserWindow } from 'electron';
+import { app, net, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { UPDATE_ENDPOINT_URL } from '../shared/updateEndpoint';
@@ -73,7 +73,10 @@ function writeUpdatePrefs(prefs: UpdatePrefs): void {
 }
 
 let checkInterval: ReturnType<typeof setInterval> | null = null;
-let getWindow: (() => BrowserWindow | null) | null = null;
+/** Only liveness and `webContents.send` are read; main.ts fans the push out (#86 Task 4). */
+type RendererPushTarget = { isDestroyed(): boolean; readonly webContents: Pick<WebContents, 'send'> };
+
+let getWindow: (() => RendererPushTarget | null) | null = null;
 let releaseQuitVetoForUpdate: (() => void) | null = null;
 let handlersRegistered = false;
 let logger: UpdateLogger | null = null;
@@ -328,7 +331,7 @@ function startScheduledChecks(): void {
 }
 
 export function initAutoUpdater(
-  mainWindowGetter: () => BrowserWindow | null,
+  mainWindowGetter: () => RendererPushTarget | null,
   releaseUpdateQuitVeto?: () => void,
   trayUpdateState?: (state: TrayUpdateState, percent?: number) => void
 ): void {

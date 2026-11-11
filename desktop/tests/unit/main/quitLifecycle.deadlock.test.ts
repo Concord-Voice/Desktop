@@ -22,7 +22,14 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 
 // ── Hoisted shared mocks (available during vi.mock factory execution) ──────
-const { mockMainWindow, MockBrowserWindow, mockApp, mockElectronAutoUpdater } = vi.hoisted(() => {
+const {
+  mockMainWindow,
+  mockWebContents,
+  MockBrowserWindow,
+  MockWebContentsView,
+  mockApp,
+  mockElectronAutoUpdater,
+} = vi.hoisted(() => {
   const mockWebContents = {
     openDevTools: vi.fn(),
     closeDevTools: vi.fn(),
@@ -30,6 +37,15 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockElectronAutoUpdater } = 
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
     on: vi.fn(),
+    // #86 Task 4: the saas connection's view loads its own document.
+    once: vi.fn(),
+    getURL: vi.fn(() => ''),
+    loadURL: vi.fn().mockResolvedValue(undefined),
+    loadFile: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    close: vi.fn(),
+    focus: vi.fn(),
+    mainFrame: { frameTreeNodeId: 7 },
   };
   const mockMainWindow = {
     loadURL: vi.fn().mockResolvedValue(undefined),
@@ -47,10 +63,26 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockElectronAutoUpdater } = 
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
     restore: vi.fn(),
     setAlwaysOnTop: vi.fn(),
-    webContents: mockWebContents,
+    // #86 Task 4: the main window is a BaseWindow composing one view per connection.
+    maximize: vi.fn(),
+    setContentProtection: vi.fn(),
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
   };
+  if (!('isDestroyed' in mockMainWindow)) {
+    Object.assign(mockMainWindow, { isDestroyed: vi.fn(() => false) });
+  }
   const bw = vi.fn().mockImplementation(function () {
     return mockMainWindow;
+  });
+  const mockView = {
+    webContents: mockWebContents,
+    setBounds: vi.fn(),
+    setVisible: vi.fn(),
+    setBackgroundColor: vi.fn(),
+  };
+  const wcv = vi.fn().mockImplementation(function () {
+    return mockView;
   });
   (bw as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
   const mockApp = {
@@ -70,11 +102,21 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockElectronAutoUpdater } = 
     getGPUInfo: vi.fn(() => Promise.resolve({ gpuDevice: [] })),
   };
   const mockElectronAutoUpdater = { on: vi.fn() };
-  return { mockMainWindow, MockBrowserWindow: bw, mockApp, mockElectronAutoUpdater };
+  return {
+    mockMainWindow,
+    mockWebContents,
+    MockBrowserWindow: bw,
+    MockWebContentsView: wcv,
+    mockApp,
+    mockElectronAutoUpdater,
+  };
 });
 
 vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
+  BaseWindow: MockBrowserWindow,
+  WebContentsView: MockWebContentsView,
+  net: { fetch: vi.fn() },
   app: mockApp,
   autoUpdater: mockElectronAutoUpdater,
   ipcMain: { handle: vi.fn(), on: vi.fn() },
@@ -101,7 +143,10 @@ vi.mock('electron', () => ({
       isDestroyed: vi.fn(() => false),
     };
   }),
-  Menu: { buildFromTemplate: vi.fn((template: unknown) => ({ template })) },
+  Menu: {
+    buildFromTemplate: vi.fn((template: unknown) => ({ template })),
+    setApplicationMenu: vi.fn(),
+  },
   clipboard: { writeText: vi.fn() },
   desktopCapturer: { getSources: vi.fn(() => Promise.resolve([])) },
   screen: {
@@ -118,6 +163,8 @@ vi.mock('electron', () => ({
       setCertificateVerifyProc: vi.fn(),
       on: vi.fn(),
       webRequest: { onBeforeSendHeaders: vi.fn() },
+      protocol: { handle: vi.fn() },
+      fetch: vi.fn(),
     },
   },
   shell: { openExternal: vi.fn(() => Promise.resolve()) },
@@ -189,9 +236,11 @@ vi.mock('../../../src/main/tokenManager', () => {
     onSystemResume: vi.fn(),
     getCachedAccessToken: vi.fn(() => null),
     getApiBaseOrigin: vi.fn(() => null),
+    onCredentialEvent: vi.fn(() => () => undefined),
   };
   return {
     ...custody,
+    custodyFor: vi.fn(() => custody),
     custodyForApiBase: vi.fn(() => custody),
     liveCustody: vi.fn(() => custody),
     restoreTargetCustody: vi.fn(() => custody),

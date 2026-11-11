@@ -39,7 +39,9 @@
  * correctly bounds this at one extra retry slot.
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app } from 'electron';
+import { SAAS_SERVICE_ID } from '../shared/connectionIdentity';
+import { liveConnections } from './connectionRegistry';
 import { resolveSpaSource, SPA_NO_CACHE_LOAD_OPTIONS } from './spaLoader';
 import { setRemoteSpaState } from './spaState';
 import type { SelfHealReason } from '../shared/spaIpcTypes';
@@ -79,14 +81,12 @@ export function __resetSelfHealState(): void {
 }
 
 function getPrimaryWebContents(): Electron.WebContents | null {
-  const windows = BrowserWindow.getAllWindows();
-  // The first non-destroyed window. PiP windows do not host the SPA, but the
-  // primary window's webContents is always windows[0] in practice; if multiple
-  // primary windows ever exist, we recover all of them by hitting the first.
-  for (const win of windows) {
-    if (!win.isDestroyed()) return win.webContents;
-  }
-  return null;
+  // #86: the remote SPA runs only in the saas connection's view. The shell is a
+  // BaseWindow whose views are not BrowserWindows, so a BrowserWindow.getAllWindows()
+  // scan would find the splash or a PiP instead and reload THAT to bundled.
+  const saas = liveConnections().find((record) => record.serviceId === SAAS_SERVICE_ID);
+  if (!saas || saas.webContents.isDestroyed()) return null;
+  return saas.webContents;
 }
 
 /**
