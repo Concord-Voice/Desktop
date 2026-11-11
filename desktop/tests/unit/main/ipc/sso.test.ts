@@ -76,6 +76,13 @@ vi.mock('../../../../src/main/ssoLoopback', () => ({
   startLoopback: mocked.startLoopback,
 }));
 
+// #86: an access token shaped like the control plane's (header.payload.signature)
+// whose payload carries the given claims. Only the payload matters to main.
+function accessTokenWithClaims(claims: Record<string, unknown>): string {
+  const segment = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${segment({ alg: 'HS256', typ: 'JWT' })}.${segment(claims)}.signature`;
+}
+
 const appleMocks = vi.hoisted(() => ({
   runAppleSignIn: vi.fn(async () => ({
     kind: 'tokens' as const,
@@ -562,6 +569,56 @@ describe('sso IPC handlers', () => {
       }
     );
 
+    it('#86: passes the access token user_id claim as serverUserId on a direct SSO publish', async () => {
+      const accessToken = accessTokenWithClaims({ user_id: 'sso-user-42', exp: 9_999_999_999 });
+      appleMocks.runAppleSignIn.mockResolvedValueOnce({
+        kind: 'tokens',
+        accessToken,
+        refreshToken: 'rt-claim',
+        sessionId: 'sid-claim',
+      });
+
+      await appleSignInHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE);
+
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledWith(
+        {
+          refreshToken: 'rt-claim',
+          rememberMe: true,
+          apiBase: SAAS_API_BASE,
+          accessToken,
+          serverUserId: 'sso-user-42',
+        },
+        41
+      );
+    });
+
+    it.each([
+      ['an opaque token', 'opaque-access'],
+      ['no user_id claim', accessTokenWithClaims({ sub: 'x' })],
+      ['a non-string user_id', accessTokenWithClaims({ user_id: 42 })],
+      ['an empty user_id', accessTokenWithClaims({ user_id: '' })],
+      ['a control character in user_id', accessTokenWithClaims({ user_id: 'a\u0000b' })],
+      ['an over-long user_id', accessTokenWithClaims({ user_id: 'u'.repeat(257) })],
+      ['a payload that is not JSON', 'aGVhZGVy.bm90LWpzb24.sig'],
+    ])(
+      '#86: publishes with no serverUserId (null scope, no throw) for %s',
+      async (_label, accessToken) => {
+        appleMocks.runAppleSignIn.mockResolvedValueOnce({
+          kind: 'tokens',
+          accessToken,
+          refreshToken: 'rt-bad-claim',
+          sessionId: 'sid-bad-claim',
+        });
+
+        await expect(
+          appleSignInHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE)
+        ).resolves.toMatchObject({ kind: 'tokens', credentialOwner: 41 });
+
+        const [stored] = tokenMocks.storeRefreshTokenIfOwner.mock.calls[0];
+        expect(stored).not.toHaveProperty('serverUserId');
+      }
+    );
+
     it('dispatches an already probe-approved self-hosted origin exactly', async () => {
       await appleSignInHandler({ senderFrame: { url: TRUSTED } }, SELF_HOSTED_API_BASE);
 
@@ -701,6 +758,33 @@ describe('sso IPC handlers', () => {
       );
       return appleSignInHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE);
     }
+
+    it('#86: passes the completion access token user_id claim as serverUserId', async () => {
+      await beginAppleCompletion();
+      const accessToken = accessTokenWithClaims({ user_id: 'registered-user-7' });
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: accessToken,
+            refresh_token: 'completion-refresh',
+            session_id: SUCCESS_SESSION_ID,
+            remember_me: true,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await completeRegistrationHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        registrationPayload
+      );
+
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ accessToken, serverUserId: 'registered-user-7' }),
+        41
+      );
+    });
 
     it('completes registration in main, stores the owner-bound refresh credential, and sanitizes IPC', async () => {
       await expect(beginAppleCompletion()).resolves.toMatchObject({
@@ -949,6 +1033,29 @@ describe('sso IPC handlers', () => {
       });
       // The owner was NOT released (no clearTokensIfOwner on the MFA branch).
       expect(tokenMocks.clearTokensIfOwner).not.toHaveBeenCalled();
+    });
+
+    it('#86: passes the MFA access token user_id claim as serverUserId', async () => {
+      await beginGoogleMFA();
+      const accessToken = accessTokenWithClaims({ user_id: 'mfa-user-9' });
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: accessToken,
+            refresh_token: 'mfa-refresh',
+            session_id: SUCCESS_SESSION_ID,
+            remember_me: true,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, totpPayload);
+
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ accessToken, serverUserId: 'mfa-user-9' }),
+        41
+      );
     });
 
     it('verifies MFA in main, stores the owner-bound credential, and sanitizes IPC', async () => {

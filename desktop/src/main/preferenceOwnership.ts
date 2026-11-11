@@ -8,9 +8,10 @@
 // Invariants:
 //   - the same serverUserId on two services yields two keys: compositeKey is injective
 //     over (ServiceId, localId), so a colliding id on saas, A and B never shares a key.
-//   - serverUserId is renderer-supplied. It is only ever input to the hash: never
-//     persisted, logged, or returned. `isServerUserId` is the one admission rule, used
-//     at the IPC boundary (main.ts) and again here.
+//   - serverUserId is renderer-supplied on auth:storeRefreshToken and main-derived on
+//     an SSO publish (the issued access token's user_id claim, ipc/sso.ts). It is only
+//     ever input to the hash: never persisted, logged, or returned. `isServerUserId` is
+//     the one admission rule, used at both entry points (main.ts, ipc/sso.ts) and here.
 //   - the scope is null until the service's custody holds an account, and null again
 //     once the credential ends (the custody clears the key).
 //   - a renderer receives only the scope. `prefsDirFor` stays in main; it never sees an

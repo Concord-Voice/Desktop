@@ -89,6 +89,7 @@ import { loadGoogleClientSecret } from '../oauth/google/clientSecret';
 import { cancelActiveGoogleFlow, runGoogleSignIn } from '../oauth/google/googleFlow';
 import { googleTokenCall } from '../oauth/google/googleTokenCall';
 import { verifyGoogleIDToken } from '../oauth/google/idTokenVerifier';
+import { isServerUserId } from '../preferenceOwnership';
 import { normalizeSelfHostedUrl } from '../selfHostedProbe';
 import { isTier2DialApproved, isValidatedSelfHostedApiBase } from '../selfHostedProfile';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';
@@ -273,6 +274,29 @@ function isCompleteMFAPayload(value: unknown): value is SSOCompleteMFAPayload {
     (value.code === undefined || isBoundedString(value.code, 256)) &&
     (value.assertion === undefined || isRecord(value.assertion))
   );
+}
+
+/**
+ * #86: the preference-scope input for an SSO publish, read from the `user_id` claim
+ * of the access token the control plane just returned to main's own fetch. No SSO
+ * response body carries a user object, so main derives the id rather than taking it
+ * from the renderer. Unverified decode, like tokenManager's decodeJwtExp: the value
+ * is only ever hashed into this service's account key, and the issuing server
+ * already names the account. Anything that is not a valid server user id yields no
+ * key (a null scope), never a throw that would strand the reserved owner.
+ */
+function serverUserIdClaim(accessToken: string): { serverUserId?: string } {
+  const payload = accessToken.split('.')[1];
+  if (payload === undefined) return {};
+  let claims: unknown;
+  try {
+    claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+  } catch {
+    return {};
+  }
+  if (!isRecord(claims)) return {};
+  const userId = claims.user_id;
+  return isServerUserId(userId) ? { serverUserId: userId } : {};
 }
 
 function parseCompletionTokens(value: unknown): MainCompletionTokens | null {
@@ -474,6 +498,7 @@ export function registerSSOIPC(): void {
           rememberMe: true,
           apiBase,
           accessToken: result.accessToken,
+          ...serverUserIdClaim(result.accessToken),
         },
         credentialOwner
       );
@@ -619,6 +644,7 @@ export function registerSSOIPC(): void {
         rememberMe: tokens.rememberMe,
         apiBase: completion.apiBase,
         accessToken: tokens.accessToken,
+        ...serverUserIdClaim(tokens.accessToken),
       },
       completion.credentialOwner
     );
@@ -709,6 +735,7 @@ export function registerSSOIPC(): void {
         rememberMe: tokens.rememberMe,
         apiBase: mfa.apiBase,
         accessToken: tokens.accessToken,
+        ...serverUserIdClaim(tokens.accessToken),
       },
       mfa.credentialOwner
     );

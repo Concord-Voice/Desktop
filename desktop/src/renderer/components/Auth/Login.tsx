@@ -1150,6 +1150,8 @@ const Login: React.FC<LoginProps> = ({
             rememberMe: data.remember_me ?? formData.rememberMe,
             apiBase: requestApiBase,
             accessToken: continuation?.accessToken ?? data.access_token,
+            // #86: main derives this connection's preference account key from it.
+            serverUserId: data.user.id,
           });
         } catch (storeError) {
           await abortForCredentialPersistenceFailure(storeError);
