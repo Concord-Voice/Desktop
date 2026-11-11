@@ -6088,3 +6088,77 @@ describe('#86 connection-isolated main semantics', () => {
     });
   });
 });
+
+// #86 exit criterion S2 (Task 7B pass 2). Keys staged through auth:storeE2EEKeys land in
+// the SENDER's own custody, chosen by the main-held binding, so another connection's next
+// credential can never adopt them: the only custody that credential reaches is its own,
+// and that custody never received the keys. Driven through main.ts's real handlers with
+// one spy custody per connection.
+describe('#86 S2: E2EE keys staged by one connection reach only its own custody', () => {
+  const APP_FRAME = 'app://concord/index.html';
+  let nextFrame = 9600;
+
+  function openWithSpyCustody(origin: string) {
+    const custody = {
+      storeE2EEKeys: vi.fn(async () => true),
+      storeE2EEKeysIfOwner: vi.fn(async () => true),
+      storeRefreshToken: vi.fn(() => 77),
+    };
+    const svc = connectionRegistry.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => custody as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      custody,
+      origin,
+      record: opened.record,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
+    };
+  }
+
+  it("A's staged keys reach A's custody alone, and B's next credential reaches B's custody alone", async () => {
+    const A = openWithSpyCustody('https://s2-a.lan');
+    const B = openWithSpyCustody('https://s2-b.lan');
+    try {
+      const keysA = {
+        wrappingKeyBase64: 'wa',
+        preferencesKeyBase64: 'pa',
+        wrappedPrivateKeyBase64: 'ka',
+      };
+      await expect(handlers.get('auth:storeE2EEKeys')!(A.event, keysA)).resolves.toBe(true);
+      expect(A.custody.storeE2EEKeys).toHaveBeenCalledTimes(1);
+      expect(A.custody.storeE2EEKeys).toHaveBeenCalledWith(keysA);
+      expect(B.custody.storeE2EEKeys).not.toHaveBeenCalled();
+      expect(B.custody.storeE2EEKeysIfOwner).not.toHaveBeenCalled();
+
+      // B signs in: its credential is published into B's custody, the only place B's
+      // adoption of staged keys can happen, and that custody never saw A's keys.
+      await handlers.get('auth:storeRefreshToken')!(B.event, {
+        refreshToken: 'tok-b',
+        rememberMe: true,
+        apiBase: B.origin,
+      });
+      expect(B.custody.storeRefreshToken).toHaveBeenCalledTimes(1);
+      expect(A.custody.storeRefreshToken).not.toHaveBeenCalled();
+      expect(B.custody.storeE2EEKeys).not.toHaveBeenCalled();
+    } finally {
+      connectionRegistry.disposeConnection(A.record.connectionId);
+      connectionRegistry.disposeConnection(B.record.connectionId);
+    }
+  });
+});
