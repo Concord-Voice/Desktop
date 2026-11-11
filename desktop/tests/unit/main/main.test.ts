@@ -5919,10 +5919,19 @@ describe('#86 connection-isolated main semantics', () => {
       const { WebContentsView } = await import('electron');
       const { serviceIdForApiBase } = await import('../../../src/main/selfHostedProfile');
       const origin = new URL('https://other-approved.lan').origin;
+      const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
       approvalStore.records.length = 0;
-      approvalStore.records.push({ origin });
+      // Approved for real: the in-memory mint gate AND a durable record with its tier.
+      // A bare `{ origin }` record is no approval (approvalTierForApiBase fails closed),
+      // so the probe re-ran the ceremony against a resolve mock with no addresses.
+      commitSelfHostedApproval(origin, '10.0.0.5');
       (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok', apiBase: origin });
-      mockResolveForDisplay.mockResolvedValue({ ok: true } as never);
+      mockResolveForDisplay.mockResolvedValue({
+        ok: true,
+        address: '10.0.0.5',
+        addresses: ['10.0.0.5'],
+        decision: { tier: 'tier2' },
+      } as never);
 
       // A fresh view for the new connection (the shared mock view is the saas one).
       const newWc = {
