@@ -117,6 +117,25 @@ describe('clipboard', () => {
       input.remove();
     });
 
+    it('does not delete the selection when the Electron bridge rejects', async () => {
+      const original = globalThis.electron;
+      globalThis.electron = {
+        ...original,
+        writeClipboard: vi.fn().mockRejectedValue(new Error('denied')),
+      };
+      try {
+        const input = document.createElement('input');
+        input.value = 'sensitive draft';
+        input.setSelectionRange(0, 9);
+        document.body.appendChild(input);
+        expect((await cutSelection(input)).success).toBe(false);
+        expect(input.value).toBe('sensitive draft');
+        input.remove();
+      } finally {
+        globalThis.electron = original;
+      }
+    });
+
     it('works with textarea elements', async () => {
       const textarea = document.createElement('textarea');
       textarea.value = 'line one\nline two';

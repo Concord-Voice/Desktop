@@ -36,6 +36,32 @@ describe('googleTokenCall', () => {
       expect.objectContaining({ method: 'POST' })
     );
   });
+  it('reports cancellation during a stalled token response body', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = googleTokenCall({ ...base, fetchFn, signal: controller.signal });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: 'sso_cancelled' });
+  });
+  it('bounds a stalled token body without cancelling the browser flow', async () => {
+    const deadline = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+    try {
+      const fetchFn = vi.fn(
+        async () => new Response(new ReadableStream<Uint8Array>({}))
+      ) as unknown as typeof fetch;
+      const pending = googleTokenCall({ ...base, fetchFn });
+      await vi.waitFor(() => expect(fetchFn).toHaveBeenCalledOnce());
+      deadline.abort();
+      await expect(pending).rejects.toMatchObject({ code: 'google_unavailable' });
+      expect(base.signal.aborted).toBe(false);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
   it('maps 4xx to google_exchange_rejected', async () => {
     const fetchFn = (async () => res(400, { error: 'invalid_grant' })) as unknown as typeof fetch;
     await expect(googleTokenCall({ ...base, fetchFn })).rejects.toMatchObject({

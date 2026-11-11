@@ -348,6 +348,53 @@ describe('AttachmentDisplay', () => {
     }
   });
 
+  it.each([100 * 1024 * 1024 + 1, BLOB_CACHE_RETAIN_MAX_BYTES + 1])(
+    'does not fetch or materialize a decrypted image of %i bytes for save',
+    async (size) => {
+      const saveImageAs = vi.fn();
+      const origElectron = window.electron;
+      window.electron = { ...origElectron, saveImageAs } as typeof window.electron;
+      const arrayBuffer = vi.fn().mockResolvedValue(new ArrayBuffer(8));
+      const blobFetch = vi.fn().mockResolvedValue({ arrayBuffer });
+      vi.stubGlobal('fetch', blobFetch);
+      mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(size));
+      try {
+        const { img } = await renderLoadedImage(`img-too-large-${size}`);
+        fireEvent.contextMenu(img);
+        fireEvent.click(screen.getByText(/Save image/));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(blobFetch).not.toHaveBeenCalled();
+        expect(arrayBuffer).not.toHaveBeenCalled();
+        expect(saveImageAs).not.toHaveBeenCalled();
+        fireEvent.click(img);
+        expect(screen.queryByRole('button', { name: 'Save image' })).not.toBeInTheDocument();
+      } finally {
+        window.electron = origElectron;
+        vi.unstubAllGlobals();
+      }
+    }
+  );
+
+  it('allows saving an image exactly at the 100 MiB limit', async () => {
+    const saveImageAs = vi.fn().mockResolvedValue({ ok: true });
+    const origElectron = window.electron;
+    window.electron = { ...origElectron, saveImageAs } as typeof window.electron;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) })
+    );
+    mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(100 * 1024 * 1024));
+    try {
+      const { img } = await renderLoadedImage('img-save-at-limit');
+      fireEvent.contextMenu(img);
+      fireEvent.click(screen.getByText('Save image…'));
+      await waitFor(() => expect(saveImageAs).toHaveBeenCalledOnce());
+    } finally {
+      window.electron = origElectron;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('swallows a Save failure when the blob fetch rejects (no crash)', async () => {
     const saveImageAs = vi.fn();
     const origElectron = window.electron;
@@ -1003,6 +1050,8 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
     const { container } = render(
       <AttachmentDisplay attachments={[photoOf('guard-200mib', 209_715_200)]} channelId="ch-1" />
     );
+    expect(mockApiFetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
 
     await waitFor(() =>
       expect(container.querySelector('img.attachment-image')).toBeInTheDocument()
@@ -1077,6 +1126,7 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
       installImmediateIO();
 
       render(<AttachmentDisplay attachments={[photoOf(`len-${encoding}`, 0)]} channelId="ch-1" />);
+      fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
 
       await waitFor(() => expect(streamLengths).toEqual([expected]));
     }
@@ -1133,7 +1183,7 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
 
     render(<AttachmentDisplay attachments={[video]} channelId="ch-1" />);
 
-    // Above the 256 MiB preload cap the button asks first (display policy).
+    // Above the automatic media preload cap the button asks first.
     await user.click(screen.getByText(/^Large video — download /));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -1199,6 +1249,10 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
       const { container, unmount } = render(
         <AttachmentDisplay attachments={[photoOf(`${idPrefix}-${i}`, bytes)]} channelId="ch-1" />
       );
+      const loadButton = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Click to load image"]'
+      );
+      if (loadButton) fireEvent.click(loadButton);
       const img = await waitFor(() => {
         const node = container.querySelector('img.attachment-image');
         expect(node).toBeInTheDocument();
@@ -1276,6 +1330,7 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
         channelId="ch-1"
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
     const firstUrl = await waitFor(() => {
       const src = first.container.querySelector('img.attachment-image')?.getAttribute('src');
       expect(src).toMatch(/^blob:cache-/);
@@ -1287,6 +1342,7 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
         channelId="ch-1"
       />
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load image' }));
     await waitFor(() =>
       expect(second.container.querySelector('img.attachment-image')).toHaveAttribute(
         'src',

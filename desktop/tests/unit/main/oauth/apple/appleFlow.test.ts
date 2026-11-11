@@ -116,6 +116,126 @@ afterEach(() => {
 });
 
 describe('runAppleSignIn — happy path', () => {
+  it('installs the initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    deliverCallback(lo);
+    const { deps } = makeDeps(lo);
+    vi.mocked(deps.openExternal).mockImplementation(async () => {
+      expect(vi.mocked(deps.startLoopback).mock.calls[0][0]?.expectedState?.()).toBe('state-1');
+    });
+    expect((await runAppleSignIn(deps)).kind).toBe('tokens');
+    expect(deps.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an empty initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo, {
+      initiateBody: { auth_url: AUTH_URL, state: '', nonce: 'nonce-1' },
+    });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('reports cancellation while the initiation body is stalled', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo);
+    deps.controlPlaneFetch = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const pending = runAppleSignIn(deps);
+    await vi.waitFor(() => expect(deps.controlPlaneFetch).toHaveBeenCalledOnce());
+    cancelActiveAppleFlow();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized initiation before opening the browser', async () => {
+    const lo = makeLoopback();
+    const { deps } = makeDeps(lo, { initiateBody: { padding: 'x'.repeat(2 * 1024 * 1024) } });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects a phishing authorization URL before opening the browser', async () => {
+    const lo = makeLoopback();
+    lo.resolve({ code: 'code-1', state: 'state-1' });
+    const { deps } = makeDeps(lo, {
+      initiateBody: {
+        auth_url: `https://evil.example/?client_id=x&redirect_uri=${encodeURIComponent(WORKER_CALLBACK)}`,
+        state: 'state-1',
+        nonce: 'nonce-1',
+      },
+    });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+    expect(deps.appleTokenCall).not.toHaveBeenCalled();
+    expect(lo.closeCalls()).toBe(1);
+  });
+
+  it('rejects an Apple URL that redirects away from the registered bridge', async () => {
+    const lo = makeLoopback();
+    lo.resolve({ code: 'code-1', state: 'state-1' });
+    const { deps } = makeDeps(lo, {
+      initiateBody: {
+        auth_url:
+          'https://appleid.apple.com/auth/authorize?client_id=attacker&redirect_uri=https%3A%2F%2Fevil.example%2Fcallback',
+        state: 'state-1',
+        nonce: 'nonce-1',
+      },
+    });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://appleid.apple.com.evil.example/auth/authorize?client_id=x&redirect_uri=y',
+    'https://appleid.apple.com@evil.example/auth/authorize?client_id=x&redirect_uri=y',
+    'https://user:password@appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y',
+    'https://appleid.apple.com:444/auth/authorize?client_id=x&redirect_uri=y',
+    'https://appleid.apple.com/auth/authorize/other?client_id=x&redirect_uri=y',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&redirect_uri=y',
+    'http://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y',
+    'https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y#fragment',
+    'https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y#',
+    'https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y&redirect_%75ri=z',
+    'https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y&nonce=a&nonce=b',
+    'https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=y&state=%zz',
+    'not a URL',
+  ])('rejects an unsafe Apple authorization URL: %s', async (authUrl) => {
+    const lo = makeLoopback();
+    lo.resolve({ code: 'code-1', state: 'state-1' });
+    const { deps } = makeDeps(lo, {
+      initiateBody: {
+        auth_url: authUrl.replace(
+          'redirect_uri=y',
+          `redirect_uri=${encodeURIComponent(WORKER_CALLBACK)}`
+        ),
+        state: 'state-1',
+        nonce: 'nonce-1',
+      },
+    });
+    expect(await runAppleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+    expect(deps.appleTokenCall).not.toHaveBeenCalled();
+    expect(lo.closeCalls()).toBe(1);
+  });
+
+  it('opens the canonical validated Apple URL', async () => {
+    const lo = makeLoopback();
+    lo.resolve({ code: 'code-1', state: 'state-1' });
+    const { deps } = makeDeps(lo, {
+      initiateBody: {
+        auth_url: `HTTPS://APPLEID.APPLE.COM:443/auth/authorize?client_id=x&redirect_uri=${encodeURIComponent(WORKER_CALLBACK)}`,
+        state: 'state-1',
+        nonce: 'nonce-1',
+      },
+    });
+    await runAppleSignIn(deps);
+    expect(deps.openExternal).toHaveBeenCalledWith(
+      `https://appleid.apple.com/auth/authorize?client_id=x&redirect_uri=${encodeURIComponent(WORKER_CALLBACK)}`
+    );
+  });
+
   it('chains pkce → loopback → initiate → browser → broker → token → verify → session', async () => {
     const lo = makeLoopback();
     const { deps, controlPlaneFetch } = makeDeps(lo);
@@ -161,7 +281,10 @@ describe('runAppleSignIn — happy path', () => {
     });
 
     // loopback gets the FLOW deadline, not the 60s default (spec R2)
-    expect(deps.startLoopback).toHaveBeenCalledWith({ timeoutMs: APPLE_FLOW_TIMEOUT_MS });
+    expect(deps.startLoopback).toHaveBeenCalledWith({
+      timeoutMs: APPLE_FLOW_TIMEOUT_MS,
+      expectedState: expect.any(Function),
+    });
   });
 
   it('omits apple_user_data when the loopback returned none', async () => {

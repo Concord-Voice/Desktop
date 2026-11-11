@@ -117,6 +117,21 @@ const {
   };
 });
 
+// #86 adaptation of main's #178 PiP fixtures: a PiP child must own a webContents
+// distinct from the saas primary's, or createPipWindow's 'pip' binding refuses it.
+let nextPipChildContents = 7000;
+function pipChildContents(): unknown {
+  const id = (nextPipChildContents += 1);
+  return {
+    ...mockWebContents,
+    id,
+    send: vi.fn(),
+    on: vi.fn(),
+    once: vi.fn(),
+    mainFrame: { url: 'http://localhost:3001/', frameTreeNodeId: id, parent: null },
+  };
+}
+
 /** The webContents of the PiP window `pip:open` built most recently. */
 function lastPipContents(): { mainFrame: { url: string; frameTreeNodeId: number } } {
   const results = (MockBrowserWindow as Mock).mock.results;
@@ -407,7 +422,7 @@ vi.mock('../../../src/main/connectionMigration', () => ({
 vi.mock('../../../src/main/selfHostedProbe', async (importActual) => ({
   // normalizeSelfHostedUrl stays REAL — the ceremony keys its approval on the same
   // normalized origin the probe will dial.
-  ...(await importActual<typeof import('../../../src/main/selfHostedProbe')>()),
+  ...((await importActual()) as Record<string, unknown>),
   probeSelfHostedServer: mockProbeSelfHostedServer,
 }));
 
@@ -520,6 +535,9 @@ const saasAppFrameEvent = {
   sender: mockWebContents,
   senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 77, parent: null },
 };
+// Main's "live main window main frame" fixture (#195/#198/#199), adapted for #86 to the
+// bound foreground saas primary's main frame.
+const probeEvent = trustedIpcEvent;
 const foreignIpcEvent = {
   sender: { id: 99 },
   senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 99 },
@@ -557,6 +575,7 @@ function bindSelfHostedPrimary(origin: string, opts: { foreground?: boolean } = 
   if (opts.foreground) connectionRegistry.setForeground(opened.record.connectionId);
   return {
     event: { sender: wc, senderFrame: { url: frameUrl, frameTreeNodeId, parent: null } },
+    makeForeground: () => connectionRegistry.setForeground(opened.record.connectionId),
     dispose: () => {
       connectionRegistry.disposeConnection(opened.record.connectionId);
       if (before) connectionRegistry.setForeground(before);
@@ -624,6 +643,8 @@ beforeEach(async () => {
   const { _resetCeremonyBudgetForTesting } =
     await import('../../../src/main/selfHostedCeremonyBudget');
   _resetCeremonyBudgetForTesting();
+  const { _resetPipOpenBudgetForTesting } = await import('../../../src/main/pipOpenPolicy');
+  _resetPipOpenBudgetForTesting();
 });
 
 afterEach(() => {
@@ -1306,10 +1327,48 @@ describe('main.ts', () => {
 
     it('app:relaunch restarts the app', async () => {
       const { app } = await import('electron');
-      await handlers.get('app:relaunch')!(trustedIpcEvent);
+      await handlers.get('app:relaunch')!(probeEvent);
       expect(app.relaunch).toHaveBeenCalled();
       expect(app.quit).toHaveBeenCalled();
     });
+
+    it.each(['app:quit', 'app:relaunch'])(
+      '%s refuses a same-origin PiP sender',
+      async (channel) => {
+        const { app } = await import('electron');
+        (app.quit as Mock).mockClear();
+        (app.relaunch as Mock).mockClear();
+        await handlers.get(channel)!({
+          sender: {},
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+        });
+        expect(app.quit).not.toHaveBeenCalled();
+        expect(app.relaunch).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(['app:quit', 'app:relaunch'])(
+      '%s rejects untrusted, subframe and missing senders',
+      async (channel) => {
+        const { app } = await import('electron');
+        (app.quit as Mock).mockClear();
+        (app.relaunch as Mock).mockClear();
+        for (const event of [
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+          },
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 77 },
+          },
+          { sender: mockWebContents, senderFrame: null },
+        ])
+          await handlers.get(channel)!(event);
+        expect(app.quit).not.toHaveBeenCalled();
+        expect(app.relaunch).not.toHaveBeenCalled();
+      }
+    );
 
     it('app:quit exits the app', async () => {
       const { app } = await import('electron');
@@ -1371,9 +1430,61 @@ describe('main.ts', () => {
       expect(result[0].thumbnail).toContain('data:image');
     });
 
+    it('clipboard:writeText refuses a same-origin PiP sender', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      await expect(
+        Promise.resolve().then(() =>
+          handlers.get('clipboard:writeText')!(
+            { sender: {}, senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 } },
+            'synthetic'
+          )
+        )
+      ).rejects.toThrow('Clipboard write denied');
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('clipboard:writeText rejects subframes and invalid data', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      for (const [event, text] of [
+        [
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+          },
+          'text',
+        ],
+        [probeEvent, { value: 'text' }],
+      ])
+        await expect(
+          Promise.resolve().then(() => handlers.get('clipboard:writeText')!(event, text))
+        ).rejects.toThrow('Clipboard write denied');
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    });
+
+    it('propagates a native clipboard rejection instead of reporting success', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockImplementationOnce(() => {
+        throw new Error('synthetic failure');
+      });
+      await expect(
+        Promise.resolve().then(() => handlers.get('clipboard:writeText')!(probeEvent, 'text'))
+      ).rejects.toThrow('synthetic failure');
+    });
+
+    it('allows empty and Unicode strings for the live main frame', async () => {
+      const { clipboard } = await import('electron');
+      (clipboard.writeText as Mock).mockClear();
+      await handlers.get('clipboard:writeText')!(probeEvent, '');
+      await handlers.get('clipboard:writeText')!(probeEvent, 'Grüße 🌍');
+      expect(clipboard.writeText).toHaveBeenNthCalledWith(1, '');
+      expect(clipboard.writeText).toHaveBeenNthCalledWith(2, 'Grüße 🌍');
+    });
+
     it('clipboard:writeText writes to clipboard', async () => {
       const { clipboard } = await import('electron');
-      await handlers.get('clipboard:writeText')!(trustedIpcEvent, 'hello');
+      await handlers.get('clipboard:writeText')!(probeEvent, 'hello');
       expect(clipboard.writeText).toHaveBeenCalledWith('hello');
     });
   });
@@ -2022,6 +2133,42 @@ describe('main.ts', () => {
       expect(probeSelfHostedServer).not.toHaveBeenCalled();
     });
 
+    it('selfHosted:probeServer rejects another permitted window', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      (probeSelfHostedServer as Mock).mockClear();
+      const result = await handlers.get('selfHosted:probeServer')!(
+        {
+          sender: { id: 600 },
+          senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 600 },
+        },
+        'https://homelab.lan'
+      );
+      expect(result).toEqual({
+        status: 'error',
+        code: 'rejected',
+        message: 'Self-hosted server probing is not available from this frame.',
+      });
+      expect(probeSelfHostedServer).not.toHaveBeenCalled();
+    });
+
+    it('selfHosted:probeServer rejects a same-origin subframe', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      (probeSelfHostedServer as Mock).mockClear();
+      const result = await handlers.get('selfHosted:probeServer')!(
+        {
+          sender: mockWebContents,
+          senderFrame: { url: mockWebContents.mainFrame.url, frameTreeNodeId: 999 },
+        },
+        'https://homelab.lan'
+      );
+      expect(result).toEqual({
+        status: 'error',
+        code: 'rejected',
+        message: 'Self-hosted server probing is not available from this frame.',
+      });
+      expect(probeSelfHostedServer).not.toHaveBeenCalled();
+    });
+
     it('selfHosted:probeServer rejects untrusted sender frames', async () => {
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       (probeSelfHostedServer as Mock).mockClear();
@@ -2419,12 +2566,12 @@ describe('main.ts', () => {
 
       // Each distinct origin is a fresh ceremony.
       for (let i = 0; i < CEREMONY_BUDGET; i++) {
-        await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, `https://burst${i}.lan`);
+        await handlers.get('selfHosted:probeServer')!(probeEvent, `https://burst${i}.lan`);
       }
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
 
       const refused = await handlers.get('selfHosted:probeServer')!(
-        trustedIpcEvent,
+        probeEvent,
         'https://burst-over.lan'
       );
       expect(refused).toEqual({ status: 'error', code: 'too_many_prompts', message: '' });
@@ -2432,9 +2579,9 @@ describe('main.ts', () => {
 
       // An origin approved before the bucket drained is unaffected — no dialog, so
       // no token, so the throttle must not touch it. #86 7B: probed from its own
-      // service's primary, which is NOT foreground: an approved origin needs no dialog,
-      // so it needs no foreground either.
-      const burst0 = bindSelfHostedPrimary('https://burst0.lan');
+      // service's primary. #195 (merged from main) admits only the foreground primary,
+      // approved origin or not.
+      const burst0 = bindSelfHostedPrimary('https://burst0.lan', { foreground: true });
       try {
         const approved = await handlers.get('selfHosted:probeServer')!(
           burst0.event,
@@ -2452,7 +2599,7 @@ describe('main.ts', () => {
     // resolveForDisplay's dns.lookup is a libuv-threadpool job that cannot be
     // cancelled, so concurrency here is a resource-exhaustion lever, not a
     // convenience issue. The gate must therefore cover the WHOLE handler.
-    it('refuses a concurrent probe from the same sender while letting another sender through', async () => {
+    it('refuses concurrent probes while one probe is in flight', async () => {
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       const { _resetSelfHostedProfileForTesting } =
         await import('../../../src/main/selfHostedProfile');
@@ -2470,30 +2617,59 @@ describe('main.ts', () => {
         return { status: 'ok' };
       });
 
-      // #86 7B: the slot is keyed by connection, so "same sender" is one bound
-      // connection and "another sender" is a second one. Each probes its own service
-      // (see bindSelfHostedPrimary). Only one connection can be foreground, and a hidden
-      // one never raises the dialog, so B's origin is approved up front: B then needs no
-      // ceremony, and the single-flight gate it must pass is the same one.
+      // #195 re-expressed for #86: ONE slot process-wide. A is the foreground primary;
+      // B, a second connection, becomes foreground while A's probe is in flight, so it
+      // passes admission and must still meet the busy slot. Both origins are approved
+      // up front so neither path raises a dialog.
       const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
+      commitSelfHostedApproval('https://inflight.lan', '10.0.0.4');
       commitSelfHostedApproval('https://third.lan', '10.0.0.5');
       const A = bindSelfHostedPrimary('https://inflight.lan', { foreground: true });
       const B = bindSelfHostedPrimary('https://third.lan');
       try {
         const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://inflight.lan');
         const refused = await handlers.get('selfHosted:probeServer')!(A.event, 'https://other.lan');
+        B.makeForeground();
         const third = handlers.get('selfHosted:probeServer')!(B.event, 'https://third.lan');
 
         expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
 
         release();
         await expect(first).resolves.toEqual({ status: 'ok' });
-        await expect(third).resolves.toEqual({ status: 'ok' });
-        // The refused call must not have dialled or prompted for its own origin.
-        expect(probeSelfHostedServer).toHaveBeenCalledTimes(2);
+        await expect(third).resolves.toEqual({ status: 'error', code: 'busy', message: '' });
+        // The refused calls must not have dialled or prompted for their own origin.
+        expect(probeSelfHostedServer).toHaveBeenCalledTimes(1);
       } finally {
         release();
         B.dispose();
+        A.dispose();
+      }
+    });
+
+    it('keeps the global probe slot while the owner window is destroyed', async () => {
+      // #86: a destroyed owner window is an unbound sender. It is rejected before the
+      // slot, and the slot stays held until the first lookup settles.
+      let release: ((value: unknown) => void) | undefined;
+      mockResolveForDisplay.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }) as never
+      );
+      const A = bindSelfHostedPrimary('https://slot.lan', { foreground: true });
+      try {
+        const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://slot.lan');
+        const unbound = { ...A.event, sender: { ...A.event.sender, id: 99_001 } };
+        await expect(
+          handlers.get('selfHosted:probeServer')!(unbound, 'https://other.lan')
+        ).resolves.toMatchObject({ code: 'rejected' });
+        await expect(
+          handlers.get('selfHosted:probeServer')!(A.event, 'https://other.lan')
+        ).resolves.toMatchObject({ code: 'busy' });
+        release?.({ ok: false, kind: 'unreachable' });
+        await expect(first).resolves.toMatchObject({ code: 'unreachable' });
+      } finally {
+        release?.({ ok: false, kind: 'unreachable' });
         A.dispose();
       }
     });
@@ -2539,8 +2715,22 @@ describe('main.ts', () => {
       expect(downloadUpdate).toHaveBeenCalled();
     });
 
+    it('update:install rejects PiP and same-origin subframes', async () => {
+      const { safeQuitAndInstall } = await import('../../../src/main/updater');
+      (safeQuitAndInstall as Mock).mockClear();
+      await handlers.get('update:install')!({
+        sender: {},
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+      });
+      await handlers.get('update:install')!({
+        sender: mockWebContents,
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 999 },
+      });
+      expect(safeQuitAndInstall).not.toHaveBeenCalled();
+    });
+
     it('update:install delegates to safeQuitAndInstall', async () => {
-      await handlers.get('update:install')!(trustedIpcEvent);
+      await handlers.get('update:install')!(probeEvent);
       const { safeQuitAndInstall } = await import('../../../src/main/updater');
       expect(safeQuitAndInstall).toHaveBeenCalled();
     });
@@ -2579,7 +2769,9 @@ describe('main.ts', () => {
         sideEffects.forEach((effect) => effect.mockClear());
 
         await handlers.get('media:getDesktopSources')!(event);
-        await handlers.get('clipboard:writeText')!(event, 'secret');
+        await expect(
+          Promise.resolve().then(() => handlers.get('clipboard:writeText')!(event, 'secret'))
+        ).rejects.toThrow('Clipboard write denied');
         await handlers.get('app:setHardwareAcceleration')!(event, false);
         await handlers.get('app:relaunch')!(event);
         await handlers.get('update:check')!(event);
@@ -2694,6 +2886,25 @@ describe('main.ts', () => {
   });
 
   describe('IPC: PiP window management', () => {
+    it('rejects a same-origin PiP renderer attempting to create another window', async () => {
+      const { BrowserWindow } = await import('electron');
+      const before = (BrowserWindow as unknown as Mock).mock.calls.length;
+      const firstNewCall = mockMainWindow.on.mock.calls.length;
+      await expect(
+        handlers.get('pip:open')!(
+          {
+            sender: { id: 999 },
+            senderFrame: { url: 'http://localhost:3001/#/pip/other', frameTreeNodeId: 999 },
+          },
+          { id: 'pip-escape-repro' }
+        )
+      ).rejects.toThrow('PiP could not be opened');
+      const closed = mockMainWindow.on.mock.calls
+        .slice(firstNewCall)
+        .find((call) => call[0] === 'closed')?.[1] as (() => void) | undefined;
+      closed?.();
+      expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
+    });
     // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
     // defense-in-depth). In this test environment isPackaged=false, so a
     // localhost URL satisfies the validator.
@@ -2728,6 +2939,227 @@ describe('main.ts', () => {
       };
     }
 
+    it('rejects a same-origin subframe in the main web contents', async () => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      await expect(
+        handlers.get('pip:open')!(
+          {
+            sender: mockWebContents,
+            senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 99 },
+          },
+          { id: 'subframe-test' }
+        )
+      ).rejects.toThrow('PiP could not be opened');
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
+    });
+
+    it('does not let a legacy caller hide controls after a refused pop-out', async () => {
+      let hidden = false;
+      try {
+        await handlers.get('pip:open')!(pipOwnerEvent, { id: 'bad/id' });
+        hidden = true;
+      } catch {
+        // Older renderers stop before setting the popped-out state on rejection.
+      }
+      expect(hidden).toBe(false);
+    });
+
+    it.each([false, true])(
+      'revokes and untracks a PiP whose load rejects (closed event: %s)',
+      async (emitClosed) => {
+        const failedLoad = Promise.reject(new Error('load failed'));
+        failedLoad.catch(() => undefined);
+        const child = {
+          ...mockMainWindow,
+          webContents: pipChildContents(),
+          destroy: vi.fn(),
+          on: vi.fn(),
+          loadURL: vi.fn(() => failedLoad),
+        };
+        if (emitClosed) {
+          child.destroy.mockImplementation(() => {
+            const closed = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as
+              (() => void) | undefined;
+            closed?.();
+          });
+        }
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return child;
+        });
+        mockWebContents.send.mockClear();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'async-load-failure' })
+        ).rejects.toThrow();
+        expect(child.destroy).toHaveBeenCalledOnce();
+        expect(
+          mockWebContents.send.mock.calls
+            .filter((call) => call[0] === 'pip:opened' || call[0] === 'pip:closed')
+            .map((call) => call[0])
+        ).toEqual(['pip:opened', 'pip:closed']);
+        const reopened = await openPip('async-load-failure');
+        reopened();
+      }
+    );
+
+    it('charges failed loads against the window-creation budget', async () => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      for (let n = 0; n < 8; n++) {
+        (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+          return {
+            ...mockMainWindow,
+            webContents: pipChildContents(),
+            on: vi.fn(),
+            destroy: vi.fn(),
+            loadURL: vi.fn().mockRejectedValue(new Error('load failed')),
+          };
+        });
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: `failed-load-${n}` })
+        ).rejects.toThrow();
+      }
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'failed-load-ninth' })
+      ).rejects.toThrow();
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before + 8);
+    });
+
+    it('settles duplicate opens while the first PiP is still loading', async () => {
+      const gate = deferred();
+      const child = {
+        ...mockMainWindow,
+        webContents: pipChildContents(),
+        on: vi.fn(),
+        focus: vi.fn(),
+        loadURL: vi.fn(() => gate.promise),
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      mockWebContents.send.mockClear();
+      const first = handlers.get('pip:open')!(pipOwnerEvent, {
+        id: 'pending-pip',
+      }) as Promise<void>;
+      const duplicates = Array.from(
+        { length: 64 },
+        () => handlers.get('pip:open')!(pipOwnerEvent, { id: 'pending-pip' }) as Promise<void>
+      );
+      let settled = 0;
+      for (const duplicate of duplicates) {
+        void duplicate.then(
+          () => {
+            settled += 1;
+          },
+          () => {
+            settled += 1;
+          }
+        );
+      }
+      try {
+        await vi.waitFor(() => expect(settled).toBe(duplicates.length), { timeout: 500 });
+        expect(child.focus).toHaveBeenCalledTimes(duplicates.length);
+        expect(mockWebContents.send).toHaveBeenCalledWith(
+          'pip:opened',
+          expect.objectContaining({ id: 'pending-pip' })
+        );
+      } finally {
+        gate.resolve();
+        await Promise.allSettled([first, ...duplicates]);
+        const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
+        close();
+      }
+    });
+
+    it('destroys a newly created PiP if loading throws synchronously', async () => {
+      const child = {
+        ...mockMainWindow,
+        webContents: pipChildContents(),
+        destroy: vi.fn(),
+        loadURL: vi.fn(() => {
+          throw new Error('load failed');
+        }),
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'load-failure' })
+      ).rejects.toThrow();
+      expect(child.destroy).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      undefined,
+      null,
+      {},
+      { id: 'x'.repeat(129) },
+      { id: 'valid', width: 999999 },
+      { id: 'valid', title: 'x'.repeat(129) },
+    ])('rejects invalid PiP options before creating a window', async (opts) => {
+      const before = (MockBrowserWindow as Mock).mock.calls.length;
+      await expect(handlers.get('pip:open')!(pipOwnerEvent, opts)).rejects.toThrow();
+      expect((MockBrowserWindow as Mock).mock.calls).toHaveLength(before);
+    });
+
+    it('limits simultaneous PiPs, still focuses an existing one, and reuses a closed slot', async () => {
+      const { MAX_PIP_WINDOWS, _resetPipOpenBudgetForTesting } =
+        await import('../../../src/main/pipOpenPolicy');
+      const opened: Array<{ id: string; close: () => void }> = [];
+      try {
+        for (let n = 0; n <= MAX_PIP_WINDOWS; n++) {
+          _resetPipOpenBudgetForTesting();
+          const before = mockPipWindow.on.mock.calls.length;
+          const id = `cap-test-${n}`;
+          try {
+            await handlers.get('pip:open')!(pipOwnerEvent, { id });
+          } catch {
+            break;
+          }
+          // #86: shellWindow.ts and main.ts each add a 'closed' listener; run them all.
+          const closeListeners = mockPipWindow.on.mock.calls
+            .slice(before)
+            .filter((call) => call[0] === 'closed')
+            .map((call) => call[1] as () => void);
+          const close = (
+            closeListeners.length > 0
+              ? () => closeListeners.forEach((listener) => listener())
+              : undefined
+          ) as () => void;
+          expect(close).toBeDefined();
+          opened.push({ id, close });
+        }
+        expect(opened.length).toBeGreaterThanOrEqual(7);
+        _resetPipOpenBudgetForTesting();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'over-cap' })
+        ).rejects.toThrow();
+        mockPipWindow.focus.mockClear();
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: opened[0].id })
+        ).resolves.toBeUndefined();
+        expect(mockPipWindow.focus).toHaveBeenCalledOnce();
+        await handlers.get('pip:close')!(pipOwnerEvent, { id: opened[0].id });
+        await expect(
+          handlers.get('pip:open')!(pipOwnerEvent, { id: 'still-at-cap' })
+        ).rejects.toThrow();
+        opened.shift()!.close();
+        const closeNew = await openPip('reused-cap-slot');
+        closeNew();
+      } finally {
+        for (const entry of opened) entry.close();
+      }
+    });
+
+    it('limits repeated create-and-close churn', async () => {
+      for (let n = 0; n < 8; n++) {
+        const close = await openPip(`burst-${n}`);
+        close();
+      }
+      await expect(
+        handlers.get('pip:open')!(pipOwnerEvent, { id: 'burst-ninth' })
+      ).rejects.toThrow();
+    });
+
     it('creates the PiP window sandboxed with contextIsolation and no Node integration', async () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
@@ -2737,6 +3169,32 @@ describe('main.ts', () => {
       expect(pipCall[0].webPreferences.contextIsolation).toBe(true);
       expect(pipCall[0].webPreferences.nodeIntegration).toBe(false);
       closed();
+    });
+
+    it('allows the main frame to open PiP from the signed SPA cache', async () => {
+      const { app } = await import('electron');
+      const { setRemoteSpaState } = await import('../../../src/main/spaState');
+      const originalMainFrame = mockWebContents.mainFrame;
+      const testApp = app as unknown as { isPackaged: boolean };
+      testApp.isPackaged = true;
+      setRemoteSpaState(null);
+      mockWebContents.mainFrame = { url: 'spa-cache://concord/index.html', frameTreeNodeId: 77 };
+      mockWebContents.getURL.mockReturnValue('spa-cache://concord/index.html');
+      try {
+        // #86: the bound saas primary's main frame (parent === null) on the cache origin.
+        const closed = await openPip('cache-main', {
+          sender: mockWebContents,
+          senderFrame: { url: 'spa-cache://concord/index.html', frameTreeNodeId: 77, parent: null },
+        });
+        expect(mockPipWindow.loadURL).toHaveBeenCalledWith(
+          'spa-cache://concord/index.html#/pip/cache-main'
+        );
+        closed();
+      } finally {
+        mockWebContents.getURL.mockReturnValue('');
+        mockWebContents.mainFrame = originalMainFrame;
+        testApp.isPackaged = false;
+      }
     });
 
     it('lets the opener focus, update, and close its PiP window', async () => {
@@ -2788,7 +3246,7 @@ describe('main.ts', () => {
         const before = (BrowserWindow as unknown as Mock).mock.calls.length;
         mockPipWindow.close.mockClear();
         mockPipWindow.setAlwaysOnTop.mockClear();
-        await handlers.get('pip:open')!(event, { id: 'rejected-pip' });
+        await expect(handlers.get('pip:open')!(event, { id: 'rejected-pip' })).rejects.toThrow();
         await handlers.get('pip:close')!(event, { id: 'rejected-pip' });
         await handlers.get('pip:setAlwaysOnTop')!(event, { id: 'rejected-pip', flag: false });
         const after = (BrowserWindow as unknown as Mock).mock.calls.length;
@@ -2807,7 +3265,9 @@ describe('main.ts', () => {
       mockPipWindow.close.mockClear();
       mockPipWindow.setAlwaysOnTop.mockClear();
 
-      await handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
+      await expect(
+        handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' })
+      ).rejects.toThrow();
       expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
       await handlers.get('pip:close')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
@@ -2868,7 +3328,35 @@ describe('main.ts', () => {
       ['an untrusted origin', () => foreignIpcEvent],
       ['a frameless sender', () => ({ senderFrame: null })],
     ])('refuses pip:session to %s', async (_label, makeEvent) => {
-      const closed = await openPip('session-denied-pip');
+      const child = {
+        ...mockMainWindow,
+        // #86: the shell is a BaseWindow without loadURL; a PiP is a BrowserWindow.
+        loadURL: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn(),
+        webContents: {
+          ...mockWebContents,
+          // #86: its own identity, or the 'pip' binding collides with the saas primary.
+          id: 900,
+          mainFrame: {
+            url: 'http://localhost:3001/#/pip/session-denied-pip',
+            frameTreeNodeId: 900,
+          },
+        },
+      };
+      (MockBrowserWindow as Mock).mockImplementationOnce(function () {
+        return child;
+      });
+      await handlers.get('pip:open')!(pipOwnerEvent, { id: 'session-denied-pip' });
+      // #86: shellWindow.ts and main.ts each add a 'closed' listener; run them all.
+      const closedListeners = child.on.mock.calls
+        .filter((call) => call[0] === 'closed')
+        .map((call) => call[1] as () => void);
+      const closed = (
+        closedListeners.length > 0
+          ? () => closedListeners.forEach((listener) => listener())
+          : undefined
+      ) as () => void;
+      expect(closed).toBeDefined();
       const result = await handlers.get('pip:session')!(makeEvent(), {
         id: 'session-denied-pip',
       });
@@ -2879,7 +3367,7 @@ describe('main.ts', () => {
     it('refuses pip:session for an unknown or already-closed PiP id', async () => {
       expect(
         await handlers.get('pip:session')!(
-          { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+          { sender: mockWebContents, senderFrame: trustedIpcEvent.senderFrame },
           { id: 'never-opened-pip' }
         )
       ).toBeNull();
@@ -3144,9 +3632,93 @@ describe('main.ts', () => {
         connectionRegistry.unregisterService(svc.service.serviceId);
       }
     });
+
+    // #178 (merged from main): the opener's main frame may reopen a closed PiP ID; the
+    // reopened window is its own, and a second permitted frame still cannot mutate it.
+    it('allows the main frame to reopen a closed PiP ID', async () => {
+      const closeFirst = await openPip('reused-pip');
+      closeFirst();
+      const closeSecond = await openPip('reused-pip');
+      mockPipWindow.setAlwaysOnTop.mockClear();
+
+      await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
+        id: 'reused-pip',
+        flag: false,
+      });
+      expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      mockPipWindow.setAlwaysOnTop.mockClear();
+      await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
+        id: 'reused-pip',
+        flag: false,
+      });
+      expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+      closeSecond();
+    });
   });
 
   describe('permission handlers', () => {
+    it('denies web clipboard write permissions to PiP and subframes', () => {
+      const callback = vi.fn();
+      sessionHandlers.permissionRequest!({}, 'clipboard-sanitized-write', callback, {
+        isMainFrame: true,
+        requestingUrl: 'http://localhost:3001/',
+      });
+      expect(callback).toHaveBeenCalledWith(false);
+      const result = sessionHandlers.permissionCheck!(
+        mockWebContents,
+        'clipboard-sanitized-write',
+        'http://localhost:3001',
+        { isMainFrame: false, requestingUrl: 'http://localhost:3001/' }
+      );
+      expect(result).toBe(false);
+    });
+
+    it.each(['clipboard-sanitized-write', 'clipboard-read'])(
+      'grants %s only to the trusted main window main frame',
+      (permission) => {
+        const valid = { isMainFrame: true, requestingUrl: 'http://localhost:3001/' };
+        const invalid = [
+          [{}, valid],
+          [mockWebContents, { ...valid, isMainFrame: false }],
+          [mockWebContents, { ...valid, requestingUrl: 'https://evil.example/' }],
+          [mockWebContents, undefined],
+        ] as const;
+        const callback = vi.fn();
+        sessionHandlers.permissionRequest!(mockWebContents, permission, callback, valid);
+        expect(callback).toHaveBeenLastCalledWith(true);
+        expect(
+          sessionHandlers.permissionCheck!(
+            mockWebContents,
+            permission,
+            'http://localhost:3001',
+            valid
+          )
+        ).toBe(true);
+        for (const [sender, details] of invalid) {
+          sessionHandlers.permissionRequest!(sender, permission, callback, details);
+          expect(callback).toHaveBeenLastCalledWith(false);
+          expect(
+            sessionHandlers.permissionCheck!(sender, permission, 'http://localhost:3001', details)
+          ).toBe(false);
+        }
+        // #86: a destroyed main window is, for a bound view, one no longer foreground.
+        const fg = connectionRegistry.foreground()?.connectionId ?? null;
+        connectionRegistry.setForeground(null);
+        try {
+          expect(
+            sessionHandlers.permissionCheck!(
+              mockWebContents,
+              permission,
+              'http://localhost:3001',
+              valid
+            )
+          ).toBe(false);
+        } finally {
+          connectionRegistry.setForeground(fg);
+        }
+      }
+    );
+
     it('denies geolocation requests', () => {
       expect(sessionHandlers.permissionRequest).toBeDefined();
       const callback = vi.fn();

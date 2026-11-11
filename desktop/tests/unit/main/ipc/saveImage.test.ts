@@ -101,6 +101,30 @@ describe('image:saveAs IPC handler', () => {
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
+  it('checks the selected view size rather than its backing buffer', async () => {
+    const backing = new ArrayBuffer(100 * 1024 * 1024 + 2);
+    const smallView = new Uint8Array(backing, 1, 2);
+    smallView.set([9, 8]);
+    mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/view.png' });
+    expect(await handler(trusted(), smallView, 'view.png')).toEqual({ ok: true });
+    expect([...(mockWriteFile.mock.calls[0][1] as Buffer)]).toEqual([9, 8]);
+    mockDialog.showSaveDialog.mockClear();
+    const largeView = new DataView(backing, 1, 100 * 1024 * 1024 + 1);
+    expect(await handler(trusted(), largeView, 'view.png')).toEqual({
+      ok: false,
+      reason: 'too-large',
+    });
+    expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
+  });
+
+  it('accepts the exact size limit', async () => {
+    mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
+    expect(await handler(trusted(), new ArrayBuffer(100 * 1024 * 1024), 'limit.png')).toEqual({
+      ok: true,
+      canceled: true,
+    });
+  });
+
   it('returns write-failed when the disk write throws', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/x.png' });
     mockWriteFile.mockRejectedValue(new Error('ENOSPC'));

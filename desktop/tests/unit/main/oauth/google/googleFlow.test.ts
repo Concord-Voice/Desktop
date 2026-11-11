@@ -40,7 +40,8 @@ function makeDeps(
       if (url.includes('/auth/sso/google?'))
         return new Response(
           JSON.stringify({
-            auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&x=1',
+            auth_url:
+              'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback&x=1',
             state: 'STATE',
             nonce: 'NONCE',
           }),
@@ -72,6 +73,157 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cancelActiveGoogleFlow());
 
 describe('runGoogleSignIn', () => {
+  it('installs the initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const deps = makeDeps(lo);
+    vi.mocked(deps.openExternal).mockImplementation(async () => {
+      expect(vi.mocked(deps.startLoopback).mock.calls[0][0]?.expectedState?.()).toBe('STATE');
+    });
+    expect((await runGoogleSignIn(deps)).kind).toBe('tokens');
+    expect(deps.openExternal).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an empty initiated state before opening the browser', async () => {
+    const lo = makeLoopback();
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              auth_url:
+                'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback&x=1',
+              state: '',
+              nonce: 'NONCE',
+            })
+          )
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('reports cancellation while the initiation body is stalled', async () => {
+    const lo = makeLoopback();
+    const controlPlaneFetch = vi.fn(
+      async () => new Response(new ReadableStream<Uint8Array>({}))
+    ) as unknown as typeof fetch;
+    const deps = makeDeps(lo, { controlPlaneFetch });
+    const pending = runGoogleSignIn(deps);
+    await vi.waitFor(() => expect(controlPlaneFetch).toHaveBeenCalledOnce());
+    cancelActiveGoogleFlow();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized initiation before opening the browser', async () => {
+    const lo = makeLoopback();
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () => new Response(JSON.stringify({ padding: 'x'.repeat(2 * 1024 * 1024) }))
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('rejects a phishing authorization URL before opening the browser', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              auth_url:
+                'https://evil.example/?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback',
+              state: 'STATE',
+              nonce: 'NONCE',
+            }),
+            { status: 200 }
+          )
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+    expect(deps.googleTokenCall).not.toHaveBeenCalled();
+    expect(lo.handle.close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a Google URL that redirects to an attacker-controlled callback', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              auth_url:
+                'https://accounts.google.com/o/oauth2/v2/auth?client_id=attacker&redirect_uri=https%3A%2F%2Fevil.example%2Fcallback',
+              state: 'STATE',
+              nonce: 'NONCE',
+            })
+          )
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://accounts.google.com.evil.example/o/oauth2/v2/auth?client_id=gid',
+    'https://accounts.google.com@evil.example/o/oauth2/v2/auth?client_id=gid',
+    'https://user:password@accounts.google.com/o/oauth2/v2/auth?client_id=gid',
+    'https://accounts.google.com:444/o/oauth2/v2/auth?client_id=gid',
+    'https://accounts.google.com/o/oauth2/v2/auth/other?client_id=gid',
+    'https://appleid.apple.com/auth/authorize?client_id=gid',
+    'http://accounts.google.com/o/oauth2/v2/auth?client_id=gid',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid#fragment',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid#',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&client_%69d=other',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&state=one&state=two',
+    'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&nonce=%zz',
+    'not a URL',
+  ])('rejects an unsafe Google authorization URL: %s', async (authUrl) => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const fragment = authUrl.indexOf('#');
+    const beforeFragment = fragment < 0 ? authUrl : authUrl.slice(0, fragment);
+    const withRedirect = `${beforeFragment}${beforeFragment.includes('?') ? '&' : '?'}redirect_uri=${encodeURIComponent(lo.handle.redirectURI)}${fragment < 0 ? '' : authUrl.slice(fragment)}`;
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ auth_url: withRedirect, state: 'STATE', nonce: 'NONCE' }))
+      ) as unknown as typeof fetch,
+    });
+    expect(await runGoogleSignIn(deps)).toEqual({ kind: 'error', code: 'sso_initiate_failed' });
+    expect(deps.openExternal).not.toHaveBeenCalled();
+    expect(deps.googleTokenCall).not.toHaveBeenCalled();
+    expect(lo.handle.close).toHaveBeenCalledOnce();
+  });
+
+  it('opens the canonical validated Google URL', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    const deps = makeDeps(lo, {
+      controlPlaneFetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              auth_url:
+                'HTTPS://ACCOUNTS.GOOGLE.COM:443/o/oauth2/v2/auth?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback',
+              state: 'STATE',
+              nonce: 'NONCE',
+            })
+          )
+      ) as unknown as typeof fetch,
+    });
+    await runGoogleSignIn(deps);
+    expect(deps.openExternal).toHaveBeenCalledWith(
+      'https://accounts.google.com/o/oauth2/v2/auth?client_id=gid&redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback'
+    );
+  });
+
   it('completes the happy path → tokens', async () => {
     const lo = makeLoopback();
     const deps = makeDeps(lo);
@@ -98,7 +250,8 @@ describe('runGoogleSignIn', () => {
         if (url.includes('/auth/sso/google?'))
           return new Response(
             JSON.stringify({
-              auth_url: 'https://accounts.google.com/o/oauth2/v2/auth?x=1',
+              auth_url:
+                'https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=http%3A%2F%2F127.0.0.1%3A5123%2Foauth%2Fcallback&x=1',
               state: 'STATE',
               nonce: 'NONCE',
             }),

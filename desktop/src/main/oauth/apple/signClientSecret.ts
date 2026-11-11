@@ -14,6 +14,7 @@
  *   5xx / network / bad body → sso_initiate_failed (new flow)
  *   abort → sso_cancelled
  */
+import { authRequestSignal, readAuthJson } from '../../authResponse';
 import { AppleFlowError } from './errors';
 
 export async function signClientSecret(opts: {
@@ -22,16 +23,17 @@ export async function signClientSecret(opts: {
   fetchFn: typeof fetch;
   signal: AbortSignal;
 }): Promise<string> {
+  const requestSignal = authRequestSignal(opts.signal);
   let res: Response;
   try {
     res = await opts.fetchFn(`${opts.apiBase}/api/v1/auth/sso/apple/sign-client-secret`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ state: opts.state }),
-      signal: opts.signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') {
+  } catch {
+    if (opts.signal.aborted) {
       throw new AppleFlowError('sso_cancelled', 'broker');
     }
     throw new AppleFlowError('sso_initiate_failed', 'broker');
@@ -40,7 +42,10 @@ export async function signClientSecret(opts: {
   if (res.status === 429) throw new AppleFlowError('sso_rate_limited', 'broker');
   if (!res.ok) throw new AppleFlowError('sso_initiate_failed', 'broker');
 
-  const body = (await res.json().catch(() => null)) as { client_secret?: unknown } | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (opts.signal.aborted) throw new AppleFlowError('sso_cancelled', 'broker');
+    return null;
+  })) as { client_secret?: unknown } | null;
   if (!body || typeof body.client_secret !== 'string' || body.client_secret.length === 0) {
     throw new AppleFlowError('sso_initiate_failed', 'broker');
   }

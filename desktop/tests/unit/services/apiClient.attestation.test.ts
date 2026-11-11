@@ -299,6 +299,35 @@ describe('apiClient attestation — 403 interception', () => {
     });
   });
 
+  it('does not drain an oversized 403 body while checking attestation', async () => {
+    let pulls = 0;
+    const chunk = new Uint8Array(1024).fill(0x20);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls++;
+        if (pulls > 300) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    mockFetch.mockResolvedValueOnce(new Response(stream, { status: 403 }));
+    const response = await apiFetch('/api/v1/media/avatars/00000000-0000-4000-8000-000000000001');
+    expect(response.status).toBe(403);
+    expect(pulls).toBeLessThan(100);
+    void response.body?.cancel();
+  });
+
+  it('cancels both tee branches after an oversized declared 403 body', async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({ cancel });
+    mockFetch.mockResolvedValueOnce(
+      new Response(stream, { status: 403, headers: { 'Content-Length': '65537' } })
+    );
+    const response = await apiFetch('/api/v1/media/avatars/00000000-0000-4000-8000-000000000001');
+    expect(response.status).toBe(403);
+    void response.body?.cancel();
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  });
+
   afterEach(() => {
     resetRuntimeServerBase();
     (globalThis as Record<string, unknown>).electron = undefined;
@@ -334,6 +363,30 @@ describe('apiClient attestation — 403 interception', () => {
     const retryHeaders = mockFetch.mock.calls[1][1].headers as Headers;
     expect(retryHeaders.get('X-Attestation-Token')).toBe('fresh-token');
     expect(retryHeaders.get('Authorization')).toBe('Bearer auth-token');
+  });
+
+  it('cancels the superseded 403 body when re-attestation retries', async () => {
+    const getToken = vi.fn().mockResolvedValueOnce('old').mockResolvedValueOnce('fresh');
+    (globalThis as Record<string, unknown>).electron = makeElectronBridge({ getToken });
+    useAuthStore.getState().setAccessToken('auth-token');
+    const first = makeAttestationFailureResponse('ATTESTATION_EXPIRED');
+    const clone = first.clone.bind(first);
+    const cancel = vi.fn();
+    vi.spyOn(first, 'clone').mockImplementation(() => {
+      const copy = clone();
+      const body = first.body!;
+      const realCancel = body.cancel.bind(body);
+      vi.spyOn(body, 'cancel').mockImplementation((reason) => {
+        cancel();
+        return realCancel(reason);
+      });
+      return copy;
+    });
+    mockFetch
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }));
+    expect((await apiFetch('/api/v1/test')).status).toBe(200);
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('ATTESTATION_EXPIRED + getToken returns null (inert) → no retry, original 403 returned, clearToken called once', async () => {

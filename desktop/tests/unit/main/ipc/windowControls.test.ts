@@ -79,12 +79,33 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('window:quit handler calls app.quit()', () => {
-    registerWindowControlsIpc(() => makeMockWindow() as never);
+    const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:quit'
     )![1];
     handler(fgEv());
     expect(app.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it('window:quit refuses a same-origin PiP or subframe', () => {
+    const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
+    registerWindowControlsIpc(() => window as never);
+    const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[0] === 'window:quit'
+    )![1];
+    // #86: "the main window" is the foreground connection's bound primary. An unbound
+    // webContents (a PiP, or any other window) and a subframe of the primary are refused.
+    const fg = fgEvent as { sender: { mainFrame: { frameTreeNodeId: number } } };
+    handler({
+      sender: { id: 9, mainFrame: { frameTreeNodeId: 9 } },
+      senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: 9 },
+    } as never);
+    handler({
+      sender: fg.sender,
+      senderFrame: { url: 'app://concord/index.html', parent: {}, frameTreeNodeId: 2 },
+    } as never);
+    expect(app.quit).not.toHaveBeenCalled();
   });
 
   it('setTitleBarOverlayColor calls win.setTitleBarOverlay with passed color', () => {

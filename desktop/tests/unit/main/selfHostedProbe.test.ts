@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
 }));
 
 import type { GuardedResponse } from '@/main/guardedRequest';
-import { EgressDeniedError } from '@/main/guardedRequest';
+import { EgressDeniedError, PROBE_LOOKUP_BUSY } from '@/main/guardedRequest';
 import {
   _resetSelfHostedProfileForTesting,
   isValidatedSelfHostedApiBase,
@@ -105,6 +105,22 @@ describe('selfHostedProbe', () => {
       apiBase: 'http://localhost:8080',
     });
   });
+
+  it.each(['client-config', 'capabilities'])(
+    'reports dial-time lookup saturation as busy on the %s hop',
+    async (hop) => {
+      const busy = Object.assign(new Error('probe lookup busy'), { code: PROBE_LOOKUP_BUSY });
+      const fetcher = vi.fn();
+      if (hop === 'capabilities')
+        fetcher.mockResolvedValueOnce(jsonResponse({ spaIpcContract: 17 }));
+      fetcher.mockRejectedValueOnce(busy);
+      await expect(probeSelfHostedServer('https://homelab.lan', fetcher)).resolves.toEqual({
+        status: 'error',
+        code: 'busy',
+        message: '',
+      });
+    }
+  );
 
   it('fails when /client/config cannot be fetched', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(jsonResponse({ error: 'nope' }, 500));

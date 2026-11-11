@@ -1,7 +1,7 @@
 /**
  * Attachment display policy (Mark, 2026-11-05): files never download until the
  * user asks, except photos, animated images (on the KLIPY GIF rules), videos up
- * to 256 MiB on Desktop, and text/Markdown, which preload.
+ * to the image preload ceiling on Desktop, and text/Markdown, which preload.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '../../../test-utils';
@@ -32,6 +32,7 @@ vi.mock('@/renderer/components/Chat/OverflowMarkdownAttachment', () => ({
 }));
 
 const mockApiFetch = vi.fn();
+let readBodyDuringDecrypt = false;
 vi.mock('@/renderer/services/system/apiClient', () => ({
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
@@ -49,8 +50,20 @@ vi.mock('@/renderer/utils/crypto/attachmentChunkedCrypto', async () => {
   >('@/renderer/utils/crypto/attachmentChunkedCrypto');
   return {
     ...actual,
-    decryptAttachmentStream: (_body: unknown, _len: number, _key: unknown, mime: string) =>
-      Promise.resolve(new Blob([new Uint8Array(16)], { type: mime })),
+    decryptAttachmentStream: async (
+      body: ReadableStream<Uint8Array>,
+      _len: number,
+      _key: unknown,
+      mime: string
+    ) => {
+      if (readBodyDuringDecrypt) {
+        const reader = body.getReader();
+        while (!(await reader.read()).done) {
+          /* drain without buffering */
+        }
+      }
+      return new Blob([new Uint8Array(16)], { type: mime });
+    },
   };
 });
 
@@ -79,6 +92,7 @@ function mockFetchSuccess(mimeType: string) {
 
 beforeEach(() => {
   resetAllStores();
+  readBodyDuringDecrypt = false;
   vi.clearAllMocks();
   __resetBlobCacheForTests();
   installImmediateIO();
@@ -86,6 +100,226 @@ beforeEach(() => {
 
 afterEach(() => {
   (globalThis as unknown as Record<string, unknown>).IntersectionObserver = OriginalIO;
+});
+
+describe('image preload cap', () => {
+  const cap = 134_218_232;
+  const image = (
+    id: string,
+    size: number,
+    file_type: 'photo' | 'animated' = 'photo'
+  ): AttachmentSummary => ({
+    id,
+    file_type,
+    mime_type: 'image/png',
+    file_size: size,
+  });
+
+  it('requires a click before loading a large photo or animated image', async () => {
+    mockFetchSuccess('image/png');
+    const view = render(
+      <AttachmentDisplay attachments={[image('large', cap + 1)]} channelId="c" />
+    );
+    const button = screen.getByRole('button', { name: /load image/i });
+    expect(mockApiFetch).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+    view.unmount();
+    mockApiFetch.mockClear();
+    render(
+      <AttachmentDisplay attachments={[image('large-gif', cap + 1, 'animated')]} channelId="c" />
+    );
+    expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument();
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+
+  it('asks again before reloading an oversized image after scrolling away', async () => {
+    let notify!: (visible: boolean) => void;
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = class {
+      constructor(private readonly cb: IntersectionObserverCallback) {
+        notify = (visible) =>
+          this.cb(
+            [{ isIntersecting: visible } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver
+          );
+      }
+      observe() {
+        notify(true);
+      }
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+    };
+    mockFetchSuccess('image/png');
+    render(<AttachmentDisplay attachments={[image('scroll-large', cap + 1)]} channelId="c" />);
+    fireEvent.click(screen.getByRole('button', { name: /load image/i }));
+    await waitFor(() => expect(document.querySelector('img.attachment-image')).not.toBeNull());
+    act(() => notify(false));
+    act(() => notify(true));
+    expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument();
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /load image/i }));
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not bypass the size gate when GIF auto-loading is enabled', () => {
+    usePrivacyStore.setState((state) => ({
+      settings: { ...state.settings, loadGifsAutomatically: false },
+    }));
+    render(
+      <AttachmentDisplay attachments={[image('gif-size', cap + 1, 'animated')]} channelId="c" />
+    );
+    act(() =>
+      usePrivacyStore.setState((state) => ({
+        settings: { ...state.settings, loadGifsAutomatically: true },
+      }))
+    );
+    expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument();
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+
+  it('requires a click for an unknown length', () => {
+    render(<AttachmentDisplay attachments={[image('unknown', 0)]} channelId="c" />);
+    expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument();
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps auto-loading an image at the cap', async () => {
+    mockFetchSuccess('image/png');
+    render(<AttachmentDisplay attachments={[image('small', cap)]} channelId="c" />);
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+  });
+
+  it('stops an oversized streamed body even without a trustworthy Content-Length', async () => {
+    readBodyDuringDecrypt = true;
+    const chunk = new Uint8Array(1024 * 1024);
+    const cancelled = vi.fn();
+    let chunks = 0;
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        pull(controller) {
+          chunks += 1;
+          controller.enqueue(chunk);
+        },
+        cancel: cancelled,
+      }),
+      headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
+    });
+    render(<AttachmentDisplay attachments={[image('lying-stream', 100)]} channelId="c" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument()
+    );
+    await waitFor(() => expect(cancelled).toHaveBeenCalled());
+    expect(chunks).toBeLessThanOrEqual(131);
+  });
+
+  it('honors a click made while an automatic GIF request is in flight', async () => {
+    let resolveFirst!: (response: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockFetchSuccess('image/gif');
+    mockApiFetch.mockReturnValueOnce(pending);
+    render(<AttachmentDisplay attachments={[image('gif-race', 100, 'animated')]} channelId="c" />);
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+    act(() =>
+      usePrivacyStore.setState((state) => ({
+        settings: { ...state.settings, loadGifsAutomatically: false },
+      }))
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load GIF' }));
+    await act(async () =>
+      resolveFirst({
+        ok: true,
+        body: new ReadableStream(),
+        headers: new Headers({
+          'X-File-Mime-Type': 'image/gif',
+          'Content-Length': String(cap + 1),
+        }),
+      })
+    );
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(document.querySelector('img.attachment-image')).not.toBeNull());
+  });
+
+  it('does not restart a consented request after the surface unmounts', async () => {
+    let resolveFirst!: (response: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    const cancelled = vi.fn();
+    mockApiFetch.mockReturnValueOnce(pending);
+    const view = render(
+      <AttachmentDisplay attachments={[image('unmount-race', 100, 'animated')]} channelId="c" />
+    );
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+    act(() =>
+      usePrivacyStore.setState((state) => ({
+        settings: { ...state.settings, loadGifsAutomatically: false },
+      }))
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Click to load GIF' }));
+    view.unmount();
+    await act(async () =>
+      resolveFirst({
+        ok: true,
+        body: new ReadableStream({ cancel: cancelled }),
+        headers: new Headers({
+          'X-File-Mime-Type': 'image/gif',
+          'Content-Length': String(cap + 1),
+        }),
+      })
+    );
+    await waitFor(() => expect(cancelled).toHaveBeenCalled());
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors a manual request that shares a bounded in-flight load', async () => {
+    let resolveFirst!: (response: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    mockFetchSuccess('image/png');
+    mockApiFetch.mockReturnValueOnce(pending);
+    const first = render(
+      <AttachmentDisplay attachments={[image('shared-race', 100)]} channelId="c" />
+    );
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+    const second = render(
+      <AttachmentDisplay attachments={[image('shared-race', cap + 1)]} channelId="c" />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /load image/i }));
+    await act(async () =>
+      resolveFirst({
+        ok: true,
+        body: new ReadableStream(),
+        headers: new Headers({
+          'X-File-Mime-Type': 'image/png',
+          'Content-Length': String(cap + 1),
+        }),
+      })
+    );
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(second.container.querySelector('img.attachment-image')).not.toBeNull()
+    );
+    first.unmount();
+    second.unmount();
+  });
+
+  it('asks before decrypting when response length exceeds its small summary', async () => {
+    const cancel = vi.fn();
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({ cancel }),
+      headers: new Headers({ 'X-File-Mime-Type': 'image/png', 'Content-Length': String(cap + 1) }),
+    });
+    render(<AttachmentDisplay attachments={[image('understated', 100)]} channelId="c" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /load image/i })).toBeInTheDocument()
+    );
+    expect(cancel).toHaveBeenCalled();
+  });
 });
 
 describe('video preload cap', () => {
@@ -96,7 +330,20 @@ describe('video preload cap', () => {
     file_size: size,
   });
 
-  it('preloads a video at exactly 256 MiB', async () => {
+  it('requires consent for a large image disguised as a video', async () => {
+    mockFetchSuccess('image/png');
+    render(
+      <AttachmentDisplay attachments={[video('v-disguised', 200 * 1024 * 1024)]} channelId="c" />
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+    expect(mockApiFetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Large video — download 200.0 MB?'));
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledOnce());
+  });
+
+  it('preloads a video at the automatic media ceiling', async () => {
     mockFetchSuccess('video/mp4');
     render(
       <AttachmentDisplay attachments={[video('v-cap', VIDEO_PRELOAD_MAX_BYTES)]} channelId="c" />
@@ -104,7 +351,24 @@ describe('video preload cap', () => {
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
   });
 
-  it('asks before downloading a video above 256 MiB, then loads on confirm', async () => {
+  it('asks when a video response exceeds its small summary', async () => {
+    const cancel = vi.fn();
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({ cancel }),
+      headers: new Headers({
+        'X-File-Mime-Type': 'video/mp4',
+        'Content-Length': String(VIDEO_PRELOAD_MAX_BYTES + 1),
+      }),
+    });
+    render(<AttachmentDisplay attachments={[video('v-understated', 100)]} channelId="c" />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Large video — download\?/i })).toBeInTheDocument()
+    );
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('asks before downloading a video above the automatic media ceiling', async () => {
     mockFetchSuccess('video/mp4');
     render(
       <AttachmentDisplay
@@ -112,7 +376,7 @@ describe('video preload cap', () => {
         channelId="c"
       />
     );
-    const confirm = screen.getByText('Large video — download 256.0 MB?');
+    const confirm = screen.getByText('Large video — download 128.0 MB?');
     expect(mockApiFetch).not.toHaveBeenCalled();
 
     fireEvent.click(confirm);

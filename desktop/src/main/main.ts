@@ -117,6 +117,7 @@ import { resolveCachedSpa } from './spaCache/resolveCachedSpa';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
+import { consumePipOpenToken, isPipOpenOptions, MAX_PIP_WINDOWS } from './pipOpenPolicy';
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
@@ -1382,6 +1383,7 @@ const connectionSessionDeps: ConnectionSessionDeps = {
   bindingFor,
   recordFor,
   getService,
+  foreground,
 };
 
 /** `saas` keeps `defaultSession`; a self-hosted service gets its own `fromPath` session. */
@@ -2112,14 +2114,21 @@ registerIpc(
   { refusal: async () => [] }
 );
 
-// Clipboard write (navigator.clipboard.writeText is blocked in Electron)
+// #199: a denied write must REJECT — cutSelection deletes text only after a successful
+// copy. app-global-mutate: only the foreground connection's bound primary main frame;
+// a PiP, a background view and a subframe are refused, and so is a non-string payload.
 registerIpc(
   'clipboard:writeText',
   'app-global-mutate',
-  (_sender, _event, text: string) => {
-    clipboard.writeText(text);
+  (_sender, _event, text: unknown) => {
+    if (typeof text !== 'string') throw new Error('Clipboard write denied');
+    return clipboard.writeText(text);
   },
-  { refusal: () => undefined }
+  {
+    refusal: () => {
+      throw new Error('Clipboard write denied');
+    },
+  }
 );
 
 // GPU info
@@ -2584,23 +2593,20 @@ export async function requestSelfHostedApproval(
   return response === 1;
 }
 
-// One probe at a time per CONNECTION (#86: keyed on the main-held binding, never on
-// anything the renderer supplies). This is a REJECTING single-flight, not the
+// One probe at a time PROCESS-WIDE (#195), whichever connection asks; never keyed on
+// anything the renderer supplies. This is a REJECTING single-flight, not the
 // promise-sharing kind used by the restoreSession dedupe / spaSelfHeal: two concurrent
 // probes of DIFFERENT urls must never share one result.
 //
-// It gates the whole handler because resolveForDisplay's dns.lookup is a
-// libuv-threadpool job that cannot be cancelled. The default pool is 4, so N
-// concurrent probes of unresolvable names queue N getaddrinfo jobs against those
-// slots and head-of-line-block every async fs operation in the main process —
-// credential IO and the approvals-file read included — with zero dialogs shown.
-// The threadpool is process-global while this bound is per connection, so the
-// protection rests on each renderer holding at most one probe and the number of
-// connections being capped (MAX_LIVE_CONNECTIONS) and user-approved.
-// A per-request timeout (resolveForDisplay's race) does not free the slot; only
-// not starting the lookup does. ServerInput already disables Connect while busy,
-// so the refused concurrency has no legitimate caller.
-const probesInFlight = new Set<ConnectionRef['connectionId']>();
+// It gates the whole handler because the native approval dialog is process-wide and
+// resolveForDisplay's dns.lookup is a libuv-threadpool job that cannot be cancelled:
+// queued getaddrinfo jobs head-of-line-block every async fs operation in the main
+// process — credential IO and the approvals-file read included. guardedRequest.ts
+// also holds a process-wide DNS permit until each lookup calls back. A per-connection
+// bound would let N connections queue N lookups, so it is not used. ServerInput
+// already disables Connect while busy, so the refused concurrency has no legitimate
+// caller.
+let probeInFlight = false;
 
 function probeRejected(): SelfHostedProbeResult {
   return {
@@ -2610,22 +2616,25 @@ function probeRejected(): SelfHostedProbeResult {
   };
 }
 
+// #195 re-expressed for #86: "the active main window's main frame" is the FOREGROUND
+// connection's bound primary main frame (app-global-mutate). A background connection,
+// a PiP or a subframe is refused before any side effect: a probe can raise the native
+// approval ceremony and open + activate another connection.
 registerIpc(
   'selfHosted:probeServer',
-  'connection-bound',
+  'app-global-mutate',
   async (sender, _event, url: unknown): Promise<SelfHostedProbeResult> => {
     // Set synchronously, before the handler's first await, so a burst dispatched in
-    // one tick cannot all observe an empty set.
-    const key = sender.ref.connectionId;
-    if (probesInFlight.has(key)) {
-      console.warn('[selfHosted:probeServer] refused — a probe is already in flight');
+    // one tick cannot all observe a free slot.
+    if (probeInFlight) {
+      console.warn('[selfHosted:probeServer] refused — probe already in flight');
       return { status: 'error', code: 'busy', message: '' };
     }
-    probesInFlight.add(key);
+    probeInFlight = true;
     try {
       return await handleProbeSelfHostedServer(url, sender);
     } finally {
-      probesInFlight.delete(key);
+      probeInFlight = false;
     }
   },
   { refusal: async () => probeRejected() }
@@ -2673,12 +2682,16 @@ async function handleProbeSelfHostedServer(
 
   const parsed = new URL(normalized.apiBase);
   const resolved: ResolveForDisplayResult = await resolveForDisplay(parsed.hostname);
-  if (!resolved.ok && resolved.kind === 'tier1') {
-    // Reason token only; the renderer owns the user-facing copy.
-    return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
-  }
   if (!resolved.ok) {
-    return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    switch (resolved.kind) {
+      case 'busy':
+        return { status: 'error', code: 'busy', message: '' };
+      case 'tier1':
+        // Reason token only; the renderer owns the user-facing copy.
+        return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
+      default:
+        return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+    }
   }
 
   // Consent is scoped to the address class the ceremony displayed. An origin approved
@@ -3226,6 +3239,7 @@ type PipWindowEntry = {
   sessionToken: string;
 };
 const pipWindows = new Map<string, PipWindowEntry>();
+let lastPipOpenRejectionLog = -Infinity;
 
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
@@ -3317,36 +3331,80 @@ function pipSpaOriginOf(url: string | null): string | null {
   }
 }
 
+/** Log a refused pip:open at most once per 5 s, then reject (#178). */
+function rejectPipOpen(): never {
+  const now = performance.now();
+  if (now - lastPipOpenRejectionLog >= 5_000) {
+    lastPipOpenRejectionLog = now;
+    console.warn('[pip:open] rejected — sender or options validation failed');
+  }
+  throw new Error('PiP could not be opened');
+}
+
+function getPipLoadUrl(id: string, pipRemoteUrl: string | null, openerOnCache: boolean): string {
+  if (!app.isPackaged) return `http://localhost:3001#/pip/${id}`;
+  // Tier 3: keep the remote SPA's `/spa/<sha>/` path; origin-only URLs fall through to
+  // nginx's catch-all and can reach the marketing site (#802).
+  if (pipRemoteUrl) return buildRemotePipUrl(pipRemoteUrl, id);
+  // #1870: a saas opener serving from the signed last-known-good cache needs a child on
+  // the SAME cache origin, not the possibly-older bundled asset. Derived from the live
+  // opener URL (stateless) so it cannot drift from the effective mode.
+  if (openerOnCache) return `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${id}`;
+  // #830: PiP bundled mode loads via app:// for consistent origin.
+  return `app://concord/index.html#/pip/${id}`;
+}
+
+/** Re-focus an existing PiP only for the frame (and connection) that opened it (#178). */
+function focusExistingPip(
+  existing: PipWindowEntry,
+  ownerRef: ConnectionRef,
+  senderFrameId: number
+): void {
+  if (
+    existing.ownerFrameTreeNodeId !== senderFrameId ||
+    existing.ownerRef.connectionId !== ownerRef.connectionId ||
+    existing.window.isDestroyed()
+  )
+    throw new Error('PiP could not be opened');
+  existing.window.focus();
+}
+
 registerIpc(
   'pip:open',
   'connection-bound',
-  (sender, event, opts: { id: string; width?: number; height?: number; title?: string }) => {
-    // Defense-in-depth: only accept pip:open from the active SPA, the dev
-    // server, or the bundled renderer. Without validation any frame loaded
-    // in any window could spawn PiP windows.
-    const senderFrame = event.senderFrame;
+  async (sender, event, opts: unknown): Promise<void> => {
+    // #178 re-expressed for #86: registerIpc admitted only a bound primary's own main
+    // frame (never a PiP or a subframe); the PiP belongs to that opener connection.
+    // Defense-in-depth on top: the frame must also be a PiP-opener document and the
+    // options must match the closed schema.
+    const senderFrame = sender.frame;
     const remoteUrl = getRemoteSpaUrl();
-    if (!senderFrame || !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl)) {
-      console.warn('[pip:open] rejected — sender frame validation failed');
-      return;
-    }
+    if (
+      !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl) ||
+      !isPipOpenOptions(opts)
+    )
+      return rejectPipOpen();
 
-    const existing = pipWindows.get(opts.id);
-    if (existing) {
-      if (existing.ownerFrameTreeNodeId === senderFrame.frameTreeNodeId) {
-        existing.window.focus();
-      }
-      return;
-    }
-
-    // #86 R8: built by shellWindow on the OPENER's session and bound 'pip' to its
-    // connection. Only a bound primary may open one: registerIpc admitted exactly
-    // that, and the opener is the sender's own record.
     const opener = sender.record;
+    const ownerRef = refOf(opener);
+    const existing = pipWindows.get(opts.id);
+    if (existing) return focusExistingPip(existing, ownerRef, senderFrame.frameTreeNodeId);
+
+    // Failed loads spend a token so retries cannot bypass the window-churn limit. Both
+    // bounds are PROCESS-WIDE: every connection shares the 12-window cap and the bucket.
+    if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
+      throw new Error('PiP could not be opened');
+
     // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener's
     // PiP loads the bundled renderer whatever the remote-SPA state says.
     const pipRemoteUrl = opener.serviceId === SAAS_SERVICE_ID ? remoteUrl : null;
+    const openerOnCache =
+      opener.serviceId === SAAS_SERVICE_ID &&
+      opener.webContents.getURL().startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`);
     const contentProtectionEnabled = readContentProtectionPref();
+    const sessionToken = mintPipSessionToken();
+    // #86 R8: built by shellWindow on the OPENER's session and bound 'pip' to its
+    // connection.
     const pip = createPipWindow(
       event.sender,
       {
@@ -3376,36 +3434,18 @@ registerIpc(
       // the remote SPA only while this is still the current origin.
       pipSpaOriginOf(pipRemoteUrl)
     );
-    if (!pip) return;
+    if (!pip) throw new Error('PiP could not be opened');
     applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
 
-    // Load PiP route (hash-based routing)
-    if (!app.isPackaged) {
-      pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
-    } else if (pipRemoteUrl) {
-      // Tier 3: PiP windows load from the remote SPA, including the
-      // `/spa/<sha>/` path component. Origin-only would fall through to
-      // nginx's catch-all and redirect to the marketing site (#802).
-      pip.loadURL(buildRemotePipUrl(pipRemoteUrl, opts.id));
-    } else if (
-      opener.serviceId === SAAS_SERVICE_ID &&
-      opener.webContents.getURL().startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`)
-    ) {
-      // #1870: the opener is serving from the signed last-known-good cache
-      // (setRemoteSpaState(null) means remoteUrl is null, but the cache origin is
-      // the active shell). Load the PiP child from the SAME cache origin so it
-      // renders the cached shell, not the possibly-older bundled asset. The
-      // will-navigate gate + spa-cache protocol handler permit and
-      // integrity-verify it. Derived from the live main-window URL (stateless) so
-      // it cannot drift from the actual effective mode.
-      pip.loadURL(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${opts.id}`);
-    } else {
-      // #830: PiP bundled mode loads via app:// for consistent origin.
-      pip.loadURL(`app://concord/index.html#/pip/${opts.id}`);
+    // A synchronous load failure must not leave an untracked native window.
+    let ready: Promise<void>;
+    try {
+      ready = pip.loadURL(getPipLoadUrl(opts.id, pipRemoteUrl, openerOnCache));
+    } catch {
+      if (!pip.isDestroyed()) pip.destroy();
+      throw new Error('PiP could not be opened');
     }
 
-    const sessionToken = mintPipSessionToken();
-    const ownerRef = refOf(opener);
     pipWindows.set(opts.id, {
       window: pip,
       ownerRef,
@@ -3414,18 +3454,29 @@ registerIpc(
       sessionToken,
     });
 
-    pip.on('closed', () => {
+    const forgetWindow = () => {
+      if (pipWindows.get(opts.id)?.window !== pip) return;
       pipWindows.delete(opts.id);
       sendToConnection(ownerRef, 'pip:closed', { id: opts.id });
-    });
+    };
+    pip.on('closed', forgetWindow);
 
     // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
-    // main renderer's signaling proxy must already know the capability when the
+    // opener's signaling proxy must already know the capability when the
     // PiP's own renderer finishes booting and issues its first RPC; a pull would
     // race that boot. The PiP window gets its copy by pulling 'pip:session'.
-    sendToConnection(ownerRef, 'pip:opened', { id: opts.id, token: sessionToken });
+    try {
+      sendToConnection(ownerRef, 'pip:opened', { id: opts.id, token: sessionToken });
+      await ready;
+      if (pip.isDestroyed()) throw new Error('PiP closed during load');
+    } catch {
+      if (!pip.isDestroyed()) pip.destroy();
+      forgetWindow();
+      throw new Error('PiP could not be opened');
+    }
   },
-  { refusal: () => undefined }
+  // A refused sender rejects like every other refused open (#178): never a silent resolve.
+  { refusal: () => Promise.reject(new Error('PiP could not be opened')) }
 );
 
 registerIpc(

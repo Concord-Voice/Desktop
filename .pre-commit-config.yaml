@@ -384,7 +384,7 @@ repos:
         entry: scripts/check-native-ioc-gate.sh
         language: python
         additional_dependencies: ['PyYAML==6.0.3']
-        files: '^\.github/workflows/(native-audiocap|pr-ci|main-ci)\.yml$'
+        files: '^(\.github/workflows/(native-audiocap|nightly-native-audiocap|ioc-scanning|pr-ci|main-ci)\.yml|scripts/check-native-ioc-gate\.sh)$'
         pass_filenames: false
 
       - id: test-check-native-ioc-gate
@@ -392,7 +392,7 @@ repos:
         entry: scripts/test-check-native-ioc-gate.sh
         language: python
         additional_dependencies: ['PyYAML==6.0.3']
-        files: '^scripts/(check|test-check)-native-ioc-gate\.sh$'
+        files: '^(scripts/(check|test-check)-native-ioc-gate\.sh|scripts/check-hook-revisions\.py|\.github/scripts/tests/test_native_nightly\.py|\.github/workflows/(nightly-native-audiocap|ioc-scanning)\.yml|\.github/ci/scan-relevance\.yml|\.pre-commit-config\.yaml)$'
         pass_filenames: false
 
   # ── JSF++ profile for the native audio capture core (ADR-0043 D3) ─────────
@@ -530,6 +530,8 @@ repos:
     hooks:
       - id: hook-revs-are-shas
         name: pre-commit hook revs are pinned to commit SHAs
-        language: pygrep
-        entry: '^\s*rev:\s*(?![0-9a-f]{40}\s+# frozen: \S+\s*$)'
-        files: '^\.pre-commit-config\.yaml$'
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
+        entry: python3 scripts/check-hook-revisions.py .pre-commit-config.yaml
+        files: '^(\.pre-commit-config\.yaml|scripts/check-hook-revisions\.py)$'
+        pass_filenames: false

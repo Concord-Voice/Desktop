@@ -72,6 +72,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // owns a live share. audiocap:stop stays connection-bound: a hidden owner may still
   // end its own share, and the handler admits the owner alone.
   'audiocap:start': 'app-global-mutate',
+  // #195 (merged from main): only the foreground primary may probe a self-hosted
+  // server: the native approval ceremony and the DNS work it starts are process-wide,
+  // and a probe of another origin opens and activates that connection.
+  'selfHosted:probeServer': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
   // handler then narrows to trayOwner() when #87 names one, else the foreground
   // primary. With no owner set the effective admission is the foreground primary.
@@ -104,7 +108,6 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:appleCancel': 'connection-bound',
   'sso:googleSignIn': 'connection-bound',
   'sso:googleCancel': 'connection-bound',
-  'selfHosted:probeServer': 'connection-bound',
   'audiocap:stop': 'connection-bound',
   'open-external': 'connection-bound',
   'image:saveAs': 'connection-bound',

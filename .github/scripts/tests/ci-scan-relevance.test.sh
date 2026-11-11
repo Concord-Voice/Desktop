@@ -699,6 +699,11 @@ NODE
 # P: registration proof follows the native IOC contract owned by Desktop.
 run_policy_case ioc-input-source guard-input scripts/check-native-ioc-gate.sh
 run_policy_case ioc-input-suite guard-input scripts/test-check-native-ioc-gate.sh
+run_policy_case ioc-input-nightly guard-input .github/workflows/nightly-native-audiocap.yml
+run_policy_case ioc-input-scanner guard-input .github/workflows/ioc-scanning.yml
+run_policy_case ioc-input-window-suite guard-input .github/scripts/tests/test_native_nightly.py
+run_policy_case ioc-input-hook-config guard-input .pre-commit-config.yaml
+run_policy_case ioc-input-pin-guard guard-input scripts/check-hook-revisions.py
 broker_registration_status=0
 python3 - "$REPO_ROOT" "$TASK_TMP" <<'PY' || broker_registration_status=$?
 # Reuse the repository's supported command/enforcement recognisers. A filename
@@ -792,7 +797,12 @@ control = json.loads((evidence / 'workflow-lint-source-suite.selection.json').re
 assert registered('.github/scripts/tests/ci-scan-relevance.test.sh', '.github/scripts/tests/ci-scan-relevance.test.sh', control), 'actual CI selector suite is registered (positive control)'
 print('PASS: actual quality-check registration and invocation-vs-mention controls')
 failures = []
-for label, changed in (('ioc-input-source', 'scripts/check-native-ioc-gate.sh'), ('ioc-input-suite', suite)):
+for label, changed in (('ioc-input-source', 'scripts/check-native-ioc-gate.sh'), ('ioc-input-suite', suite),
+                       ('ioc-input-nightly', '.github/workflows/nightly-native-audiocap.yml'),
+                       ('ioc-input-scanner', '.github/workflows/ioc-scanning.yml'),
+                       ('ioc-input-window-suite', '.github/scripts/tests/test_native_nightly.py'),
+                       ('ioc-input-hook-config', '.pre-commit-config.yaml'),
+                       ('ioc-input-pin-guard', 'scripts/check-hook-revisions.py')):
     selection = json.loads((evidence / f'{label}.selection.json').read_text())
     assert selection['known'] is True, 'matching relevance is based on validated actual matcher output'
     if not registered(suite, changed, selection):

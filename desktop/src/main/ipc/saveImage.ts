@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { CHANNEL_CLASSES } from './channelClassification';
 import { registerIpc } from './registry';
+import { SAVE_IMAGE_MAX_BYTES } from '../../shared/saveImage';
 
 /**
  * image:saveAs IPC handler — writes a decrypted image attachment to a
@@ -18,10 +19,6 @@ import { registerIpc } from './registry';
  *   4. the destination path is chosen by the user in `showSaveDialog`, never by
  *      the renderer.
  */
-
-// Cap the accepted payload — a compromised renderer cannot drive an unbounded
-// disk write. Image attachments are bounded far below this server-side.
-const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
 
 type WindowProvider = () => BaseWindow | null;
 
@@ -48,16 +45,15 @@ export function registerSaveImageHandler(windowProvider: WindowProvider): void {
     CHANNEL_CLASSES['image:saveAs'],
     async (_sender, _event, bytes: unknown, suggestedName: unknown): Promise<SaveImageResult> => {
       // Electron structured-clones ArrayBuffer / TypedArrays across the IPC boundary.
-      let buf: Buffer;
-      if (bytes instanceof ArrayBuffer) {
-        buf = Buffer.from(bytes);
-      } else if (ArrayBuffer.isView(bytes)) {
-        buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      } else {
+      if (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes)) {
         return { ok: false, reason: 'invalid-args' };
       }
-      if (buf.byteLength === 0) return { ok: false, reason: 'invalid-args' };
-      if (buf.byteLength > MAX_BYTES) return { ok: false, reason: 'too-large' };
+      if (bytes.byteLength === 0) return { ok: false, reason: 'invalid-args' };
+      if (bytes.byteLength > SAVE_IMAGE_MAX_BYTES) return { ok: false, reason: 'too-large' };
+      const buf =
+        bytes instanceof ArrayBuffer
+          ? Buffer.from(bytes)
+          : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
       const win = windowProvider();
       const options = { defaultPath: safeImageName(suggestedName) };

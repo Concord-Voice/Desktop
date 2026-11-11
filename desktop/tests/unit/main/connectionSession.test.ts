@@ -74,6 +74,7 @@ function makeDeps(over: Partial<ConnectionSessionDeps> = {}): ConnectionSessionD
     bindingFor: (wc) => bindings.get(wc) as never,
     recordFor: (id) => ({ connectionId: id, serviceId: 'saas', generation: 1 }) as never,
     getService: () => undefined,
+    foreground: () => null,
     ...over,
   };
 }

@@ -66,6 +66,7 @@ import { isSupportedDesktopClientVersion } from '../shared/stableDesktopVersion'
 import { resolveAppProtocolPath } from './appProtocol';
 import { isBillingWebContents } from './billing/billingWindow';
 import type { ConnectionRecord, SenderBinding, ServiceRecord } from './connectionRegistry';
+import { isPermittedFrameUrlForKind } from './ipc/frameValidation';
 import { handleCacheProtocolRequest } from './spaCache/cacheProtocol';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 
@@ -137,6 +138,8 @@ export interface ConnectionSessionDeps {
   bindingFor(wc: WebContents): SenderBinding | undefined;
   recordFor(id: ConnectionId): ConnectionRecord | undefined;
   getService(id: ServiceId): ServiceRecord | undefined;
+  /** The foreground connection, or null (connectionRegistry `foreground`). */
+  foreground(): ConnectionRecord | null;
 }
 
 /** `saas` → `defaultSession`; a self-hosted service → its own `fromPath` session. */
@@ -163,6 +166,31 @@ function boundRecord(wc: WebContents, deps: ConnectionSessionDeps): ConnectionRe
   return record;
 }
 
+/** Web clipboard permissions: never decided by the capture arbiter (#199). */
+const CLIPBOARD_PERMISSIONS: ReadonlySet<string> = new Set([
+  'clipboard-sanitized-write',
+  'clipboard-read',
+]);
+
+/**
+ * #199 re-expressed for #86: "the live main window's main frame" is the FOREGROUND
+ * connection's bound primary, asking from its main frame at a URL permitted for its
+ * service kind. A PiP, a background view, a subframe and an unbound webContents are
+ * denied. What breaks it: routing clipboard through the arbiter, which #87 replaces.
+ */
+function clipboardAllowed(wc: WebContents, details: unknown, deps: ConnectionSessionDeps): boolean {
+  const binding = deps.bindingFor(wc);
+  if (!binding || binding.role !== 'primary') return false;
+  const record = deps.recordFor(binding.connectionId);
+  if (!record || record.state === 'disposed' || record.webContents !== wc) return false;
+  if (deps.foreground() !== record) return false;
+  const d = details as { isMainFrame?: unknown; requestingUrl?: unknown } | null | undefined;
+  if (d?.isMainFrame !== true || typeof d.requestingUrl !== 'string') return false;
+  const service = deps.getService(record.serviceId);
+  if (!service) return false;
+  return isPermittedFrameUrlForKind(d.requestingUrl, service.kind, deps.remoteSpaOrigin());
+}
+
 /** Ask the installed arbiter. A throw, or anything but `true`, denies. */
 function decideFor(
   wc: WebContents,
@@ -171,6 +199,7 @@ function decideFor(
   deps: ConnectionSessionDeps
 ): boolean {
   try {
+    if (CLIPBOARD_PERMISSIONS.has(permission)) return clipboardAllowed(wc, details, deps);
     const record = boundRecord(wc, deps);
     const ref: ConnectionRef | null = record
       ? Object.freeze({ connectionId: record.connectionId, generation: record.generation })
@@ -214,7 +243,9 @@ function registerPermissionHandlers(ses: Session, deps: ConnectionSessionDeps): 
   // Chromium queries this synchronously to verify grants; a document check resolves
   // its binding like a request. `null` is an off-document check (module header).
   ses.setPermissionCheckHandler((wc, permission, _requestingOrigin, details) =>
-    wc === null ? staticPolicyAllows(permission) : decideFor(wc, permission, details, deps)
+    wc === null
+      ? !CLIPBOARD_PERMISSIONS.has(permission) && staticPolicyAllows(permission)
+      : decideFor(wc, permission, details, deps)
   );
 
   // Device checks carry an origin and no webContents (module header).

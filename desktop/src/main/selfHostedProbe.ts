@@ -1,5 +1,11 @@
 import { classifyAddress } from './egressPolicy';
-import { EgressDeniedError, guardedRequest, type GuardedResponse } from './guardedRequest';
+import {
+  EgressDeniedError,
+  PROBE_LOOKUP_BUSY,
+  guardedRequest,
+  probeResolver,
+  type GuardedResponse,
+} from './guardedRequest';
 import type { SelfHostedProbeResult } from './ipcContract';
 import { isTier2DialApproved } from './selfHostedProfile';
 
@@ -168,6 +174,7 @@ export async function probeSelfHostedServer(
     guardedRequest(url, {
       method: 'GET',
       headers: init.headers,
+      resolver: probeResolver,
       // Dialling a tier-2 address needs an approval TAKEN AT tier 2, not merely
       // origin trust minted by a ceremony that resolved to a public address.
       isOriginApproved: (origin) => isTier2DialApproved(origin),
@@ -186,6 +193,10 @@ export async function probeSelfHostedServer(
   } catch (err) {
     if (err instanceof EgressDeniedError) {
       return egressDenialResult(err);
+    }
+    if ((err as NodeJS.ErrnoException)?.code === PROBE_LOOKUP_BUSY) {
+      logProbeFailure('busy');
+      return error('busy', '');
     }
     logProbeFailure('client_config_failed');
     return error(
@@ -206,6 +217,10 @@ export async function probeSelfHostedServer(
   } catch (err) {
     if (err instanceof EgressDeniedError) {
       return egressDenialResult(err);
+    }
+    if ((err as NodeJS.ErrnoException)?.code === PROBE_LOOKUP_BUSY) {
+      logProbeFailure('busy');
+      return error('busy', '');
     }
     logProbeFailure('capabilities_failed');
     return error(

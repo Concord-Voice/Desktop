@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      echo "unknown arg: $1" >&2
+      echo "unknown argument" >&2
       exit 10
       ;;
   esac
@@ -55,6 +55,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -67,15 +68,15 @@ skip_provenance = skip_raw == "true"
 try:
     max_delta = int(max_delta_raw)
 except ValueError:
-    print(f"invalid --max-delta: {max_delta_raw}", file=sys.stderr)
+    print("invalid --max-delta", file=sys.stderr)
     sys.exit(10)
 try:
     noop_exit_code = int(noop_exit_raw)
 except ValueError:
-    print(f"invalid --noop-exit-code: {noop_exit_raw}", file=sys.stderr)
+    print("invalid --noop-exit-code", file=sys.stderr)
     sys.exit(10)
 if not 1 <= noop_exit_code <= 255:
-    print(f"invalid --noop-exit-code: {noop_exit_raw}", file=sys.stderr)
+    print("invalid --noop-exit-code", file=sys.stderr)
     sys.exit(10)
 
 IOC_PATH = "scripts/security/iocs/shai-hulud-2.0.txt"
@@ -95,6 +96,7 @@ COMMIT_RE = re.compile(r"^# Source commit:\s*([0-9a-fA-F]{40}|main)\s*$", re.MUL
 
 
 def die_internal(message: str) -> None:
+    print("Guard reason: INTERNAL", file=sys.stderr)
     print(f"[ERROR] {message}", file=sys.stderr)
     sys.exit(10)
 
@@ -107,7 +109,7 @@ def git_show(ref: str, path: str) -> str:
         stderr=subprocess.PIPE,
     )
     if proc.returncode != 0:
-        die_internal(f"unable to read {path} at {ref}: {proc.stderr.strip()}")
+        die_internal("unable to read base IOC list")
     return proc.stdout
 
 
@@ -134,7 +136,7 @@ def parse_ioc_text(text: str, *, strict_headers: bool):
         failures.append("body is empty")
     invalid = [name for name in names if not PKG_RE.fullmatch(name)]
     if invalid:
-        failures.append("invalid package names: " + ", ".join(invalid[:10]))
+        failures.append("invalid package names")
     if names != sorted(names):
         failures.append("body is not sorted")
     seen = set()
@@ -144,7 +146,7 @@ def parse_ioc_text(text: str, *, strict_headers: bool):
             duplicates.append(name)
         seen.add(name)
     if duplicates:
-        failures.append("body contains duplicate package names: " + ", ".join(sorted(set(duplicates))[:10]))
+        failures.append("body contains duplicate package names")
     return sha, source_commit, names, failures
 
 
@@ -165,7 +167,7 @@ def package_names_from_lockfile(path: Path) -> set[str]:
     try:
         data = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        die_internal(f"unable to parse lockfile {path}: {exc}")
+        die_internal("unable to parse tracked lockfile")
     names = set()
     for key, entry in data.get("packages", {}).items():
         if key == "":
@@ -190,7 +192,7 @@ def csv_names(csv_bytes: bytes) -> list[str]:
             column = candidate
             break
     if column is None:
-        die_internal(f"upstream CSV missing package_name/package column: {fieldnames}")
+        die_internal("upstream CSV missing package_name/package column")
     return sorted({(row.get(column) or "").strip() for row in reader if (row.get(column) or "").strip()})
 
 
@@ -200,7 +202,7 @@ def run_provenance_checks(sha: str, source_commit: str, head_names: list[str], h
         with urllib.request.urlopen(url, timeout=30) as response:
             csv_bytes = response.read()
     except Exception as exc:  # network failures should fail the gate loudly
-        die_internal(f"unable to fetch pinned upstream CSV {url}: {exc}")
+        die_internal("unable to fetch pinned upstream CSV")
 
     actual_sha = hashlib.sha256(csv_bytes).hexdigest()
     if actual_sha != sha:
@@ -227,21 +229,25 @@ def run_provenance_checks(sha: str, source_commit: str, head_names: list[str], h
             env=env,
         )
         if proc.returncode != 0:
-            die_internal(f"regenerator failed during byte-identical check: {proc.stderr.strip() or proc.stdout.strip()}")
+            die_internal("regenerator failed during byte-identical check")
         generated = out_path.read_text()
         if generated != head_text:
             failures.append("regenerated IOC list is not byte-identical to committed file")
 
 
-if not head_path.exists():
-    die_internal(f"head file missing: {head_path}")
-
-head_text = head_path.read_text()
+try:
+    fd = os.open(head_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as head:
+        if not stat.S_ISREG(os.fstat(head.fileno()).st_mode):
+            die_internal("head IOC file is not a regular file")
+        head_text = head.read().decode("utf-8")
+except (OSError, UnicodeError):
+    die_internal("head IOC file is not a readable regular file")
 base_text = git_show(base_ref, IOC_PATH)
 sha, source_commit, head_names, failures = parse_ioc_text(head_text, strict_headers=True)
 _, _, base_names, base_parse_failures = parse_ioc_text(base_text, strict_headers=False)
 if base_parse_failures:
-    die_internal("base IOC list is structurally invalid: " + "; ".join(base_parse_failures))
+    die_internal("base IOC list is structurally invalid")
 
 head_set = set(head_names)
 base_set = set(base_names)
@@ -266,29 +272,31 @@ for lockfile in LOCKFILES:
         if name in packages and name not in allowlist:
             collisions.append(f"{name} in {lockfile}")
 if collisions:
-    failures.append("lockfile collision: " + "; ".join(collisions[:20]))
+    failures.append("lockfile collision")
 
 if not skip_provenance and not failures:
     run_provenance_checks(sha, source_commit, head_names, head_text, failures)
 
+if not failures:
+    reason = "PASS"
+elif "lockfile collision" in failures:
+    reason = "COLLISION"
+elif "removals require security review" in failures:
+    reason = "REMOVAL"
+elif any("exceeds max" in failure for failure in failures):
+    reason = "OVERSIZED"
+elif package_set_unchanged and len(failures) == 1:
+    reason = "NO_CHANGE"
+elif any(failure.startswith(("pinned CSV", "committed package set", "regenerated IOC")) for failure in failures):
+    reason = "PROVENANCE"
+else:
+    reason = "INVALID"
+
 print("# IOC refresh guard")
 print(f"Guard result: {'fail' if failures else 'pass'}")
-print(f"Base ref: {base_ref}")
-print(f"Head file: {head_file}")
+print(f"Guard reason: {reason}")
 print(f"Additions: {len(additions)}")
 print(f"Removals: {len(removals)}")
-if additions:
-    print("Added names:")
-    for name in additions[:50]:
-        print(f"- {name}")
-    if len(additions) > 50:
-        print(f"- ... {len(additions) - 50} more")
-if removals:
-    print("Removed names:")
-    for name in removals[:50]:
-        print(f"- {name}")
-    if len(removals) > 50:
-        print(f"- ... {len(removals) - 50} more")
 if failures:
     print("Failures:")
     for failure in failures:

@@ -32,6 +32,7 @@ import {
 } from '@/renderer/services/system/runtimeServerBase';
 import * as runtimeServerBase from '@/renderer/services/system/runtimeServerBase';
 import { ModalProvider } from '@/renderer/components/ui/ModalContext';
+import * as identityMedia from '@/renderer/utils/ui/identityMedia';
 
 // Mock e2eeService
 vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
@@ -1329,6 +1330,73 @@ describe('ConversationList', () => {
     let completedRequests: Request[];
     let releasePending: Array<() => void>;
 
+    it('aborts a group icon whose declared size exceeds the cap', async () => {
+      let signal: AbortSignal | undefined;
+      const getReader = vi.fn();
+      fetchSpy.mockImplementationOnce(async (_url, init) => {
+        signal = init?.signal as AbortSignal;
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({
+            'Content-Type': 'image/png',
+            'Content-Length': String(128 * 1024 * 1024 + 1),
+          }),
+          body: { getReader },
+        } as unknown as Response;
+      });
+      const { container } = mount();
+      await waitFor(() => expect(signal?.aborted).toBe(true));
+      expect(getReader).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expectFallback(container);
+    });
+
+    it('aborts a group icon request that does not finish by the deadline', async () => {
+      let signal: AbortSignal | undefined;
+      fetchSpy.mockImplementationOnce((_url, init) => {
+        signal = init?.signal as AbortSignal;
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        });
+      });
+      const timerSpy = vi.spyOn(globalThis, 'setTimeout');
+      try {
+        const { container, unmount } = mount();
+        await waitFor(() => expect(signal).toBeDefined());
+        const timeout = timerSpy.mock.calls.find(([, delay]) => delay === 60_000)?.[0];
+        expect(typeof timeout).toBe('function');
+        act(() => (timeout as () => void)());
+        expect(signal?.aborted).toBe(true);
+        expect(create).not.toHaveBeenCalled();
+        expectFallback(container);
+        unmount();
+      } finally {
+        timerSpy.mockRestore();
+      }
+    });
+
+    it('cancels an oversized group icon stream with no declared length', async () => {
+      const chunk = new Uint8Array(1024 * 1024);
+      const reader = {
+        read: vi.fn(async () => ({ done: false, value: chunk })),
+        cancel: vi.fn(async () => undefined),
+      };
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'image/png' }),
+        body: { getReader: () => reader },
+        blob: vi.fn(async () => new Blob([pngBytes], { type: 'image/png' })),
+      } as unknown as Response);
+      const { container } = mount();
+      await waitFor(() => expect(reader.cancel).toHaveBeenCalledOnce());
+      expect(create).not.toHaveBeenCalled();
+      expectFallback(container);
+    });
+
     beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
     afterAll(() => server.close());
 
@@ -1441,16 +1509,18 @@ describe('ConversationList', () => {
       const started = deferred<void>();
       const release = deferred<void>();
       const returned = deferred<void>();
-      const realBlob = Response.prototype.blob;
-      vi.spyOn(Response.prototype, 'blob').mockImplementation(async function (this: Response) {
-        const blob = await realBlob.call(this);
-        if (this.headers.get('X-Icon-Body-Gate') === marker) {
-          started.resolve(undefined);
-          await release.promise;
-          returned.resolve(undefined);
+      const realRead = identityMedia.readIdentityMedia;
+      vi.spyOn(identityMedia, 'readIdentityMedia').mockImplementation(
+        async (response, contentType) => {
+          const blob = await realRead(response, contentType);
+          if (response.headers.get('X-Icon-Body-Gate') === marker) {
+            started.resolve(undefined);
+            await release.promise;
+            returned.resolve(undefined);
+          }
+          return blob;
         }
-        return blob;
-      });
+      );
       releasePending.push(() => release.resolve(undefined));
       return { started, release, returned };
     }
@@ -1644,15 +1714,17 @@ describe('ConversationList', () => {
 
     it('disposes a body-consumption failure without allocating or retrying', async () => {
       const bodyConsumed = deferred<void>();
-      const realBlob = Response.prototype.blob;
-      vi.spyOn(Response.prototype, 'blob').mockImplementation(async function (this: Response) {
-        const blob = await realBlob.call(this);
-        if (this.headers.get('X-Icon-Body-Gate') === 'fail') {
-          bodyConsumed.resolve(undefined);
-          throw new Error('Icon body unavailable');
+      const realRead = identityMedia.readIdentityMedia;
+      vi.spyOn(identityMedia, 'readIdentityMedia').mockImplementation(
+        async (response, contentType) => {
+          const blob = await realRead(response, contentType);
+          if (response.headers.get('X-Icon-Body-Gate') === 'fail') {
+            bodyConsumed.resolve(undefined);
+            throw new Error('Icon body unavailable');
+          }
+          return blob;
         }
-        return blob;
-      });
+      );
       server.use(
         http.get(
           `${API_BASE}/api/v1/media/dm-icons/${iconId}`,
@@ -1883,17 +1955,19 @@ describe('ConversationList', () => {
         release: deferred<void>(),
         returned: deferred<void>(),
       };
-      const realBlob = Response.prototype.blob;
-      vi.spyOn(Response.prototype, 'blob').mockImplementation(async function (this: Response) {
-        const blob = await realBlob.call(this);
-        const marker = this.headers.get('X-Icon-Body-Gate');
-        if (marker !== 'predecessor' && marker !== 'successor') return blob;
-        const gate = marker === 'predecessor' ? predecessor : successor;
-        gate.started.resolve(undefined);
-        await gate.release.promise;
-        gate.returned.resolve(undefined);
-        return blob;
-      });
+      const realRead = identityMedia.readIdentityMedia;
+      vi.spyOn(identityMedia, 'readIdentityMedia').mockImplementation(
+        async (response, contentType) => {
+          const blob = await realRead(response, contentType);
+          const marker = response.headers.get('X-Icon-Body-Gate');
+          if (marker !== 'predecessor' && marker !== 'successor') return blob;
+          const gate = marker === 'predecessor' ? predecessor : successor;
+          gate.started.resolve(undefined);
+          await gate.release.promise;
+          gate.returned.resolve(undefined);
+          return blob;
+        }
+      );
       releasePending.push(
         () => predecessor.release.resolve(undefined),
         () => successor.release.resolve(undefined)

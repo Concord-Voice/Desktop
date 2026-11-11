@@ -24,6 +24,7 @@
  *     replays exactly what Apple saw at /authorize — RFC 6749 §4.1.3 —
  *     including whatever bridge redirect #973 lands.
  */
+import { authRequestSignal, readAuthJson } from '../../authResponse';
 import type { AppleSignInErrorCode } from '../../../shared/appleSso';
 import type { startLoopback as startLoopbackFn, LoopbackHandle } from '../../ssoLoopback';
 
@@ -31,6 +32,7 @@ import type { appleTokenCall as appleTokenCallFn } from './appleTokenCall';
 import { AppleFlowError } from './errors';
 import type { verifyAppleIDToken as verifyAppleIDTokenFn } from './idTokenVerifier';
 import { codeChallengeS256, generateCodeVerifier } from '../pkce';
+import { parseProviderAuthUrl } from '../providerAuthUrl';
 import type { signClientSecret as signClientSecretFn } from './signClientSecret';
 import {
   constantTimeEquals,
@@ -41,6 +43,7 @@ import {
 
 /** Overall flow deadline (spec R2). */
 export const APPLE_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
+const APPLE_BRIDGE_CALLBACK = 'https://api.concordvoice.chat/auth/sso/apple/callback';
 
 export interface AppleFlowDeps {
   apiBase: string;
@@ -94,18 +97,22 @@ async function initiate(
   codeChallenge: string,
   signal: AbortSignal
 ): Promise<InitiateResponse> {
+  const requestSignal = authRequestSignal(signal);
   let res: Response;
   try {
     const qs = new URLSearchParams({ redirect_uri: redirectURI, code_challenge: codeChallenge });
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/apple?${qs.toString()}`, {
-      signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw new AppleFlowError('sso_cancelled', 'initiate');
+  } catch {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'initiate');
     throw new AppleFlowError('sso_initiate_failed', 'initiate');
   }
   if (!res.ok) throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  const body = (await res.json().catch(() => null)) as Partial<InitiateResponse> | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'initiate');
+    return null;
+  })) as Partial<InitiateResponse> | null;
   if (
     !body ||
     typeof body.auth_url !== 'string' ||
@@ -118,18 +125,14 @@ async function initiate(
 }
 
 /** Parses client_id + redirect_uri out of the server-built authorize URL (D5). */
-function parseAuthUrl(authUrl: string): { clientId: string; redirectUri: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(authUrl);
-  } catch {
-    throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  }
-  if (parsed.protocol !== 'https:') throw new AppleFlowError('sso_initiate_failed', 'initiate');
+function parseAuthUrl(authUrl: string): { clientId: string; redirectUri: string; url: string } {
+  const parsed = parseProviderAuthUrl(authUrl, 'https://appleid.apple.com/auth/authorize');
+  if (!parsed) throw new AppleFlowError('sso_initiate_failed', 'initiate');
   const clientId = parsed.searchParams.get('client_id') ?? '';
   const redirectUri = parsed.searchParams.get('redirect_uri') ?? '';
-  if (!clientId || !redirectUri) throw new AppleFlowError('sso_initiate_failed', 'initiate');
-  return { clientId, redirectUri };
+  if (!clientId || redirectUri !== APPLE_BRIDGE_CALLBACK)
+    throw new AppleFlowError('sso_initiate_failed', 'initiate');
+  return { clientId, redirectUri, url: parsed.href };
 }
 
 async function postSession(
@@ -139,20 +142,24 @@ async function postSession(
 ): Promise<Record<string, unknown>> {
   const payload: Record<string, string> = { id_token: args.idToken, state: args.state };
   if (args.appleUserData !== undefined) payload.apple_user_data = args.appleUserData;
+  const requestSignal = authRequestSignal(signal);
   let res: Response;
   try {
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/apple/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw new AppleFlowError('sso_cancelled', 'session');
+  } catch {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'session');
     throw new AppleFlowError('sso_session_rejected', 'session');
   }
   if (!res.ok) throw new AppleFlowError('sso_session_rejected', 'session');
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (signal.aborted) throw new AppleFlowError('sso_cancelled', 'session');
+    return null;
+  })) as Record<string, unknown> | null;
   if (!body) throw new AppleFlowError('sso_session_rejected', 'session');
   return body;
 }
@@ -205,7 +212,11 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
 
     // Loopback timeout = the flow deadline (spec R2): Apple's consent +
     // form_post round-trip regularly exceeds the 60s Google default.
-    const loopback = await deps.startLoopback({ timeoutMs });
+    const expectedState = { value: '' };
+    const loopback = await deps.startLoopback({
+      timeoutMs,
+      expectedState: () => expectedState.value,
+    });
     flow.loopback = loopback;
     if (abort.signal.aborted) {
       // Cancelled while the loopback was binding — activeFlow is already
@@ -216,9 +227,11 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     }
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
-    const { clientId, redirectUri } = parseAuthUrl(init.auth_url);
+    if (!init.state) throw new AppleFlowError('sso_initiate_failed', 'initiate');
+    expectedState.value = init.state;
+    const { clientId, redirectUri, url } = parseAuthUrl(init.auth_url);
 
-    await deps.openExternal(init.auth_url);
+    await deps.openExternal(url);
 
     // Rejects with oauth_cancelled / oauth_timeout / oauth_provider_error:<x>.
     const cb = await loopback.promise;
@@ -268,6 +281,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     return { kind: 'error', code: toErrorCode(err) };
   } finally {
     clearTimeout(deadline);
+    flow.abort.abort();
     if (activeFlow === flow) {
       activeFlow = null;
       flow.loopback?.close();

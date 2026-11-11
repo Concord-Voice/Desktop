@@ -831,6 +831,7 @@ describe('sso IPC handlers', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          signal: expect.any(AbortSignal),
           body: JSON.stringify({
             sso_token: registrationPayload.ssoToken,
             username: registrationPayload.username,
@@ -905,6 +906,73 @@ describe('sso IPC handlers', () => {
         },
       });
       expect(JSON.stringify(result)).not.toContain('must-not-cross-ipc');
+    });
+
+    it('rejects oversized completion JSON and revokes the cookie-bound session', async () => {
+      await beginAppleCompletion();
+      vi.mocked(net.fetch)
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ access_token: 'x', padding: 'x'.repeat(2 * 1024 * 1024) }),
+            {
+              status: 200,
+              headers: { 'X-Concord-Session-ID': SESSION_ID },
+            }
+          )
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      await expect(
+        completeRegistrationHandler(
+          { senderFrame: { url: TRUSTED } },
+          SAAS_API_BASE,
+          registrationPayload
+        )
+      ).resolves.toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+      expect(net.fetch).toHaveBeenLastCalledWith(
+        `${SAAS_API_BASE}/api/v1/auth/logout`,
+        expect.objectContaining({
+          credentials: 'include',
+          headers: { 'X-Session-ID': SESSION_ID },
+        })
+      );
+    });
+
+    it('aborts a stalled completion body and revokes its cookie-bound session', async () => {
+      await beginAppleCompletion();
+      const controller = new AbortController();
+      const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(controller.signal);
+      const cancel = vi.fn();
+      vi.mocked(net.fetch)
+        .mockResolvedValueOnce(
+          new Response(new ReadableStream<Uint8Array>({ cancel }), {
+            status: 200,
+            headers: { 'X-Concord-Session-ID': SESSION_ID },
+          })
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      const pending = completeRegistrationHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        registrationPayload
+      );
+      await vi.waitFor(() => expect(net.fetch).toHaveBeenCalled());
+      controller.abort();
+      await expect(pending).resolves.toEqual({
+        kind: 'error',
+        status: 502,
+        code: 'sso_session_rejected',
+      });
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+      expect(net.fetch).toHaveBeenLastCalledWith(
+        `${SAAS_API_BASE}/api/v1/auth/logout`,
+        expect.objectContaining({
+          credentials: 'include',
+          headers: { 'X-Session-ID': SESSION_ID },
+        })
+      );
+      timeout.mockRestore();
     });
 
     it('revokes a cookie-bound session when completion returns malformed 2xx JSON', async () => {

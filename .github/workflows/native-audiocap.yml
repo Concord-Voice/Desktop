@@ -2,12 +2,13 @@ name: Native Audiocap
 
 # Build and verification for the concord-audiocap native addon (ADR-0043).
 #
-# STANDALONE rather than a node under pr-ci.yml, and path-filtered. The addon is a
+# Reusable, with a path-filtered PR caller and an unconditional nightly caller.
+# The addon is a
 # separate toolchain — node-gyp, four matrix rows across three OSes, sanitizers,
 # a fuzzer — and none
 # of it is meaningful for the ~99% of PRs that touch no native code. Folding it into
 # the orchestrator would either run it always (four idle rows per PR) or need a
-# path gate there anyway, which is this file.
+# path gate there anyway, which lives in pr-ci.yml.
 #
 # ADR-0043 § Verification requires two of these jobs:
 #   "ASAN and UBSAN builds of rt/ in CI."
@@ -39,7 +40,8 @@ name: Native Audiocap
 # malicious install script could execute it before the IOC scan rejected the change.
 # Codex caught it on PR #3155.
 #
-# Invoked by pr-ci.yml with `needs: [ioc, detect-changes]`, and DELIBERATELY NOT by
+# Invoked by pr-ci.yml with `needs: [ioc, detect-changes]` and daily at 07:00 UTC
+# by nightly-native-audiocap.yml with `needs: [ioc]`. DELIBERATELY NOT invoked by
 # main-ci.yml: every job there is gated on `hotfix == 'true' && desktop-release ==
 # 'true'`, its own `ioc` job included, so a `needs: ioc` node would be skipped on
 # exactly the ordinary merges it was meant to cover. `check-native-ioc-gate.sh`

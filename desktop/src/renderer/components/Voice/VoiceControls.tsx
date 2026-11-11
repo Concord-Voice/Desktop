@@ -654,7 +654,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
     if (!globalThis.electron?.openPipWindow) return;
-    await globalThis.electron.openPipWindow(buildPipOptions(mode, producerId));
+    try {
+      await globalThis.electron.openPipWindow(buildPipOptions(mode, producerId));
+    } catch {
+      useVoiceStore.getState().setVideoSlotError('Could not open PiP. Close one or retry.');
+    }
     setShowUtilityMenu(false);
   }, []);
 

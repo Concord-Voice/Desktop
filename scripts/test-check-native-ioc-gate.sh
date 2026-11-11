@@ -17,6 +17,7 @@ pass=0; fail=0
 # $3 = pr-ci native node, $4 = main-ci native node.
 scaffold() {
   local d="$1"; rm -rf "$d"; mkdir -p "$d"
+  cp "${ROOT}/.github/workflows/nightly-native-audiocap.yml" "${d}/nightly-native-audiocap.yml"
   printf '%s\n' "name: Native Audiocap" "$2" "jobs:" "  addon-build:" "    runs-on: ubuntu-latest" > "${d}/native-audiocap.yml"
   printf '%s\n' "name: PR CI" "on:" "  pull_request:" "jobs:" "  ioc:" "    uses: ./.github/workflows/ioc-scanning.yml" "$3" > "${d}/pr-ci.yml"
   printf '%s\n' "name: Main CI" "on:" "  push:" "jobs:" "  ioc:" "    uses: ./.github/workflows/ioc-scanning.yml" "$4" > "${d}/main-ci.yml"
@@ -128,3 +129,6 @@ if [ "$((pass + fail))" -lt "$MIN_CASES" ]; then
 fi
 echo "passed ${pass}, failed ${fail}"
 [ "$fail" -eq 0 ]
+
+# Exercise the real nightly resolver with Git history and mutate the handoff.
+python3 "${ROOT}/.github/scripts/tests/test_native_nightly.py"

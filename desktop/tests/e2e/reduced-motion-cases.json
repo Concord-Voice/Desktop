@@ -1,0 +1,268 @@
+[
+  {
+    "id": "AaGRKm7HWV1cgC4sffoj",
+    "path": "src/renderer/components/Auth/AuthFlow.css",
+    "selector": ".auth-screen",
+    "line": 10,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7HWV1cgC4sffok",
+    "path": "src/renderer/components/Auth/AuthFlow.css",
+    "selector": ".auth-placeholder",
+    "line": 36,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7QWV1cgC4sffoo",
+    "path": "src/renderer/components/Auth/ConnectionSelector.css",
+    "selector": ".radio-inner",
+    "line": 122,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7GWV1cgC4sffoi",
+    "path": "src/renderer/components/Auth/InfoTooltip.css",
+    "selector": ".info-tooltip-popup",
+    "line": 43,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7NWV1cgC4sffon",
+    "path": "src/renderer/components/Auth/LoadingSpinner.css",
+    "selector": ".spinner",
+    "line": 18,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7KWV1cgC4sffol",
+    "path": "src/renderer/components/Auth/PasswordStrength.css",
+    "selector": ".strength-label.legendary",
+    "line": 52,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6vWV1cgC4sffoZ",
+    "path": "src/renderer/components/Chat/DeleteMessageModal.css",
+    "selector": ".delete-message-confirm-btn",
+    "line": 87,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm6oWV1cgC4sffoV",
+    "path": "src/renderer/components/Chat/MessageList.css",
+    "selector": ".scroll-to-bottom",
+    "line": 156,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm6oWV1cgC4sffoW",
+    "path": "src/renderer/components/Chat/MessageList.css",
+    "selector": ".scroll-to-bottom svg",
+    "line": 190,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6sWV1cgC4sffoY",
+    "path": "src/renderer/components/Chat/ReactionBar.css",
+    "selector": ".reaction-chip-enter",
+    "line": 98,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6rWV1cgC4sffoX",
+    "path": "src/renderer/components/Chat/TypingIndicator.css",
+    "selector": ".typing-dot",
+    "line": 34,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7wWV1cgC4sffo0",
+    "path": "src/renderer/components/ConnectionStatus/ConnectionStatus.css",
+    "selector": ".status-dot",
+    "line": 55,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7UWV1cgC4sffop",
+    "path": "src/renderer/components/DirectMessages/CategoryManagerPanel.css",
+    "selector": ".category-manager .server-settings-submit-btn",
+    "line": 323,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm7kWV1cgC4sffou",
+    "path": "src/renderer/components/EmojiPicker/EmojiPicker.css",
+    "selector": ".emoji-picker--popover",
+    "line": 45,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7kWV1cgC4sffov",
+    "path": "src/renderer/components/EmojiPicker/EmojiPicker.css",
+    "selector": ".emoji-picker-cell",
+    "line": 229,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm7kWV1cgC4sffow",
+    "path": "src/renderer/components/EmojiPicker/EmojiPicker.css",
+    "selector": ".emoji-picker-skin-tones",
+    "line": 327,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7uWV1cgC4sffoz",
+    "path": "src/renderer/components/GifPicker/GifPicker.css",
+    "selector": ".gif-tile",
+    "line": 263,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm6DWV1cgC4sffoM",
+    "path": "src/renderer/components/Layout/FolderBar.css",
+    "selector": ".folder-dropdown-ghost",
+    "line": 209,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6IWV1cgC4sffoP",
+    "path": "src/renderer/components/Layout/ServerBar.css",
+    "selector": ".server-bar-scroll",
+    "line": 131,
+    "property": "scroll-behavior"
+  },
+  {
+    "id": "AaGRKm6IWV1cgC4sffoQ",
+    "path": "src/renderer/components/Layout/ServerBar.css",
+    "selector": ".server-bar-icon-ghost",
+    "line": 375,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7dWV1cgC4sffoq",
+    "path": "src/renderer/components/Members/MemberProfileCard.css",
+    "selector": ".member-profile-card",
+    "line": 12,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7fWV1cgC4sffor",
+    "path": "src/renderer/components/Members/UserProfileModal.css",
+    "selector": ".user-profile-container",
+    "line": 25,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6jWV1cgC4sffoT",
+    "path": "src/renderer/components/Servers/InviteToServerModal.css",
+    "selector": ".invite-code-display",
+    "line": 124,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm6lWV1cgC4sffoU",
+    "path": "src/renderer/components/Servers/JoinServerModal.css",
+    "selector": ".join-server-preview",
+    "line": 38,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7rWV1cgC4sffoy",
+    "path": "src/renderer/components/User/UserPanel.css",
+    "selector": ".user-panel-settings-btn",
+    "line": 316,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm7oWV1cgC4sffox",
+    "path": "src/renderer/components/User/UserPopover.css",
+    "selector": ".user-popover",
+    "line": 14,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm7BWV1cgC4sffoh",
+    "path": "src/renderer/components/Voice/ParticipantVolumeRow.css",
+    "selector": ".participant-volume-row-slider::-webkit-slider-thumb",
+    "line": 52,
+    "property": "transition-duration"
+  },
+  {
+    "id": "AaGRKm6-WV1cgC4sffoe",
+    "path": "src/renderer/components/Voice/VoiceView.css",
+    "selector": ".voice-view__join::before",
+    "line": 229,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5KWV1cgC4sffn_",
+    "path": "src/renderer/components/ui/ConnectionLostOverlay.css",
+    "selector": ".connection-lost-icon.spinning",
+    "line": 38,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoA",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-menu",
+    "line": 37,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoB",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-menu-closing",
+    "line": 54,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoD",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-submenu",
+    "line": 208,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoE",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-submenu-closing",
+    "line": 245,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoF",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-submenu-closing.ctx-submenu-flip",
+    "line": 249,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5hWV1cgC4sffoC",
+    "path": "src/renderer/components/ui/ContextMenu.css",
+    "selector": ".ctx-menu-item,\n.ctx-menu-header,\n.ctx-menu-separator",
+    "line": 301,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm5-WV1cgC4sffoK",
+    "path": "src/renderer/components/ui/ForceUpdateOverlay.css",
+    "selector": ".force-update-spinner",
+    "line": 79,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm57WV1cgC4sffoH",
+    "path": "src/renderer/components/ui/Modal.css",
+    "selector": ".modal-container",
+    "line": 24,
+    "property": "animation-duration"
+  },
+  {
+    "id": "AaGRKm56WV1cgC4sffoG",
+    "path": "src/renderer/components/ui/UpdateBanner.css",
+    "selector": ".update-banner",
+    "line": 11,
+    "property": "animation-duration"
+  }
+]

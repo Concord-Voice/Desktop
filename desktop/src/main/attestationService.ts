@@ -1,4 +1,5 @@
 import { net } from 'electron';
+import { AUTH_REQUEST_TIMEOUT_MS, readAuthJson } from './authResponse';
 import { collectAttestationSignals, AttestationSignals } from './attestationSignals';
 
 let cachedToken: { token: string; expiresAt: Date } | null = null;
@@ -29,6 +30,7 @@ export async function attest(opts: {
     platform: opts.platform,
     version: opts.version,
   });
+  const signal = AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS);
   const res = await net.fetch(`${opts.apiBaseUrl}/api/v1/attestation/verify`, {
     method: 'POST',
     headers: {
@@ -38,15 +40,16 @@ export async function attest(opts: {
       'X-Machine-Id': signals.machine_id ?? '',
     },
     body: JSON.stringify(signals),
+    signal,
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = (await readAuthJson(res, signal).catch(() => ({}))) as Record<string, unknown>;
     const code = typeof body.code === 'string' ? body.code : 'ATTESTATION_ERROR';
     throw new AttestationError(res.status, code, body);
   }
 
-  const data = (await res.json()) as Partial<VerifyResponseBody>;
+  const data = (await readAuthJson(res, signal)) as Partial<VerifyResponseBody>;
   if (typeof data.attestation_token !== 'string' || typeof data.expires_at !== 'string') {
     throw new AttestationError(res.status, 'ATTESTATION_MALFORMED_RESPONSE', { ...data });
   }

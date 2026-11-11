@@ -1,9 +1,9 @@
 # Supply-chain IOC scanning — extracted from build.yml per ADR-0018 (#1472).
 #
 # INSTALL-ORDERING INVARIANT (IOC-first): this workflow is the FIRST node in
-# both orchestrators (pr-ci.yml on pull_request, main-ci.yml on push:main per
-# #1477). Every reusable invocation that installs or executes repo code MUST
-# carry `needs: ioc` at the orchestrator — that single structural edge replaces
+# PR and main orchestrators, and follows scan-window resolution in
+# nightly-native-audiocap.yml. Every reusable invocation that installs or executes
+# repo code MUST carry `needs: ioc` at the orchestrator — that single structural edge replaces
 # the five per-job `needs: supply-chain-scan` edges that previously lived
 # inside build.yml (and closes the gap where extracted per-tool scanners ran
 # `npm ci` / Go module downloads racing the IOC verdict).

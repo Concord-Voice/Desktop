@@ -52,6 +52,17 @@
   transition: transform 0.1s ease;
 }
 
+/* The UA thumb does not inherit the input's global transition duration. */
+[data-reduce-animations='true'] .participant-volume-row-slider::-webkit-slider-thumb {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .participant-volume-row-slider::-webkit-slider-thumb {
+    transition: none;
+  }
+}
+
 .participant-volume-row-slider::-webkit-slider-thumb:hover {
   transform: scale(1.15);
 }

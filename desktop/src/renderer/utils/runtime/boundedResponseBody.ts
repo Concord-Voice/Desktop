@@ -117,7 +117,8 @@ async function drainBounded(
     total += value.byteLength;
     if (total > maxBytes) {
       chunks.length = 0;
-      await reader.cancel().catch(() => undefined);
+      // A tee'd response can wait for the other branch to cancel; do not wait here.
+      void reader.cancel().catch(() => undefined);
       // Only what arrived before the cap tripped — a lower bound, not the size.
       throw new AttachmentTooLargeError(total, true);
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { AuditLedger, GENESIS_HASH, redactSecrets, type AuditEntryInput } from "../src/audit/ledger.js";
+import { AuditLedger, GENESIS_HASH, computeHash, redactSecrets, type AuditEntryInput, type JsonValue } from "../src/audit/ledger.js";
 import {
   isStrictlyInside,
   validateBranchNameSyntax,
@@ -58,7 +58,7 @@ describe("Audit ledger", () => {
     await ledger.writeEntry(entry("t3"));
     const lines = fs.readFileSync(ledger.ledgerPath, "utf-8").trim().split("\n");
 
-    fs.writeFileSync(ledger.ledgerPath, [lines[0], lines[1].replace("Implement heartbeat", "Something else"), lines[2]].join("\n") + "\n");
+    fs.writeFileSync(ledger.ledgerPath, [lines[0], lines[1].replace("backend-developer", "tampered"), lines[2]].join("\n") + "\n");
     expect(ledger.verifyChain()).toMatchObject({ ok: false, brokenAtLine: 2, reason: "hash mismatch" });
 
     fs.writeFileSync(ledger.ledgerPath, [lines[0], lines[2]].join("\n") + "\n");
@@ -69,6 +69,82 @@ describe("Audit ledger", () => {
 
     fs.writeFileSync(ledger.ledgerPath, [lines[0], "[1,2]"].join("\n") + "\n");
     expect(ledger.verifyChain()).toMatchObject({ ok: false, reason: "not an object" });
+  });
+
+  it("never persists opaque task content and worker output", async () => {
+    const samples = [
+      '{"refresh_token":"opaqueA", "accessToken":"opaqueB", "client_secret":"opaqueC"}',
+      'Authorization: Bearer opaqueD',
+      'postgres://opaqueE:opaqueF@localhost/db',
+      'otherwise unlabelled opaqueG',
+    ];
+    await ledger.writeEntry(entry("t1", {
+      prompt: { initialPrompt: samples.join(" "), reply: samples.join(" "), dialogueHistory: [{ turn: 1, workerStatus: "AWAITING_INPUT", workerQuestion: samples.join(" "), dispatcherReply: samples.join(" ") }] },
+      results: { outputSummary: samples.join(" ") },
+      initiator: { harness: "opaqueH", repliesUsed: 0, maxDialogueTurns: 2 },
+      worktree: { branch: "opaqueI", path: "/opaqueJ", baseCommit: "a".repeat(40), headCommit: "b".repeat(40) },
+      execution: { ...entry("t1").execution, failureReason: "opaqueK" },
+    }));
+    const raw = fs.readFileSync(ledger.ledgerPath, "utf8");
+    const query = JSON.stringify(ledger.query());
+    for (const marker of ["opaqueA", "opaqueB", "opaqueC", "opaqueD", "opaqueE", "opaqueF", "opaqueG", "opaqueH", "opaqueI", "opaqueJ", "opaqueK"]) {
+      expect(raw).not.toContain(marker);
+      expect(query).not.toContain(marker);
+    }
+    expect(ledger.verifyChain().ok).toBe(true);
+  });
+
+  it("projects v3 records without returning extra persisted fields", async () => {
+    const original = await ledger.writeEntry(entry("t1"));
+    const body: { [key: string]: JsonValue } = { ...original };
+    delete body.hash;
+    body.injected_secret = "opaqueTopSecret";
+    body.execution = { ...(body.execution as { [key: string]: JsonValue }), injected_secret: "opaqueNestedSecret" };
+    fs.writeFileSync(ledger.ledgerPath, JSON.stringify({ ...body, hash: computeHash(GENESIS_HASH, body) }) + "\n");
+
+    expect(ledger.verifyChain().ok).toBe(true);
+    const queried = JSON.stringify(ledger.query());
+    expect(queried).not.toContain("opaqueTopSecret");
+    expect(queried).not.toContain("opaqueNestedSecret");
+    expect(ledger.query()[0].results).toEqual({ highSeverityFinding: false });
+  });
+
+  it("records red-team severity after the persisted field limit without storing output", async () => {
+    await ledger.writeEntry(entry("late-severity", {
+      execution: { ...entry("late-severity").execution, agentRole: "red-team" },
+      results: { outputSummary: `${"x".repeat(16_100)} P0` },
+    }));
+
+    expect(ledger.query()[0].results).toEqual({ highSeverityFinding: true });
+    expect(fs.readFileSync(ledger.ledgerPath, "utf-8")).not.toContain("P0");
+    expect(ledger.verifyChain().ok).toBe(true);
+  });
+
+  it("projects only own OS signal names from v3 records", async () => {
+    await ledger.writeEntry(entry("prototype-signal", {
+      execution: { ...entry("prototype-signal").execution, signal: "toString" },
+    }));
+    expect((ledger.query()[0].execution as { signal: string | null }).signal).toBeNull();
+  });
+
+  it("projects legacy records without exposing task content and verifies original bytes", async () => {
+    fs.mkdirSync(ledger.auditDir, { recursive: true });
+    const old = {
+      schema: "concord-bridge-audit-v2", task_id: "legacy", event: "dispatch", timestamp: "2026-01-01T00:00:00.000Z",
+      execution: { agentRole: "red-team", status: "COMPLETED", harnessUsed: "codex", modelResolved: "gpt-6-sol", failureReason: "legacyOpaqueA" },
+      admission: { criterion: "RC-1: legacyOpaquePath" },
+      worktree: { branch: "legacyOpaqueBranch", baseCommit: "a".repeat(40), headCommit: "b".repeat(40) },
+      prompt: { initialPrompt: "legacyOpaqueB", contextFiles: ["legacyOpaquePath"], dialogueHistory: [{ workerQuestion: "legacyOpaqueD" }] }, results: { outputSummary: "P1 legacyOpaqueC" }, prev_hash: GENESIS_HASH,
+    };
+    fs.writeFileSync(ledger.ledgerPath, JSON.stringify({ ...old, hash: computeHash(GENESIS_HASH, old) }) + "\n");
+    const projected = ledger.query()[0];
+    expect(JSON.stringify(projected)).not.toMatch(/legacyOpaque/);
+    expect(projected).toMatchObject({
+      schema: "concord-bridge-audit-legacy-projection", results: { highSeverityFinding: true },
+      admission: { criterion: "RC-1" }, execution: { harnessUsed: "codex", modelResolved: "gpt-6-sol" },
+      worktree: { baseCommit: "a".repeat(40), headCommit: "b".repeat(40) }, prompt: { contextFileCount: 1, dialogueTurns: 1 },
+    });
+    expect(ledger.verifyChain()).toEqual({ ok: true, entries: 1 });
   });
 
   it("redacts secrets before writing", async () => {
@@ -83,7 +159,7 @@ describe("Audit ledger", () => {
     expect(raw).not.toContain(secret);
     expect(raw).not.toContain("hunter2");
     expect(raw).not.toContain("MIIE");
-    expect(raw).toContain("[REDACTED:github-token]");
+    expect(raw).not.toContain("[REDACTED:github-token]");
   });
 
   it("redactSecrets covers the common token shapes and truncates huge fields", () => {

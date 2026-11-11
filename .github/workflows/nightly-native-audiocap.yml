@@ -1,0 +1,76 @@
+name: Nightly Native Audiocap
+
+# Desktop owns the native backstop formerly run by Hosted's nightly CI.
+# Keep its 07:00 UTC cadence and IOC-first ordering. This workflow only verifies
+# native audio; release authorization, signing and deployment are separate.
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-native-audiocap
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  window:
+    name: Resolve scan window
+    if: github.repository == 'Concord-Voice/Desktop' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      diff-base: ${{ steps.window.outputs.diff-base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Resolve the diff base from the last successful scheduled run
+        id: window
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Inline git/API operations only before IOC; do not execute repo scripts.
+          # Failed/cancelled nights and manual runs never advance this baseline.
+          # An API failure widens the window to the root instead of HEAD~1.
+          LAST=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-native-audiocap.yml/runs?status=success&branch=main&event=schedule&per_page=1" \
+            --jq '.workflow_runs[0].head_sha // ""') || LAST=''
+          if [[ "$LAST" =~ ^[0-9a-f]{40}$ ]] \
+            && git cat-file -e "${LAST}^{commit}" 2>/dev/null \
+            && git merge-base --is-ancestor "$LAST" HEAD; then
+            echo "::notice::Scanning since the last successful scheduled run (${LAST})"
+          else
+            # Cold start, unavailable history, or a rerun behind the latest
+            # successful SHA: preserve the former nightly's root-commit fallback.
+            LAST=$(git rev-list --max-parents=0 HEAD | tail -1)
+            test -n "$LAST"
+            echo "::warning::No usable prior nightly; scanning from root ${LAST}"
+          fi
+          echo "diff-base=${LAST}" >> "$GITHUB_OUTPUT"
+
+  ioc:
+    name: ioc
+    needs: [window]
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ioc-scanning.yml
+    with:
+      diff-base: ${{ needs.window.outputs.diff-base }}
+
+  # Unconditional after IOC succeeds: runner/toolchain drift has no PR path diff.
+  native-audiocap:
+    name: native-audiocap
+    needs: [ioc]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/native-audiocap.yml

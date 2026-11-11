@@ -29,7 +29,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-This release adds groundwork for verifying account keys. Nothing uses it yet.
+This release adds groundwork for verifying account keys and protects remembered sessions from being redirected to another server. Existing remembered sessions require signing in again.
 
 ### Added
 
@@ -45,10 +45,25 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 
 ### Fixed
 
+- **Chat:** Large or unknown-size images and videos now wait for a click before downloading.
+- **Privacy:** Profile and conversation images now stop downloading when they exceed a safety limit or take too long.
+- **Accessibility:** Reduce Animations and the system reduced-motion preference now stop animated server-bar scrolling and volume-slider thumb transitions.
 - **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
 - **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
 - **Feedback:** The known-issues link in the Feedback window now opens the list at its current address.
+- **Chat:** Saving an image now checks the 100 MiB limit before copying its decrypted bytes.
 - **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
+
+### Security
+
+- **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
+- **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
+- **Sign-in:** Ignore callbacks that do not match the current sign-in request.
+- **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
+- **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
+- **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
+- **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
 
 ## [0.3.1] - 2026-11-06
 

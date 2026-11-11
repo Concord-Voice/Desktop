@@ -44,10 +44,12 @@ One process per dispatch and one per reply, always with `shell: false`:
 |---|---|---|---|
 | claude | `claude -p --model … --effort … --permission-mode plan\|acceptEdits --max-turns N --strict-mcp-config --mcp-config '{"mcpServers":{}}' --no-session-persistence -- <prompt>` | `read-only` becomes `plan`; both write tiers become `acceptEdits` | `--max-turns` |
 | codex | `codex exec -m … -c model_reasoning_effort=… --sandbox read-only\|workspace-write -C <worktree> -- <prompt>` | `read-only` becomes `read-only`; both write tiers become `workspace-write` | not enforced (no flag) |
-| antigravity | `agy run --model … --effort … -- <prompt>` | not enforced | not enforced |
+| antigravity | `agy run --model … --effort … -- <prompt>` | read-only refused; write tiers not enforced | not enforced |
 
 Only the claude flags were checked against a live CLI (Claude Code 2.1.307).
 The codex flags come from the upstream CLI source. The `agy` argv is unverified.
+Read-only roles that default to Antigravity must use an explicit Claude or Codex
+override until Antigravity enforcement is verified.
 
 Each worker gets a 30-minute SIGKILL timeout and a 2 MiB cap on combined
 stdout and stderr. A worker reports a pause by printing
@@ -66,7 +68,7 @@ environment carries that flag.
 | Path (repo root) | What |
 |---|---|
 | `.worktrees/<session-id>/` | one worktree per dispatch. Created with `git worktree add`, never reused; an existing target is refused |
-| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. Common token and key shapes are redacted before writing |
+| `.agent-bus/audit/ledger.jsonl` | append-only, mode 0600, one record per dispatch or reply. Each record holds `prev_hash` and `hash` (SHA-256), so `bridge_query_audit_log {"verify_chain": true}` detects edited, deleted or reordered lines. New records omit prompts, replies, worker output, and free-form failure details; only metadata and a derived escalation flag are stored. Queries project both new and legacy records through explicit metadata fields without returning extra stored fields; legacy records remain on disk and can contain secrets. Chain verification uses the original records |
 | `.agent-bus/workers/<session-id>.json` | marker file for the recursion guard |
 
 Both directories are gitignored at the repository root. The bridge never deletes
@@ -80,9 +82,10 @@ A `red-team-critical` dispatch is admitted only when one of these holds:
   path changed on the requested existing `branch`, falls under the core-crypto
   (RC-1) or key-custody (RC-2) prefixes in `src/gate/activation.ts`. Prompt
   text is never inspected.
-- **RC-3.** `escalation_task_id` names a completed audit-ledger entry, written
-  by this bridge, of a `red-team` run whose output reports a CRITICAL or
-  HIGH finding (`P0`/`P1`).
+- **RC-3.** `escalation_task_id` names a completed audit-ledger entry in a
+  valid hash chain, of a `red-team` run whose output reports a CRITICAL or
+  HIGH finding (`P0`/`P1`). This assumes only the trusted bridge can write the
+  ledger; its unkeyed hash chain cannot authenticate a writer.
 - **RC-4.** None of the above holds, and a human approves through **MCP
   elicitation** (`elicitation/create`, a yes/no form). If the MCP client does
   not declare the elicitation capability, the request errors or times out (5

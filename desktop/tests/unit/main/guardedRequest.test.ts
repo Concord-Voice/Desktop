@@ -2,10 +2,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import net, { type AddressInfo, type LookupFunction } from 'node:net';
 import http from 'node:http';
+import dns from 'node:dns';
 import {
   EgressDeniedError,
   guardedRequest,
   makeGuardedLookup,
+  probeResolver,
   resolveForDisplay,
 } from '@/main/guardedRequest';
 
@@ -363,14 +365,87 @@ describe('resolveForDisplay — dialog pre-resolution and tier-1 fast-fail', () 
   // The timer bounds the CALLER's wait, not the lookup: getaddrinfo keeps its libuv
   // threadpool slot regardless. These tests pin the caller-visible contract only.
   it('settles as unreachable when the resolver never calls back', async () => {
-    const neverCallsBack = (() => {
-      /* deliberately never invokes the callback */
+    let finish: (() => void) | undefined;
+    const neverCallsBack = ((
+      _host: string,
+      _opts: unknown,
+      cb: (e: Error | null, a: unknown) => void
+    ) => {
+      finish = () => cb(new Error('late'), []);
     }) as unknown as typeof import('node:dns').lookup;
 
     await expect(resolveForDisplay('stalled.invalid', neverCallsBack, 20)).resolves.toEqual({
       ok: false,
       kind: 'unreachable',
     });
+    finish?.();
+  });
+
+  it('does not start another lookup after a deadline until the prior callback settles', async () => {
+    let finish: (() => void) | undefined;
+    const stalled = vi.fn(
+      (_host: string, _opts: unknown, cb: (error: Error | null, addrs: unknown) => void) => {
+        finish = () => cb(null, [{ address: '93.184.216.34', family: 4 }]);
+      }
+    ) as unknown as typeof import('node:dns').lookup;
+    const next = vi.fn(fakeResolver(['93.184.216.34']));
+    try {
+      await expect(resolveForDisplay('stalled.invalid', stalled, 10)).resolves.toEqual({
+        ok: false,
+        kind: 'unreachable',
+      });
+      await expect(resolveForDisplay('next.invalid', next, 10)).resolves.toEqual({
+        ok: false,
+        kind: 'busy',
+      });
+      expect(next).not.toHaveBeenCalled();
+    } finally {
+      finish?.();
+    }
+    await expect(resolveForDisplay('next.invalid', next, 10)).resolves.toMatchObject({ ok: true });
+  });
+
+  it('shares its pending lookup limit with the probe dial resolver', async () => {
+    let finish: (() => void) | undefined;
+    const dnsSpy = vi.spyOn(dns, 'lookup').mockImplementation(((
+      _host: string,
+      _opts: unknown,
+      cb: (error: Error | null, addresses: unknown) => void
+    ) => {
+      finish = () => cb(null, [{ address: '93.184.216.34', family: 4 }]);
+    }) as typeof dns.lookup);
+    const dialLookup = makeGuardedLookup({ isOriginApproved: () => true, resolver: probeResolver });
+    try {
+      const dial = new Promise<unknown>((resolve) => {
+        dialLookup('dial.invalid', { all: true, family: 4 } as never, (error, addresses) =>
+          resolve({ error, addresses })
+        );
+      });
+      await expect(
+        resolveForDisplay('display.invalid', fakeResolver(['93.184.216.34']), 10)
+      ).resolves.toEqual({ ok: false, kind: 'busy' });
+      finish?.();
+      await expect(dial).resolves.toMatchObject({ error: null });
+      expect(dnsSpy).toHaveBeenCalledTimes(1);
+      expect(dnsSpy).toHaveBeenCalledWith(
+        'dial.invalid',
+        expect.objectContaining({ all: true, family: 4 }),
+        expect.any(Function)
+      );
+    } finally {
+      finish?.();
+      dnsSpy.mockRestore();
+    }
+  });
+
+  it('releases the lookup permit when the resolver throws synchronously', async () => {
+    const throwing = (() => {
+      throw new Error('resolver failed');
+    }) as unknown as typeof dns.lookup;
+    await expect(resolveForDisplay('bad.invalid', throwing)).rejects.toThrow('resolver failed');
+    await expect(
+      resolveForDisplay('good.invalid', fakeResolver(['93.184.216.34']))
+    ).resolves.toMatchObject({ ok: true });
   });
 
   it('keeps the real verdict when the resolver answers before the deadline', async () => {

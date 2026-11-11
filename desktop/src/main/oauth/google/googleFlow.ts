@@ -21,6 +21,7 @@
  *     { kind: 'error', code } so no raw Error (with a potential cause chain)
  *     crosses the IPC boundary (internal-reference).
  */
+import { authRequestSignal, readAuthJson } from '../../authResponse';
 import type { SSOSignInErrorCode } from '../../../shared/sso';
 import type { startLoopback as startLoopbackFn, LoopbackHandle } from '../../ssoLoopback';
 
@@ -28,6 +29,7 @@ import { GoogleFlowError } from './errors';
 import type { googleTokenCall as googleTokenCallFn } from './googleTokenCall';
 import type { verifyGoogleIDToken as verifyGoogleIDTokenFn } from './idTokenVerifier';
 import { codeChallengeS256, generateCodeVerifier } from '../pkce';
+import { parseProviderAuthUrl } from '../providerAuthUrl';
 import {
   constantTimeEquals,
   mapSessionResponse as mapSessionResponseShared,
@@ -94,19 +96,22 @@ async function initiate(
   codeChallenge: string,
   signal: AbortSignal
 ): Promise<InitiateResponse> {
+  const requestSignal = authRequestSignal(signal);
   let res: Response;
   try {
     const qs = new URLSearchParams({ redirect_uri: redirectURI, code_challenge: codeChallenge });
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/google?${qs.toString()}`, {
-      signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError')
-      throw new GoogleFlowError('sso_cancelled', 'initiate');
+  } catch {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'initiate');
     throw new GoogleFlowError('sso_initiate_failed', 'initiate');
   }
   if (!res.ok) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  const body = (await res.json().catch(() => null)) as Partial<InitiateResponse> | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'initiate');
+    return null;
+  })) as Partial<InitiateResponse> | null;
   if (
     !body ||
     typeof body.auth_url !== 'string' ||
@@ -123,17 +128,16 @@ async function initiate(
  * appleFlow.parseAuthUrl). The control-plane embeds GOOGLE_CLIENT_ID in the
  * authorize URL at /initiate time; the desktop never holds a client_id constant.
  */
-function parseGoogleAuthUrl(authUrl: string): { clientId: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(authUrl);
-  } catch {
-    throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  }
-  if (parsed.protocol !== 'https:') throw new GoogleFlowError('sso_initiate_failed', 'initiate');
+function parseGoogleAuthUrl(
+  authUrl: string,
+  redirectUri: string
+): { clientId: string; url: string } {
+  const parsed = parseProviderAuthUrl(authUrl, 'https://accounts.google.com/o/oauth2/v2/auth');
+  if (!parsed) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
   const clientId = parsed.searchParams.get('client_id') ?? '';
-  if (!clientId) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
-  return { clientId };
+  if (!clientId || parsed.searchParams.get('redirect_uri') !== redirectUri)
+    throw new GoogleFlowError('sso_initiate_failed', 'initiate');
+  return { clientId, url: parsed.href };
 }
 
 async function postSession(
@@ -142,20 +146,24 @@ async function postSession(
   signal: AbortSignal
 ): Promise<Record<string, unknown>> {
   const payload: Record<string, string> = { id_token: args.idToken, state: args.state };
+  const requestSignal = authRequestSignal(signal);
   let res: Response;
   try {
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/google/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal,
+      signal: requestSignal,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw new GoogleFlowError('sso_cancelled', 'session');
+  } catch {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'session');
     throw new GoogleFlowError('sso_session_rejected', 'session');
   }
   if (!res.ok) throw new GoogleFlowError('sso_session_rejected', 'session');
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await readAuthJson(res, requestSignal).catch(() => {
+    if (signal.aborted) throw new GoogleFlowError('sso_cancelled', 'session');
+    return null;
+  })) as Record<string, unknown> | null;
   if (!body) throw new GoogleFlowError('sso_session_rejected', 'session');
   return body;
 }
@@ -194,7 +202,11 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     const verifier = generateCodeVerifier();
     const challenge = codeChallengeS256(verifier);
 
-    const loopback = await deps.startLoopback({ timeoutMs });
+    const expectedState = { value: '' };
+    const loopback = await deps.startLoopback({
+      timeoutMs,
+      expectedState: () => expectedState.value,
+    });
     flow.loopback = loopback;
     if (abort.signal.aborted) {
       loopback.close();
@@ -202,9 +214,11 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     }
 
     const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
-    const { clientId } = parseGoogleAuthUrl(init.auth_url);
+    if (!init.state) throw new GoogleFlowError('sso_initiate_failed', 'initiate');
+    expectedState.value = init.state;
+    const { clientId, url } = parseGoogleAuthUrl(init.auth_url, loopback.redirectURI);
 
-    await deps.openExternal(init.auth_url);
+    await deps.openExternal(url);
 
     // Rejects with oauth_cancelled / oauth_timeout / oauth_provider_error:<x>.
     const cb = await loopback.promise;
@@ -238,6 +252,7 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
     return { kind: 'error', code: toErrorCode(err) };
   } finally {
     clearTimeout(deadline);
+    flow.abort.abort();
     if (activeFlow === flow) {
       activeFlow = null;
       flow.loopback?.close();
