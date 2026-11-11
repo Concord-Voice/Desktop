@@ -42,6 +42,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 - **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+- **Servers:** Each server connection now runs in its own isolated browser session, with its own storage, cookies and sign-in. A server that cannot be reached shows a "connection unavailable" screen instead of a blank window.
 
 ### Fixed
 
@@ -64,6 +65,8 @@ This release adds groundwork for verifying account keys and protects remembered 
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
+- **Desktop:** Screen sharing with app sound, picture-in-picture, window focus, the clipboard, Google and Apple sign-in, and self-hosted server checks now work only from the server connection you are looking at. A connection in the background cannot use them.
+- **Sign-in:** A sign-in on one server connection can no longer cancel a sign-in in progress on another.
 
 ## [0.3.1] - 2026-11-06
 
