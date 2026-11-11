@@ -16,7 +16,6 @@ const MAIN_RAW_ERR_CONSOLE_SELECTOR = {
 // #86 Task 7A → 7B: main-process files that still call ipcMain directly. Task 7B removes
 // each entry as it migrates that file to registerIpc; the list must be empty after 7B.
 const TRANSITIONAL_RAW_IPCMAIN_FILES = [
-  'src/main/main.ts',
   'src/main/permissionManager.ts',
   'src/main/ipc/attestation.ts',
   'src/main/ipc/billing.ts',

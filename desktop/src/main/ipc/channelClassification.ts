@@ -58,6 +58,9 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'permission:openSettings': 'app-global-mutate',
   // A hidden view must not replace the clipboard behind the visible one.
   'clipboard:writeText': 'app-global-mutate',
+  // #86 Task 7B: the screen-share picker's sources carry a thumbnail of every window
+  // and screen, so a hidden view must not enumerate them (as for audiocap:start).
+  'media:getDesktopSources': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
   // handler then narrows to trayOwner() when #87 names one, else the foreground
   // primary. With no owner set the effective admission is the foreground primary.
@@ -93,7 +96,6 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'selfHosted:probeServer': 'connection-bound',
   'audiocap:start': 'connection-bound',
   'audiocap:stop': 'connection-bound',
-  'media:getDesktopSources': 'connection-bound',
   'open-external': 'connection-bound',
   'image:saveAs': 'connection-bound',
   'app:setBadgeCount': 'connection-bound',

@@ -50,7 +50,6 @@ import {
   clipboard,
   desktopCapturer,
   dialog,
-  ipcMain,
   nativeImage,
   powerMonitor,
   protocol,
@@ -62,11 +61,9 @@ import {
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-// TRANSITIONAL (#86 Task 5): one renderer over per-service custody. A call that
-// names an API base uses custodyForApiBase; one that names none uses the active
-// custody (liveCustody), or no custody at all. Task 7B replaces all of these with
-// the sender's own custody.
-import { custodyFor, liveCustody, setProactiveRefreshCallback } from './tokenManager';
+// #86: custody is per service and reached only through the sender's binding or the
+// service record; main never picks one from a pointer.
+import { custodyFor } from './tokenManager';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
@@ -131,10 +128,8 @@ import {
   getSpaHash,
   setRemoteSpaState,
 } from './spaState';
-import { isPermittedFrameUrl, requireTrustedSender } from './ipc/frameValidation';
 import {
   bindingFor,
-  boundRecordFor,
   foreground,
   getService,
   liveConnections,
@@ -142,7 +137,6 @@ import {
   recordFor,
   refOf,
   registerService,
-  type ConnectionRecord,
   type RegisterServiceDeps,
   type ServiceRecord,
 } from './connectionRegistry';
@@ -804,9 +798,10 @@ let deepLinkOwner: CredentialOwner | null = null;
 // because drainPendingDeepLinks takes a `queue.splice(0)` snapshot first: a
 // forget from inside the loop empties the live queue while the snapshot it is
 // iterating survives, and every retained code delivers anyway.
-// TRANSITIONAL (#86 Task 5): the owner of the custody the renderer is on, or null.
+// #86: deep links are saas-only (§3.7), so the owner that fences them is the saas
+// custody's, never another connection's.
 function liveCredentialOwner(): CredentialOwner | null {
-  return liveCustody()?.getCredentialCustodyState().credentialOwner ?? null;
+  return getService(SAAS_SERVICE_ID)?.custody.getCredentialCustodyState().credentialOwner ?? null;
 }
 
 function fenceDeepLinksOnOwnerChange(atArrival = false, known?: CredentialOwner | null): void {
@@ -1388,7 +1383,23 @@ const connectionSessionDeps: ConnectionSessionDeps = {
 /** `saas` keeps `defaultSession`; a self-hosted service gets its own `fromPath` session. */
 const connectionServiceDeps: RegisterServiceDeps = {
   makeSession: (base) => sessionForService(base.kind, base.dirKey, app.getPath('userData')),
-  makeCustody: (serviceId, origin) => custodyFor(serviceId, origin),
+  makeCustody: (serviceId, origin) => {
+    const custody = custodyFor(serviceId, origin);
+    // Proactive token refresh (#254): a refresh this custody makes (timer or
+    // sleep/wake) reaches this service's own view only, so its authStore stays
+    // current and no other connection ever sees the token.
+    custody.setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
+      for (const record of liveConnections()) {
+        if (record.serviceId !== serviceId) continue;
+        sendToConnection(refOf(record), 'auth:token-refreshed', {
+          accessToken,
+          sessionId,
+          previousSessionId,
+        });
+      }
+    });
+    return custody;
+  },
   isValidatedSelfHostedApiBase,
 };
 
@@ -1926,27 +1937,20 @@ app.whenReady().then(async () => {
     }, 2000);
   }
 
-  // Proactive token refresh (#254): notify renderer when main process
-  // refreshes the token (timer or sleep/wake), so authStore stays current.
-  // TRANSITIONAL (#86 Task 4 → 7B): tokenManager forwards a refresh only from the
-  // live custody, so it goes to that custody's connection and to no other.
-  setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
-    const custody = liveCustody();
-    const record = liveConnections().find(
-      (r) => custody !== null && getService(r.serviceId)?.custody === custody
-    );
-    if (!record) return;
-    sendToConnection(refOf(record), 'auth:token-refreshed', {
-      accessToken,
-      sessionId,
-      previousSessionId,
-    });
-  });
-
   // Refresh token immediately on system wake — main process timers may have
   // drifted past the token's expiry window during sleep (#248).
+  // #86: every live service's custody refreshes its own token, once per service.
   powerMonitor.on('resume', () => {
-    liveCustody()?.onSystemResume();
+    const resumed = new Set<ServiceRecord['serviceId']>();
+    for (const record of liveConnections()) {
+      if (resumed.has(record.serviceId)) continue;
+      resumed.add(record.serviceId);
+      try {
+        getService(record.serviceId)?.custody.onSystemResume();
+      } catch {
+        console.warn('[powerMonitor] a connection custody failed to resume');
+      }
+    }
   });
 
   app.on('activate', () => {
@@ -2055,52 +2059,63 @@ process.on('uncaughtException', (error) => {
   setImmediate(() => app.exit(1));
 });
 
-// IPC Handlers
-ipcMain.handle('app:getVersion', () => {
-  return app.getVersion();
+// IPC Handlers. #86: every channel goes through registerIpc (ipc/registry.ts), which
+// admits the sender by its CHANNEL_CLASSES class before the handler runs. A refused
+// call answers the channel's own fail-closed value, never the payload it asked for.
+registerIpc('app:getVersion', 'app-global-read', () => app.getVersion(), {
+  refusal: () => '',
 });
 
-ipcMain.handle('app:getPlatform', () => {
-  return process.platform;
+registerIpc('app:getPlatform', 'app-global-read', (): string => process.platform, {
+  refusal: () => '',
 });
 
-ipcMain.handle('app:getIpcContract', () => {
-  return IPC_CONTRACT_VERSION;
+registerIpc('app:getIpcContract', 'app-global-read', (): number | null => IPC_CONTRACT_VERSION, {
+  refusal: () => null,
 });
 
 // Forensic build-tag observability (#920 §5.13, #939). Returns the CI
 // build tag baked into the packaged app (via forge extraResource
 // buildtag.json) or 'unknown' for local dev builds. Read-only,
 // information-only — knowing the tag does not unlock any capability.
-ipcMain.handle('app:getBuildTag', () => {
-  return getBuildTag();
+registerIpc('app:getBuildTag', 'app-global-read', () => getBuildTag(), {
+  refusal: () => 'unknown',
 });
 
 // Screen capture sources for voice/video screen share picker (#44)
-ipcMain.handle('media:getDesktopSources', async (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  const sources = await desktopCapturer.getSources({
-    types: ['window', 'screen'],
-    thumbnailSize: { width: 320, height: 180 },
-    // Load-bearing, NOT a nicety: DesktopCapturerSource exposes no application name
-    // and no PID, so the picker's Applications tab groups windows by appIcon identity
-    // (groupDesktopSources). With this false every appIcon is null and grouping silently
-    // degrades to a title-suffix heuristic. Do not remove it to save thumbnail work.
-    fetchWindowIcons: true,
-  });
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: s.thumbnail.toDataURL(),
-    appIcon: s.appIcon?.toDataURL() || null,
-  }));
-});
+registerIpc(
+  'media:getDesktopSources',
+  'app-global-mutate',
+  async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 320, height: 180 },
+      // Load-bearing, NOT a nicety: DesktopCapturerSource exposes no application name
+      // and no PID, so the picker's Applications tab groups windows by appIcon identity
+      // (groupDesktopSources). With this false every appIcon is null and grouping silently
+      // degrades to a title-suffix heuristic. Do not remove it to save thumbnail work.
+      fetchWindowIcons: true,
+    });
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail.toDataURL(),
+      appIcon: s.appIcon?.toDataURL() || null,
+    }));
+  },
+  // A hidden view must not read thumbnails of every window (#86 Task 7B ruling).
+  { refusal: async () => [] }
+);
 
 // Clipboard write (navigator.clipboard.writeText is blocked in Electron)
-ipcMain.handle('clipboard:writeText', (event, text: string) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  clipboard.writeText(text);
-});
+registerIpc(
+  'clipboard:writeText',
+  'app-global-mutate',
+  (_sender, _event, text: string) => {
+    clipboard.writeText(text);
+  },
+  { refusal: () => undefined }
+);
 
 // GPU info
 const GPU_VENDORS: Record<number, string> = {
@@ -2143,107 +2158,138 @@ function extractEncodeProfiles(info: unknown): string[] {
   return [...mimes];
 }
 
-ipcMain.handle('gpu:getInfo', async () => {
-  try {
-    // Read-only GPU metadata: no filesystem/network/keychain/OS mutation, bounded
-    // shape parsing below, so this fits internal-reference's low-stakes IPC exception.
-    const info = await app.getGPUInfo('complete');
-    const gpu = (
-      info as {
-        gpuDevice?: Array<{
-          vendorId: number;
-          deviceId: number;
-          driverVendor?: string;
-          driverDescription?: string;
-        }>;
+registerIpc(
+  'gpu:getInfo',
+  'app-global-read',
+  async () => {
+    try {
+      // Read-only GPU metadata: no filesystem/network/keychain/OS mutation, bounded
+      // shape parsing below, so this fits internal-reference's low-stakes IPC exception.
+      const info = await app.getGPUInfo('complete');
+      const gpu = (
+        info as {
+          gpuDevice?: Array<{
+            vendorId: number;
+            deviceId: number;
+            driverVendor?: string;
+            driverDescription?: string;
+          }>;
+        }
+      ).gpuDevice?.[0];
+      if (gpu) {
+        // driverVendor on macOS often contains the hex vendorId as a string — skip it
+        const driverName =
+          gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
+        const vendor =
+          driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
+        const device =
+          gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
+        return { vendor, device, encodeProfiles: extractEncodeProfiles(info) };
       }
-    ).gpuDevice?.[0];
-    if (gpu) {
-      // driverVendor on macOS often contains the hex vendorId as a string — skip it
-      const driverName =
-        gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
-      const vendor =
-        driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
-      const device =
-        gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
-      return { vendor, device, encodeProfiles: extractEncodeProfiles(info) };
+      return null;
+    } catch {
+      return null;
     }
-    return null;
-  } catch {
-    return null;
-  }
-});
+  },
+  { refusal: async () => null }
+);
 
 // Display info for resolution/refresh rate awareness
-ipcMain.handle('screen:getDisplayInfo', () => {
-  const displays = screen.getAllDisplays();
-  const primary = screen.getPrimaryDisplay();
-  return displays.map((d) => ({
-    width: d.size.width * d.scaleFactor,
-    height: d.size.height * d.scaleFactor,
-    refreshRate: d.displayFrequency,
-    scaleFactor: d.scaleFactor,
-    isPrimary: d.id === primary.id,
-    colorDepth: d.colorDepth, // 24 = SDR, 30/48 = HDR
-    colorSpace: d.colorSpace, // "srgb" = SDR, "p3"/"rec2020" = wide gamut
-  }));
-});
+registerIpc(
+  'screen:getDisplayInfo',
+  'app-global-read',
+  () => {
+    const displays = screen.getAllDisplays();
+    const primary = screen.getPrimaryDisplay();
+    return displays.map((d) => ({
+      width: d.size.width * d.scaleFactor,
+      height: d.size.height * d.scaleFactor,
+      refreshRate: d.displayFrequency,
+      scaleFactor: d.scaleFactor,
+      isPrimary: d.id === primary.id,
+      colorDepth: d.colorDepth, // 24 = SDR, 30/48 = HDR
+      colorSpace: d.colorSpace, // "srgb" = SDR, "p3"/"rec2020" = wide gamut
+    }));
+  },
+  { refusal: () => [] }
+);
 
 // Hardware acceleration preference
-ipcMain.handle('app:getHardwareAcceleration', () => readHwAccelPref());
+registerIpc(
+  'app:getHardwareAcceleration',
+  'app-global-read',
+  (): boolean | null => readHwAccelPref(),
+  { refusal: () => null }
+);
 
-ipcMain.handle('app:setHardwareAcceleration', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
-});
+registerIpc(
+  'app:setHardwareAcceleration',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => {
+    fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
+  },
+  { refusal: () => undefined }
+);
 
-ipcMain.handle('app:getContentProtection', async (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return false;
-  // Off-platform the effective protection is OFF whatever the file says, so
-  // report the truth rather than a preference that cannot take effect.
-  if (!contentProtectionSupported()) return false;
-  return readContentProtectionPref();
-});
+registerIpc(
+  'app:getContentProtection',
+  'app-global-read',
+  async () => {
+    // Off-platform the effective protection is OFF whatever the file says, so
+    // report the truth rather than a preference that cannot take effect.
+    if (!contentProtectionSupported()) return false;
+    return readContentProtectionPref();
+  },
+  { refusal: async () => false }
+);
 
-ipcMain.handle('app:setContentProtection', async (event, enabled: unknown): Promise<boolean> => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl()) || typeof enabled !== 'boolean') {
-    return false;
-  }
-  // Reporting success for a no-op is the one outcome worse than refusing: it
-  // tells the caller a screen-capture protection is in force when nothing is.
-  if (!contentProtectionSupported()) return false;
+registerIpc(
+  'app:setContentProtection',
+  'app-global-mutate',
+  async (_sender, _event, enabled: unknown): Promise<boolean> => {
+    if (typeof enabled !== 'boolean') return false;
+    // Reporting success for a no-op is the one outcome worse than refusing: it
+    // tells the caller a screen-capture protection is in force when nothing is.
+    if (!contentProtectionSupported()) return false;
 
-  const previous = readContentProtectionPref();
-  if (!writeContentProtectionPref({ enabled, previousEnabled: previous, staged: true })) {
-    return false;
-  }
-
-  const updated: BaseWindow[] = [];
-  try {
-    for (const window of getContentProtectionWindows()) {
-      window.setContentProtection(enabled);
-      updated.push(window);
+    const previous = readContentProtectionPref();
+    if (!writeContentProtectionPref({ enabled, previousEnabled: previous, staged: true })) {
+      return false;
     }
-    if (!writeContentProtectionPref({ enabled })) throw new Error('content protection preference');
-    return true;
-  } catch {
-    for (const window of updated) {
-      try {
-        window.setContentProtection(previous);
-      } catch {
-        // Preserve rollback attempts for every previously updated window.
+
+    const updated: BaseWindow[] = [];
+    try {
+      for (const window of getContentProtectionWindows()) {
+        window.setContentProtection(enabled);
+        updated.push(window);
       }
+      if (!writeContentProtectionPref({ enabled }))
+        throw new Error('content protection preference');
+      return true;
+    } catch {
+      for (const window of updated) {
+        try {
+          window.setContentProtection(previous);
+        } catch {
+          // Preserve rollback attempts for every previously updated window.
+        }
+      }
+      return false;
     }
-    return false;
-  }
-});
+  },
+  { refusal: async () => false }
+);
 
 // Relaunch (for hardware acceleration toggle)
-ipcMain.handle('app:relaunch', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  app.relaunch();
-  app.quit();
-});
+registerIpc(
+  'app:relaunch',
+  'app-global-mutate',
+  () => {
+    app.relaunch();
+    app.quit();
+  },
+  { refusal: () => undefined }
+);
 
 // Hot SPA reload — main process re-runs the spaLoader safety chain and points
 // the live window at the freshly-resolved remote SPA URL (or bundled on
@@ -2254,36 +2300,44 @@ ipcMain.handle('app:relaunch', (event) => {
 // the authenticated /api/v1/client/config fetch). NO URL is accepted from the
 // renderer, so a compromised renderer cannot choose the origin. Reuses
 // applySpaDecision so launch and runtime cannot drift.
-ipcMain.handle('spa:reloadLatest', async (event) => {
-  // Privileged: this reaches a top-frame navigation. Reject an untrusted sender
-  // frame FIRST — before any window/packaged state check — so a compromised
-  // frame is refused regardless of state. isPermittedFrameUrl accepts both
-  // states this feature spans: app://concord (the stranded bundled state) and
-  // the active remote origin.
-  if (!isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())) {
-    console.warn('[SpaLoader/reload] rejected spa:reloadLatest from untrusted frame');
-    return { mode: 'bundled', changed: false, rejected: true };
+type SpaReloadResult = { mode: 'remote' | 'bundled'; changed: boolean; rejected?: true };
+
+registerIpc(
+  'spa:reloadLatest',
+  'saas-only',
+  // Privileged: this reaches a top-frame navigation. registerIpc admits only the
+  // saas primary's own document (#86 §3.4: the remote SPA runs only there) BEFORE
+  // any window/packaged state check, so a compromised or self-hosted frame is
+  // refused regardless of state. Its document set spans both states this feature
+  // covers: app://concord (the stranded bundled state) and the active remote origin.
+  async (): Promise<SpaReloadResult> => {
+    const saasContents = saasPrimary()?.webContents;
+    if (!saasContents || saasContents.isDestroyed() || !app.isPackaged) {
+      return { mode: 'bundled', changed: false };
+    }
+    const before = getSpaHash();
+    const decision = await resolveSpaSource();
+    console.debug(`[SpaLoader/reload] ${decision.mode}: ${decision.reason}`);
+    // Main initiated this swap (the renderer only TRIGGERED it), so a code already
+    // delivered to the outgoing document is carried into its successor (#2363).
+    const outcome = await applySpaDecisionCarryingDeepLink(saasContents, decision);
+    // Collapse the internal 'cache' outcome to 'bundled' for the renderer-facing
+    // IPC contract (#1870): the signed LKG cache is a local fallback origin, not a
+    // remote SPA, and no renderer consumer distinguishes it — checkForUpdate's
+    // currentMode already reports 'bundled' when serving from cache (remote-SPA
+    // state is null). Keeps the preload `mode: 'remote' | 'bundled'` type honest
+    // without leaking the internal selection detail to the renderer.
+    const mode: 'remote' | 'bundled' = outcome === 'remote' ? 'remote' : 'bundled';
+    return { mode, changed: getSpaHash() !== before };
+  },
+  {
+    refusal: async (): Promise<SpaReloadResult> => ({
+      mode: 'bundled',
+      changed: false,
+      rejected: true,
+    }),
   }
-  // The remote SPA runs only in the saas view (#86 §3.4).
-  const saasContents = saasPrimary()?.webContents;
-  if (!saasContents || saasContents.isDestroyed() || !app.isPackaged) {
-    return { mode: 'bundled', changed: false };
-  }
-  const before = getSpaHash();
-  const decision = await resolveSpaSource();
-  console.debug(`[SpaLoader/reload] ${decision.mode}: ${decision.reason}`);
-  // Main initiated this swap (the renderer only TRIGGERED it), so a code already
-  // delivered to the outgoing document is carried into its successor (#2363).
-  const outcome = await applySpaDecisionCarryingDeepLink(saasContents, decision);
-  // Collapse the internal 'cache' outcome to 'bundled' for the renderer-facing
-  // IPC contract (#1870): the signed LKG cache is a local fallback origin, not a
-  // remote SPA, and no renderer consumer distinguishes it — checkForUpdate's
-  // currentMode already reports 'bundled' when serving from cache (remote-SPA
-  // state is null). Keeps the preload `mode: 'remote' | 'bundled'` type honest
-  // without leaking the internal selection detail to the renderer.
-  const mode: 'remote' | 'bundled' = outcome === 'remote' ? 'remote' : 'bundled';
-  return { mode, changed: getSpaHash() !== before };
-});
+);
 
 // SPA (UI) update check — the SECOND update axis, distinct from the
 // electron-updater desktop-binary axis (update:*). Reports whether the renderer
@@ -2292,42 +2346,58 @@ ipcMain.handle('spa:reloadLatest', async (event) => {
 // build id and the SPA URL is constant post-#976, so there is no version number
 // to show, only "newer bytes available"). Read-only and best-effort (never
 // throws); the network target is server-derived, not renderer-supplied.
-ipcMain.handle('spa:checkForUpdate', async (event) => {
-  // Read-only, but validate the sender frame for parity with spa:reloadLatest
-  // and defense-in-depth — closes the (minor) redundant-self-fetch surface a
-  // compromised/sandboxed frame could otherwise trigger.
-  if (!isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())) {
-    return {
+type SpaUpdateCheck = {
+  currentMode: 'remote' | 'bundled';
+  remoteAvailable: boolean;
+  newerBytesAvailable: boolean | null;
+  reason: string;
+};
+
+registerIpc(
+  'spa:checkForUpdate',
+  'saas-only',
+  // Read-only, but admitted like spa:reloadLatest (the saas primary only) for
+  // defense-in-depth — closes the (minor) redundant-self-fetch surface a
+  // compromised, sandboxed or self-hosted frame could otherwise trigger.
+  async (): Promise<SpaUpdateCheck> => {
+    if (!app.isPackaged) {
+      return {
+        currentMode: 'remote',
+        remoteAvailable: false,
+        newerBytesAvailable: null,
+        reason: 'dev mode',
+      };
+    }
+    const currentMode = getRemoteSpaUrl() === null ? 'bundled' : 'remote';
+    const decision = await resolveSpaSource();
+    const remoteAvailable = decision.mode === 'remote' && !!decision.url;
+    let newerBytesAvailable: boolean | null = null;
+    if (remoteAvailable && decision.url) {
+      const available = await hashEntryHtml(decision.url);
+      // null (re-fetch failed) → unknown; the UI degrades to an unconditional offer.
+      newerBytesAvailable = available === null ? null : available !== getSpaHash();
+    }
+    return { currentMode, remoteAvailable, newerBytesAvailable, reason: decision.reason };
+  },
+  {
+    refusal: async (): Promise<SpaUpdateCheck> => ({
       currentMode: 'bundled',
       remoteAvailable: false,
       newerBytesAvailable: null,
       reason: 'rejected',
-    };
+    }),
   }
-  if (!app.isPackaged) {
-    return {
-      currentMode: 'remote',
-      remoteAvailable: false,
-      newerBytesAvailable: null,
-      reason: 'dev mode',
-    };
-  }
-  const currentMode = getRemoteSpaUrl() === null ? 'bundled' : 'remote';
-  const decision = await resolveSpaSource();
-  const remoteAvailable = decision.mode === 'remote' && !!decision.url;
-  let newerBytesAvailable: boolean | null = null;
-  if (remoteAvailable && decision.url) {
-    const available = await hashEntryHtml(decision.url);
-    // null (re-fetch failed) → unknown; the UI degrades to an unconditional offer.
-    newerBytesAvailable = available === null ? null : available !== getSpaHash();
-  }
-  return { currentMode, remoteAvailable, newerBytesAvailable, reason: decision.reason };
-});
+);
 
 // Clean app exit (preserves persisted auth/remember-me state)
-ipcMain.handle('app:quit', () => {
-  app.quit();
-});
+registerIpc(
+  'app:quit',
+  'app-global-mutate',
+  () => {
+    app.quit();
+  },
+  { refusal: () => undefined }
+);
 
 // ─── Desktop Notification Helpers (#175) ────────────────────────────
 
@@ -2362,74 +2432,92 @@ registerIpc(
   { refusal: () => undefined }
 );
 
-ipcMain.handle('app:flashFrame', (event, flash: unknown) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (typeof flash !== 'boolean') return;
-  shellWindow()?.flashFrame(flash);
-});
+registerIpc(
+  'app:flashFrame',
+  'connection-bound',
+  (_sender, _event, flash: unknown) => {
+    if (typeof flash !== 'boolean') return;
+    shellWindow()?.flashFrame(flash);
+  },
+  { refusal: () => undefined }
+);
 
-ipcMain.handle('app:focusWindow', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  const win = shellWindow();
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
-});
+registerIpc(
+  'app:focusWindow',
+  'connection-bound',
+  () => {
+    const win = shellWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  },
+  { refusal: () => undefined }
+);
 
 // ─── Auto-Update IPC ──────────────────────────────────────────────────
 
-ipcMain.handle('update:check', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return checkForUpdates();
+const NO_RESULT = { refusal: () => undefined };
+
+registerIpc('update:check', 'app-global-mutate', () => checkForUpdates(), NO_RESULT);
+registerIpc('update:download', 'app-global-mutate', () => downloadUpdate(), NO_RESULT);
+registerIpc('update:install', 'app-global-mutate', () => safeQuitAndInstall(), NO_RESULT);
+registerIpc('update:getAllowPrerelease', 'app-global-read', () => getAllowPrerelease(), {
+  refusal: () => false,
 });
-ipcMain.handle('update:download', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return downloadUpdate();
+registerIpc(
+  'update:setAllowPrerelease',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => setAllowPrerelease(enabled),
+  NO_RESULT
+);
+registerIpc('update:getLogPath', 'app-global-read', () => getUpdateLogPath(), {
+  refusal: () => null,
 });
-ipcMain.handle('update:install', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return safeQuitAndInstall();
-});
-ipcMain.handle('update:getAllowPrerelease', () => getAllowPrerelease());
-ipcMain.handle('update:setAllowPrerelease', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return setAllowPrerelease(enabled);
-});
-ipcMain.handle('update:getLogPath', () => getUpdateLogPath());
-ipcMain.handle(
+registerIpc(
   'updater:force-check',
-  (event, reason: 'attestation_required' | 'user_triggered') => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    return forceCheckForUpdates(reason);
-  }
+  'app-global-mutate',
+  (_sender, _event, reason: 'attestation_required' | 'user_triggered') =>
+    forceCheckForUpdates(reason),
+  NO_RESULT
 );
 
 // Developer Mode (gates DevTools in packaged builds — REMOVE BEFORE BETA)
-ipcMain.handle('app:getDeveloperMode', () => readDeveloperModePref());
-ipcMain.handle('app:setDeveloperMode', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  writeDeveloperModePref(enabled);
-  // app-global-mutate (#86 §3.7): the foreground view's DevTools.
-  const contents = foregroundWebContents();
-  if (!contents) return;
-  if (enabled) {
-    if (!contents.isDevToolsOpened()) {
-      contents.openDevTools({ mode: 'detach' });
-    }
-  } else if (contents.isDevToolsOpened()) {
-    contents.closeDevTools();
-  }
+registerIpc('app:getDeveloperMode', 'app-global-read', () => readDeveloperModePref(), {
+  refusal: () => false,
 });
+registerIpc(
+  'app:setDeveloperMode',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => {
+    writeDeveloperModePref(enabled);
+    // app-global-mutate (#86 §3.7): the foreground view's DevTools.
+    const contents = foregroundWebContents();
+    if (!contents) return;
+    if (enabled) {
+      if (!contents.isDevToolsOpened()) {
+        contents.openDevTools({ mode: 'detach' });
+      }
+    } else if (contents.isDevToolsOpened()) {
+      contents.closeDevTools();
+    }
+  },
+  NO_RESULT
+);
 
 // System info for About page (#155 Tier 4)
-ipcMain.handle('app:getSystemInfo', () => ({
-  platform: process.platform,
-  arch: process.arch,
-  electronVersion: process.versions.electron,
-  chromiumVersion: process.versions.chrome,
-  nodeVersion: process.versions.node,
-}));
+registerIpc(
+  'app:getSystemInfo',
+  'app-global-read',
+  () => ({
+    platform: process.platform,
+    arch: process.arch,
+    electronVersion: process.versions.electron,
+    chromiumVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+  }),
+  { refusal: () => null }
+);
 
 // ─── Secure Auth Token Management (safeStorage) ──────────────────────
 
@@ -2762,15 +2850,6 @@ const restoreSessionByConnection = new Map<
   Promise<RestoreSessionResult>
 >();
 
-function isTrustedAuthSender(event: Electron.IpcMainInvokeEvent): boolean {
-  return isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl());
-}
-
-function rejectUntrustedAuthSender(channel: string): { status: 'rejected' } {
-  console.warn(`[${channel}] rejected — sender frame validation failed`);
-  return { status: 'rejected' };
-}
-
 function rejectWrongOwner(channel: string): { status: 'rejected'; reason: 'wrong-owner' } {
   console.warn(`[${channel}] rejected — apiBase names a different service`);
   return { status: 'rejected', reason: 'wrong-owner' };
@@ -3072,12 +3151,8 @@ registerIpc('auth:clearTokens', 'connection-bound', (sender, _event, opts: unkno
 // direction — the worst a hostile caller achieves is losing its own pending invite
 // — but a renderer-reachable channel that mutates main's delivery state gets the
 // same guard as its neighbours regardless, rather than an argument for why it does
-// not need one.
-ipcMain.handle('deeplink:forget', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('deeplink:forget');
-  }
-
+// not need one. #86: deep links are saas-only, so only the saas primary may forget.
+registerIpc('deeplink:forget', 'saas-only', () => {
   forgetDeliveredDeepLinks();
   return undefined;
 });
@@ -3144,12 +3219,6 @@ type PipWindowEntry = {
 };
 const pipWindows = new Map<string, PipWindowEntry>();
 
-/** The connection `sender` is the live PRIMARY view of, or null (PiPs open no PiP). */
-function boundOpener(sender: WebContents): ConnectionRecord | null {
-  const bound = boundRecordFor(sender);
-  return bound?.role === 'primary' ? bound.record : null;
-}
-
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
   for (const { window: pip } of pipWindows.values()) {
@@ -3163,8 +3232,10 @@ function destroyPipWindowsForQuit(): void {
  * either; `pip:session` accepts only the PiP's own main frame, because the
  * token it returns is a working capability rather than a window mutation.
  */
+type PipIpcEvent = Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>;
+
 function resolvePipSender(
-  event: IpcMainInvokeEvent,
+  event: PipIpcEvent,
   id: unknown
 ): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
   if (typeof id !== 'string' || id.length === 0) return null;
@@ -3189,13 +3260,25 @@ function resolvePipSender(
   return { entry, isPipMainFrame };
 }
 
-function getOwnedPipWindow(event: IpcMainInvokeEvent, id: string): BrowserWindow | null {
-  return resolvePipSender(event, id)?.entry.window ?? null;
+/**
+ * #86: the PiP `id` names, resolved as above AND owned by the sender's own
+ * connection. The binding is main-held, so a document of connection B can never
+ * reach a PiP connection A opened, whatever frame ids the two happen to share.
+ */
+function resolveOwnedPip(
+  sender: ConnectionSender,
+  event: PipIpcEvent,
+  id: unknown
+): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
+  const resolved = resolvePipSender(event, id);
+  if (!resolved || resolved.entry.ownerRef.connectionId !== sender.ref.connectionId) return null;
+  return resolved;
 }
 
-ipcMain.handle(
+registerIpc(
   'pip:open',
-  (event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+  'connection-bound',
+  (sender, event, opts: { id: string; width?: number; height?: number; title?: string }) => {
     // Defense-in-depth: only accept pip:open from the active SPA, the dev
     // server, or the bundled renderer. Without validation any frame loaded
     // in any window could spawn PiP windows.
@@ -3215,12 +3298,9 @@ ipcMain.handle(
     }
 
     // #86 R8: built by shellWindow on the OPENER's session and bound 'pip' to its
-    // connection. Only a bound primary may open one.
-    const opener = boundOpener(event.sender);
-    if (!opener) {
-      console.warn('[pip:open] rejected — sender is not a connection view');
-      return;
-    }
+    // connection. Only a bound primary may open one: registerIpc admitted exactly
+    // that, and the opener is the sender's own record.
+    const opener = sender.record;
     const contentProtectionEnabled = readContentProtectionPref();
     const pip = createPipWindow(event.sender, {
       width: opts.width || 320,
@@ -3296,16 +3376,27 @@ ipcMain.handle(
     // PiP's own renderer finishes booting and issues its first RPC; a pull would
     // race that boot. The PiP window gets its copy by pulling 'pip:session'.
     sendToConnection(ownerRef, 'pip:opened', { id: opts.id, token: sessionToken });
-  }
+  },
+  { refusal: () => undefined }
 );
 
-ipcMain.handle('pip:close', (event, opts: { id: string }) => {
-  getOwnedPipWindow(event, opts.id)?.close();
-});
+registerIpc(
+  'pip:close',
+  'pip-scoped',
+  (sender, event, opts: { id: string }) => {
+    resolveOwnedPip(sender, event, opts.id)?.entry.window.close();
+  },
+  { refusal: () => undefined }
+);
 
-ipcMain.handle('pip:setAlwaysOnTop', (event, opts: { id: string; flag: boolean }) => {
-  getOwnedPipWindow(event, opts.id)?.setAlwaysOnTop(opts.flag);
-});
+registerIpc(
+  'pip:setAlwaysOnTop',
+  'pip-scoped',
+  (sender, event, opts: { id: string; flag: boolean }) => {
+    resolveOwnedPip(sender, event, opts.id)?.entry.window.setAlwaysOnTop(opts.flag);
+  },
+  { refusal: () => undefined }
+);
 
 /**
  * #3104 D6 — disclose one PiP's session capability to that PiP alone.
@@ -3327,42 +3418,68 @@ ipcMain.handle('pip:setAlwaysOnTop', (event, opts: { id: string; flag: boolean }
  * The token is never logged — the private reply channel is NAMED from it, so
  * printing it is equivalent to publishing it.
  */
-ipcMain.handle('pip:session', (event, opts: unknown) => {
-  const resolved = resolvePipSender(event, (opts as { id?: unknown } | null | undefined)?.id);
-  if (!resolved?.isPipMainFrame) return null;
-  return { token: resolved.entry.sessionToken };
-});
+registerIpc(
+  'pip:session',
+  'pip-scoped',
+  (sender, event, opts: unknown): { token: string } | null => {
+    const id = (opts as { id?: unknown } | null | undefined)?.id;
+    const resolved = resolveOwnedPip(sender, event, id);
+    if (!resolved?.isPipMainFrame) return null;
+    return { token: resolved.entry.sessionToken };
+  },
+  { refusal: () => null }
+);
 
-ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
-  // Thin adapter: unpack Electron's event-args, delegate to the pure-data
-  // handler body. The handler itself does sender-frame validation,
-  // payload validation, and dispatches to attemptSelfHeal. Extracted for
-  // unit-testability per #753 reconciliation finding TA3.
-  await handleSpaRequestSelfHeal({
-    senderFrameUrl: event.senderFrame?.url ?? '',
-    payload,
-    remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
-    remoteSpaBaseDir: getRemoteSpaBaseDir(),
-  });
-});
+registerIpc(
+  'spa:requestSelfHeal',
+  'connection-bound',
+  async (_sender, event, payload: unknown) => {
+    // Thin adapter: unpack Electron's event-args, delegate to the pure-data
+    // handler body. The handler itself does sender-frame validation,
+    // payload validation, and dispatches to attemptSelfHeal. Extracted for
+    // unit-testability per #753 reconciliation finding TA3.
+    await handleSpaRequestSelfHeal({
+      senderFrameUrl: event.senderFrame?.url ?? '',
+      payload,
+      remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+      remoteSpaBaseDir: getRemoteSpaBaseDir(),
+    });
+  },
+  { refusal: async () => undefined }
+);
 
-ipcMain.on('invite:renderer-ready', (event) => {
-  // Deep links are saas-only (#86 §3.7): only the saas view can be ready for them.
+// Deep links are saas-only (#86 §3.7): registerIpc admits only the saas primary, so
+// a self-hosted view can neither arm delivery nor drain the queue. A link that came
+// in while no saas view was live waits in `pendingDeepLinks` for this signal.
+function saasRendererReady(sender: ConnectionSender): boolean {
   const saasContents = saasDeliveryTarget();
-  if (!saasContents || event.sender !== saasContents) return;
-  inviteRendererReady = true;
-  drainPendingDeepLinks();
-});
+  return saasContents !== null && sender.record.webContents === saasContents;
+}
+
+registerIpc(
+  'invite:renderer-ready',
+  'saas-only',
+  (sender) => {
+    if (!saasRendererReady(sender)) return;
+    inviteRendererReady = true;
+    drainPendingDeepLinks();
+  },
+  { method: 'on' }
+);
 
 // #945: the friend arm's own readiness signal. Deliberately separate from
 // 'invite:renderer-ready' so an SPA that only knows the invite channel can never
 // arm the friend one — see emitDeepLink above.
-ipcMain.on('deeplink:renderer-ready', (event) => {
-  const saasContents = saasDeliveryTarget();
-  if (!saasContents || event.sender !== saasContents) return;
-  friendRendererReady = true;
-  drainPendingDeepLinks();
-});
+registerIpc(
+  'deeplink:renderer-ready',
+  'saas-only',
+  (sender) => {
+    if (!saasRendererReady(sender)) return;
+    friendRendererReady = true;
+    drainPendingDeepLinks();
+  },
+  { method: 'on' }
+);
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();

@@ -64,7 +64,9 @@ const {
   };
   // The PiP's own main frame. A getter on each PiP's contents reads it, so a test
   // can move the PiP's document (an SPA transition) after the window exists.
-  const pipFrame = { current: { url: 'http://localhost:3001/', frameTreeNodeId: 88 } };
+  const pipFrame = {
+    current: { url: 'http://localhost:3001/', frameTreeNodeId: 88, parent: null as null },
+  };
   function makePipContents(): Record<string, unknown> {
     return {
       on: vi.fn(),
@@ -508,6 +510,12 @@ const trustedIpcEvent = {
 // #86 R8: pip:open admits only a bound connection PRIMARY, and the saas view's
 // contents is the one this file's window opens. Same trusted frame as above.
 const pipOpenerEvent = { sender: mockWebContents, senderFrame: trustedIpcEvent.senderFrame };
+// The same saas main frame on the bundled document (packaged builds admit app://concord,
+// never a localhost dev server).
+const saasAppFrameEvent = {
+  sender: mockWebContents,
+  senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 77, parent: null },
+};
 const foreignIpcEvent = {
   sender: { id: 99 },
   senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 99 },
@@ -1210,22 +1218,25 @@ describe('main.ts', () => {
     });
 
     it('app:getVersion returns version', async () => {
-      const result = await handlers.get('app:getVersion')!();
+      const result = await handlers.get('app:getVersion')!(trustedIpcEvent);
       expect(result).toBe('1.0.0-test');
     });
 
     it('app:getPlatform returns platform', async () => {
-      const result = await handlers.get('app:getPlatform')!();
+      const result = await handlers.get('app:getPlatform')!(trustedIpcEvent);
       expect(result).toBe(process.platform);
     });
 
     it('app:getIpcContract returns contract version', async () => {
-      const result = await handlers.get('app:getIpcContract')!();
+      const result = await handlers.get('app:getIpcContract')!(trustedIpcEvent);
       expect(result).toBe('1.0');
     });
 
     it('app:getSystemInfo returns system details', async () => {
-      const result = (await handlers.get('app:getSystemInfo')!()) as Record<string, string>;
+      const result = (await handlers.get('app:getSystemInfo')!(trustedIpcEvent)) as Record<
+        string,
+        string
+      >;
       expect(result).toHaveProperty('platform');
       expect(result).toHaveProperty('arch');
       expect(result).toHaveProperty('electronVersion');
@@ -1236,7 +1247,7 @@ describe('main.ts', () => {
 
   describe('IPC: hardware acceleration', () => {
     it('app:getHardwareAcceleration returns current pref', async () => {
-      const result = await handlers.get('app:getHardwareAcceleration')!();
+      const result = await handlers.get('app:getHardwareAcceleration')!(trustedIpcEvent);
       expect(result).toBe(true);
     });
 
@@ -1260,7 +1271,7 @@ describe('main.ts', () => {
     it('app:quit exits the app', async () => {
       const { app } = await import('electron');
       (app.quit as Mock).mockClear();
-      await handlers.get('app:quit')!();
+      await handlers.get('app:quit')!(trustedIpcEvent);
       expect(app.quit).toHaveBeenCalled();
     });
   });
@@ -1268,7 +1279,7 @@ describe('main.ts', () => {
   describe('IPC: GPU info', () => {
     it('gpu:getInfo returns vendor and device', async () => {
       const { app } = await import('electron');
-      const result = (await handlers.get('gpu:getInfo')!()) as {
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
         vendor: string;
         device: string;
         encodeProfiles: string[];
@@ -1283,14 +1294,14 @@ describe('main.ts', () => {
     it('gpu:getInfo returns null on failure', async () => {
       const { app } = await import('electron');
       (app.getGPUInfo as Mock).mockRejectedValueOnce(new Error('fail'));
-      const result = await handlers.get('gpu:getInfo')!();
+      const result = await handlers.get('gpu:getInfo')!(trustedIpcEvent);
       expect(result).toBeNull();
     });
   });
 
   describe('IPC: screen info', () => {
     it('screen:getDisplayInfo returns display list', async () => {
-      const result = (await handlers.get('screen:getDisplayInfo')!()) as Array<{
+      const result = (await handlers.get('screen:getDisplayInfo')!(trustedIpcEvent)) as Array<{
         width: number;
         height: number;
         refreshRate: number;
@@ -1458,9 +1469,7 @@ describe('main.ts', () => {
     });
 
     it('auth:restoreSession restores and refreshes token', async () => {
-      const result = (await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as {
+      const result = (await handlers.get('auth:restoreSession')!(trustedIpcEvent)) as {
         status: string;
         accessToken?: string;
         rememberMe?: boolean;
@@ -1480,9 +1489,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true })
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toMatchObject({
         status: 'restored',
@@ -1501,9 +1508,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 42, pendingE2EEUnlock: false });
       (restoreE2EEKeys as Mock).mockClear();
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toEqual({ status: 'refresh_failed' });
       expect(restoreE2EEKeys).not.toHaveBeenCalled();
@@ -1520,9 +1525,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true })
         .mockReturnValueOnce({ credentialOwner: 42, pendingE2EEUnlock: false });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(restoreE2EEKeys).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ status: 'refresh_failed' });
@@ -1534,9 +1537,7 @@ describe('main.ts', () => {
       (performRefresh as Mock).mockClear();
       (restoreRefreshToken as Mock).mockResolvedValueOnce({ status: 'tampered' });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toEqual({ status: 'tampered' });
       expect(performRefresh).not.toHaveBeenCalled();
@@ -1551,9 +1552,10 @@ describe('main.ts', () => {
         rememberMe: false,
       });
 
-      const result = (await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as { status: string; rememberMe?: boolean };
+      const result = (await handlers.get('auth:restoreSession')!(trustedIpcEvent)) as {
+        status: string;
+        rememberMe?: boolean;
+      };
 
       expect(result.status).toBe('restored');
       expect(result.rememberMe).toBe(false);
@@ -1707,9 +1709,9 @@ describe('main.ts', () => {
     });
 
     it('auth:refreshToken delegates to performRefresh', async () => {
-      const result = (await handlers.get('auth:refreshToken')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as { status: string };
+      const result = (await handlers.get('auth:refreshToken')!(trustedIpcEvent)) as {
+        status: string;
+      };
       expect(result.status).toBe('ok');
     });
 
@@ -1750,9 +1752,7 @@ describe('main.ts', () => {
 
     it('auth:clearTokens delegates to clearTokens', async () => {
       const { clearTokens } = await import('../../../src/main/tokenManager');
-      await handlers.get('auth:clearTokens')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      await handlers.get('auth:clearTokens')!(trustedIpcEvent);
       expect(clearTokens).toHaveBeenCalled();
     });
 
@@ -1802,9 +1802,7 @@ describe('main.ts', () => {
     });
 
     it('auth:getCapabilities returns capabilities for a trusted sender', async () => {
-      const result = (await handlers.get('auth:getCapabilities')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as {
+      const result = (await handlers.get('auth:getCapabilities')!(trustedIpcEvent)) as {
         safeStorage: boolean;
       };
       expect(result.safeStorage).toBe(true);
@@ -1819,9 +1817,7 @@ describe('main.ts', () => {
 
     it('auth:getMachineId returns machine id', async () => {
       const { getMachineId } = await import('../../../src/main/machineId');
-      const result = await handlers.get('auth:getMachineId')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:getMachineId')!(trustedIpcEvent);
       expect(result).toBe('mock-machine-id');
       expect(getMachineId).toHaveBeenCalledWith();
     });
@@ -1881,7 +1877,7 @@ describe('main.ts', () => {
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       (probeSelfHostedServer as Mock).mockClear();
       const result = await handlers.get('selfHosted:probeServer')!(
-        { senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://real.lan'
       );
       expect(result).toEqual({
@@ -2387,7 +2383,7 @@ describe('main.ts', () => {
     });
 
     it('update:getAllowPrerelease returns current setting', async () => {
-      const result = await handlers.get('update:getAllowPrerelease')!();
+      const result = await handlers.get('update:getAllowPrerelease')!(trustedIpcEvent);
       expect(result).toBe(false);
     });
 
@@ -2544,7 +2540,7 @@ describe('main.ts', () => {
     // main-frame events are built from `lastPipContents()`, never from the opener.
     const pipOwnerEvent = {
       sender: mockWebContents,
-      senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 41 },
+      senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
     };
     const otherPermittedPipEvent = {
       sender: mockWebContents,
@@ -3020,7 +3016,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x8086, deviceId: 0x5678 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Intel');
     });
 
@@ -3029,7 +3027,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x106b, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Apple');
     });
 
@@ -3038,7 +3038,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x1002, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('AMD');
     });
 
@@ -3047,14 +3049,16 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x9999, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toContain('Unknown');
     });
 
     it('returns null when no GPU device', async () => {
       const { app } = await import('electron');
       (app.getGPUInfo as Mock).mockResolvedValueOnce({ gpuDevice: [] });
-      const result = await handlers.get('gpu:getInfo')!();
+      const result = await handlers.get('gpu:getInfo')!(trustedIpcEvent);
       expect(result).toBeNull();
     });
 
@@ -3065,7 +3069,9 @@ describe('main.ts', () => {
           { vendorId: 0x106b, deviceId: 0x0001, driverVendor: '0x106b', driverDescription: 'M1' },
         ],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Apple'); // Falls back to vendor map, not hex string
     });
 
@@ -3082,7 +3088,7 @@ describe('main.ts', () => {
           { profile: 11 }, // VP8
         ],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as {
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
         encodeProfiles: string[];
       } | null;
       expect(result!.encodeProfiles.sort()).toEqual(['video/AV1', 'video/HEVC', 'video/VP8']);
@@ -3105,7 +3111,7 @@ describe('main.ts', () => {
     ];
     const FRIEND_CODE = 'AbCdEfGh';
     const INVITE_CODE = 'AbCdEfGj';
-    const rendererEvent = { sender: mockWebContents };
+    const rendererEvent = trustedIpcEvent;
 
     let DEEP_LINK_EMIT_WINDOW_MS: number;
     let deliverDeepLink: (url: string) => void;
@@ -3441,9 +3447,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:clearTokens')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent);
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3462,10 +3466,7 @@ describe('main.ts', () => {
         signalInviteReady(rendererEvent);
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
 
-        await handlers.get('auth:clearTokens')!(
-          { senderFrame: { url: 'app://concord/index.html' } },
-          { keepDeepLinks: 'yes' }
-        );
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent, { keepDeepLinks: 'yes' });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3481,10 +3482,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:clearTokens')!(
-          { senderFrame: { url: 'app://concord/index.html' } },
-          { keepDeepLinks: true }
-        );
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent, { keepDeepLinks: true });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3819,9 +3817,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('deeplink:forget')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('deeplink:forget')!(trustedIpcEvent);
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3856,9 +3852,7 @@ describe('main.ts', () => {
         // The in-flight retry, armed while user A's code was still live.
         const staleRelease = await armDeepLinkCarryForTest();
 
-        await handlers.get('deeplink:forget')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('deeplink:forget')!(trustedIpcEvent);
         staleRelease();
 
         // A later, unrelated swap — user B has signed in and clicked their own invite.
@@ -5350,9 +5344,7 @@ describe('main.ts', () => {
       const { app } = await import('electron');
       (app as unknown as { isPackaged: boolean }).isPackaged = false;
       (mockWebContents.loadURL as Mock).mockClear();
-      const result = await handlers.get('spa:reloadLatest')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('spa:reloadLatest')!(trustedIpcEvent);
       expect(result).toEqual({ mode: 'bundled', changed: false });
       expect(mockWebContents.loadURL).not.toHaveBeenCalled();
     });
@@ -5373,9 +5365,7 @@ describe('main.ts', () => {
       });
       (mockWebContents.loadURL as Mock).mockClear();
 
-      const result = await handlers.get('spa:reloadLatest')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('spa:reloadLatest')!(saasAppFrameEvent);
 
       expect(mockWebContents.loadURL).toHaveBeenCalledWith(
         'https://spa.concordvoice.chat/index.html',
@@ -5401,9 +5391,7 @@ describe('main.ts', () => {
     it('spa:checkForUpdate returns an inert result in dev/unpackaged mode (permitted frame)', async () => {
       const { app } = await import('electron');
       (app as unknown as { isPackaged: boolean }).isPackaged = false;
-      const result = await handlers.get('spa:checkForUpdate')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('spa:checkForUpdate')!(trustedIpcEvent);
       expect(result).toEqual({
         currentMode: 'remote',
         remoteAvailable: false,
