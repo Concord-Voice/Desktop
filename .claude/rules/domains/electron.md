@@ -1079,6 +1079,83 @@ keeps its static Open/Quit tray. Capability, not demand.
   builds and sends a synthetic snapshot through the real channel. Main adds ` [dev]` to the
   tooltip when `!app.isPackaged`.
 
+### IPC contract v34 — connection context isolation (#86)
+
+`IPC_CONTRACT_VERSION` moved 33 → 34. `SPA_MIN_CONTRACT` stays **19**: a renderer that
+finds no `electron.connection` namespace runs the legacy single-connection path, and only a
+bridge that answers `null` renders the fatal "connection unavailable" screen. Capability,
+not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isolation-design.md`
+§3.7, §3.9.
+
+**Five channels.**
+
+| Channel | Direction | Shape | Admission | Failure |
+|---|---|---|---|---|
+| `connection:whoAmI` | `sendSync`, once at preload evaluation | → `ConnectionIdentity \| null` | a bound primary or PiP **main frame** whose URL is allowed for its connection's kind | `null`; the preload caches it for the document's life |
+| `connection:generation` | push | `{ connectionId, generation, reason }` | sent only to the record's own `webContents` | the preload delivers only a generation newer than the last one it saw, for its own `connectionId` and a known reason |
+| `connection:create` | invoke | `origin` → `{ status: 'opened', serviceId } \| { status: 'rejected', reason }` | `app-global-mutate`; one create at a time | `untrusted-sender \| not-foreground \| invalid-origin \| declined \| busy \| limit \| service-id-collision` |
+| `connection:activate` | invoke | `serviceId` → `boolean` | `app-global-mutate` | `false` |
+| `connection:preferenceScope` | invoke | → `PreferenceScope \| null` | `connection-bound` | declared on the bridge only; the handler lands with #86 Task 9, and until then the invoke rejects |
+
+- **`whoAmI` is the one raw `ipcMain.on` left by design** (`src/main/ipc/connection.ts`, with a
+  line-level ESLint disable and its rationale). `sendSync` needs `event.returnValue` in the same
+  tick, which `registerIpc`'s refusal value cannot express. Its admission is
+  `requireConnectionSender`, the same check `registerIpc` runs, and the handler always sets
+  `returnValue`, because a `sendSync` with no reply blocks the renderer.
+- **`create` re-checks after every await.** After the probe and again after the ceremony, the
+  opener must still be a live primary at the generation it was admitted at (`untrusted-sender`
+  otherwise) and still the foreground (`not-foreground`). After the ceremony, an origin another
+  path opened meanwhile is activated and returned as `opened`, never registered or opened a
+  second time. A declined ceremony commits no approval and registers no service. The order is:
+  canonical origin (`new URL(x).origin === x`, http(s) only) → an already-open origin is
+  activated → `busy` → `limit` → probe → ceremony token (`busy` when the budget is spent) →
+  ceremony (dialog plus the provisional probe under `beginPendingApproval`) →
+  `commitSelfHostedApproval` → `registerService` → `openConnectionView` → activate → the
+  entry is appended to `connections.json` through `persistAddedConnections`, which merges by
+  `serviceId` into the restored list and writes nothing before startup restore has run.
+- **One create at a time, not one per origin.** Each probe starts an uncancellable
+  `dns.lookup` on libuv's four-slot threadpool, so concurrent creates of different names would
+  head-of-line-block main's credential IO, the same hazard `selfHosted:probeServer`'s
+  single-flight guards. This is stricter than the spec's "single-flight per origin".
+- **A thrown probe, ceremony or view open returns `declined`** with a fixed log line; an
+  unreachable or non-Concord origin returns `invalid-origin`.
+
+**Six admission classes** (`src/main/ipc/registry.ts`):
+
+| Class | Admits | Refusal |
+|---|---|---|
+| `connection-bound` | any bound primary main frame, background included; the handler gets that connection's record, service and custody | `untrusted-sender` |
+| `app-global-read` | any bound primary main frame; grants nothing per connection | `untrusted-sender` |
+| `app-global-mutate` | the foreground connection's primary only | `untrusted-sender`, `not-foreground` |
+| `saas-only` | the `saas` connection's primary only | `untrusted-sender`, `not-saas` |
+| `pip-scoped` | a bound PiP or its primary | `untrusted-sender` |
+| `exempt-low-stakes` | the foreground primary | silent `undefined`, no log |
+
+**The `registerIpc` rule.** `registerIpc(channel, class, handler, opts)` is the only sanctioned
+`ipcMain` caller. It throws, registering nothing, for a channel absent from `CHANNEL_CLASSES`
+(`src/main/ipc/channelClassification.ts`), for a class that differs from the table's, and for a
+channel already registered. Admission is synchronous: the wrapper reads `event.senderFrame`,
+resolves the binding and calls the handler in the same tick, and `registry.ts` must contain no
+`await` (the registry suite greps it). A refused `handle` returns `opts.refusal(reason)` or
+`{ status: 'rejected', reason }`. An ESLint `no-restricted-syntax` selector in the `src/main/**`
+block bans raw `ipcMain.handle|on|once|handleOnce` outside `registry.ts`. **Transitional state
+(#86 Task 7A → 7B):** the eleven files in `TRANSITIONAL_RAW_IPCMAIN_FILES`
+(`eslint.config.mjs`) still register directly and are exempt from that selector. Task 7B
+migrates each and empties the list. Until then, `tests/unit/main/ipc/channelClassification.test.ts`
+is red by design, because it requires every classified channel to be registered through
+`registerIpc` and no raw registration outside the registry. Changing a row of the table is a
+security decision, because a wider class lets a background or self-hosted connection reach the
+channel.
+
+**Three CAS domains, one per question.** They are not interchangeable, and none of them is an
+authorisation token by itself.
+
+| Tag | Owner | Scope | Advances on | Answers |
+|---|---|---|---|---|
+| `CredentialOwner` | main, per custody instance (`tokenManager` closure) | one service's stored refresh credential | a credential mint or clear; NOT on refresh rotation | "is this still the credential lifecycle that continuation started in?" Owner numbers can collide across custodies |
+| `Generation` | main, per connection (`connectionRegistry`) | one connection's live document and credential lifecycle | `document`, `renderer-gone`, `credential-start`, `credential-end`, `disposed` | "is this `ConnectionRef` still current?" (`isOwnerCurrent`, `sendToConnection`) |
+| `authGeneration` | the renderer, per document | that document's login/restore lifecycle | a replacement lifecycle or clear; not a refresh | "is this renderer continuation still current?" (§ IPC contract v18) |
+
 ### IPC contract v32 — billing launcher (#1305)
 
 `IPC_CONTRACT_VERSION` moved 31 → 32. `SPA_MIN_CONTRACT` stays **19**: the renderer
@@ -1169,6 +1246,17 @@ private `concord-pip:<token>` `BroadcastChannel` the PiP RPC protocol runs on. S
 this file's job is only to record the version number and point there, not to duplicate it.
 
 ### Sender-frame validation: who validates and who doesn't
+
+**Since contract v34 (#86), `registerIpc` is the only registration path and
+`requireConnectionSender` the only path to custody.** A handler receives the
+`ConnectionSender` the registry admitted, and the custody it may touch is
+`sender.custody`, taken from the main-held binding. A renderer-supplied `apiBase` is at most
+cross-checked against it (`crossCheckApiBase`), never used to choose a custody. The third
+invariant is `defaultSession` ⇒ `saas`: only the `saas` connection and its PiPs run on
+`defaultSession`, `openConnectionView` refuses a non-saas connection that reaches it (R1),
+and every self-hosted service gets its own `fromPath` session. The 75 handlers not yet
+migrated still validate with `requireTrustedSender` and the checks described below until #86
+Task 7B moves them; see § "IPC contract v34".
 
 The rule "validate all IPC senders" applies primarily to handlers that reach a privileged side effect (filesystem, keychain, network, shell, OS notification, screen capture, OAuth flow). The canonical helper for these handlers is `isPermittedFrameUrl` at `desktop/src/main/ipc/frameValidation.ts`, used by `openExternal.ts`, `sso.ts`, `attestation.ts`, and `saveImage.ts` (the #1729 `image:saveAs` native Save-As — the canonical filesystem-write example). The dedicated `isValidPipOpenSender` covers the PiP-creation surface. `isPermittedFrameUrl` accepts five frame origins — `file://`, `app://concord`, `spa-cache://concord`, `http://localhost:*`, and the validated remote-SPA origin; the bundled `app://concord` origin was added after the #806 deferral, and the signed-LKG-cache origin `spa-cache://concord` by #1880 (see § "app://" below).
 
@@ -1506,6 +1594,15 @@ A compromised SPA bundle that executes `window.location = 'https://evil.example'
 - The OS browser is the user's own trust environment — separate process, separate cookie jar, separate password manager. Routing a URL there is materially safer than rendering it in the Electron sandbox.
 - The threat model for #754 (per its design spec §6.1) explicitly scopes to drift defense, not in-renderer compromise.
 - Mitigated upstream by the static public binary update feed plus artifact verification, and by the SPA loader's origin pins: only the hosted API base may select a remote renderer, and its `spaUrl` must be on `https://spa.concordvoice.chat`.
+
+**Containment is per connection since #86.** A compromised document reaches its own
+connection's custody, session and generation through `connection-bound` channels, and
+nothing of another connection's: the binding, not anything the page sends, chooses the
+custody. What a compromised **foreground** document can still reach through
+`app-global-mutate` channels (developer mode, hardware acceleration, relaunch, `update:*`,
+content protection, `permission:request`/`openSettings`, `connection:create`/`activate`) is
+the same set the single renderer could reach before #86. A **background** document cannot
+reach them. #88 re-targets that exposure.
 
 **If this risk profile changes** (e.g., a future feature elevates the renderer's attack surface), revisit `will-navigate` to either suppress externalization for programmatic navigation or introduce a host allowlist (Option B/C from #754's brainstorm).
 
