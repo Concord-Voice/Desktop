@@ -420,6 +420,7 @@ describe.each([
       expect(custody.getAccountKey()).toBeNull();
     });
 
+    // pragma: allowlist nextline secret
     it.each(['ABCDEF0123456789', '0123456789abcde', '0123456789abcdef0', 'zzzzzzzzzzzzzzzz', 7])(
       'ignores a malformed persisted accountKey (%s) but still restores',
       async (bad) => {

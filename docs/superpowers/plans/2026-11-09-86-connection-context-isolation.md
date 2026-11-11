@@ -124,7 +124,7 @@ export function dirKeyForApiBase(apiBase: string): string;        // full sha256
 ```
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/shared/connectionIdentity.test.ts`:
-  - `isServiceId` accepts `'saas'`, `'selfhost-0123456789abcdef'`; rejects `'selfhost-0123456789ABCDEF'`, `'selfhost-0123456789abcde'`, `''`, `42`.
+  - `isServiceId` accepts `'saas'`, `'selfhost-0123456789abcdef'`; rejects `'selfhost-0123456789ABCDEF'`, `'selfhost-0123456789abcde'`, `''`, `42`. <!-- pragma: allowlist secret -->
   - `isConnectionId` accepts a 22-char base64url string; rejects 21/23 chars, `+`, `/`, `=`.
   - `isGeneration` accepts `1`, `Number.MAX_SAFE_INTEGER`; rejects `0`, `1.5`, `-1`, `NaN`, `2**53`.
   - `compositeKey('saas', 'u1') !== compositeKey('selfhost-…', 'u1')` and both contain `'\0'`; `compositeKey(a, 'x\0y')` cannot equal `compositeKey(a + '\0x', 'y')` — assert the function throws on a `localId` containing `'\0'`.
@@ -555,7 +555,7 @@ git commit -m "feat: make renderer server base boot-immutable from the connectio
 - Test: `desktop/tests/unit/main/preferenceOwnership.test.ts`, `desktop/tests/unit/services/tokenManager.test.ts` (accountKey round-trip), `desktop/tests/unit/main/ipc/connection.test.ts` (preferenceScope rows)
 
 **Interfaces:**
-- Consumes: Task 1 `AccountKey`, `PreferenceScope`, `compositeKey`; Task 2 `ConnectionRecord`, `ServiceRecord`; Task 5 `ProfileCustody`.
+- Consumes: Task 1 `AccountKey`, `PreferenceScope`, `compositeKey`; Task 2 `ConnectionRecord`, `ServiceRecord`; Task 5 `ProfileCustody`. <!-- pragma: allowlist secret -->
 - Produces:
 
 ```ts

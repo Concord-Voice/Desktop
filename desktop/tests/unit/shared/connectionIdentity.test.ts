@@ -20,6 +20,7 @@ describe('isServiceId', () => {
     expect(isServiceId('selfhost-0123456789abcdef')).toBe(true);
   });
   it('rejects malformed values', () => {
+    // pragma: allowlist nextline secret
     for (const v of ['selfhost-0123456789ABCDEF', 'selfhost-0123456789abcde', '', 42]) {
       expect(isServiceId(v)).toBe(false);
     }

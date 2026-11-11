@@ -6500,7 +6500,7 @@ describe('#86 S2: E2EE keys staged by one connection reach only its own custody'
       const keysA = {
         wrappingKeyBase64: 'wa',
         preferencesKeyBase64: 'pa',
-        wrappedPrivateKeyBase64: 'ka',
+        wrappedPrivateKeyBase64: 'ka', // pragma: allowlist secret
       };
       await expect(handlers.get('auth:storeE2EEKeys')!(A.event, keysA)).resolves.toBe(true);
       expect(A.custody.storeE2EEKeys).toHaveBeenCalledTimes(1);
