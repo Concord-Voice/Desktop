@@ -65,12 +65,7 @@ import {
 import { isSupportedDesktopClientVersion } from '../shared/stableDesktopVersion';
 import { resolveAppProtocolPath } from './appProtocol';
 import { isBillingWebContents } from './billing/billingWindow';
-import type {
-  ConnectionRecord,
-  ProfileCustody,
-  SenderBinding,
-  ServiceRecord,
-} from './connectionRegistry';
+import type { ConnectionRecord, SenderBinding, ServiceRecord } from './connectionRegistry';
 import { handleCacheProtocolRequest } from './spaCache/cacheProtocol';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 
@@ -186,15 +181,6 @@ function decideFor(
   }
 }
 
-/** The one custody member the injector reads; structural until #86 Task 5 types it. */
-interface AccessTokenCustody {
-  getCachedAccessToken(): string | null;
-}
-
-function hasAccessToken(custody: ProfileCustody): custody is ProfileCustody & AccessTokenCustody {
-  return typeof (custody as Partial<AccessTokenCustody>).getCachedAccessToken === 'function';
-}
-
 /**
  * KLIPY media proxy auth injection (#626): `<img>`/`<video>` src attributes send
  * plain GETs without Authorization headers, so this adds the cached JWT for the
@@ -206,7 +192,6 @@ function injectKlipyHeaders(
 ): void {
   try {
     if (new URL(details.url).origin !== service.origin) return;
-    if (!hasAccessToken(service.custody)) return;
     const token = service.custody.getCachedAccessToken();
     if (typeof token !== 'string' || token === '') return;
     details.requestHeaders['Authorization'] = `Bearer ${token}`;

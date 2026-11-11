@@ -75,13 +75,9 @@ import { verifyGoogleIDToken } from '../oauth/google/idTokenVerifier';
 import { normalizeSelfHostedUrl } from '../selfHostedProbe';
 import { isTier2DialApproved, isValidatedSelfHostedApiBase } from '../selfHostedProfile';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';
-import {
-  clearTokensIfOwner,
-  credentialOwnerIsCurrent,
-  releaseCredentialReservation,
-  reserveCredentialOwner,
-  storeRefreshTokenIfOwner,
-} from '../tokenManager';
+// TRANSITIONAL (#86 Task 5): every call names the API base its custody belongs
+// to; Task 7B replaces custodyForApiBase with the sender's own custody.
+import { custodyForApiBase, liveCustody } from '../tokenManager';
 
 import type { MainSSOSignInResult } from '../oauth/ssoFlowShared';
 import type { CredentialOwner } from '../ipcContract';
@@ -372,7 +368,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     credentialOwner: CredentialOwner,
     cookieBoundSessionId: string | null
   ): Promise<SSOSignInResult> => {
-    if (!credentialOwnerIsCurrent(credentialOwner)) {
+    if (!custodyForApiBase(apiBase).credentialOwnerIsCurrent(credentialOwner)) {
       if (result.kind === 'tokens') {
         await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
         await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
@@ -383,7 +379,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     }
 
     if (result.kind === 'tokens') {
-      const storedOwner = storeRefreshTokenIfOwner(
+      const storedOwner = custodyForApiBase(apiBase).storeRefreshTokenIfOwner(
         {
           refreshToken: result.refreshToken,
           rememberMe: true,
@@ -437,7 +433,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     // and release this reservation so switching to registration can safely use
     // the pre-credential key staging path.
     await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
-    clearTokensIfOwner(credentialOwner);
+    custodyForApiBase(apiBase).clearTokensIfOwner(credentialOwner);
     return result;
   };
 
@@ -457,7 +453,9 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     endpoint: 'complete-registration' | 'complete-link',
     requestBody: Record<string, string>
   ): Promise<SSOCompletionResult> => {
-    if (!credentialOwnerIsCurrent(completion.credentialOwner)) {
+    if (
+      !custodyForApiBase(completion.apiBase).credentialOwnerIsCurrent(completion.credentialOwner)
+    ) {
       discardPendingCompletion(completion);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
@@ -494,11 +492,11 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!tokens) {
       await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
       discardPendingCompletion(completion);
-      clearTokensIfOwner(completion.credentialOwner);
+      custodyForApiBase(completion.apiBase).clearTokensIfOwner(completion.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
     }
 
-    const storedOwner = storeRefreshTokenIfOwner(
+    const storedOwner = custodyForApiBase(completion.apiBase).storeRefreshTokenIfOwner(
       {
         refreshToken: tokens.refreshToken,
         rememberMe: tokens.rememberMe,
@@ -531,7 +529,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     mfa: PendingSSOMFA,
     requestBody: Record<string, unknown>
   ): Promise<SSOCompletionResult> => {
-    if (!credentialOwnerIsCurrent(mfa.credentialOwner)) {
+    if (!custodyForApiBase(mfa.apiBase).credentialOwnerIsCurrent(mfa.credentialOwner)) {
       discardPendingMFA(mfa);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
@@ -576,11 +574,11 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!tokens) {
       await revokeCookieBoundSession(mfa.apiBase, cookieBoundSessionId);
       discardPendingMFA(mfa);
-      clearTokensIfOwner(mfa.credentialOwner);
+      custodyForApiBase(mfa.apiBase).clearTokensIfOwner(mfa.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
     }
 
-    const storedOwner = storeRefreshTokenIfOwner(
+    const storedOwner = custodyForApiBase(mfa.apiBase).storeRefreshTokenIfOwner(
       {
         refreshToken: tokens.refreshToken,
         rememberMe: tokens.rememberMe,
@@ -753,7 +751,9 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     // where a throw would turn a fail-closed *release* into a fail-closed
     // *registration*. Precedent: the auth:getCapabilities handler in main.ts.
     // Do NOT copy this shape into a channel where a throw is required.
-    const released = releaseCredentialReservation();
+    // Zero-argument by design: the renderer names nothing, so the reservation to
+    // release is the active custody's own (TRANSITIONAL routing, #86 Task 5).
+    const released = liveCustody()?.releaseCredentialReservation() ?? false;
     // Discard the pendings ONLY when the release actually happened. A
     // successful release bumps the credential generation, which already
     // terminally fails every continuation bound to it, so clearing the
@@ -783,7 +783,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!apiBase) {
       throw new Error('sso:appleSignIn rejected: unapproved API origin');
     }
-    const credentialOwner = reserveCredentialOwner(apiBase);
+    const credentialOwner = custodyForApiBase(apiBase).reserveCredentialOwner();
     pendingCompletion = null;
     pendingMFA = null;
     let cookieBoundSessionId: string | null = null;
@@ -833,7 +833,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!apiBase) {
       throw new Error('sso:googleSignIn rejected: unapproved API origin');
     }
-    const credentialOwner = reserveCredentialOwner(apiBase);
+    const credentialOwner = custodyForApiBase(apiBase).reserveCredentialOwner();
     pendingCompletion = null;
     pendingMFA = null;
     let cookieBoundSessionId: string | null = null;

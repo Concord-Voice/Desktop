@@ -143,32 +143,44 @@ vi.mock('node:http', () => {
 });
 
 vi.mock('electron-squirrel-startup', () => ({ default: false }));
-vi.mock('../../../src/main/tokenManager', () => ({
-  storeRefreshToken: vi.fn(),
-  restoreRefreshToken: vi.fn(() => ({
-    status: 'ok',
-    refreshToken: 't',
-    apiBase: 'http://localhost:8080',
-  })),
-  performRefresh: vi.fn(() => Promise.resolve({ status: 'ok', accessToken: 'a', sessionId: 's' })),
-  performLogout: vi.fn(() => Promise.resolve()),
-  clearTokens: vi.fn(),
-  // A real tokenManager always exports this, so a stub that omits it models a
-  // regression rather than any shipping shell. main.ts's deep-link owner fence
-  // reads it on the drain path, which ordinary window setup reaches (#2363).
-  getCredentialCustodyState: vi.fn(() => ({ credentialOwner: 41, pendingE2EEUnlock: false })),
-  getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
-  storeE2EEKeys: vi.fn(),
-  restoreE2EEKeys: vi.fn(() => ({
-    wrappingKeyBase64: 'k',
-    preferencesKeyBase64: 'p',
-    wrappedPrivateKeyBase64: 'w',
-  })),
-  setProactiveRefreshCallback: vi.fn(),
-  onSystemResume: vi.fn(),
-  getCachedAccessToken: vi.fn(() => null),
-  getApiBaseOrigin: vi.fn(() => null),
-}));
+vi.mock('../../../src/main/tokenManager', () => {
+  // #86 Task 5: main.ts reaches custody through the transitional routers, and
+  // each hands back this one mocked set, so assertions on its members still hold.
+  const custody = {
+    storeRefreshToken: vi.fn(),
+    restoreRefreshToken: vi.fn(() => ({
+      status: 'ok',
+      refreshToken: 't',
+      apiBase: 'http://localhost:8080',
+    })),
+    performRefresh: vi.fn(() =>
+      Promise.resolve({ status: 'ok', accessToken: 'a', sessionId: 's' })
+    ),
+    performLogout: vi.fn(() => Promise.resolve()),
+    clearTokens: vi.fn(),
+    // A real tokenManager always exports this, so a stub that omits it models a
+    // regression rather than any shipping shell. main.ts's deep-link owner fence
+    // reads it on the drain path, which ordinary window setup reaches (#2363).
+    getCredentialCustodyState: vi.fn(() => ({ credentialOwner: 41, pendingE2EEUnlock: false })),
+    getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
+    storeE2EEKeys: vi.fn(),
+    restoreE2EEKeys: vi.fn(() => ({
+      wrappingKeyBase64: 'k',
+      preferencesKeyBase64: 'p',
+      wrappedPrivateKeyBase64: 'w',
+    })),
+    setProactiveRefreshCallback: vi.fn(),
+    onSystemResume: vi.fn(),
+    getCachedAccessToken: vi.fn(() => null),
+    getApiBaseOrigin: vi.fn(() => null),
+  };
+  return {
+    ...custody,
+    custodyForApiBase: vi.fn(() => custody),
+    liveCustody: vi.fn(() => custody),
+    restoreTargetCustody: vi.fn(() => custody),
+  };
+});
 vi.mock('../../../src/main/machineId', () => ({ getMachineId: vi.fn(() => 'mock-machine-id') }));
 vi.mock('../../../src/main/updater', () => ({
   initAutoUpdater: vi.fn(),

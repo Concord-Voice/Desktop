@@ -53,6 +53,7 @@ import {
   type ServiceKind,
 } from '../shared/connectionIdentity';
 import { dirKeyForApiBase, serviceIdForApiBase } from './selfHostedProfile';
+import type { ProfileCustody } from './tokenManager';
 
 /**
  * At most this many connections are live at once. Spec §9 item 2 requires >= 3
@@ -60,13 +61,8 @@ import { dirKeyForApiBase, serviceIdForApiBase } from './selfHostedProfile';
  */
 export const MAX_LIVE_CONNECTIONS = 4;
 
-/**
- * PLACEHOLDER until #86 Task 5 replaces it with `import type { ProfileCustody }
- * from './tokenManager'`. Opaque on purpose: nothing in this task may reach into
- * custody, only carry the instance from `registerService` to its consumers.
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- opaque placeholder replaced by #86 Task 5's ProfileCustody
-export interface ProfileCustody {}
+// Re-exported so the registry's consumers keep one import site for the record types.
+export type { ProfileCustody };
 
 export interface ServiceRecord {
   readonly serviceId: ServiceId;

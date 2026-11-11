@@ -59,22 +59,15 @@ import {
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
+// TRANSITIONAL (#86 Task 5): one renderer over per-service custody. A call that
+// names an API base uses custodyForApiBase; one that names none uses the active
+// custody (liveCustody), or no custody at all. Task 7B replaces all of these with
+// the sender's own custody.
 import {
-  storeRefreshToken,
-  restoreRefreshToken,
-  performRefresh,
-  performLogout,
-  clearTokens,
-  clearTokensIfOwner,
-  getCapabilities,
-  storeE2EEKeys,
-  storeE2EEKeysIfOwner,
-  restoreE2EEKeys,
-  getCredentialCustodyState,
+  custodyForApiBase,
+  liveCustody,
+  restoreTargetCustody,
   setProactiveRefreshCallback,
-  onSystemResume,
-  getCachedAccessToken,
-  getApiBaseOrigin,
 } from './tokenManager';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
@@ -767,12 +760,17 @@ let deepLinkOwner: CredentialOwner | null = null;
 // because drainPendingDeepLinks takes a `queue.splice(0)` snapshot first: a
 // forget from inside the loop empties the live queue while the snapshot it is
 // iterating survives, and every retained code delivers anyway.
+// TRANSITIONAL (#86 Task 5): the owner of the custody the renderer is on, or null.
+function liveCredentialOwner(): CredentialOwner | null {
+  return liveCustody()?.getCredentialCustodyState().credentialOwner ?? null;
+}
+
 function fenceDeepLinksOnOwnerChange(atArrival = false, known?: CredentialOwner | null): void {
   // `known` lets a caller that has ALREADY read custody pass its reading in.
   // auth:restoreSession is the one that must: it re-verifies the owner across an
   // await for its own reasons, and an extra read here would both be redundant and
   // change how many times it observes custody.
-  const current = known === undefined ? getCredentialCustodyState().credentialOwner : known;
+  const current = known === undefined ? liveCredentialOwner() : known;
   if (deepLinkOwner === null || current === deepLinkOwner) return;
   // `current === null` means credentials are gone with no successor. At a DRAIN
   // or FLUSH that is the login-side carve-out above and the queue must survive.
@@ -795,7 +793,7 @@ function fenceDeepLinksOnOwnerChange(atArrival = false, known?: CredentialOwner 
 // stay null-tagged so the carve-out above still applies to it at sign-in, and
 // resetting it would extend that exemption to a retained code (see the test).
 function noteDeepLinkOwner(known?: CredentialOwner | null): void {
-  const current = known === undefined ? getCredentialCustodyState().credentialOwner : known;
+  const current = known === undefined ? liveCredentialOwner() : known;
   if (current !== null) deepLinkOwner = current;
 }
 
@@ -1714,8 +1712,10 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ['*://*/api/v1/klipy/media*'] },
     (details, callback) => {
-      const token = getCachedAccessToken();
-      const apiOrigin = getApiBaseOrigin();
+      // Memory only, synchronously per request: the active custody's token and origin.
+      const custody = liveCustody();
+      const token = custody?.getCachedAccessToken() ?? null;
+      const apiOrigin = custody?.getApiBaseOrigin() ?? null;
       if (token && apiOrigin) {
         try {
           const requestOrigin = new URL(details.url).origin;
@@ -1864,7 +1864,7 @@ app.whenReady().then(async () => {
   // Refresh token immediately on system wake — main process timers may have
   // drifted past the token's expiry window during sleep (#248).
   powerMonitor.on('resume', () => {
-    onSystemResume();
+    liveCustody()?.onSystemResume();
   });
 
   app.on('activate', () => {
@@ -2526,7 +2526,7 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
     return rejectInvalidAuthPayload('auth:storeRefreshToken');
   }
 
-  const credentialOwner = storeRefreshToken(data);
+  const credentialOwner = custodyForApiBase(data.apiBase).storeRefreshToken(data);
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -2672,11 +2672,18 @@ ipcMain.handle('auth:restoreSession', (event) => {
   if (restoreSessionPromise) return restoreSessionPromise;
 
   restoreSessionPromise = (async () => {
-    const restored = await restoreRefreshToken();
+    // TRANSITIONAL (#86 Task 5): a restore targets one custody and every read
+    // below stays on it. A login that makes another custody active during an
+    // await fails the re-checks, exactly as a successor owner did before #86.
+    const custody = restoreTargetCustody();
+    if (!custody) return { status: 'no_session' };
+    const ownerIfActive = (): CredentialOwner | null =>
+      liveCustody() === custody ? custody.getCredentialCustodyState().credentialOwner : null;
+    const restored = await custody.restoreRefreshToken();
     if (restored.status !== 'ok') {
       return { status: restored.status };
     }
-    const restoreOwner = getCredentialCustodyState().credentialOwner;
+    const restoreOwner = ownerIfActive();
     if (restoreOwner === null) {
       return { status: 'refresh_failed' };
     }
@@ -2695,22 +2702,21 @@ ipcMain.handle('auth:restoreSession', (event) => {
     noteDeepLinkOwner(restoreOwner);
     // Token restored from disk or main-process memory — refresh it to get a
     // fresh access token.
-    const refreshResult = await performRefresh();
+    const refreshResult = await custody.performRefresh();
     if (refreshResult.status === 'ok' && refreshResult.accessToken) {
       // A fresh login may have replaced the restored credential after refresh
       // resolved but before this continuation resumed. Verify the owner before
       // reading keys so an old access token can never be paired with a
       // successor's E2EE custody.
-      const ownerCheck = getCredentialCustodyState();
-      if (ownerCheck.credentialOwner !== restoreOwner) {
+      if (ownerIfActive() !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
       // Also restore E2EE keys if available. The restore awaits a decrypt, so a
       // login can land inside it: the owner re-check after it is what keeps
       // these keys paired with the access token above.
-      const e2eeKeys = await restoreE2EEKeys();
-      const custody = getCredentialCustodyState();
-      if (custody.credentialOwner !== restoreOwner) {
+      const e2eeKeys = await custody.restoreE2EEKeys();
+      const state = custody.getCredentialCustodyState();
+      if (liveCustody() !== custody || state.credentialOwner !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
       return {
@@ -2719,8 +2725,8 @@ ipcMain.handle('auth:restoreSession', (event) => {
         sessionId: refreshResult.sessionId,
         e2eeKeys,
         rememberMe: restored.rememberMe,
-        credentialOwner: custody.credentialOwner,
-        pendingE2EEUnlock: custody.pendingE2EEUnlock,
+        credentialOwner: state.credentialOwner,
+        pendingE2EEUnlock: state.pendingE2EEUnlock,
       };
     }
     return { status: 'refresh_failed' };
@@ -2741,7 +2747,9 @@ ipcMain.handle('auth:storeE2EEKeys', (event, data: unknown) => {
 
   // Surface persistence success/failure to the renderer (#1288) — a genuine
   // keychain/disk write failure returns false rather than being swallowed.
-  return storeE2EEKeys(data);
+  // Pre-credential staging names no API base, so it stages in the custody a
+  // restore would target; no custody (an unreadable pointer) refuses it.
+  return restoreTargetCustody()?.storeE2EEKeys(data) ?? false;
 });
 
 ipcMain.handle('auth:storeE2EEKeysIfOwner', (event, data: unknown, owner: unknown) => {
@@ -2752,7 +2760,7 @@ ipcMain.handle('auth:storeE2EEKeysIfOwner', (event, data: unknown, owner: unknow
     return rejectInvalidAuthPayload('auth:storeE2EEKeysIfOwner');
   }
 
-  return storeE2EEKeysIfOwner(data, owner);
+  return liveCustody()?.storeE2EEKeysIfOwner(data, owner) ?? false;
 });
 
 ipcMain.handle('auth:refreshToken', async (event) => {
@@ -2760,7 +2768,7 @@ ipcMain.handle('auth:refreshToken', async (event) => {
     return rejectUntrustedAuthSender('auth:refreshToken');
   }
 
-  return performRefresh();
+  return liveCustody()?.performRefresh() ?? { status: 'no_token' };
 });
 
 ipcMain.handle('auth:logout', async (event, data?: { accessToken?: string }) => {
@@ -2782,7 +2790,7 @@ ipcMain.handle('auth:logout', async (event, data?: { accessToken?: string }) => 
   // first line and only then issues an unbounded network POST, so anything after
   // the await leaves the clear open for the width of that request.
   forgetDeliveredDeepLinks();
-  await performLogout(data?.accessToken);
+  await liveCustody()?.performLogout(data?.accessToken);
   return undefined;
 });
 
@@ -2827,7 +2835,9 @@ ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
   // `rememberMe === false`, documented in resetService as "ends the authenticated
   // lifecycle", which reaches this handler through gracefulReset and never calls
   // `auth:logout`.
-  clearTokens();
+  // Only the active custody: an owner-blind wipe never reaches a profile chosen
+  // from disk or by default (the double-clear class above, #86).
+  liveCustody()?.clearTokens();
   if (!keepDeepLinks) forgetDeliveredDeepLinks();
   return undefined;
 });
@@ -2875,7 +2885,7 @@ ipcMain.handle('auth:clearTokensIfOwner', (event, owner: unknown) => {
   // window exists — main holds the ONLY copy — so an SSO sign-in that aborts
   // would erase it and the retry would land with the invite silently gone.
   // That is #2363's own symptom on a new path.
-  return clearTokensIfOwner(owner);
+  return liveCustody()?.clearTokensIfOwner(owner) ?? false;
 });
 
 ipcMain.handle('auth:getCapabilities', (event) => {
@@ -2885,7 +2895,8 @@ ipcMain.handle('auth:getCapabilities', (event) => {
     // reject shape) so callers always get a valid, safe default.
     return { persistAvailable: false };
   }
-  return getCapabilities();
+  // A machine fact (is OS-protected storage available), the same from any custody.
+  return (liveCustody() ?? custodyForApiBase(PRODUCTION_API_BASE)).getCapabilities();
 });
 
 ipcMain.handle('auth:getMachineId', (event, apiBase?: unknown) => {

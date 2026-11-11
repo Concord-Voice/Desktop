@@ -245,39 +245,49 @@ vi.mock('node:http', () => {
 
 vi.mock('electron-squirrel-startup', () => ({ default: false }));
 
-vi.mock('../../../src/main/tokenManager', () => ({
-  storeRefreshToken: vi.fn(() => 41),
-  // Async like the real functions: a sync mock would let main.ts drop its
-  // `await` and still pass, since awaiting a plain value changes nothing.
-  restoreRefreshToken: vi.fn(async () => ({
-    status: 'ok',
-    token: 'mock-token',
-    apiBase: 'http://localhost:8080',
-    rememberMe: true,
-  })),
-  performRefresh: vi.fn(() =>
-    Promise.resolve({ status: 'ok', accessToken: 'mock-access', sessionId: 'mock-session' })
-  ),
-  performLogout: vi.fn(() => Promise.resolve()),
-  clearTokens: vi.fn(),
-  clearTokensIfOwner: vi.fn((owner: number) => owner === 41),
-  getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
-  storeE2EEKeys: vi.fn(),
-  storeE2EEKeysIfOwner: vi.fn((_data: unknown, owner: number) => owner === 41),
-  restoreE2EEKeys: vi.fn(async () => ({
-    wrappingKeyBase64: 'key',
-    preferencesKeyBase64: 'pkey',
-    wrappedPrivateKeyBase64: 'wpk',
-  })),
-  getCredentialCustodyState: vi.fn(() => ({
-    credentialOwner: 41,
-    pendingE2EEUnlock: false,
-  })),
-  setProactiveRefreshCallback: vi.fn(),
-  onSystemResume: vi.fn(),
-  getCachedAccessToken: vi.fn(() => null),
-  getApiBaseOrigin: vi.fn(() => null),
-}));
+vi.mock('../../../src/main/tokenManager', () => {
+  // #86 Task 5: main.ts reaches custody through the transitional routers, and
+  // each hands back this one mocked set, so assertions on its members still hold.
+  const custody = {
+    storeRefreshToken: vi.fn(() => 41),
+    // Async like the real functions: a sync mock would let main.ts drop its
+    // `await` and still pass, since awaiting a plain value changes nothing.
+    restoreRefreshToken: vi.fn(async () => ({
+      status: 'ok',
+      token: 'mock-token',
+      apiBase: 'http://localhost:8080',
+      rememberMe: true,
+    })),
+    performRefresh: vi.fn(() =>
+      Promise.resolve({ status: 'ok', accessToken: 'mock-access', sessionId: 'mock-session' })
+    ),
+    performLogout: vi.fn(() => Promise.resolve()),
+    clearTokens: vi.fn(),
+    clearTokensIfOwner: vi.fn((owner: number) => owner === 41),
+    getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
+    storeE2EEKeys: vi.fn(),
+    storeE2EEKeysIfOwner: vi.fn((_data: unknown, owner: number) => owner === 41),
+    restoreE2EEKeys: vi.fn(async () => ({
+      wrappingKeyBase64: 'key',
+      preferencesKeyBase64: 'pkey',
+      wrappedPrivateKeyBase64: 'wpk',
+    })),
+    getCredentialCustodyState: vi.fn(() => ({
+      credentialOwner: 41,
+      pendingE2EEUnlock: false,
+    })),
+    setProactiveRefreshCallback: vi.fn(),
+    onSystemResume: vi.fn(),
+    getCachedAccessToken: vi.fn(() => null),
+    getApiBaseOrigin: vi.fn(() => null),
+  };
+  return {
+    ...custody,
+    custodyForApiBase: vi.fn(() => custody),
+    liveCustody: vi.fn(() => custody),
+    restoreTargetCustody: vi.fn(() => custody),
+  };
+});
 
 vi.mock('../../../src/main/machineId', () => ({
   getMachineId: vi.fn(() => 'mock-machine-id'),

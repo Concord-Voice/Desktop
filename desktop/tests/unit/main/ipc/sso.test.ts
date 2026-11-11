@@ -195,12 +195,30 @@ const tokenMocks = vi.hoisted(() => {
     return true;
   });
 
+  const custody = {
+    reserveCredentialOwner,
+    credentialOwnerIsCurrent,
+    storeRefreshTokenIfOwner,
+    clearTokensIfOwner,
+    releaseCredentialReservation,
+  };
+  // #86 Task 5: sso.ts reaches custody through custodyForApiBase(apiBase). The
+  // reservation records which API base's custody it was made in, so the
+  // reserveCredentialOwner assertions keep naming the API base.
+  const custodyForApiBase = vi.fn((apiBase: string) => ({
+    ...custody,
+    reserveCredentialOwner: () => reserveCredentialOwner(apiBase),
+  }));
+  const liveCustody = vi.fn(() => custody);
+
   return {
     reserveCredentialOwner,
     credentialOwnerIsCurrent,
     storeRefreshTokenIfOwner,
     clearTokensIfOwner,
     releaseCredentialReservation,
+    custodyForApiBase,
+    liveCustody,
     reset: () => {
       currentOwner = 40;
       reservedOwner = null;
@@ -216,11 +234,8 @@ const tokenMocks = vi.hoisted(() => {
 });
 
 vi.mock('../../../../src/main/tokenManager', () => ({
-  reserveCredentialOwner: tokenMocks.reserveCredentialOwner,
-  credentialOwnerIsCurrent: tokenMocks.credentialOwnerIsCurrent,
-  storeRefreshTokenIfOwner: tokenMocks.storeRefreshTokenIfOwner,
-  clearTokensIfOwner: tokenMocks.clearTokensIfOwner,
-  releaseCredentialReservation: tokenMocks.releaseCredentialReservation,
+  custodyForApiBase: tokenMocks.custodyForApiBase,
+  liveCustody: tokenMocks.liveCustody,
 }));
 
 // #2424: sso:completeMFA supplies X-Machine-Id via getMachineId; mock it to a

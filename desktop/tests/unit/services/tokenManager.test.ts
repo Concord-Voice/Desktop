@@ -91,6 +91,23 @@ vi.mock('fs', () => ({
 }));
 
 import {
+  createProfileCustody,
+  getPersistedApiBase as getActivePersistedApiBase,
+  restoreTargetCustody,
+} from '@/main/tokenManager';
+import type { ProfileCustody } from '@/main/tokenManager';
+import { profilePathsForApiBase, serviceIdForApiBase } from '@/main/selfHostedProfile';
+
+// The suite runs once per custody instance (#1618): every former module-level
+// call now goes through the instance created in beforeEach.
+let custody: ProfileCustody;
+const viaCustody = new Proxy({} as ProfileCustody, {
+  get:
+    (_t, key: string) =>
+    (...args: unknown[]) =>
+      (custody as unknown as Record<string, (...a: unknown[]) => unknown>)[key](...args),
+});
+const {
   storeRefreshToken,
   restoreRefreshToken,
   clearTokens,
@@ -113,7 +130,7 @@ import {
   getCachedAccessToken,
   _resetForTesting,
   _flushDiskWritesForTesting,
-} from '@/main/tokenManager';
+} = viaCustody;
 // Mocked via vi.mock('electron') above — imported here so tests can spy the
 // async encrypt/decrypt to simulate a locked keychain or hold one in flight.
 import { safeStorage } from 'electron';
@@ -171,8 +188,13 @@ function readMockDisk(path: unknown): unknown {
   return value;
 }
 
-describe('tokenManager', () => {
+describe.each([
+  ['saas', 'https://api.concordvoice.chat'],
+  ['selfhost-A', 'https://a.example'],
+  ['selfhost-B', 'https://b.example:8443'],
+])('tokenManager (%s)', (_label, origin) => {
   beforeEach(() => {
+    custody = createProfileCustody(serviceIdForApiBase(origin), origin);
     safeStorageAvailable = true;
     storageBackend = 'gnome_libsecret';
     ciphertextTag = 'v11';
@@ -237,13 +259,11 @@ describe('tokenManager', () => {
       });
       await flushDiskWrites();
 
+      // #86: the custody's own origin selects the namespace (brief step 1).
+      const own = profilePathsForApiBase(origin);
       const paths = fsWriteCalls.map((c) => c[0] as string);
-      expect(paths).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-token\.dat$/)
-      );
-      expect(paths).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/token-meta\.json$/)
-      );
+      expect(paths).toContainEqual(own.tokenFile);
+      expect(paths).toContainEqual(own.metaFile);
       const metaWrite = fsWriteCalls.find((c) => String(c[0]).endsWith('token-meta.json'));
       expect(JSON.parse(metaWrite?.[1] as string)).toMatchObject({
         apiBase: 'https://homelab.lan',
@@ -468,16 +488,17 @@ describe('tokenManager', () => {
 
       clearTokens();
 
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-token\.dat$/)
-      );
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/token-meta\.json$/)
-      );
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-e2ee\.dat$/)
-      );
-      expect(fsUnlinkCalls).not.toContain('/tmp/td/secure-token.dat');
+      // #86: the custody's own files, and nothing outside its own directory.
+      const own = profilePathsForApiBase(origin);
+      expect(fsUnlinkCalls).toContainEqual(own.tokenFile);
+      expect(fsUnlinkCalls).toContainEqual(own.metaFile);
+      expect(fsUnlinkCalls).toContainEqual(own.e2eeFile);
+      const ownDir = own.tokenFile.slice(0, own.tokenFile.lastIndexOf('/'));
+      expect(
+        fsUnlinkCalls
+          .filter((p) => !p.endsWith('active-profile.json'))
+          .every((p) => p.slice(0, p.lastIndexOf('/')) === ownDir)
+      ).toBe(true);
     });
 
     it('clearTokensIfOwner preserves a successor lifecycle', async () => {
@@ -634,8 +655,9 @@ describe('tokenManager', () => {
         owner
       );
 
+      // #86: the custody's own origin selects the namespace (brief step 1).
       expect(fsWriteCalls.map((c) => c[0] as string)).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-e2ee\.dat$/)
+        profilePathsForApiBase(origin).e2eeFile
       );
     });
 
@@ -2267,8 +2289,10 @@ describe('tokenManager', () => {
       fsFiles.set(String(pointer), JSON.stringify({ apiBase: ':://// not a url' }));
       _resetForTesting();
 
-      await expect(restoreRefreshToken()).resolves.toEqual({ status: 'no_session' });
-      expect(getPersistedApiBase()).toBeNull();
+      // #86: a custody never reads the pointer; choosing which profile a restart
+      // restores moved to the transitional router, which must choose none here.
+      expect(restoreTargetCustody()).toBeNull();
+      expect(getActivePersistedApiBase()).toBeNull();
       expect(() => clearTokens()).not.toThrow();
     });
 
