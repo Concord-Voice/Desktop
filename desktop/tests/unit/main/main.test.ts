@@ -2831,23 +2831,56 @@ describe('main.ts', () => {
       }
     });
 
+    // #86 R8: only a bound primary's MAIN frame may open a PiP, so the second
+    // opener is another connection's primary rather than a second frame of the
+    // saas view (which senderMainFrame now refuses before any PiP logic runs).
     it('assigns a fresh owner when a closed PiP ID is reused', async () => {
-      const closeFirst = await openPip('reused-pip');
-      closeFirst();
-      const closeSecond = await openPip('reused-pip', otherPermittedPipEvent);
-      mockPipWindow.setAlwaysOnTop.mockClear();
+      const svc = connectionRegistry.registerService('https://pip-reuse.example', {
+        makeSession: () => ({}) as never,
+        makeCustody: () => ({}) as never,
+        isValidatedSelfHostedApiBase: () => true,
+      });
+      if (!svc.ok) throw new Error(svc.reason);
+      const otherFrame = { url: 'http://localhost:3001/', frameTreeNodeId: 8801, parent: null };
+      const otherWc = {
+        id: 8801,
+        send: vi.fn(),
+        on: vi.fn(),
+        once: vi.fn(),
+        isDestroyed: vi.fn(() => false),
+        getURL: vi.fn(() => otherFrame.url),
+        mainFrame: otherFrame,
+      };
+      const opened = connectionRegistry.openConnection(
+        svc.service.serviceId,
+        otherWc as never,
+        null
+      );
+      if (!opened.ok) throw new Error(opened.reason);
+      connectionRegistry.bindSender(otherWc as never, opened.record.connectionId, 'primary');
+      const otherOwnerEvent = { sender: otherWc, senderFrame: otherFrame };
 
-      await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
-        id: 'reused-pip',
-        flag: false,
-      });
-      expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
-      await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
-        id: 'reused-pip',
-        flag: false,
-      });
-      expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-      closeSecond();
+      try {
+        const closeFirst = await openPip('reused-pip');
+        closeFirst();
+        const closeSecond = await openPip('reused-pip', otherOwnerEvent as never);
+        mockPipWindow.setAlwaysOnTop.mockClear();
+
+        await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
+          id: 'reused-pip',
+          flag: false,
+        });
+        expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+        await handlers.get('pip:setAlwaysOnTop')!(otherOwnerEvent, {
+          id: 'reused-pip',
+          flag: false,
+        });
+        expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+        closeSecond();
+      } finally {
+        connectionRegistry.disposeConnection(opened.record.connectionId);
+        connectionRegistry.unregisterService(svc.service.serviceId);
+      }
     });
   });
 
@@ -5247,9 +5280,7 @@ describe('main.ts', () => {
     it('registers onBeforeSendHeaders with the correct URL filter', () => {
       expect(klipyInterceptor).not.toBeNull();
       // #86 invariant 3: pinned to the saas service's own origin, not any host.
-      expect(klipyInterceptor!.filter.urls).toEqual([
-        'http://localhost:8080/api/v1/klipy/media*',
-      ]);
+      expect(klipyInterceptor!.filter.urls).toEqual(['http://localhost:8080/api/v1/klipy/media*']);
     });
 
     it.each(['1.0.0', '1.1.0-pilot.2'])(

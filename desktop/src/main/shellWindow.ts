@@ -524,10 +524,14 @@ export function disposeConnectionView(connectionId: ConnectionId): void {
  * Build a PiP window for `opener`'s connection (R8): on the opener's own session
  * whatever `options` names, sandboxed, and bound `'pip'` to that connection. Only a
  * bound, live primary may open one; anything else gets `null` and no window.
+ * `remoteSpaOrigin` is the origin main will load the PiP from (null: bundled or
+ * cached); it is pinned on the binding, so the PiP's own frame keeps admission
+ * across a later remote-SPA transition.
  */
 export function createPipWindow(
   opener: WebContents,
-  options: BrowserWindowConstructorOptions
+  options: BrowserWindowConstructorOptions,
+  remoteSpaOrigin: string | null = null
 ): BrowserWindow | null {
   const bound = boundRecordFor(opener);
   if (!bound || bound.role !== 'primary') return null;
@@ -547,7 +551,8 @@ export function createPipWindow(
   // Captured now: reading `.webContents` off a destroyed window throws.
   const pipContents = pip.webContents;
   try {
-    bindSender(pipContents, connectionId, 'pip');
+    // The remote SPA is saas-only (C7); any other service's PiP pins nothing.
+    bindSender(pipContents, connectionId, 'pip', service.kind === 'saas' ? remoteSpaOrigin : null);
   } catch {
     pip.destroy();
     return null;

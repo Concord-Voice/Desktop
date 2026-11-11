@@ -3276,6 +3276,17 @@ function resolveOwnedPip(
   return resolved;
 }
 
+/** The origin of the remote-SPA URL a PiP loads, or null (none, unparseable, opaque). */
+function pipSpaOriginOf(url: string | null): string | null {
+  if (url === null) return null;
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
 registerIpc(
   'pip:open',
   'connection-bound',
@@ -3302,35 +3313,41 @@ registerIpc(
     // connection. Only a bound primary may open one: registerIpc admitted exactly
     // that, and the opener is the sender's own record.
     const opener = sender.record;
-    const contentProtectionEnabled = readContentProtectionPref();
-    const pip = createPipWindow(event.sender, {
-      width: opts.width || 320,
-      height: opts.height || 240,
-      minWidth: 160,
-      minHeight: 120,
-      frame: false,
-      // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
-      // visually reads as "floating glass" rather than "compact app window".
-      // On macOS this drops the standard window shadow; on Wayland and X11
-      // the compositor decides regardless. Safe on Windows (no-op).
-      hasShadow: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: true,
-      title: opts.title || 'Concord Voice PiP',
-      webPreferences: {
-        preload: path.join(__dirname, '../preload/preload.js'),
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-      },
-      backgroundColor: '#000',
-    });
-    if (!pip) return;
-    applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
     // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener's
     // PiP loads the bundled renderer whatever the remote-SPA state says.
     const pipRemoteUrl = opener.serviceId === SAAS_SERVICE_ID ? remoteUrl : null;
+    const contentProtectionEnabled = readContentProtectionPref();
+    const pip = createPipWindow(
+      event.sender,
+      {
+        width: opts.width || 320,
+        height: opts.height || 240,
+        minWidth: 160,
+        minHeight: 120,
+        frame: false,
+        // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
+        // visually reads as "floating glass" rather than "compact app window".
+        // On macOS this drops the standard window shadow; on Wayland and X11
+        // the compositor decides regardless. Safe on Windows (no-op).
+        hasShadow: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: true,
+        title: opts.title || 'Concord Voice PiP',
+        webPreferences: {
+          preload: path.join(__dirname, '../preload/preload.js'),
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        },
+        backgroundColor: '#000',
+      },
+      // Pinned on the PiP's binding: its own frame keeps pip-scoped admission
+      // across a later remote-SPA transition, as `entry.remoteSpaUrl` does below.
+      pipSpaOriginOf(pipRemoteUrl)
+    );
+    if (!pip) return;
+    applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
 
     // Load PiP route (hash-based routing)
     if (!app.isPackaged) {

@@ -124,6 +124,53 @@ describe('requireConnectionSender', () => {
   });
 });
 
+describe('a PiP is held to the remote-SPA origin main loaded it from', () => {
+  const SPA_B = 'https://spa-b.concordvoice.chat';
+  function saasPip(pinned: string | null) {
+    const s = conn(SAAS_ORIGIN, 1);
+    const wc = fakeWc(2);
+    bindSender(wc, s.record.connectionId, 'pip', pinned);
+    return { s, wc };
+  }
+
+  it('admits its own pinned origin after the remote SPA moved or went away', () => {
+    const { wc } = saasPip(SPA);
+    const e = ev(wc, main(`${SPA}/index.html#/pip/x`));
+    expect(requireConnectionSender(e, undefined, null)?.role).toBe('pip');
+    expect(requireConnectionSender(e, undefined, SPA_B)?.role).toBe('pip');
+  });
+
+  it('refuses a document of the CURRENT origin when that is not its pinned one', () => {
+    const { wc } = saasPip(SPA);
+    expect(requireConnectionSender(ev(wc, main(`${SPA_B}/`)), undefined, SPA_B)).toBeNull();
+  });
+
+  it('refuses the remote SPA in an unpinned PiP even while it is current', () => {
+    const { wc } = saasPip(null);
+    expect(requireConnectionSender(ev(wc, main(`${SPA}/`)), undefined, SPA)).toBeNull();
+    expect(
+      requireConnectionSender(ev(wc, main('app://concord/index.html')), undefined, SPA)?.role
+    ).toBe('pip');
+  });
+
+  it('admits no remote SPA for a caller that supplies no origin, pinned or not', () => {
+    const { wc } = saasPip(SPA);
+    expect(requireConnectionSender(ev(wc, main(`${SPA}/`)))).toBeNull();
+  });
+
+  it('never moves a primary onto a PiP pin: the primary keeps the current origin', () => {
+    const { s } = saasPip(SPA);
+    expect(requireConnectionSender(ev(s.wc, main(`${SPA}/`)), undefined, null)).toBeNull();
+  });
+
+  it('a pin does not let a self-hosted PiP speak from a CVNet document', () => {
+    const a = conn(A, 3);
+    const wc = fakeWc(4);
+    bindSender(wc, a.record.connectionId, 'pip', SPA);
+    expect(requireConnectionSender(ev(wc, main(`${SPA}/`)), undefined, SPA)).toBeNull();
+  });
+});
+
 describe('requireForegroundPrimary / requireSaasPrimary', () => {
   it('rejects a background primary and admits the foreground one', () => {
     const a = conn(A, 1);

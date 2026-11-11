@@ -131,6 +131,8 @@ const services = new Map<ServiceId, ServiceRecord>();
 const serviceByOrigin = new Map<string, ServiceId>();
 const connections = new Map<ConnectionId, ConnectionEntry>();
 let bindings = new WeakMap<WebContents, SenderBinding>();
+/** The remote-SPA origin main loaded each PiP from, fixed when it is bound. */
+let pipSpaOrigins = new WeakMap<WebContents, string>();
 let foregroundId: ConnectionId | null = null;
 const listeners = new Set<GenerationListener>();
 const pendingNotifications: PendingNotification[] = [];
@@ -297,8 +299,18 @@ export function openConnection(
  * unknown connection, for a webContents already bound differently, and for one
  * that is a live connection's primary unless this is that primary's own binding
  * (invariant 3). A PiP joins its opener's `record.pips`.
+ *
+ * `pipSpaOrigin` is the remote-SPA origin main loaded a PiP from (null: bundled or
+ * cached). It is written once, with the binding, and read only for role `'pip'`:
+ * the document a PiP holds is the one main loaded into it, whatever the remote-SPA
+ * state says later (`pipSpaOriginFor`). Never renderer-supplied.
  */
-export function bindSender(wc: WebContents, connectionId: ConnectionId, role: BindingRole): void {
+export function bindSender(
+  wc: WebContents,
+  connectionId: ConnectionId,
+  role: BindingRole,
+  pipSpaOrigin: string | null = null
+): void {
   const entry = connections.get(connectionId);
   if (!entry) throw new Error('bindSender: unknown connection');
   const existing = bindings.get(wc);
@@ -312,11 +324,19 @@ export function bindSender(wc: WebContents, connectionId: ConnectionId, role: Bi
     }
   }
   bindings.set(wc, Object.freeze({ connectionId, role }));
-  if (role === 'pip') entry.record.pips.add(wc);
+  if (role === 'pip') {
+    entry.record.pips.add(wc);
+    if (pipSpaOrigin !== null) pipSpaOrigins.set(wc, pipSpaOrigin);
+  }
 }
 
 export function bindingFor(wc: WebContents): SenderBinding | undefined {
   return bindings.get(wc);
+}
+
+/** The remote-SPA origin `wc` was bound with as a PiP, or null (bundled, cached, unknown). */
+export function pipSpaOriginFor(wc: WebContents): string | null {
+  return bindings.get(wc)?.role === 'pip' ? (pipSpaOrigins.get(wc) ?? null) : null;
 }
 
 export function recordFor(id: ConnectionId): ConnectionRecord | undefined {
@@ -417,7 +437,10 @@ export function disposeConnection(id: ConnectionId): void {
   record.state = 'disposed';
   if (foregroundId === id) foregroundId = null;
   bindings.delete(record.webContents);
-  for (const pip of record.pips) bindings.delete(pip);
+  for (const pip of record.pips) {
+    bindings.delete(pip);
+    pipSpaOrigins.delete(pip);
+  }
   connections.delete(id);
 }
 
@@ -439,6 +462,7 @@ export function _resetConnectionRegistryForTesting(): void {
   serviceByOrigin.clear();
   connections.clear();
   bindings = new WeakMap<WebContents, SenderBinding>();
+  pipSpaOrigins = new WeakMap<WebContents, string>();
   foregroundId = null;
   listeners.clear();
   pendingNotifications.length = 0;

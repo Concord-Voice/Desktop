@@ -20,6 +20,7 @@ import {
   boundRecordFor,
   foreground,
   getService,
+  pipSpaOriginFor,
   refOf,
   type BindingRole,
   type ConnectionRecord,
@@ -54,9 +55,26 @@ function frameUrl(frame: WebFrameMain): string | null {
 }
 
 /**
+ * The remote-SPA origin a sender's frame URL is checked against. A caller that
+ * supplies none admits no remote SPA for anyone. Otherwise a primary is checked
+ * against the CURRENT origin and a PiP against the origin main loaded it from
+ * (pinned at bind): an SPA transition changes what the main view may load next,
+ * not what an already-open PiP holds. An unpinned PiP gets null (fail closed).
+ */
+function spaOriginForSender(
+  wc: IpcMainEvent['sender'],
+  role: BindingRole,
+  remoteSpaOrigin: string | null | undefined
+): string | null {
+  if (remoteSpaOrigin === undefined) return null;
+  return role === 'pip' ? pipSpaOriginFor(wc) : remoteSpaOrigin;
+}
+
+/**
  * The admitted connection sender, or null. `roles` defaults to both; an empty
  * list admits nothing. `remoteSpaOrigin` matters only for `saas` and defaults to
- * null, so the remote SPA is admitted only when the caller supplies its origin.
+ * null, so the remote SPA is admitted only when the caller supplies its origin;
+ * a PiP is then held to its own pinned origin (`spaOriginForSender`).
  */
 export function requireConnectionSender(
   event: IpcMainEvent | IpcMainInvokeEvent,
@@ -72,7 +90,8 @@ export function requireConnectionSender(
   const service = getService(bound.record.serviceId);
   if (!service) return null;
   const url = frameUrl(frame);
-  if (url === null || !isPermittedFrameUrlForKind(url, service.kind, remoteSpaOrigin ?? null)) {
+  const spa = spaOriginForSender(event.sender, bound.role, remoteSpaOrigin);
+  if (url === null || !isPermittedFrameUrlForKind(url, service.kind, spa)) {
     return null;
   }
   return Object.freeze({
