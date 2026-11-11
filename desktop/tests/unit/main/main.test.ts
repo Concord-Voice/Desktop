@@ -507,6 +507,10 @@ const trustedIpcEvent = {
   // A main frame has parent === null (senderMainFrame refuses anything else).
   senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
 };
+// #86 Task 7B (DEV-BUILD ORIGIN ruling): main pins the saas service's origin at startup to
+// the first-party API base. This fixture is unpackaged with no CONCORD_DEV_API_BASE, so
+// saas is the dev control plane; production is just another origin here.
+const SAAS_DEV_API_BASE = 'http://localhost:8080';
 // #86 R8: pip:open admits only a bound connection PRIMARY, and the saas view's
 // contents is the one this file's window opens. Same trusted frame as above.
 const pipOpenerEvent = { sender: mockWebContents, senderFrame: trustedIpcEvent.senderFrame };
@@ -1353,9 +1357,30 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
     });
+
+    // #86 Task 7B ruling (DEV-BUILD ORIGIN): an unpackaged build's saas origin is the dev
+    // base main pinned at startup. The test above stores against it; every other origin,
+    // production included, names a different service and is refused before custody.
+    it.each(['https://api.concordvoice.chat', 'http://localhost:8081', 'https://evil.example'])(
+      'auth:storeRefreshToken from the unpackaged saas view refuses %s',
+      async (apiBase) => {
+        const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+        const { setUpdateFeedUrl } = await import('../../../src/main/updater');
+        (storeRefreshToken as Mock).mockClear();
+        (setUpdateFeedUrl as Mock).mockClear();
+        const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase,
+        });
+        expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
+        expect(storeRefreshToken).not.toHaveBeenCalled();
+        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
+      }
+    );
 
     it('auth:storeRefreshToken rejects malformed payloads', async () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
@@ -1369,7 +1394,8 @@ describe('main.ts', () => {
         apiBase: 'javascript:alert(1)',
       });
 
-      expect(result).toEqual({ status: 'rejected' });
+      // #86 D3: its origin is 'null', which names no service, so the cross-check refuses it.
+      expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
       expect(setUpdateFeedUrl).not.toHaveBeenCalled();
     });
@@ -1383,7 +1409,7 @@ describe('main.ts', () => {
 
       const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
         rememberMe: true,
-        apiBase: 'https://api.concordvoice.chat',
+        apiBase: SAAS_DEV_API_BASE,
         ...fields,
       });
 
@@ -1398,7 +1424,7 @@ describe('main.ts', () => {
       await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
         refreshToken: 'r'.repeat(8192),
         rememberMe: true,
-        apiBase: 'https://api.concordvoice.chat',
+        apiBase: SAAS_DEV_API_BASE,
       });
 
       expect(storeRefreshToken).toHaveBeenCalledTimes(1);
@@ -1422,25 +1448,23 @@ describe('main.ts', () => {
           rememberMe: true,
           apiBase: 'https://evil.example',
         });
-        expect(evil).toEqual({ status: 'rejected' });
+        // #86 D3: refused as naming another service before the payload guard runs.
+        expect(evil).toEqual({ status: 'rejected', reason: 'wrong-owner' });
         expect(storeRefreshToken).not.toHaveBeenCalled();
         expect(setUpdateFeedUrl).not.toHaveBeenCalled();
-
-        // The single SaaS control-plane origin is accepted (trailing slash too).
-        const data = {
-          refreshToken: 'tok',
-          rememberMe: true,
-          apiBase: 'https://api.concordvoice.chat/',
-        };
-        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
-        expect(storeRefreshToken).toHaveBeenCalledWith(data);
-        expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://api.concordvoice.chat/');
+        // A packaged build accepting production is pinned where the origin is decided:
+        // apiBaseUrl.test.ts ("a packaged build pins production ..."). This fixture's
+        // saas origin was fixed unpackaged at startup, and flipping isPackaged now
+        // cannot move it.
       } finally {
         app.isPackaged = false;
       }
     });
 
-    it('auth:storeRefreshToken accepts a validated self-hosted apiBase in packaged builds', async () => {
+    // #86 D3 re-point: before #86 the one global custody stored whatever validated
+    // origin the renderer named. Now the saas view's custody is saas's alone, so a
+    // validated self-hosted origin from it names a different service and is refused.
+    it('auth:storeRefreshToken refuses a validated self-hosted apiBase from the saas view (#86 D3)', async () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       const { setUpdateFeedUrl } = await import('../../../src/main/updater');
       const { _resetSelfHostedProfileForTesting, commitSelfHostedApproval } =
@@ -1459,9 +1483,10 @@ describe('main.ts', () => {
           rememberMe: true,
           apiBase: 'https://homelab.lan',
         };
-        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
-        expect(storeRefreshToken).toHaveBeenCalledWith(data);
-        expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://homelab.lan');
+        const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
+        expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
+        expect(storeRefreshToken).not.toHaveBeenCalled();
+        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
       } finally {
         app.isPackaged = false;
         _resetSelfHostedProfileForTesting();
@@ -1581,7 +1606,7 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:restoreSession')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(restoreRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -1603,7 +1628,7 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { wrappingKeyBase64: 'a', preferencesKeyBase64: 'b', wrappedPrivateKeyBase64: 'c' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeE2EEKeys).not.toHaveBeenCalled();
     });
 
@@ -1704,7 +1729,7 @@ describe('main.ts', () => {
         41
       );
 
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeE2EEKeysIfOwner).not.toHaveBeenCalled();
     });
 
@@ -1721,7 +1746,7 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:refreshToken')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(performRefresh).not.toHaveBeenCalled();
     });
 
@@ -1738,7 +1763,7 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { accessToken: 'tok' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(performLogout).not.toHaveBeenCalled();
     });
 
@@ -1762,7 +1787,7 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:clearTokens')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(clearTokens).not.toHaveBeenCalled();
     });
 
@@ -1797,7 +1822,7 @@ describe('main.ts', () => {
         41
       );
 
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(clearTokensIfOwner).not.toHaveBeenCalled();
     });
 
@@ -1819,10 +1844,21 @@ describe('main.ts', () => {
       const { getMachineId } = await import('../../../src/main/machineId');
       const result = await handlers.get('auth:getMachineId')!(trustedIpcEvent);
       expect(result).toBe('mock-machine-id');
-      expect(getMachineId).toHaveBeenCalledWith();
+      // #86: the id is per service, always the sender's own (#1618).
+      expect(getMachineId).toHaveBeenCalledWith(SAAS_DEV_API_BASE);
     });
 
-    it('auth:getMachineId returns the machine id for a validated self-hosted apiBase', async () => {
+    it('auth:getMachineId admits the saas view naming its own dev origin', async () => {
+      const { getMachineId } = await import('../../../src/main/machineId');
+      (getMachineId as Mock).mockClear();
+      const result = await handlers.get('auth:getMachineId')!(trustedIpcEvent, SAAS_DEV_API_BASE);
+      expect(result).toBe('mock-machine-id');
+      expect(getMachineId).toHaveBeenCalledWith(SAAS_DEV_API_BASE);
+    });
+
+    // #86 D3 re-point: a validated self-hosted origin named from the saas view is another
+    // service's, so it is refused before any id is read or minted.
+    it('auth:getMachineId refuses a validated self-hosted apiBase from the saas view (#86 D3)', async () => {
       const { getMachineId } = await import('../../../src/main/machineId');
       const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
       (getMachineId as Mock).mockClear();
@@ -1833,8 +1869,8 @@ describe('main.ts', () => {
         'https://homelab.lan'
       );
 
-      expect(result).toBe('mock-machine-id');
-      expect(getMachineId).toHaveBeenCalledWith('https://homelab.lan');
+      expect(result).toBe('');
+      expect(getMachineId).not.toHaveBeenCalled();
     });
 
     it('auth:getMachineId rejects untrusted sender frames', async () => {
@@ -5212,7 +5248,7 @@ describe('main.ts', () => {
       expect(klipyInterceptor).not.toBeNull();
       // #86 invariant 3: pinned to the saas service's own origin, not any host.
       expect(klipyInterceptor!.filter.urls).toEqual([
-        'https://api.concordvoice.chat/api/v1/klipy/media*',
+        'http://localhost:8080/api/v1/klipy/media*',
       ]);
     });
 
@@ -5225,7 +5261,7 @@ describe('main.ts', () => {
         (app.getVersion as Mock).mockReturnValueOnce(version);
 
         const details = {
-          url: 'https://api.concordvoice.chat/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
+          url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
           requestHeaders: {} as Record<string, string>,
         };
         const callback = vi.fn();
@@ -5250,7 +5286,7 @@ describe('main.ts', () => {
         (app.getVersion as Mock).mockReturnValueOnce(version);
 
         const details = {
-          url: 'https://api.concordvoice.chat/api/v1/klipy/media?url=test',
+          url: 'http://localhost:8080/api/v1/klipy/media?url=test',
           requestHeaders: {} as Record<string, string>,
         };
         const callback = vi.fn();
@@ -5268,7 +5304,7 @@ describe('main.ts', () => {
       (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce(null);
 
       const details = {
-        url: 'https://api.concordvoice.chat/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
+        url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
         requestHeaders: {} as Record<string, string>,
       };
       const callback = vi.fn();
@@ -5315,7 +5351,7 @@ describe('main.ts', () => {
       (tokenManager.getCachedAccessToken as Mock).mockReturnValue('test-jwt-token');
 
       const details = {
-        url: 'http://localhost:8080/api/v1/klipy/media?url=test',
+        url: 'https://api.concordvoice.chat/api/v1/klipy/media?url=test',
         requestHeaders: {} as Record<string, string>,
       };
       const callback = vi.fn();

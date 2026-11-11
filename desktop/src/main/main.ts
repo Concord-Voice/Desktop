@@ -38,7 +38,7 @@ import {
 } from './audiocapHost';
 import { registerVersionInfoIpc } from './ipc/versionInfo';
 import { buildBrowserWindowConfig } from './browserWindowConfig';
-import { PRODUCTION_API_BASE } from './apiBaseUrl';
+import { PRODUCTION_API_BASE, pinFirstPartyApiOrigin } from './apiBaseUrl';
 import { revealLoadFailure } from './loadFailureVisibility';
 import { loadWindowState, attachWindowState } from './windowState';
 import { isWayland } from './waylandDetect';
@@ -1643,7 +1643,7 @@ const createWindow = async (): Promise<void> => {
     }
   };
 
-  const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(PRODUCTION_API_BASE);
+  const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(pinFirstPartyApiOrigin());
   const opened = saas
     ? await openConnectionView(saas.serviceId, 'app://concord/index.html', loadSaasView)
     : null;
@@ -1697,7 +1697,9 @@ app.whenReady().then(async () => {
   // its service is registered: `app://` (#830) and, for `saas` only, `spa-cache://`
   // (#1870), the permission/device/HID handlers and the KLIPY injector (#626).
   // Registering `saas` here configures `defaultSession` before any window exists.
-  registerConnectionService(PRODUCTION_API_BASE);
+  // Its origin is the first-party API base main pins now, once (Task 7B ruling):
+  // production when packaged, the dev base when not. No renderer input reaches it.
+  registerConnectionService(pinFirstPartyApiOrigin());
   // Development builds only: every approved self-hosted origin, so the dev
   // Connections menu can open it. Packaged builds open nothing but `saas` until the
   // connections file restores more (#86 Task 6).

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { appendApprovalRecord, findApprovalRecord, readApprovalsFile } from './selfHostedApprovals';
 import { classifyAddress } from './egressPolicy';
+import { firstPartyApiOrigin } from './apiBaseUrl';
 import type { ServiceId } from '../shared/connectionIdentity';
 
 const SAAS_API_ORIGIN = 'https://api.concordvoice.chat';
@@ -30,7 +31,11 @@ function userDataRoot(): string {
 
 export function profileIdForApiBase(apiBase: string): string {
   const origin = originForApiBase(apiBase);
-  if (origin === SAAS_API_ORIGIN) return 'saas';
+  // The main-pinned first-party origin is `saas` too (#86 Task 7B, DEV-BUILD ORIGIN).
+  // It equals production in packaged builds; an unpackaged build pins its dev base.
+  // Storage stays origin-keyed (dirKeyForApiBase), so dev tokens keep their pre-#86
+  // `profiles/<hash>` home. Only one of the two can register: the second collides.
+  if (origin === SAAS_API_ORIGIN || origin === firstPartyApiOrigin()) return 'saas';
   return `selfhost-${hashOrigin(origin).slice(0, 16)}`;
 }
 
