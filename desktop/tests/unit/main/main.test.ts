@@ -2430,10 +2430,7 @@ describe('main.ts', () => {
       const B = bindSelfHostedPrimary('https://third.lan');
       try {
         const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://inflight.lan');
-        const refused = await handlers.get('selfHosted:probeServer')!(
-          A.event,
-          'https://other.lan'
-        );
+        const refused = await handlers.get('selfHosted:probeServer')!(A.event, 'https://other.lan');
         const third = handlers.get('selfHosted:probeServer')!(B.event, 'https://third.lan');
 
         expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
@@ -6180,6 +6177,75 @@ describe('#86 connection-isolated main semantics', () => {
         mockWebContents.send.mockClear();
       }
     });
+
+    // Two ways the saas connection can be gone: its window closed (readiness reset), or
+    // the connection disposed while its renderer had last said ready. In both the link
+    // must wait in the queue: not reach the self-hosted primary, and not be lost.
+    it.each([
+      ['its window closed', true, 'QrStUvWx'],
+      ['its connection disposed while ready', false, 'HjKmNpQr'],
+    ] as const)(
+      'with NO live saas connection (%s) a link is queued, never sent to a self-hosted primary, and reaches the first saas primary to load',
+      async (_label, windowClosed, code) => {
+        const { ipcMain } = await import('electron');
+        const onCall = (ch: string): CallbackFn => {
+          const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === ch);
+          expect(call, `ipcMain.on('${ch}') was never registered`).toBeDefined();
+          return call![1] as CallbackFn;
+        };
+        const reset = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const openUrl = appOnCallbacks.get('open-url')!;
+        const saasBinding = connectionRegistry.bindingFor(mockWebContents as never);
+        expect(saasBinding, 'the saas view is not bound').toBeTruthy();
+        const saasServiceId = connectionRegistry.recordFor(saasBinding!.connectionId)!.serviceId;
+
+        // The saas connection goes away while a self-hosted primary stays live.
+        reset();
+        if (!windowClosed) onCall('invite:renderer-ready')(saasEvent());
+        connectionRegistry.disposeConnection(saasBinding!.connectionId);
+        const S = openFakeSelfHosted('https://deeplink-nosaas.lan');
+        let reopenedId: string | null = null;
+        try {
+          expect(
+            connectionRegistry.liveConnections().some((r) => r.serviceId === saasServiceId),
+            'precondition: no live saas connection'
+          ).toBe(false);
+          mockWebContents.send.mockClear();
+
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          onCall('invite:renderer-ready')(S.event);
+          onCall('deeplink:renderer-ready')(S.event);
+          expect(S.wc.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalledWith(
+            'invite:received',
+            expect.anything()
+          );
+
+          // The first saas primary loads: opened and bound the way shellWindow does, then
+          // its renderer signals ready. The queued link reaches it, and only it.
+          const reopened = connectionRegistry.openConnection(
+            saasServiceId,
+            mockWebContents as never,
+            null
+          );
+          if (!reopened.ok) throw new Error(`saas re-open refused: ${reopened.reason}`);
+          reopenedId = reopened.record.connectionId;
+          connectionRegistry.bindSender(mockWebContents as never, reopenedId, 'primary');
+          connectionRegistry.setForeground(reopenedId);
+          onCall('invite:renderer-ready')(saasEvent());
+
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code });
+          expect(S.wc.send).not.toHaveBeenCalled();
+        } finally {
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          if (reopenedId) connectionRegistry.setForeground(reopenedId);
+          reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
   });
 
   describe('X1: a packaged build restores views onto the bundled app, not the dev server', () => {
@@ -6298,7 +6364,10 @@ describe('#86 app:getVersion is pip-scoped (the PiP SPA calls it)', () => {
     try {
       const version = app.getVersion();
       expect(version).not.toBe('');
-      const fromPip = await handlers.get('app:getVersion')!({ sender: pip, senderFrame: frame(9702) });
+      const fromPip = await handlers.get('app:getVersion')!({
+        sender: pip,
+        senderFrame: frame(9702),
+      });
       expect(fromPip).toBe(version);
       const stranger = { id: 9703, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9703 } };
       const fromStranger = await handlers.get('app:getVersion')!({
