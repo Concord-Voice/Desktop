@@ -134,6 +134,7 @@ import {
 } from './spaState';
 import {
   bindingFor,
+  boundRecordFor,
   foreground,
   getService,
   liveConnections,
@@ -3543,6 +3544,7 @@ registerIpc(
       payload,
       remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
       remoteSpaBaseDir: getRemoteSpaBaseDir(),
+      requester: event.sender,
     });
   },
   { refusal: async () => undefined }
@@ -3605,6 +3607,17 @@ if (gotTheLock) {
   app.quit();
 }
 
+/**
+ * Whether `contents` is the live saas connection's own primary view (#86 RT3). A
+ * did-fail-load is evidence about its own contents only, and self-heal reloads the
+ * saas view and can clear the app-wide remote-SPA origin, so a self-hosted view, a
+ * PiP or an unbound contents must not reach it. Resolved at each event.
+ */
+function isLiveSaasPrimary(contents: WebContents): boolean {
+  const bound = boundRecordFor(contents);
+  return bound?.role === 'primary' && bound.record.serviceId === SAAS_SERVICE_ID;
+}
+
 // Security: validate navigation and window.open on EVERY web contents (#754, #86 §3.3).
 // installNavigationGate resolves the contents' connection binding at each event:
 // a bound view may navigate only to the targets of its connection kind (packaged:
@@ -3623,13 +3636,16 @@ app.on('web-contents-created', (_, contents) => {
   contents.on(
     'did-fail-load',
     (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
-      void handleDidFailLoad({
-        errorCode,
-        validatedURL,
-        isMainFrame,
-        remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
-        remoteSpaBaseDir: getRemoteSpaBaseDir(),
-      });
+      if (isLiveSaasPrimary(contents)) {
+        void handleDidFailLoad({
+          errorCode,
+          validatedURL,
+          isMainFrame,
+          remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+          remoteSpaBaseDir: getRemoteSpaBaseDir(),
+          requester: contents,
+        });
+      }
       if (isMainFrame && validatedURL === 'app://concord/index.html' && errorCode !== -3) {
         revealLoadFailure(shellWindow(), 'Could not load application — please reinstall');
       }

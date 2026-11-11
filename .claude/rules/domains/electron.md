@@ -1145,6 +1145,23 @@ slot, or the refusal would lock that provider until restart. Do not "simplify" t
 a supersede. `sso:appleCancel` / `sso:googleCancel` stay `connection-bound` and owner-only. Pinned by `tests/unit/main/ipc/ssoCrossConnection.test.ts`, which runs the real
 flow modules; see ADR-0051 § "Accepted security findings and their fixes".
 
+**SPA self-heal acts only on evidence from the saas view itself (#86 RT3).** Self-heal reloads
+the saas view and, on its second trigger, loads the bundled app there and calls
+`setRemoteSpaState(null)`, which also destroys every PiP pinned to the SPA origin. A
+`did-fail-load` describes ITS OWN contents only, so the global `web-contents-created` listener in
+`main.ts` calls `handleDidFailLoad` only when `isLiveSaasPrimary(contents)` (`boundRecordFor`:
+the live saas record's own primary, never a self-hosted view, a PiP or an unbound contents). As
+defence in depth `attemptSelfHeal` takes the `requester` (`contents`, or `event.sender` for
+`spa:requestSelfHeal`) and returns `noop` unless it IS the saas view it would recover, checked
+before the in-flight join so a refusal cannot take the slot; the view checked is the view
+recovered (one lookup). The filter in `spaSelfHealMainFrame.ts` is main-frame only: a subframe
+`did-fail-load` at `<baseDir>assets/` could only come from a document framing the SPA origin
+(the founding case: a self-hosted page's `<iframe src="https://spa.concordvoice.chat/assets/x.js">`,
+refused by CSP / `X-Frame-Options` and reported on the ATTACKER's contents), and chunk failures
+reach self-heal through `spa:requestSelfHeal` instead. Do not restore the subframe branch, and do
+not key the gate on the URL. Pinned by `main.test.ts` § "RT3", `spaSelfHeal.test.ts` (requester
+refusal) and `spaSelfHealMainFrame.test.ts`.
+
 **The `registerIpc` rule.** `registerIpc(channel, class, handler, opts)` is the only sanctioned
 `ipcMain` caller. It throws, registering nothing, for a channel absent from `CHANNEL_CLASSES`
 (`src/main/ipc/channelClassification.ts`), for a class that differs from the table's, and for a

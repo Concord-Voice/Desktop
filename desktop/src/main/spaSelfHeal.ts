@@ -57,6 +57,12 @@ export interface SelfHealRequest {
   reason: SelfHealReason;
   url?: string;
   errorCode?: number;
+  /**
+   * The contents the failure was observed in (did-fail-load) or that asked
+   * (spa:requestSelfHeal). Recovery reloads the saas view and can clear the
+   * app-wide remote-SPA origin, so it runs only when this IS that view (#86 RT3).
+   */
+  requester: Electron.WebContents;
 }
 
 export interface SelfHealOutcome {
@@ -144,8 +150,8 @@ async function attemptRemoteLoad(wc: Electron.WebContents, url: string): Promise
   }
 }
 
-async function performRecovery(_reason: SelfHealReason): Promise<SelfHealOutcome> {
-  const wc = getPrimaryWebContents();
+/** `wc` is the saas view attemptSelfHeal checked the requester against (#86 RT3). */
+async function performRecovery(wc: Electron.WebContents | null): Promise<SelfHealOutcome> {
   if (!wc) {
     // No window to recover — could be a transient race (window destroyed
     // mid-attempt) or early-startup before any window exists. Log and noop
@@ -214,9 +220,20 @@ async function performRecovery(_reason: SelfHealReason): Promise<SelfHealOutcome
 }
 
 export function attemptSelfHeal(req: SelfHealRequest): Promise<SelfHealOutcome> {
+  // #86 RT3: a failure seen in another connection's view (or a PiP) is not evidence
+  // that the saas view's SPA is broken, and must not reload it or drop it to bundled.
+  // Checked before the in-flight join, so a refused request neither starts a recovery
+  // nor takes the slot a genuine trigger would then collapse into. With no saas view
+  // at all, performRecovery's no-window noop handles it and preserves the budget.
+  const target = getPrimaryWebContents();
+  if (target !== null && req.requester !== target) {
+    console.warn('[spaSelfHeal] noop — requester is not the saas view (retry budget preserved)');
+    return Promise.resolve({ mode: 'noop', retryCount });
+  }
   if (inFlight) return inFlight;
 
-  inFlight = performRecovery(req.reason).finally(() => {
+  // The view checked above is the view recovered: one resolution, no second lookup.
+  inFlight = performRecovery(target).finally(() => {
     inFlight = null;
   });
   return inFlight;

@@ -7045,6 +7045,119 @@ describe('#86 connection-isolated main semantics', () => {
       expect(value).toContain('app://concord/index.html');
     });
   });
+
+  // #86 RT3 (Phase-4 red-team HEAL-1). Self-heal reloads the saas view and, on its second
+  // trigger, drops it to bundled and clears the app-wide remote-SPA origin (which destroys
+  // CVNet's pinned PiPs). A did-fail-load is evidence about its OWN contents only, so a
+  // self-hosted view framing an SPA asset must not reach it.
+  describe('RT3: SPA self-heal acts only on a failed load in the saas view', () => {
+    const SPA_URL = 'https://spa.concordvoice.chat/index.html';
+    const SPA_ORIGIN = 'https://spa.concordvoice.chat';
+
+    function didFailLoadOf(contents: { on: Mock }): (...args: unknown[]) => void {
+      const created = appOnCallbacks.get('web-contents-created');
+      expect(created).toBeDefined();
+      const first = contents.on.mock.calls.length;
+      created!({}, contents);
+      const call = contents.on.mock.calls.slice(first).find((c) => c[0] === 'did-fail-load');
+      expect(call).toBeDefined();
+      return call![1] as (...args: unknown[]) => void;
+    }
+
+    async function withSelfHealState(
+      body: (markPackaged: () => void) => Promise<void>
+    ): Promise<void> {
+      const { setRemoteSpaState } = await import('../../../src/main/spaState');
+      const { __resetSelfHealState } = await import('../../../src/main/spaSelfHeal');
+      const { app } = await import('electron');
+      const testApp = app as unknown as { isPackaged: boolean };
+      __resetSelfHealState();
+      setRemoteSpaState(SPA_URL); // CVNet is on the remote SPA (the packaged saas default)
+      try {
+        // isPackaged gates the bundled fallback; the body sets it once its PiP is open.
+        await body(() => {
+          testApp.isPackaged = true;
+        });
+      } finally {
+        testApp.isPackaged = false;
+        setRemoteSpaState(null);
+        __resetSelfHealState();
+      }
+    }
+
+    it("a self-hosted view's own failed subframe load does not reload or re-home the saas view", async () => {
+      const { getRemoteSpaBaseUrl } = await import('../../../src/main/spaState');
+      const { resolveSpaSource } = await import('../../../src/main/spaLoader');
+      const evil = openFakeSelfHosted('https://evil-selfhost.example');
+      Object.assign(evil.wc, { setWindowOpenHandler: vi.fn() });
+      expect(connectionRegistry.foreground()?.connectionId).not.toBe(evil.record.connectionId);
+      const warn = vi.spyOn(console, 'warn');
+      const closers: Array<() => void> = [];
+      try {
+        await withSelfHealState(async (markPackaged) => {
+          // CVNet's own pop-out, pinned to the SPA origin.
+          const firstPipOn = mockPipWindow.on.mock.calls.length;
+          await handlers.get('pip:open')!(saasEvent() as never, { id: 'controls-main' });
+          for (const call of mockPipWindow.on.mock.calls.slice(firstPipOn)) {
+            if (call[0] === 'closed') closers.push(call[1] as () => void);
+          }
+          expect(closers.length).toBeGreaterThan(0);
+          markPackaged();
+          const didFailLoad = didFailLoadOf(evil.wc);
+          mockWebContents.loadURL.mockClear();
+          mockPipWindow.destroy.mockClear();
+          warn.mockClear();
+          // No *Once fixture: a refused trigger never reads one, and it would leak.
+          const resolveCallsBefore = (resolveSpaSource as Mock).mock.calls.length;
+          // The attacker renderer inserts <iframe src="https://spa.concordvoice.chat/assets/x.js">.
+          // Chromium refuses the frame and reports it on the attacker's OWN webContents.
+          didFailLoad({}, -30, 'ERR_BLOCKED_BY_CSP', `${SPA_ORIGIN}/assets/redteam-1.js`, false);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          didFailLoad(
+            {},
+            -27,
+            'ERR_BLOCKED_BY_RESPONSE',
+            `${SPA_ORIGIN}/assets/redteam-2.js`,
+            false
+          );
+          // A main-frame failure at the SPA URL in the attacker's view is refused too.
+          didFailLoad({}, -105, 'ERR_NAME_NOT_RESOLVED', SPA_URL, true);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          expect({
+            cvnetViewLoads: mockWebContents.loadURL.mock.calls.map((call) => call[0]),
+            remoteSpaOrigin: getRemoteSpaBaseUrl(),
+            cvnetPipsDestroyed: mockPipWindow.destroy.mock.calls.length,
+            resolveSpaSourceCalls:
+              (resolveSpaSource as Mock).mock.calls.length - resolveCallsBefore,
+            // The main.ts gate refuses before self-heal is reached at all.
+            selfHealLogs: warn.mock.calls.filter((c) => String(c[0]).startsWith('[spaSelfHeal]')),
+          }).toEqual({
+            cvnetViewLoads: [],
+            remoteSpaOrigin: SPA_ORIGIN,
+            cvnetPipsDestroyed: 0,
+            resolveSpaSourceCalls: 0,
+            selfHealLogs: [],
+          });
+        });
+      } finally {
+        warn.mockRestore();
+        for (const close of closers) close();
+        connectionRegistry.disposeConnection(evil.record.connectionId);
+      }
+    });
+
+    it("control: a main-frame SPA load failure in the saas view's own primary still self-heals", async () => {
+      const { resolveSpaSource } = await import('../../../src/main/spaLoader');
+      await withSelfHealState(async () => {
+        const didFailLoad = didFailLoadOf(mockWebContents);
+        mockWebContents.loadURL.mockClear();
+        (resolveSpaSource as Mock).mockResolvedValueOnce({ mode: 'remote', url: SPA_URL });
+        didFailLoad({}, -105, 'ERR_NAME_NOT_RESOLVED', SPA_URL, true);
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        expect(mockWebContents.loadURL.mock.calls.map((call) => call[0])).toEqual([SPA_URL]);
+      });
+    });
+  });
 });
 
 // #86 exit criterion S2 (Task 7B pass 2). Keys staged through auth:storeE2EEKeys land in

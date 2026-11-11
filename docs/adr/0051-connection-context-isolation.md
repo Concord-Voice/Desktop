@@ -406,6 +406,28 @@ that provider is refused until then; the reloaded owner can restart its own flow
 unverified relay lead in the red-team report (a self-hosted server replaying CVNet's
 `state`/id_token at CVNet's `/session`) is server-side and predates #86.
 
+**RT3 — A self-hosted view could reload the saas view and then drop it to the bundled app
+(MEDIUM, Phase-4 red-team).** The global `web-contents-created` hook wired `did-fail-load` to
+`handleDidFailLoad` on every contents with no connection check, the filter looked only at the
+URL, and recovery always targets the saas view. A self-hosted page inserting
+`<iframe src="https://spa.concordvoice.chat/assets/x.js">` is refused by Chromium and reported on
+its OWN contents as a subframe `did-fail-load`; the first event reloaded CVNet's view (dropping a
+call or a share), the second loaded `app://concord/index.html` there and nulled the remote-SPA
+origin, destroying CVNet's PiPs and exhausting self-heal for the session. No IPC admission was
+involved, so a background view could do it. Fix:
+
+- `main.ts` calls `handleDidFailLoad` only when `isLiveSaasPrimary(contents)` (`boundRecordFor`
+  names the live saas record's own primary).
+- Defence in depth: `attemptSelfHeal` takes the `requester` and returns `noop` unless it is the
+  saas view it would recover, before the in-flight join; `spa:requestSelfHeal` passes
+  `event.sender`.
+- The `did-fail-load` filter is main-frame only. The subframe branch was reachable only by a
+  document framing the SPA origin; no legitimate frame does, and the SPA's chunk failures use
+  `spa:requestSelfHeal`.
+
+**Residual (RT3):** a failed load in a saas PiP no longer triggers self-heal of the main saas
+view; the PiP's own document is not recovered by it either way.
+
 ### The development-build `saas` origin pin
 
 The `saas` service's API origin is resolved once, in main, by `pinFirstPartyApiOrigin()`
@@ -431,6 +453,7 @@ Each row is a security decision taken in review. The table of record is
 |---|---|---|
 | `audiocap:start` | `app-global-mutate` | S-1 |
 | `sso:appleSignIn`, `sso:googleSignIn` | `app-global-mutate`; the handler also refuses while another connection owns that provider's flow | RT2, RT1 |
+| `spa:requestSelfHeal` (and the `did-fail-load` self-heal trigger, no channel) | `connection-bound`; `attemptSelfHeal` acts only when the requester is the saas view, and `did-fail-load` reaches it only from the saas primary's main frame | RT3 |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
