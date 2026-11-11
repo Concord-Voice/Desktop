@@ -498,9 +498,12 @@ vi.mock('../../../src/main/billing/billingWindow', () => ({
 type HandlerFn = (...args: unknown[]) => unknown;
 type CallbackFn = (...args: unknown[]) => void;
 let handlers: Map<string, HandlerFn>;
+// #86 7B: the saas view's own main frame. Handlers registered through registerIpc
+// admit only a bound connection sender, so the trusted fixture is the bound saas view.
 const trustedIpcEvent = {
-  sender: { id: 41 },
-  senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 41 },
+  sender: mockWebContents,
+  // A main frame has parent === null (senderMainFrame refuses anything else).
+  senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
 };
 // #86 R8: pip:open admits only a bound connection PRIMARY, and the saas view's
 // contents is the one this file's window opens. Same trusted frame as above.
@@ -1326,10 +1329,7 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       const { setUpdateFeedUrl } = await import('../../../src/main/updater');
       const data = { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' };
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
       expect(result).toBe(41);
       expect(storeRefreshToken).toHaveBeenCalledWith(data);
       expect(setUpdateFeedUrl).toHaveBeenCalledWith('http://localhost:8080');
@@ -1352,10 +1352,11 @@ describe('main.ts', () => {
       (storeRefreshToken as Mock).mockClear();
       (setUpdateFeedUrl as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { refreshToken: 'tok', rememberMe: true, apiBase: 'javascript:alert(1)' }
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'javascript:alert(1)',
+      });
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
@@ -1369,10 +1370,11 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       (storeRefreshToken as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { rememberMe: true, apiBase: 'https://api.concordvoice.chat', ...fields }
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        rememberMe: true,
+        apiBase: 'https://api.concordvoice.chat',
+        ...fields,
+      });
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
@@ -1382,14 +1384,11 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       (storeRefreshToken as Mock).mockClear();
 
-      await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        {
-          refreshToken: 'r'.repeat(8192),
-          rememberMe: true,
-          apiBase: 'https://api.concordvoice.chat',
-        }
-      );
+      await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'r'.repeat(8192),
+        rememberMe: true,
+        apiBase: 'https://api.concordvoice.chat',
+      });
 
       expect(storeRefreshToken).toHaveBeenCalledTimes(1);
     });
@@ -1407,10 +1406,11 @@ describe('main.ts', () => {
       app.isPackaged = true;
       try {
         // Attacker host rejected even with a trusted frame + well-formed https URL.
-        const evil = await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'https://evil.example' }
-        );
+        const evil = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase: 'https://evil.example',
+        });
         expect(evil).toEqual({ status: 'rejected' });
         expect(storeRefreshToken).not.toHaveBeenCalled();
         expect(setUpdateFeedUrl).not.toHaveBeenCalled();
@@ -1421,10 +1421,7 @@ describe('main.ts', () => {
           rememberMe: true,
           apiBase: 'https://api.concordvoice.chat/',
         };
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          data
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
         expect(storeRefreshToken).toHaveBeenCalledWith(data);
         expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://api.concordvoice.chat/');
       } finally {
@@ -1451,10 +1448,7 @@ describe('main.ts', () => {
           rememberMe: true,
           apiBase: 'https://homelab.lan',
         };
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          data
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
         expect(storeRefreshToken).toHaveBeenCalledWith(data);
         expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://homelab.lan');
       } finally {
@@ -1571,7 +1565,7 @@ describe('main.ts', () => {
       (restoreRefreshToken as Mock).mockClear();
       (performRefresh as Mock).mockClear();
 
-      const event = { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } };
+      const event = trustedIpcEvent;
       await handlers.get('auth:restoreSession')!(event);
       await handlers.get('auth:restoreSession')!(event);
 
@@ -1596,10 +1590,7 @@ describe('main.ts', () => {
         preferencesKeyBase64: 'b',
         wrappedPrivateKeyBase64: 'c',
       };
-      await handlers.get('auth:storeE2EEKeys')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data
-      );
+      await handlers.get('auth:storeE2EEKeys')!(trustedIpcEvent, data);
       expect(storeE2EEKeys).toHaveBeenCalledWith(data);
     });
 
@@ -1618,10 +1609,11 @@ describe('main.ts', () => {
       const { storeE2EEKeys } = await import('../../../src/main/tokenManager');
       (storeE2EEKeys as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeE2EEKeys')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { wrappingKeyBase64: 'a', preferencesKeyBase64: 42, wrappedPrivateKeyBase64: 'c' }
-      );
+      const result = await handlers.get('auth:storeE2EEKeys')!(trustedIpcEvent, {
+        wrappingKeyBase64: 'a',
+        preferencesKeyBase64: 42,
+        wrappedPrivateKeyBase64: 'c',
+      });
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeE2EEKeys).not.toHaveBeenCalled();
@@ -1635,11 +1627,7 @@ describe('main.ts', () => {
         wrappedPrivateKeyBase64: 'c',
       };
 
-      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data,
-        41
-      );
+      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(trustedIpcEvent, data, 41);
 
       expect(result).toBe(true);
       expect(storeE2EEKeysIfOwner).toHaveBeenCalledWith(data, 41);
@@ -1659,11 +1647,7 @@ describe('main.ts', () => {
         [field]: 'k'.repeat(length),
       };
 
-      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data,
-        41
-      );
+      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(trustedIpcEvent, data, 41);
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeE2EEKeysIfOwner).not.toHaveBeenCalled();
@@ -1674,7 +1658,7 @@ describe('main.ts', () => {
       (storeE2EEKeysIfOwner as Mock).mockClear();
 
       await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         {
           wrappingKeyBase64: 'k'.repeat(1024),
           preferencesKeyBase64: 'k'.repeat(1024),
@@ -1691,7 +1675,7 @@ describe('main.ts', () => {
       (storeE2EEKeysIfOwner as Mock).mockClear();
 
       const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         {
           wrappingKeyBase64: 'a',
           preferencesKeyBase64: 'b',
@@ -1741,10 +1725,7 @@ describe('main.ts', () => {
 
     it('auth:logout delegates to performLogout', async () => {
       const { performLogout } = await import('../../../src/main/tokenManager');
-      await handlers.get('auth:logout')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { accessToken: 'tok' }
-      );
+      await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
       expect(performLogout).toHaveBeenCalledWith('tok');
     });
 
@@ -1762,10 +1743,7 @@ describe('main.ts', () => {
     it('auth:logout rejects malformed payloads', async () => {
       const { performLogout } = await import('../../../src/main/tokenManager');
       (performLogout as Mock).mockClear();
-      const result = await handlers.get('auth:logout')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { accessToken: 42 }
-      );
+      const result = await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 42 });
       expect(result).toEqual({ status: 'rejected' });
       expect(performLogout).not.toHaveBeenCalled();
     });
@@ -1791,14 +1769,8 @@ describe('main.ts', () => {
     it('auth:clearTokensIfOwner delegates conditional credential clearing', async () => {
       const { clearTokensIfOwner } = await import('../../../src/main/tokenManager');
 
-      const cleared = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        41
-      );
-      const preserved = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        40
-      );
+      const cleared = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 41);
+      const preserved = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 40);
 
       expect(cleared).toBe(true);
       expect(preserved).toBe(false);
@@ -1810,10 +1782,7 @@ describe('main.ts', () => {
       const { clearTokensIfOwner } = await import('../../../src/main/tokenManager');
       (clearTokensIfOwner as Mock).mockClear();
 
-      const result = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        Number.NaN
-      );
+      const result = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, Number.NaN);
 
       expect(result).toEqual({ status: 'rejected' });
       expect(clearTokensIfOwner).not.toHaveBeenCalled();
@@ -1864,7 +1833,7 @@ describe('main.ts', () => {
       commitSelfHostedApproval('https://homelab.lan', '10.0.0.5');
 
       const result = await handlers.get('auth:getMachineId')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://homelab.lan'
       );
 
@@ -1889,7 +1858,7 @@ describe('main.ts', () => {
       });
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://homelab.lan'
       );
 
@@ -2045,7 +2014,7 @@ describe('main.ts', () => {
       } as never);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://metadata.invalid'
       );
 
@@ -2069,7 +2038,7 @@ describe('main.ts', () => {
       mockShowMessageBox.mockResolvedValueOnce({ response: 0 });
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://declined.lan'
       );
 
@@ -2105,7 +2074,7 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockResolvedValueOnce(failure);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://not-concord.lan'
       );
 
@@ -2130,10 +2099,7 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockResolvedValue(ok);
 
       expect(
-        await handlers.get('selfHosted:probeServer')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          'https://real.lan'
-        )
+        await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://real.lan')
       ).toEqual(ok);
       expect(isValidatedSelfHostedApiBase('https://real.lan')).toBe(true);
       expect(approvalStore.records).toHaveLength(1);
@@ -2145,10 +2111,7 @@ describe('main.ts', () => {
       approvalStore.failAppend = true;
       try {
         expect(
-          await handlers.get('selfHosted:probeServer')!(
-            { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-            'https://unwritable.lan'
-          )
+          await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://unwritable.lan')
         ).toEqual({
           status: 'error',
           code: 'approval_not_saved',
@@ -2170,14 +2133,8 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockClear();
       (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok' });
 
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://approved.lan'
-      );
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://approved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://approved.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://approved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1); // rarity: once per origin
       expect(isValidatedSelfHostedApiBase('https://approved.lan')).toBe(true);
@@ -2202,10 +2159,7 @@ describe('main.ts', () => {
         addresses: ['203.0.113.10'],
         decision: { tier: 'public' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://moved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://moved.lan');
       expect(approvalStore.records).toEqual([
         expect.objectContaining({ tierAtApproval: 'public' }),
       ]);
@@ -2219,10 +2173,7 @@ describe('main.ts', () => {
         addresses: ['10.0.0.5'],
         decision: { tier: 'tier2', reason: 'private' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://moved.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://moved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
       expect(approvalStore.records).toHaveLength(2);
@@ -2248,15 +2199,9 @@ describe('main.ts', () => {
         decision: { tier: 'public' },
       } as never;
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://steady.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://steady.lan');
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        'https://steady.lan'
-      );
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://steady.lan');
 
       // Rarity invariant: an approved origin produces no prompt on repeat connect.
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
@@ -3567,10 +3512,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:logout')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { accessToken: 'tok' }
-        );
+        await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3593,10 +3535,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        const cleared = await handlers.get('auth:clearTokensIfOwner')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          41
-        );
+        const cleared = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 41);
         expect(cleared).toBe(true);
 
         const releaseCarry = await armDeepLinkCarryForTest();
@@ -3630,10 +3569,7 @@ describe('main.ts', () => {
           const held = TEN_CODES.slice(0, 3);
           for (const code of held) deliverDeepLink(`concord://invite/${code}`);
 
-          await handlers.get('auth:logout')!(
-            { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-            { accessToken: 'tok' }
-          );
+          await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
 
           // An ORDINARY reload — no carry armed. If `held` had survived the
           // logout it would be re-queued here regardless, and the drain below
@@ -3662,10 +3598,9 @@ describe('main.ts', () => {
         const logoutPost = deferred<void>();
         (performLogout as Mock).mockImplementationOnce(() => logoutPost.promise);
 
-        const handlerPromise = handlers.get('auth:logout')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { accessToken: 'tok' }
-        );
+        const handlerPromise = handlers.get('auth:logout')!(trustedIpcEvent, {
+          accessToken: 'tok',
+        });
 
         // The POST is still in flight — the forget must already have run.
         const releaseCarry = await armDeepLinkCarryForTest();
@@ -4334,10 +4269,11 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase: 'http://localhost:8080',
+        });
 
         // A's teardown on an old SPA tells main nothing; B signs in; swap.
         (getCredentialCustodyState as Mock).mockReturnValue({
@@ -4372,10 +4308,11 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase: 'http://localhost:8080',
+        });
         signalInviteReady(rendererEvent);
 
         expect(
@@ -5211,7 +5148,7 @@ describe('main.ts', () => {
       // The restoreSession handler caches its promise — calling it twice
       // should return the same result without re-invoking performRefresh.
       const handler = handlers.get('auth:restoreSession')!;
-      const event = { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } };
+      const event = trustedIpcEvent;
       const result1 = await handler(event);
       const result2 = await handler(event);
       expect(result1).toEqual(result2);
@@ -5898,13 +5835,13 @@ describe('#86 connection-isolated main semantics', () => {
     return {
       wc,
       record: opened.record,
-      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId } },
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
     };
   }
 
   const saasEvent = () => ({
     sender: mockWebContents,
-    senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+    senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
   });
 
   describe('app:setBadgeCount is a per-connection sum', () => {

@@ -7,8 +7,13 @@ import { registerSSOIPC } from './ipc/sso';
 import { cancelActiveAppleFlow } from './oauth/apple/appleFlow';
 import { cancelActiveGoogleFlow } from './oauth/google/googleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
-import { registerConnectionIpc, type ConnectionCeremonyVerdict } from './ipc/connection';
-import { setRemoteSpaOriginSource } from './ipc/registry';
+import {
+  openApprovedConnection,
+  registerConnectionIpc,
+  type ConnectionCeremonyVerdict,
+} from './ipc/connection';
+import { registerIpc, setRemoteSpaOriginSource } from './ipc/registry';
+import { crossCheckApiBase, type ConnectionSender } from './ipc/connectionSender';
 import { registerAudiocapIpc } from './ipc/audiocap';
 import { registerBillingIpc } from './ipc/billing';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
@@ -61,13 +66,7 @@ import fs from 'node:fs';
 // names an API base uses custodyForApiBase; one that names none uses the active
 // custody (liveCustody), or no custody at all. Task 7B replaces all of these with
 // the sender's own custody.
-import {
-  custodyFor,
-  custodyForApiBase,
-  liveCustody,
-  restoreTargetCustody,
-  setProactiveRefreshCallback,
-} from './tokenManager';
+import { custodyFor, liveCustody, setProactiveRefreshCallback } from './tokenManager';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
@@ -136,8 +135,10 @@ import { isPermittedFrameUrl, requireTrustedSender } from './ipc/frameValidation
 import {
   bindingFor,
   boundRecordFor,
+  foreground,
   getService,
   liveConnections,
+  onGenerationAdvanced,
   recordFor,
   refOf,
   registerService,
@@ -1576,7 +1577,8 @@ const createWindow = async (): Promise<void> => {
       resetDeepLinkDelivery();
     },
     wireView: wireConnectionView,
-    devConnectionUrl: DEV_SERVER_URL,
+    // X1 (#86): a packaged build restores views onto the bundled app, never the dev server.
+    devConnectionUrl: app.isPackaged ? 'app://concord/index.html' : DEV_SERVER_URL,
   });
 
   if (savedState.isMaximized) {
@@ -2333,12 +2335,32 @@ ipcMain.handle('app:quit', () => {
 // the payload shape. Each refusal is a silent no-op, as before for bad input.
 const MAX_BADGE_COUNT = 9999;
 
-ipcMain.handle('app:setBadgeCount', (event, count: unknown) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return;
+// #86: one count per connection, shown as their sum, so a connection's badge is only
+// ever its own share. A disposed connection's share leaves the sum with it.
+const badgeByConnection = new Map<ConnectionRef['connectionId'], number>();
+
+function applyBadgeTotal(): void {
+  let sum = 0;
+  for (const count of badgeByConnection.values()) sum += count;
   // A real total can exceed the cap (it sums every channel and DM); clamp, don't drop.
-  app.setBadgeCount(Math.min(count, MAX_BADGE_COUNT));
+  app.setBadgeCount(Math.min(sum, MAX_BADGE_COUNT));
+}
+
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason !== 'disposed' || !badgeByConnection.delete(id)) return;
+  applyBadgeTotal();
 });
+
+registerIpc(
+  'app:setBadgeCount',
+  'connection-bound',
+  (sender, _event, count: unknown) => {
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return;
+    badgeByConnection.set(sender.ref.connectionId, Math.min(count, MAX_BADGE_COUNT));
+    applyBadgeTotal();
+  },
+  { refusal: () => undefined }
+);
 
 ipcMain.handle('app:flashFrame', (event, flash: unknown) => {
   if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
@@ -2469,9 +2491,9 @@ export async function requestSelfHostedApproval(
   return response === 1;
 }
 
-// One probe at a time per webContents (the set is keyed on event.sender.id, so the
-// bound is PER-FRAME, not process-global). This is a REJECTING single-flight, not the
-// promise-sharing kind used by restoreSessionPromise / spaSelfHeal: two concurrent
+// One probe at a time per CONNECTION (#86: keyed on the main-held binding, never on
+// anything the renderer supplies). This is a REJECTING single-flight, not the
+// promise-sharing kind used by the restoreSession dedupe / spaSelfHeal: two concurrent
 // probes of DIFFERENT urls must never share one result.
 //
 // It gates the whole handler because resolveForDisplay's dns.lookup is a
@@ -2479,51 +2501,70 @@ export async function requestSelfHostedApproval(
 // concurrent probes of unresolvable names queue N getaddrinfo jobs against those
 // slots and head-of-line-block every async fs operation in the main process —
 // credential IO and the approvals-file read included — with zero dialogs shown.
-// The threadpool is process-global while this bound is not, so the protection rests
-// on there being one auth window and the renderer having no way to mint another.
+// The threadpool is process-global while this bound is per connection, so the
+// protection rests on each renderer holding at most one probe and the number of
+// connections being capped (MAX_LIVE_CONNECTIONS) and user-approved.
 // A per-request timeout (resolveForDisplay's race) does not free the slot; only
 // not starting the lookup does. ServerInput already disables Connect while busy,
 // so the refused concurrency has no legitimate caller.
-const probesInFlight = new Set<number>();
+const probesInFlight = new Set<ConnectionRef['connectionId']>();
 
-ipcMain.handle('selfHosted:probeServer', async (event, url: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[selfHosted:probeServer] rejected — sender frame validation failed');
-    return {
-      status: 'error',
-      code: 'rejected',
-      message: 'Self-hosted server probing is not available from this frame.',
-    };
-  }
-  // Set synchronously, before the handler's first await, so a burst dispatched in
-  // one tick cannot all observe an empty set.
-  // Fail closed rather than collapsing an unidentifiable sender into a shared bucket.
-  // `?? -1` would put every such caller on one key, so unrelated frames would refuse
-  // each other's probes as 'busy'. Electron populates `sender` for every ipcMain.handle
-  // today; this guards the refactor or harness where it does not. `rejected`, not
-  // `busy` — 'busy' is a transient retryable state and this is not transient.
-  const senderId = event.sender?.id;
-  if (senderId === undefined) {
-    console.warn('[selfHosted:probeServer] rejected — the invoke event carried no sender id');
-    return {
-      status: 'error',
-      code: 'rejected',
-      message: 'Self-hosted server probing is not available from this frame.',
-    };
-  }
-  if (probesInFlight.has(senderId)) {
-    console.warn('[selfHosted:probeServer] refused — a probe is already in flight');
-    return { status: 'error', code: 'busy', message: '' };
-  }
-  probesInFlight.add(senderId);
-  try {
-    return await handleProbeSelfHostedServer(url);
-  } finally {
-    probesInFlight.delete(senderId);
-  }
-});
+function probeRejected(): SelfHostedProbeResult {
+  return {
+    status: 'error',
+    code: 'rejected',
+    message: 'Self-hosted server probing is not available from this frame.',
+  };
+}
 
-async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProbeResult> {
+registerIpc(
+  'selfHosted:probeServer',
+  'connection-bound',
+  async (sender, _event, url: unknown): Promise<SelfHostedProbeResult> => {
+    // Set synchronously, before the handler's first await, so a burst dispatched in
+    // one tick cannot all observe an empty set.
+    const key = sender.ref.connectionId;
+    if (probesInFlight.has(key)) {
+      console.warn('[selfHosted:probeServer] refused — a probe is already in flight');
+      return { status: 'error', code: 'busy', message: '' };
+    }
+    probesInFlight.add(key);
+    try {
+      return await handleProbeSelfHostedServer(url, sender);
+    } finally {
+      probesInFlight.delete(key);
+    }
+  },
+  { refusal: async () => probeRejected() }
+);
+
+/**
+ * #86: a probe of the sender's OWN service returns as before. A successful probe of
+ * any OTHER origin opens that origin in its own connection and activates it, so the
+ * probing view (saas included) is never re-homed and receives no apiBase to load.
+ */
+async function settleProbe(
+  sender: ConnectionSender,
+  apiBase: string,
+  result: SelfHostedProbeResult
+): Promise<SelfHostedProbeResult> {
+  if (result?.status !== 'ok') return result;
+  const origin = new URL(apiBase).origin;
+  if (origin === sender.service.origin) return result;
+  if (!isSenderCurrent(sender)) return probeRejected();
+  const opened = await openApprovedConnection(sender, origin);
+  if (opened.status !== 'opened') {
+    // Closed enum only: never the origin.
+    console.warn(`[selfHosted:probeServer] not opened in a connection (${opened.reason})`);
+    return probeRejected();
+  }
+  return { status: 'opened-in-connection', serviceId: opened.serviceId };
+}
+
+async function handleProbeSelfHostedServer(
+  url: unknown,
+  sender: ConnectionSender
+): Promise<SelfHostedProbeResult> {
   if (typeof url !== 'string') {
     return {
       status: 'error',
@@ -2557,6 +2598,9 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
     approvalTier === null || (resolved.decision.tier === 'tier2' && approvalTier !== 'tier2');
 
   if (needsApproval) {
+    // The dialog speaks for the view the user is looking at: a hidden connection's
+    // view never raises it (#86).
+    if (!isForegroundSender(sender)) return probeRejected();
     // Rations the DIALOG, not the probe: an approved origin never reaches this
     // branch, so re-probing it stays unthrottled. The token is taken before the
     // modal opens because a declined ceremony cost the user the same interruption
@@ -2574,6 +2618,8 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
       address: resolved.addresses.join(', '),
       decision: resolved.decision,
     });
+    // After every await: the view that asked must still be the one that is live.
+    if (!isSenderCurrent(sender)) return probeRejected();
     if (!approved) {
       return { status: 'error', code: 'approval_declined', message: 'Connection cancelled.' };
     }
@@ -2590,6 +2636,7 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
       clearPendingApproval();
     }
     if (result?.status !== 'ok') return result;
+    if (!isSenderCurrent(sender)) return probeRejected();
     if (!commitSelfHostedApproval(normalized.apiBase, resolved.address)) {
       return {
         status: 'error',
@@ -2597,10 +2644,10 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
         message: "Concord couldn't save your choice.",
       };
     }
-    return result;
+    return settleProbe(sender, normalized.apiBase, result);
   }
 
-  return probeSelfHostedServer(normalized.apiBase);
+  return settleProbe(sender, normalized.apiBase, await probeSelfHostedServer(normalized.apiBase));
 }
 
 /** `connection:create`'s pre-ceremony step (#86 §3.7): what the dialog will state. */
@@ -2658,15 +2705,20 @@ async function runConnectionCeremony(
   return result?.status === 'ok' ? { approved: true, address: probe.address } : { approved: false };
 }
 
-ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeRefreshToken');
+registerIpc('auth:storeRefreshToken', 'connection-bound', (sender, _event, data: unknown) => {
+  // D3 (#86): a supplied apiBase may only NAME the sender's own service. It is refused
+  // before any custody call; the custody and the stored origin come from the binding.
+  if (isRecord(data) && !crossCheckApiBase(sender, data.apiBase)) {
+    return rejectWrongOwner('auth:storeRefreshToken');
   }
   if (!isStoreRefreshTokenPayload(data)) {
     return rejectInvalidAuthPayload('auth:storeRefreshToken');
   }
 
-  const credentialOwner = custodyForApiBase(data.apiBase).storeRefreshToken(data);
+  const credentialOwner = sender.custody.storeRefreshToken({
+    ...data,
+    apiBase: sender.service.origin,
+  });
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -2674,18 +2726,19 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
   // tag stayed null for the life of the process and the pre-login exemption never
   // expired (CODEX P2). Fence first: if a PREVIOUS owner's codes are still
   // retained they must go rather than be adopted by whoever just signed in.
-  fenceDeepLinksOnOwnerChange();
-  noteDeepLinkOwner();
+  // Deep links reach the saas connection only, so only its owner tags them (#86).
+  if (sender.service.serviceId === SAAS_SERVICE_ID) {
+    fenceDeepLinksOnOwnerChange(false, credentialOwner);
+    noteDeepLinkOwner(credentialOwner);
+  }
   // Clear any cached restore result so subsequent restoreSession calls
   // (e.g. after HMR or renderer reload) use the fresh token, not a stale
   // 'refresh_failed' from a previous attempt.
-  restoreSessionPromise = null;
+  restoreSessionByConnection.delete(sender.ref.connectionId);
 
   // Activate auto-updater now that we have an API base
   // (first-launch users won't have this until login)
-  if (data.apiBase) {
-    setUpdateFeedUrl(data.apiBase);
-  }
+  setUpdateFeedUrl(sender.service.origin);
   return credentialOwner;
 });
 
@@ -2693,7 +2746,7 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
 // useEffect twice, causing two IPC calls.  Without dedup each call would
 // trigger a separate token rotation, wasting rotations and widening the
 // window for race conditions.
-let restoreSessionPromise: Promise<{
+type RestoreSessionResult = {
   status: string;
   accessToken?: string;
   sessionId?: string;
@@ -2701,7 +2754,13 @@ let restoreSessionPromise: Promise<{
   rememberMe?: boolean;
   credentialOwner?: CredentialOwner;
   pendingE2EEUnlock?: boolean;
-}> | null = null;
+};
+// Keyed by connection (#86): a shared promise would hand one connection's restored
+// access token to another connection's renderer.
+const restoreSessionByConnection = new Map<
+  ConnectionRef['connectionId'],
+  Promise<RestoreSessionResult>
+>();
 
 function isTrustedAuthSender(event: Electron.IpcMainInvokeEvent): boolean {
   return isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl());
@@ -2710,6 +2769,26 @@ function isTrustedAuthSender(event: Electron.IpcMainInvokeEvent): boolean {
 function rejectUntrustedAuthSender(channel: string): { status: 'rejected' } {
   console.warn(`[${channel}] rejected — sender frame validation failed`);
   return { status: 'rejected' };
+}
+
+function rejectWrongOwner(channel: string): { status: 'rejected'; reason: 'wrong-owner' } {
+  console.warn(`[${channel}] rejected — apiBase names a different service`);
+  return { status: 'rejected', reason: 'wrong-owner' };
+}
+
+/** #86: the sender's connection is still live at the generation it was admitted at. */
+function isSenderCurrent(sender: ConnectionSender): boolean {
+  const record = recordFor(sender.ref.connectionId);
+  return (
+    record !== undefined &&
+    record.state !== 'disposed' &&
+    record.generation === sender.ref.generation
+  );
+}
+
+/** ...and it is the foreground connection. */
+function isForegroundSender(sender: ConnectionSender): boolean {
+  return isSenderCurrent(sender) && foreground() === recordFor(sender.ref.connectionId);
 }
 
 function rejectInvalidAuthPayload(channel: string): { status: 'rejected' } {
@@ -2804,21 +2883,19 @@ function isCredentialOwner(value: unknown): value is CredentialOwner {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
-ipcMain.handle('auth:restoreSession', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:restoreSession');
-  }
+registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
+  const connectionId = sender.ref.connectionId;
+  const inFlight = restoreSessionByConnection.get(connectionId);
+  if (inFlight) return inFlight;
 
-  if (restoreSessionPromise) return restoreSessionPromise;
-
-  restoreSessionPromise = (async () => {
-    // TRANSITIONAL (#86 Task 5): a restore targets one custody and every read
-    // below stays on it. A login that makes another custody active during an
-    // await fails the re-checks, exactly as a successor owner did before #86.
-    const custody = restoreTargetCustody();
-    if (!custody) return { status: 'no_session' };
+  const isSaas = sender.service.serviceId === SAAS_SERVICE_ID;
+  const restore: Promise<RestoreSessionResult> = (async () => {
+    // The sender's own custody (#86), and every read below stays on it. Each await
+    // is followed by a check that the connection is still at the generation that
+    // asked, so a reload or a dispose in between abandons the restore.
+    const custody = sender.custody;
     const ownerIfActive = (): CredentialOwner | null =>
-      liveCustody() === custody ? custody.getCredentialCustodyState().credentialOwner : null;
+      isSenderCurrent(sender) ? custody.getCredentialCustodyState().credentialOwner : null;
     const restored = await custody.restoreRefreshToken();
     if (restored.status !== 'ok') {
       return { status: restored.status };
@@ -2838,8 +2915,10 @@ ipcMain.handle('auth:restoreSession', (event) => {
     // leaves the suite green. It stays because the two auth points must behave
     // identically — an asymmetry between them is a trap, and this is the ordering
     // whose inverse is a cross-account leak on the login path (covered there).
-    fenceDeepLinksOnOwnerChange(false, restoreOwner);
-    noteDeepLinkOwner(restoreOwner);
+    if (isSaas) {
+      fenceDeepLinksOnOwnerChange(false, restoreOwner);
+      noteDeepLinkOwner(restoreOwner);
+    }
     // Token restored from disk or main-process memory — refresh it to get a
     // fresh access token.
     const refreshResult = await custody.performRefresh();
@@ -2856,7 +2935,7 @@ ipcMain.handle('auth:restoreSession', (event) => {
       // these keys paired with the access token above.
       const e2eeKeys = await custody.restoreE2EEKeys();
       const state = custody.getCredentialCustodyState();
-      if (liveCustody() !== custody || state.credentialOwner !== restoreOwner) {
+      if (!isSenderCurrent(sender) || state.credentialOwner !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
       return {
@@ -2871,74 +2950,69 @@ ipcMain.handle('auth:restoreSession', (event) => {
     }
     return { status: 'refresh_failed' };
   })().finally(() => {
-    restoreSessionPromise = null;
+    if (restoreSessionByConnection.get(connectionId) === restore) {
+      restoreSessionByConnection.delete(connectionId);
+    }
   });
-
-  return restoreSessionPromise;
+  restoreSessionByConnection.set(connectionId, restore);
+  return restore;
 });
 
-ipcMain.handle('auth:storeE2EEKeys', (event, data: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeE2EEKeys');
-  }
+registerIpc('auth:storeE2EEKeys', 'connection-bound', (sender, _event, data: unknown) => {
   if (!isStoreE2EEKeysPayload(data)) {
     return rejectInvalidAuthPayload('auth:storeE2EEKeys');
   }
 
   // Surface persistence success/failure to the renderer (#1288) — a genuine
   // keychain/disk write failure returns false rather than being swallowed.
-  // Pre-credential staging names no API base, so it stages in the custody a
-  // restore would target; no custody (an unreadable pointer) refuses it.
-  return restoreTargetCustody()?.storeE2EEKeys(data) ?? false;
+  // Staged in the SENDER's custody (#86 S2), so keys staged by one connection can only
+  // ever be adopted by that connection's own next credential, never by another's.
+  return sender.custody.storeE2EEKeys(data);
 });
 
-ipcMain.handle('auth:storeE2EEKeysIfOwner', (event, data: unknown, owner: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeE2EEKeysIfOwner');
-  }
-  if (!isStoreE2EEKeysPayload(data) || !isCredentialOwner(owner)) {
-    return rejectInvalidAuthPayload('auth:storeE2EEKeysIfOwner');
-  }
+registerIpc(
+  'auth:storeE2EEKeysIfOwner',
+  'connection-bound',
+  (sender, _event, data: unknown, owner: unknown) => {
+    if (!isStoreE2EEKeysPayload(data) || !isCredentialOwner(owner)) {
+      return rejectInvalidAuthPayload('auth:storeE2EEKeysIfOwner');
+    }
 
-  return liveCustody()?.storeE2EEKeysIfOwner(data, owner) ?? false;
+    // S3 (#86): owner numbers are not unique across custodies, so the number is checked
+    // only against the sender's own custody and a colliding number reaches no other.
+    return sender.custody.storeE2EEKeysIfOwner(data, owner);
+  }
+);
+
+registerIpc('auth:refreshToken', 'connection-bound', async (sender) => {
+  return sender.custody.performRefresh();
 });
 
-ipcMain.handle('auth:refreshToken', async (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:refreshToken');
+registerIpc(
+  'auth:logout',
+  'connection-bound',
+  async (sender, _event, data?: { accessToken?: string }) => {
+    if (!isLogoutPayload(data)) {
+      return rejectInvalidAuthPayload('auth:logout');
+    }
+
+    // The renderer's real logout path is userStore.logout() -> electron.logout(),
+    // which lands HERE and never reaches the auth:clearTokens handler. It happens
+    // to reach it later, through nuclearReset()'s optional-chained
+    // `globalThis.electron?.clearTokens?.()` (resetService.ts) — a renderer-side
+    // call ordering that no main-process test can observe and that a refactor
+    // could drop silently. The §5.2 fence therefore holds at THIS edge on its own.
+    //
+    // BEFORE the await, not after: performLogout clears the credentials on its
+    // first line and only then issues an unbounded network POST, so anything after
+    // the await leaves the clear open for the width of that request.
+    forgetDeliveredDeepLinks();
+    await sender.custody.performLogout(data?.accessToken);
+    return undefined;
   }
+);
 
-  return liveCustody()?.performRefresh() ?? { status: 'no_token' };
-});
-
-ipcMain.handle('auth:logout', async (event, data?: { accessToken?: string }) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:logout');
-  }
-  if (!isLogoutPayload(data)) {
-    return rejectInvalidAuthPayload('auth:logout');
-  }
-
-  // The renderer's real logout path is userStore.logout() -> electron.logout(),
-  // which lands HERE and never reaches the auth:clearTokens handler. It happens
-  // to reach it later, through nuclearReset()'s optional-chained
-  // `globalThis.electron?.clearTokens?.()` (resetService.ts) — a renderer-side
-  // call ordering that no main-process test can observe and that a refactor
-  // could drop silently. The §5.2 fence therefore holds at THIS edge on its own.
-  //
-  // BEFORE the await, not after: performLogout clears the credentials on its
-  // first line and only then issues an unbounded network POST, so anything after
-  // the await leaves the clear open for the width of that request.
-  forgetDeliveredDeepLinks();
-  await liveCustody()?.performLogout(data?.accessToken);
-  return undefined;
-});
-
-ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:clearTokens');
-  }
-
+registerIpc('auth:clearTokens', 'connection-bound', (sender, _event, opts: unknown) => {
   // Renderer-supplied, so read strictly: only the exact literal `true` opts OUT,
   // and anything else — absent, malformed, truthy-but-not-true — forgets.
   //
@@ -2975,9 +3049,10 @@ ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
   // `rememberMe === false`, documented in resetService as "ends the authenticated
   // lifecycle", which reaches this handler through gracefulReset and never calls
   // `auth:logout`.
-  // Only the active custody: an owner-blind wipe never reaches a profile chosen
-  // from disk or by default (the double-clear class above, #86).
-  liveCustody()?.clearTokens();
+  // Only the sender's own custody: an owner-blind wipe never reaches another
+  // connection's profile, nor one chosen from disk or by default (the double-clear
+  // class above, #86).
+  sender.custody.clearTokens();
   if (!keepDeepLinks) forgetDeliveredDeepLinks();
   return undefined;
 });
@@ -3007,10 +3082,7 @@ ipcMain.handle('deeplink:forget', (event) => {
   return undefined;
 });
 
-ipcMain.handle('auth:clearTokensIfOwner', (event, owner: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:clearTokensIfOwner');
-  }
+registerIpc('auth:clearTokensIfOwner', 'connection-bound', (sender, _event, owner: unknown) => {
   if (!isCredentialOwner(owner)) {
     return rejectInvalidAuthPayload('auth:clearTokensIfOwner');
   }
@@ -3025,30 +3097,34 @@ ipcMain.handle('auth:clearTokensIfOwner', (event, owner: unknown) => {
   // window exists — main holds the ONLY copy — so an SSO sign-in that aborts
   // would erase it and the retry would land with the invite silently gone.
   // That is #2363's own symptom on a new path.
-  return liveCustody()?.clearTokensIfOwner(owner) ?? false;
+  // S3 (#86): checked only against the sender's own custody, as for E2EE keys above.
+  return sender.custody.clearTokensIfOwner(owner);
 });
 
-ipcMain.handle('auth:getCapabilities', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[auth:getCapabilities] rejected — sender frame validation failed');
-    // Fail closed with this handler's own shape (not the {status:'rejected'}
-    // reject shape) so callers always get a valid, safe default.
-    return { persistAvailable: false };
-  }
+registerIpc(
+  'auth:getCapabilities',
+  'app-global-read',
   // A machine fact (is OS-protected storage available), the same from any custody.
-  return (liveCustody() ?? custodyForApiBase(PRODUCTION_API_BASE)).getCapabilities();
-});
+  (sender) => sender.custody.getCapabilities(),
+  // Fail closed with this handler's own shape (not the {status:'rejected'}
+  // reject shape) so callers always get a valid, safe default.
+  { refusal: async () => ({ persistAvailable: false }) }
+);
 
-ipcMain.handle('auth:getMachineId', (event, apiBase?: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[auth:getMachineId] rejected — sender frame validation failed');
-    return '';
-  }
-
-  if (apiBase === undefined) return getMachineId();
-  if (!isValidApiBase(apiBase)) return '';
-  return getMachineId(apiBase);
-});
+registerIpc(
+  'auth:getMachineId',
+  'connection-bound',
+  (sender, _event, apiBase?: unknown) => {
+    // The id is per service (#1618), so it is the sender's own whatever apiBase names.
+    // A supplied apiBase is only a cross-check, refused before any id is read or minted.
+    if (!crossCheckApiBase(sender, apiBase)) {
+      console.warn('[auth:getMachineId] rejected — apiBase names a different service');
+      return '';
+    }
+    return getMachineId(sender.service.origin);
+  },
+  { refusal: () => '' }
+);
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
 type PipWindowEntry = {

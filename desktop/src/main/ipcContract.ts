@@ -444,4 +444,8 @@ export type SelfHostedProbeResult =
       status: 'error';
       code: string;
       message: string;
-    };
+    }
+  // #86 (contract v34, additive): a probe from one connection's view of ANOTHER
+  // approved origin opens that origin in its own connection and activates it. The
+  // probing view is never re-homed, so it receives no apiBase to navigate to.
+  | { status: 'opened-in-connection'; serviceId: ServiceId };

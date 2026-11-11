@@ -291,7 +291,41 @@ function pushGeneration(
   }
 }
 
+/** The view deps `registerConnectionIpc` was given; null until it runs. */
+let registeredViewDeps: ViewDeps | null = null;
+
+/**
+ * Open (or show) `value`, an origin the CALLER has already normalised, resolved and
+ * approved, in its own connection: a create's final step without its probe and
+ * ceremony (#86 §3.7, `selfHosted:probeServer`'s 'opened-in-connection'). The
+ * opener's own view is never navigated. Refused before `registerConnectionIpc` has
+ * run, for a non-canonical origin, for saas, at the live-connection cap, and unless
+ * the opener is still the live foreground primary at its admitted generation.
+ */
+export function openApprovedConnection(
+  opener: ConnectionSender,
+  value: string
+): Promise<ConnectionCreateResult> {
+  const deps = registeredViewDeps;
+  const origin = canonicalOrigin(value);
+  if (deps === null || origin === null) return Promise.resolve(rejected('invalid-origin'));
+  const refusal = openerRefusal(opener);
+  if (refusal) return Promise.resolve(rejected(refusal));
+  const existing = showExisting(deps, origin);
+  if (existing) return Promise.resolve(existing);
+  if (serviceIdForApiBase(origin) === SAAS_SERVICE_ID) {
+    return Promise.resolve(rejected('invalid-origin'));
+  }
+  if (liveConnections().length >= MAX_LIVE_CONNECTIONS) return Promise.resolve(rejected('limit'));
+  return openService(deps, opener, origin).catch(() => {
+    // Fixed text: the error can carry a hostname or a filesystem path.
+    console.warn('[connection:create] open failed');
+    return rejected('declined');
+  });
+}
+
 export function registerConnectionIpc<P extends ConnectionProbe>(deps: ConnectionIpcDeps<P>): void {
+  registeredViewDeps = deps;
   // eslint-disable-next-line no-restricted-syntax -- #86 §3.7: whoAmI is sendSync, answered through event.returnValue in the same tick; registerIpc's invoke-style refusal value cannot express that. Admission is requireConnectionSender, the same check registerIpc runs.
   ipcMain.on('connection:whoAmI', (event: IpcMainEvent) => {
     // Always set: a sendSync with no returnValue blocks the renderer.
