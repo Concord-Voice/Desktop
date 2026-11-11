@@ -101,6 +101,8 @@ export default [
             'vite.config.ts',
             'forge.config.ts',
             'playwright.config.ts',
+            // #86: the Electron e2e config (npm run test:e2e:electron).
+            'playwright.electron.config.ts',
             // #2402: the local Forge NSIS maker. Lives in build/ (excluded from
             // tsconfig.json's include, like forge.config.ts above) because it is
             // build tooling, not app source — so it belongs to no TS project and
@@ -166,7 +168,13 @@ export default [
           // against a 17-entry list. The cap is left EXPLICIT at the default 8
           // rather than deleted, so the next person to add tooling sees the
           // number and this note instead of an unexplained parse error.
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 8,
+          //
+          // #86: raised to 9 for playwright.electron.config.ts. Nine entries now
+          // exist on disk (4 root configs, build/makerNsis.ts, build/makerDmg.ts,
+          // the three native/concord-audiocap entries). A root-level config cannot
+          // get its own project: projectService resolves the nearest tsconfig.json,
+          // which is ./tsconfig.json, and its rootDir "./src" refuses the file.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 9,
         },
         tsconfigRootDir: import.meta.dirname,
       },
