@@ -6162,3 +6162,42 @@ describe('#86 S2: E2EE keys staged by one connection reach only its own custody'
     }
   });
 });
+
+// #86 Task 7B pass 2: the PiP window renders App's main tree, and ChangelogModalHost
+// (rendered there unconditionally) asks for app:getVersion on mount. A primary-only row
+// answered the PiP with the refusal ''. The row is pip-scoped, so a PiP bound to a live
+// connection gets the real version and an unbound sender still gets ''.
+describe('#86 app:getVersion is pip-scoped (the PiP SPA calls it)', () => {
+  const PIP_FRAME = 'app://concord/index.html#/pip/1';
+
+  it("a bound PiP gets the app version; an unbound sender gets ''", async () => {
+    const { app } = await import('electron');
+    const svc = connectionRegistry.registerService('https://pip-version.lan', {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error('registerService refused');
+    const primary = { id: 9701, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9701 } };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, primary as never, null);
+    if (!opened.ok) throw new Error('openConnection refused');
+    connectionRegistry.bindSender(primary as never, opened.record.connectionId, 'primary');
+    const pip = { id: 9702, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9702 } };
+    connectionRegistry.bindSender(pip as never, opened.record.connectionId, 'pip');
+    const frame = (id: number) => ({ url: PIP_FRAME, frameTreeNodeId: id, parent: null });
+    try {
+      const version = app.getVersion();
+      expect(version).not.toBe('');
+      const fromPip = await handlers.get('app:getVersion')!({ sender: pip, senderFrame: frame(9702) });
+      expect(fromPip).toBe(version);
+      const stranger = { id: 9703, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9703 } };
+      const fromStranger = await handlers.get('app:getVersion')!({
+        sender: stranger,
+        senderFrame: frame(9703),
+      });
+      expect(fromStranger).toBe('');
+    } finally {
+      connectionRegistry.disposeConnection(opened.record.connectionId);
+    }
+  });
+});

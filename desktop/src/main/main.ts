@@ -2063,7 +2063,7 @@ process.on('uncaughtException', (error) => {
 // IPC Handlers. #86: every channel goes through registerIpc (ipc/registry.ts), which
 // admits the sender by its CHANNEL_CLASSES class before the handler runs. A refused
 // call answers the channel's own fail-closed value, never the payload it asked for.
-registerIpc('app:getVersion', 'app-global-read', () => app.getVersion(), {
+registerIpc('app:getVersion', 'pip-scoped', () => app.getVersion(), {
   refusal: () => '',
 });
 

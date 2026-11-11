@@ -25,7 +25,9 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'connection:activate': 'app-global-mutate',
 
   // App facts.
-  'app:getVersion': 'app-global-read',
+  // #86 Task 7B pass 2: pip-scoped because the PiP window renders App's main tree and
+  // ChangelogModalHost asks for the version on mount there. A PiP has the same read.
+  'app:getVersion': 'pip-scoped',
   'app:getPlatform': 'app-global-read',
   'app:getIpcContract': 'app-global-read',
   'app:getBuildTag': 'app-global-read',
