@@ -4403,10 +4403,9 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:restoreSession')!({
-          sender: { id: 1 },
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        // #86: a restore from an UNBOUND sender is refused before it binds
+        // anything, so the restore comes from the bound saas view.
+        await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
         (getCredentialCustodyState as Mock).mockReturnValue({
           credentialOwner: 43,
