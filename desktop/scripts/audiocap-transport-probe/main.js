@@ -300,13 +300,13 @@ async function openWindow() {
     write: false,
   });
   const js = 'text/javascript; charset=utf-8';
+  const own = (file) => fs.readFileSync(path.join(__dirname, file), 'utf8');
+  // The page is a static file, not a string here: every body below is the probe's own
+  // file or data, and keeping the <script> tag out of this map keeps that visible.
   serve({
-    '/': {
-      type: 'text/html; charset=utf-8',
-      body: '<!doctype html><meta charset="utf-8"><title>audiocap transport probe</title><script type="module" src="/page.js"></script><body>audiocap transport probe</body>',
-    },
-    '/oracle.mjs': { type: js, body: fs.readFileSync(path.join(__dirname, 'oracle.mjs'), 'utf8') },
-    '/page.js': { type: js, body: fs.readFileSync(path.join(__dirname, 'page.js'), 'utf8') },
+    '/': { type: 'text/html; charset=utf-8', body: own('page.html') },
+    '/oracle.mjs': { type: js, body: own('oracle.mjs') },
+    '/page.js': { type: js, body: own('page.js') },
     '/table.json': { type: 'application/json', body: JSON.stringify(table) },
     '/bridge.js': { type: js, body: bridge.outputFiles[0].text },
   });
