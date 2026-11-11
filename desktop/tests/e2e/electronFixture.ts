@@ -142,7 +142,7 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
     await Promise.all([a.stop(), b.stop()]);
   },
 
-  app: async ({ planes, renderer }, use, testInfo) => {
+  app: async ({ planes, renderer }, use) => {
     if (!fs.existsSync(path.join(DIST_MAIN, 'main.js'))) {
       throw new Error('dist/main/main.js missing — run `npm run build` first');
     }
@@ -176,22 +176,13 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
       app.process().stderr?.on('data', keep);
       for (const origin of [planes.a.origin, planes.b.origin]) {
         const deadline = Date.now() + 60_000;
-        let reloaded = false;
         for (;;) {
           const state = await viewState(app, origin);
           if (state === 'ready') break;
-          // MEASURED product defect (escalated, not fixed here): a self-hosted view
-          // restored at startup boots its FIRST document with whoAmI() === null, so the
-          // SPA starts in unavailable mode; a reload gets a valid identity. The harness
-          // reloads once, loudly, so the isolation assertions still run; a second null
-          // fails the run.
-          if (state === 'null-identity' && !reloaded) {
-            reloaded = true;
-            testInfo.annotations.push({
-              type: 'product-defect',
-              description: `restored view ${origin} booted with whoAmI() === null; reloaded once`,
-            });
-            await reloadPrimary(app, origin);
+          // D1: a restored view's FIRST document must boot with an identity. No reload:
+          // a null here is the product defect, so it fails the run at once.
+          if (state === 'null-identity') {
+            throw new Error(`restored view ${origin} booted with whoAmI() === null`);
           }
           if (Date.now() > deadline) {
             throw new Error(
@@ -244,19 +235,6 @@ async function installMainRequire(app: ElectronApplication): Promise<void> {
     };
     (globalThis as unknown as { __e2eRequire: unknown }).__e2eRequire = e2eRequire;
   }, DIST_MAIN);
-}
-
-/** Reloads `origin`'s primary view from main. */
-async function reloadPrimary(app: ElectronApplication, origin: string): Promise<void> {
-  await app.evaluate((_electron, o) => {
-    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
-    const registry = req('connectionRegistry');
-    const service = registry.serviceForOrigin(o);
-    registry
-      .liveConnections()
-      .find((r: { serviceId: string }) => r.serviceId === service?.serviceId)
-      ?.webContents.reload();
-  }, origin);
 }
 
 type ViewState = 'pending' | 'ready' | 'null-identity';

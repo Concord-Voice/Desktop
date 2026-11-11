@@ -119,6 +119,7 @@ import {
 } from './connectionRegistry';
 import { assertDefaultSessionIsSaas } from './connectionSession';
 import { writeConnectionsFile, type ConnectionsFileEntry } from './connectionsFile';
+import { trackMainFrameNavigation } from './ipc/connectionSender';
 
 export interface ShellDeps {
   /** `buildBrowserWindowConfig` minus `webPreferences`, plus the restored bounds. */
@@ -257,6 +258,8 @@ export async function openConnectionView(
   }
   const { record } = opened;
   bindSender(contents, record.connectionId, 'primary');
+  // D1: before the first load, so the first document's whoAmI finds its navigation.
+  trackMainFrameNavigation(contents);
   if (!defaultSessionStaysSaas()) {
     console.error('[shellWindow] R1: a non-saas connection reached defaultSession; refused');
     disposeConnection(record.connectionId);

@@ -4,6 +4,8 @@
 //   connection:whoAmI      sendSync, read ONCE at preload evaluation. A synchronous map
 //                          lookup: the identity of the bound primary or PiP whose MAIN
 //                          frame asked, with a frame URL allowed for its kind; else null.
+//                          A first document whose commit is not recorded yet is checked
+//                          on its in-flight navigation's URL (D1, `admitUncommitted`).
 //   connection:create      foreground primary only. One create at a time (a second one is
 //                          `busy`). probe → ceremony budget → ceremony → re-check →
 //                          commit approval → registerService → openConnectionView →
@@ -124,9 +126,10 @@ function canonicalOrigin(value: unknown): string | null {
 
 /** The identity `event`'s main frame speaks for, or null. Synchronous by construction. */
 function identityFor(event: IpcMainEvent): ConnectionIdentity | null {
+  // D1: the first document's sendSync can arrive before its commit is recorded.
   const sender = requireConnectionSender(
     event,
-    { roles: PIP_OR_PRIMARY },
+    { roles: PIP_OR_PRIMARY, admitUncommitted: true },
     currentRemoteSpaOrigin()
   );
   if (!sender) return null;

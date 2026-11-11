@@ -10,11 +10,15 @@
 //   - the binding's role is one the caller allows;
 //   - the frame URL is permitted for the connection's KIND — a CVNet document
 //     (remote SPA or its spa-cache copy) inside a self-hosted view admits nothing.
+//     The URL is the frame's COMMITTED URL. Only a caller that opts in
+//     (`admitUncommitted`, connection:whoAmI alone) may check a frame with no
+//     committed URL yet against the main-frame navigation main saw start in that
+//     same frame instead (D1, `trackMainFrameNavigation`).
 // The connection, its service and its custody come from that binding alone. A
 // renderer-supplied `apiBase` is never an input to the choice; at most it is
 // cross-checked against it (`crossCheckApiBase`).
 
-import type { IpcMainEvent, IpcMainInvokeEvent, WebFrameMain } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent, WebContents, WebFrameMain } from 'electron';
 import { SAAS_SERVICE_ID, type ConnectionRef } from '../../shared/connectionIdentity';
 import {
   boundRecordFor,
@@ -54,6 +58,69 @@ function frameUrl(frame: WebFrameMain): string | null {
   }
 }
 
+/** A main-frame navigation main saw start (or redirect), and the frame it runs in. */
+interface InFlightNavigation {
+  readonly url: string;
+  readonly processId: number;
+  readonly routingId: number;
+}
+
+const inFlightNavigations = new WeakMap<WebContents, InFlightNavigation>();
+
+interface NavigationDetails {
+  readonly url: string;
+  readonly isMainFrame: boolean;
+  readonly isSameDocument: boolean;
+  readonly frame: WebFrameMain | null;
+}
+
+/**
+ * D1 (measured in the Electron e2e run). A view whose first `loadURL` is issued in the
+ * tick that creates it evaluates its preload, and so sends `connection:whoAmI`, BEFORE
+ * its renderer reports the document's commit: the browser records the commit only after
+ * the sendSync is answered, so the sender main frame still reports url ''. Waiting for
+ * the commit deadlocks; refusing on '' booted every restored self-hosted view with no
+ * connection. So every bound view records, before its first load, the latest
+ * cross-document main-frame navigation main saw start or redirect, with the frame
+ * (process + routing id) it runs in. Install it before the view's first `loadURL`.
+ */
+export function trackMainFrameNavigation(contents: WebContents): void {
+  const note = (details: NavigationDetails): void => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    inFlightNavigations.delete(contents);
+    try {
+      const frame = details.frame;
+      if (frame) {
+        inFlightNavigations.set(contents, {
+          url: details.url,
+          processId: frame.processId,
+          routingId: frame.routingId,
+        });
+      }
+    } catch {
+      // A disposed frame: nothing is recorded, so an uncommitted sender is refused.
+    }
+  };
+  contents.on('did-start-navigation', note);
+  contents.on('did-redirect-navigation', note);
+}
+
+/**
+ * The URL `frame` is being navigated to, when it has no committed URL yet and the
+ * navigation main last saw start in that webContents' main frame runs in this same
+ * frame; else null. A navigation that moved to another process or frame (a
+ * cross-process swap) names a different frame and admits nothing.
+ */
+function uncommittedFrameUrl(contents: WebContents, frame: WebFrameMain): string | null {
+  const nav = inFlightNavigations.get(contents);
+  if (!nav) return null;
+  try {
+    return frame.processId === nav.processId && frame.routingId === nav.routingId ? nav.url : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The remote-SPA origin a sender's frame URL is checked against. A caller that
  * supplies none (`undefined`) or a current origin of `null` admits no remote SPA
@@ -80,10 +147,13 @@ function spaOriginForSender(
  * list admits nothing. `remoteSpaOrigin` matters only for `saas` and defaults to
  * null, so the remote SPA is admitted only when the caller supplies its origin;
  * a PiP only while its pinned origin is that current one (`spaOriginForSender`).
+ * `admitUncommitted` (connection:whoAmI only, D1): a main frame with NO committed
+ * URL is checked against its in-flight navigation's URL (`uncommittedFrameUrl`)
+ * under the same kind allowlist; without it, or with nothing in flight, it is refused.
  */
 export function requireConnectionSender(
   event: IpcMainEvent | IpcMainInvokeEvent,
-  opts?: { roles?: readonly BindingRole[] },
+  opts?: { roles?: readonly BindingRole[]; admitUncommitted?: boolean },
   remoteSpaOrigin?: string | null
 ): ConnectionSender | null {
   const frame = senderMainFrame(event);
@@ -94,7 +164,11 @@ export function requireConnectionSender(
   if (!roles.includes(bound.role)) return null;
   const service = getService(bound.record.serviceId);
   if (!service) return null;
-  const url = frameUrl(frame);
+  const committed = frameUrl(frame);
+  const url =
+    committed === '' && opts?.admitUncommitted === true
+      ? uncommittedFrameUrl(event.sender, frame)
+      : committed;
   const spa = spaOriginForSender(event.sender, bound.role, remoteSpaOrigin);
   if (url === null || !isPermittedFrameUrlForKind(url, service.kind, spa)) {
     return null;

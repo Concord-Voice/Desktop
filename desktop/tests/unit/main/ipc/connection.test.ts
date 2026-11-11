@@ -58,6 +58,10 @@ import {
 } from '../../../../src/main/selfHostedProfile';
 import { _resetIpcRegistryForTesting } from '../../../../src/main/ipc/registry';
 import { registerConnectionIpc } from '../../../../src/main/ipc/connection';
+import {
+  requireConnectionSender,
+  trackMainFrameNavigation,
+} from '../../../../src/main/ipc/connectionSender';
 
 const SAAS_ORIGIN = 'https://api.concordvoice.chat';
 const A = new URL('https://a.example').origin;
@@ -174,6 +178,122 @@ describe('connection:whoAmI', () => {
   it('returns the self-hosted identity for app://concord inside a self-hosted view', () => {
     const a = conn(A, 2);
     expect(whoAmI(ev(a.wc))).toMatchObject({ kind: 'selfhost', apiOrigin: A });
+  });
+});
+
+// D1 (measured in the Electron e2e run): a view whose first loadURL is issued in the
+// same tick it is created evaluates its preload, and sends whoAmI, BEFORE the renderer
+// reports that document's commit; the browser records the commit only after the reply,
+// so the sender main frame still reports url '' and waiting for it deadlocks. Such a
+// sender is admitted on the URL of the main-frame navigation main saw start in that
+// same frame, under the same kind allowlist; nothing else is admitted on an empty URL.
+describe('connection:whoAmI before the browser records the commit', () => {
+  /** A webContents whose listeners the test can fire, as Electron would. */
+  const emitterWc = (id: number) => {
+    const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+    const wc = {
+      id,
+      mainFrame: { frameTreeNodeId: id },
+      send: vi.fn(),
+      isDestroyed: () => false,
+      on: vi.fn((name: string, fn: (...args: unknown[]) => void) => {
+        if (!listeners.has(name)) listeners.set(name, new Set());
+        listeners.get(name)!.add(fn);
+        return wc;
+      }),
+    };
+    const emit = (name: string, ...args: unknown[]) => {
+      for (const fn of [...(listeners.get(name) ?? [])]) fn(...args);
+    };
+    return { wc, emit };
+  };
+  const PID = 6;
+  const RID = 1;
+  const boundSelfHost = (id: number) => {
+    const r = registerService(A);
+    if (!r.ok) throw new Error(r.reason);
+    const e = emitterWc(id);
+    const o = openConnection(r.service.serviceId, e.wc as never, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(e.wc as never, o.record.connectionId, 'primary');
+    trackMainFrameNavigation(e.wc as never);
+    return { ...e, record: o.record };
+  };
+  const started = (url: string, frame: unknown = { processId: PID, routingId: RID }) => ({
+    url,
+    isMainFrame: true,
+    isSameDocument: false,
+    frame,
+  });
+  /** The sender: the view's main frame, with no committed URL yet. */
+  const uncommitted = (wc: unknown, extra: Record<string, unknown> = {}) =>
+    ev(wc, { processId: PID, routingId: RID, ...extra }, '');
+
+  it('admits the first document on the main-frame navigation in flight in its frame', () => {
+    const v = boundSelfHost(40);
+    v.emit('did-start-navigation', started('http://localhost:3001/'));
+    expect(whoAmI(uncommitted(v.wc))).toMatchObject({
+      connectionId: v.record.connectionId,
+      kind: 'selfhost',
+      apiOrigin: A,
+    });
+  });
+
+  it('refuses when the navigation in flight is not permitted for the kind', () => {
+    const v = boundSelfHost(41);
+    v.emit('did-start-navigation', started('https://evil.example/'));
+    expect(whoAmI(uncommitted(v.wc))).toBeNull();
+  });
+
+  it('refuses when a redirect moved the navigation off the allowlist', () => {
+    const v = boundSelfHost(42);
+    v.emit('did-start-navigation', started('http://localhost:3001/'));
+    v.emit('did-redirect-navigation', started('https://evil.example/'));
+    expect(whoAmI(uncommitted(v.wc))).toBeNull();
+  });
+
+  it('refuses with no navigation in flight', () => {
+    const v = boundSelfHost(43);
+    expect(whoAmI(uncommitted(v.wc))).toBeNull();
+  });
+
+  it('refuses when the navigation runs in another frame (a cross-process swap)', () => {
+    const v = boundSelfHost(44);
+    v.emit(
+      'did-start-navigation',
+      started('http://localhost:3001/', { processId: 9, routingId: 3 })
+    );
+    expect(whoAmI(uncommitted(v.wc))).toBeNull();
+  });
+
+  it('ignores subframe and same-document navigations', () => {
+    const v = boundSelfHost(45);
+    v.emit('did-start-navigation', { ...started('http://localhost:3001/'), isMainFrame: false });
+    v.emit('did-start-navigation', { ...started('http://localhost:3001/'), isSameDocument: true });
+    expect(whoAmI(uncommitted(v.wc))).toBeNull();
+  });
+
+  it('refuses an unbound webContents and a subframe sender even with a navigation in flight', () => {
+    const unbound = emitterWc(46);
+    trackMainFrameNavigation(unbound.wc as never);
+    unbound.emit('did-start-navigation', started('http://localhost:3001/'));
+    expect(whoAmI(uncommitted(unbound.wc))).toBeNull();
+    const v = boundSelfHost(47);
+    v.emit('did-start-navigation', started('http://localhost:3001/'));
+    expect(whoAmI(uncommitted(v.wc, { parent: {} }))).toBeNull();
+  });
+
+  it('a committed URL is still checked as committed, never replaced by the navigation', () => {
+    const v = boundSelfHost(48);
+    v.emit('did-start-navigation', started('http://localhost:3001/'));
+    const committed = ev(v.wc, { processId: PID, routingId: RID }, 'https://evil.example/');
+    expect(whoAmI(committed)).toBeNull();
+  });
+
+  it('only whoAmI opts in: other admission refuses an uncommitted frame', () => {
+    const v = boundSelfHost(49);
+    v.emit('did-start-navigation', started('http://localhost:3001/'));
+    expect(requireConnectionSender(uncommitted(v.wc) as never)).toBeNull();
   });
 });
 

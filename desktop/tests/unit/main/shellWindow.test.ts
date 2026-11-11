@@ -162,6 +162,7 @@ import {
   registerService,
 } from '../../../src/main/connectionRegistry';
 import { assertDefaultSessionIsSaas } from '../../../src/main/connectionSession';
+import { requireConnectionSender } from '../../../src/main/ipc/connectionSender';
 import {
   activateConnection,
   broadcastToPrimaries,
@@ -414,6 +415,33 @@ describe('generation hooks', () => {
     rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     expect(reasons).toEqual(['document']);
     expect(rec.generation).toBe(2);
+  });
+
+  // D1: the first document's whoAmI can arrive before its commit is recorded, so the
+  // main-frame navigation the first load starts must already be tracked.
+  it('tracks the main-frame navigation the first load starts, before that load', async () => {
+    const a = register(new URL('https://a.example').origin);
+    const frame = { processId: 6, routingId: 1 };
+    let admittedDuringLoad: unknown = 'not-loaded';
+    const r = await openConnectionView(a.serviceId, 'app://concord/index.html', (wc) => {
+      const contents = wc as unknown as { emit(e: string, ...x: unknown[]): void };
+      contents.emit('did-start-navigation', {
+        url: 'app://concord/index.html',
+        isMainFrame: true,
+        isSameDocument: false,
+        frame,
+      });
+      admittedDuringLoad = requireConnectionSender(
+        {
+          sender: wc,
+          senderFrame: { url: '', parent: null, frameTreeNodeId: 1, detached: false, ...frame },
+        } as never,
+        { admitUncommitted: true }
+      );
+      return Promise.resolve();
+    });
+    expect(r.ok).toBe(true);
+    expect(admittedDuringLoad).not.toBeNull();
   });
 
   it('a subframe navigation does not advance the generation', async () => {
