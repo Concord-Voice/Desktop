@@ -113,6 +113,21 @@ describe('preload connection bridge', () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
+  it('drops a push for another connection, and a malformed push, without moving the cache', async () => {
+    const api = await loadBridge();
+    const cb = vi.fn();
+    api.onGenerationChanged(cb);
+    const handler = generationHandler();
+    handler(
+      {},
+      { connectionId: 'BBBBBBBBBBBBBBBBBBBBBB', generation: 9, reason: 'credential-start' }
+    );
+    handler({}, { connectionId: CONNECTION_ID, generation: 9, reason: 'not-a-reason' });
+    handler({}, null);
+    expect(cb).not.toHaveBeenCalled();
+    expect(api.whoAmI()?.generation).toBe(3);
+  });
+
   it('the returned function removes the ipcRenderer listener', async () => {
     const api = await loadBridge();
     const off = api.onGenerationChanged(vi.fn());

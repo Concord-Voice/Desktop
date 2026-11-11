@@ -335,6 +335,23 @@ describe('connection:create', () => {
   });
 });
 
+describe('connection:create opener generation', () => {
+  it('opens nothing when the opener document is replaced (generation advanced) during the ceremony', async () => {
+    const saas = conn(SAAS_ORIGIN, 1);
+    setForeground(saas.record.connectionId);
+    deps.ceremony.mockImplementationOnce(async () => {
+      advanceGeneration(saas.record.connectionId, 'document');
+      return { approved: true, address: '203.0.113.10' };
+    });
+    expect(await call('connection:create', ev(saas.wc), NEW)).toEqual({
+      status: 'rejected',
+      reason: 'untrusted-sender',
+    });
+    expect(commitSelfHostedApproval).not.toHaveBeenCalled();
+    expect(deps.openConnectionView).not.toHaveBeenCalled();
+  });
+});
+
 describe('connection:activate', () => {
   it('returns false for an unknown service and never calls activateConnection', async () => {
     const saas = conn(SAAS_ORIGIN, 1);
