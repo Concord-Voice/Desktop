@@ -2,7 +2,7 @@
 
 **Issue:** #73 (`feat: utilityProcess host and PCM transport for concord-audiocap`), child of epic #71
 **Date:** 2026-11-11
-**Status:** Proposed. Awaiting project-lead approval of this spec.
+**Status:** Design approved by the project lead on 2026-11-11. Items 2 to 5 of section 11 are still open.
 **Governing decision record:** [ADR-0043](../../adr/0043-per-process-screen-share-audio-capture.md)
 
 ## 1. What this is
