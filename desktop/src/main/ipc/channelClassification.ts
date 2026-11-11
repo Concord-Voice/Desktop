@@ -58,8 +58,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'permission:openSettings': 'app-global-mutate',
   // A hidden view must not replace the clipboard behind the visible one.
   'clipboard:writeText': 'app-global-mutate',
-  // Foreground primary until #87's trayOwner() lease re-targets it (§3.7).
-  'tray:setStatus': 'app-global-mutate',
+  // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
+  // handler then narrows to trayOwner() when #87 names one, else the foreground
+  // primary. With no owner set the effective admission is the foreground primary.
+  'tray:setStatus': 'connection-bound',
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
   'window:setTitleBarOverlayColor': 'exempt-low-stakes',

@@ -118,6 +118,7 @@ import {
   type ScreenAudioInterruptReason,
 } from '../shared/audiocapProtocol';
 import { NATIVE_ADDON_ENV, resolveNativeAddonPath } from './nativeAddonPath';
+import type { OwnerBinding } from './connectionCapability';
 
 /**
  * Why the local share has no audio. A closed enum of MECHANISM strings — never a
@@ -238,6 +239,12 @@ interface HostSession {
    * because `handleChildMessage`'s hello arm now posts `{kind:'start', …}` with it.
    */
   readonly windowHandle: number | null;
+  /**
+   * The connection that started this share (#86 Task 7B, spec §3.8), or `null` for the
+   * windowless capability probe. Handed to the port sink and the interrupt listener so
+   * main delivers both to the owner's current primary and to nobody else.
+   */
+  readonly owner: OwnerBinding | null;
   /** Resolves `startAudiocapHost`. Cleared by the first outcome (I4). */
   settle: ((result: AudiocapStartResult) => void) | null;
   handshakeTimer: NodeJS.Timeout | null;
@@ -426,7 +433,11 @@ function retire(
   // `interrupt !== null` is repeated so TypeScript narrows it; `publish` alone does not.
   if (publish && interrupt !== null) {
     try {
-      onInterrupted?.({ generation: live.generation, reason: interrupt });
+      // The owner rides as a second argument only for an owned share: the windowless
+      // probe (and a host-level caller with no owner) publishes exactly as before #86.
+      const published = { generation: live.generation, reason: interrupt };
+      if (live.owner) onInterrupted?.(published, live.owner);
+      else onInterrupted?.(published);
     } catch {
       // Fixed string only -- never the caught value, which may carry an
       // `Error.cause` (observability.md principle 3). No reason either: a line
@@ -741,7 +752,8 @@ function beginCapture(live: HostSession, windowHandle: number): boolean {
       windowHandle,
     };
     live.child.postMessage(start, [channel.port1]);
-    sink(live.generation, channel.port2);
+    if (live.owner) sink(live.generation, channel.port2, live.owner);
+    else sink(live.generation, channel.port2);
     return true;
   } catch {
     // Nothing caught here is logged. The throw can carry an `Error.cause` from the
@@ -988,7 +1000,8 @@ function handleChildMessage(live: HostSession, message: unknown): void {
  */
 export function startAudiocapHost(
   generation: number,
-  windowHandle: number | null
+  windowHandle: number | null,
+  owner: OwnerBinding | null
 ): Promise<AudiocapStartResult> {
   // I3. Supersede first, synchronously, with nothing awaited in between.
   killAudiocapHost();
@@ -1064,6 +1077,7 @@ export function startAudiocapHost(
       generation,
       child,
       windowHandle,
+      owner,
       settle: resolve,
       handshakeTimer: null,
       startAckTimer: null,
@@ -1190,10 +1204,11 @@ export function setAudiocapCapabilityListener(
  * from two main-owned values; a listener that forwards it should still copy the two
  * fields rather than pass the reference on.
  */
-let onInterrupted: ((interrupt: AudiocapInterrupted) => void) | null = null;
+let onInterrupted: ((interrupt: AudiocapInterrupted, owner?: OwnerBinding) => void) | null = null;
 
+/** `owner` is the session's owner binding (#86 Task 7B); deliver to that connection only. */
 export function setAudiocapInterruptListener(
-  listener: ((interrupt: AudiocapInterrupted) => void) | null
+  listener: ((interrupt: AudiocapInterrupted, owner?: OwnerBinding) => void) | null
 ): void {
   onInterrupted = listener;
 }
@@ -1212,11 +1227,15 @@ export function setAudiocapInterruptListener(
  * is — the child is already capturing and nobody is listening — so the hello arm treats
  * it as a failed start and retires the session rather than swallowing it.
  */
-let onCapturePort: ((generation: number, port: Electron.MessagePortMain) => void) | null = null;
+type CapturePortSink = (
+  generation: number,
+  port: Electron.MessagePortMain,
+  owner?: OwnerBinding
+) => void;
+let onCapturePort: CapturePortSink | null = null;
 
-export function setAudiocapPortSink(
-  sink: ((generation: number, port: Electron.MessagePortMain) => void) | null
-): void {
+/** `owner` is the session's owner binding (#86 Task 7B); throw unless it is current. */
+export function setAudiocapPortSink(sink: CapturePortSink | null): void {
   onCapturePort = sink;
 }
 
@@ -1234,7 +1253,7 @@ async function runCapabilityProbe(): Promise<AudiocapProbeResult> {
     // `null`, and it is a statement rather than an omission: the probe asks whether
     // this MACHINE has a per-process backend, so it has no window and must never
     // reach the hello arm's `start` post. See the parameter's docblock.
-    const pendingProbe = startAudiocapHost(PROBE_GENERATION, null);
+    const pendingProbe = startAudiocapHost(PROBE_GENERATION, null, null);
     probeOwn = session;
     const started = await pendingProbe;
     result = started.ok

@@ -19,14 +19,11 @@ const TRANSITIONAL_RAW_IPCMAIN_FILES = [
   'src/main/main.ts',
   'src/main/permissionManager.ts',
   'src/main/ipc/attestation.ts',
-  'src/main/ipc/audiocap.ts',
   'src/main/ipc/billing.ts',
   'src/main/ipc/openExternal.ts',
   'src/main/ipc/saveImage.ts',
   'src/main/ipc/sso.ts',
-  'src/main/ipc/trayStatus.ts',
   'src/main/ipc/versionInfo.ts',
-  'src/main/ipc/windowControls.ts',
 ];
 
 export default [

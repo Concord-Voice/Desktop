@@ -145,6 +145,7 @@ import {
   type RegisterServiceDeps,
   type ServiceRecord,
 } from './connectionRegistry';
+import { isOwnerCurrent } from './connectionCapability';
 import {
   configureConnectionSession,
   installNavigationGate,
@@ -163,7 +164,6 @@ import {
   persistAddedConnections,
   restorePersistedConnections,
   saasPrimary,
-  saasPrimaryHandle,
   sendToConnection,
   shellWindow,
 } from './shellWindow';
@@ -1734,12 +1734,12 @@ app.whenReady().then(async () => {
   // (`retire()` treats `null` as "nobody to tell"), and a start with no port sink
   // retires the session. Both setters only capture the late-bound `mainWindow` and guard
   // it, so registering them first costs nothing and no later `await` can reorder them.
-  setAudiocapInterruptListener((interrupt) => {
-    // #86 Task 4: the saas view is the only one audiocap:start admits (Task 7B binds
-    // the owner), so it is the only one a capture can belong to.
-    const owner = saasPrimaryHandle();
-    if (!owner || owner.isDestroyed()) return;
-    owner.webContents.send('audiocap:interrupted', {
+  setAudiocapInterruptListener((interrupt, owner) => {
+    // #86 Task 7B: owner-only. The share is bound to the connection that started it;
+    // sendToConnection no-ops unless that ref is still the record's current generation,
+    // so another connection, or the owner's next document, never hears of it.
+    if (!owner) return;
+    sendToConnection(owner.ref, 'audiocap:interrupted', {
       generation: interrupt.generation,
       reason: interrupt.reason,
     });
@@ -1759,12 +1759,14 @@ app.whenReady().then(async () => {
   // nothing, so the host retires the session instead of reporting a started share. That
   // is the opposite of the capability push (below), which swallows because its value is
   // monotone and re-pushed on the next `did-finish-load`. A port is neither.
-  setAudiocapPortSink((generation, port) => {
-    const owner = saasPrimaryHandle();
-    if (!owner || owner.isDestroyed()) {
-      throw new Error('audiocap port sink: no live window');
+  setAudiocapPortSink((generation, port, owner) => {
+    // #86 Task 7B: owner-only, and only while the owner binding is current. Throwing
+    // retires the session, so a stale or foreign owner gets no capture at all.
+    const record = owner && isOwnerCurrent(owner) ? recordFor(owner.ref.connectionId) : undefined;
+    if (!record || record.state === 'disposed' || record.webContents.isDestroyed()) {
+      throw new Error('audiocap port sink: no live owner');
     }
-    owner.webContents.postMessage('audiocap:port', { generation }, [port]);
+    record.webContents.postMessage('audiocap:port', { generation }, [port]);
   });
 
   // #3198 PR 3 — the `audiocap:start` invoke. This is the ONE audiocap handler the
@@ -1777,12 +1779,12 @@ app.whenReady().then(async () => {
   // `registerWindowControlsIpc(() => mainWindow)`: `createWindow` has not run yet here, and
   // the `closed` handler nulls the variable. #86 Task 4: "the main window" is the saas
   // view until Task 7B binds the share's owner connection.
-  registerAudiocapIpc(getRemoteSpaBaseUrl, saasPrimaryHandle);
+  registerAudiocapIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
   registerBillingIpc(getRemoteSpaBaseUrl, shellWindow);
-  // Status-aware tray (tray-status spec §4): trusted frame + the foreground view's own
-  // main frame (a PiP shares the origin) + 20/s bucket + exact closed-enum shape.
-  registerTrayStatusIpc(getRemoteSpaBaseUrl, foregroundPrimaryHandle);
+  // Status-aware tray (tray-status spec §4): the binding-admitted primary main frame of
+  // trayOwner() or, with none, the foreground connection + 20/s bucket + exact shape.
+  registerTrayStatusIpc();
   // NO TLS certificate pinning on api.concordvoice.chat — deliberate, do not
   // re-add (#658 reverted). Cloudflare serves that host from a MANAGED edge
   // certificate that it rotates on its own schedule with a NEW keypair. The pin

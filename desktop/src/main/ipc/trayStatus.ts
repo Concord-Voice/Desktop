@@ -22,16 +22,21 @@
  * snapshot: the renderer only sends on change and would otherwise leave the tray
  * neutral until some field moved.
  */
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 
 import {
   firstInvalidField,
   TRAY_SET_STATUS,
   type TrayStatusSnapshot,
 } from '../../shared/trayStatus';
+import type { ConnectionRef } from '../../shared/connectionIdentity';
 import { applyTraySnapshot } from '../tray';
+import { foreground } from '../connectionRegistry';
+import { bindOwner, requireOwner, type OwnerBinding } from '../connectionCapability';
 
-import { requireTrustedSender } from './frameValidation';
+import { CHANNEL_CLASSES } from './channelClassification';
+import type { ConnectionSender } from './connectionSender';
+import { registerIpc } from './registry';
 
 const TRAY_STATUS_RATE_PER_SEC = 20;
 
@@ -57,61 +62,71 @@ export function createTokenBucket(ratePerSec: number, now: () => number): () => 
   };
 }
 
-/** The admitted window: only its liveness and its `webContents` are read (#86 Task 4). */
-type MainWindowHandle = () => Pick<BrowserWindow, 'isDestroyed' | 'webContents'> | null;
-
 /**
- * True only for the main window's own main frame, on a trusted origin. `senderFrame`
- * is read once (inside `requireTrustedSender`), so the frame whose URL passed is the
- * frame whose id is compared. A destroyed window is refused explicitly; the catch is
- * the backstop for Electron's "Object has been destroyed" throw on property access.
- * Same construction as `isMainWindowMainFrame` in `audiocap.ts`.
+ * The tray's owner (#86 Task 7B, spec §3.7). `null` means the foreground primary; a
+ * ref names the one connection #87's capture lease redirects the tray to. Held as an
+ * `OwnerBinding`, so a ref whose connection has since advanced its generation (a new
+ * document, renderer loss, a credential change, dispose) admits NOBODY until main
+ * names a new owner or clears it: a stale owner fails closed rather than falling back.
  */
-function isMainWindowMainFrame(
-  event: IpcMainInvokeEvent,
-  remoteSpaOrigin: string | null,
-  getMainWindow: MainWindowHandle
-): boolean {
-  const senderFrame = requireTrustedSender(event, remoteSpaOrigin);
-  if (!senderFrame) return false;
-  try {
-    const win = getMainWindow();
-    if (!win || win.isDestroyed()) return false;
-    const contents = win.webContents;
-    return (
-      event.sender === contents &&
-      senderFrame.frameTreeNodeId === contents.mainFrame.frameTreeNodeId
-    );
-  } catch {
-    return false;
-  }
+let trayOwnerBinding: OwnerBinding | null = null;
+
+/** The connection the tray currently belongs to, or null for "the foreground primary". */
+export function trayOwner(): ConnectionRef | null {
+  return trayOwnerBinding?.ref ?? null;
 }
 
-export function registerTrayStatusIpc(
-  getRemoteSpaBaseUrl: () => string | null,
-  getMainWindow: MainWindowHandle
-): void {
+/** Main-only (#87 redirects to the lease holder). Throws on a malformed ref. */
+export function setTrayOwner(ref: ConnectionRef | null): void {
+  trayOwnerBinding = ref === null ? null : bindOwner('tray', ref);
+}
+
+/**
+ * FENCE 1 (#86 Task 7B). The registry already admitted a bound PRIMARY main frame whose
+ * URL is permitted for its connection's kind, read in the event's own tick (a PiP shares
+ * the origin and is refused there, as are subframes, detached and destroyed frames).
+ * This narrows it to the tray's owner: the named owner's current primary when one is
+ * set, else the foreground connection's primary. What breaks it: admitting on the
+ * payload, on a renderer-held id, or on window identity instead of the binding.
+ */
+function isTrayOwner(sender: ConnectionSender, event: IpcMainInvokeEvent): boolean {
+  const owner = trayOwnerBinding;
+  if (owner !== null) return requireOwner(event, owner) === sender.record;
+  return foreground() === sender.record;
+}
+
+/**
+ * `tray:setStatus` (#86 Task 7B: `registerIpc`, `connection-bound` plus the owner check
+ * above). Every refusal still resolves `true` (the contract: a tray update never fails
+ * the renderer's invoke); only a rate-limit drop resolves `false`.
+ */
+export function registerTrayStatusIpc(): void {
   const allow = createTokenBucket(TRAY_STATUS_RATE_PER_SEC, () => Date.now());
   let loggedMalformed = false;
-  ipcMain.handle(TRAY_SET_STATUS, (event: IpcMainInvokeEvent, payload: unknown): boolean => {
-    try {
-      if (!isMainWindowMainFrame(event, getRemoteSpaBaseUrl(), getMainWindow)) return true;
-      if (!allow()) return false;
-      const invalid = firstInvalidField(payload);
-      if (invalid !== null) {
-        if (!loggedMalformed) {
-          loggedMalformed = true;
-          console.warn(`tray:setStatus dropped a malformed snapshot (field ${invalid})`);
+  registerIpc(
+    TRAY_SET_STATUS,
+    CHANNEL_CLASSES[TRAY_SET_STATUS],
+    (sender: ConnectionSender, event: IpcMainInvokeEvent, payload: unknown): boolean => {
+      try {
+        if (!isTrayOwner(sender, event)) return true;
+        if (!allow()) return false;
+        const invalid = firstInvalidField(payload);
+        if (invalid !== null) {
+          if (!loggedMalformed) {
+            loggedMalformed = true;
+            console.warn(`tray:setStatus dropped a malformed snapshot (field ${invalid})`);
+          }
+          return true;
         }
-        return true;
+        lastAccepted = { ...(payload as TrayStatusSnapshot) };
+        applyTraySnapshot({ ...lastAccepted });
+      } catch {
+        // Contract: a tray update can never fail the renderer's invoke.
       }
-      lastAccepted = { ...(payload as TrayStatusSnapshot) };
-      applyTraySnapshot({ ...lastAccepted });
-    } catch {
-      // Contract: a tray update can never fail the renderer's invoke.
-    }
-    return true;
-  });
+      return true;
+    },
+    { refusal: () => true }
+  );
 }
 
 /** The minimal `webContents` surface the reset hooks need. */

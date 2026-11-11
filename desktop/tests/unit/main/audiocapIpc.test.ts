@@ -60,7 +60,64 @@ vi.mock('../../../src/main/audiocapHost', () => ({
  */
 async function loadIpc() {
   vi.resetModules();
-  return import('../../../src/main/ipc/audiocap');
+  const reg = await import('../../../src/main/connectionRegistry');
+  const ipcReg = await import('../../../src/main/ipc/registry');
+  const mod = await import('../../../src/main/ipc/audiocap');
+  ipcReg._resetIpcRegistryForTesting();
+  reg._resetConnectionRegistryForTesting();
+  // #86 Task 7B re-point: "the main window" is now the saas connection's bound primary.
+  // `mainWebContents` is bound as that primary, and the handlers run behind the real
+  // `registerIpc` wrapper. The legacy `getMainWindow` argument the cases below still
+  // pass is mapped onto the binding: a provider that names a live, undestroyed window
+  // whose webContents IS `mainWebContents` leaves the event as it is; anything else
+  // (null, destroyed, a throwing getter, another webContents) presents the event from
+  // an UNBOUND sender, which is what "no main window" means once admission is the
+  // binding. Every assertion below is unchanged.
+  const svc = reg.registerService('https://api.concordvoice.chat', {
+    makeSession: () => ({}) as never,
+    makeCustody: () => ({}) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!svc.ok) throw new Error(svc.reason);
+  const opened = reg.openConnection(svc.service.serviceId, mainWebContents as never, null);
+  if (!opened.ok) throw new Error(opened.reason);
+  reg.bindSender(mainWebContents as never, opened.record.connectionId, 'primary');
+  let registered = false;
+  const register = () => {
+    mod.registerAudiocapIpc();
+    registered = true;
+  };
+  const wrapper = (channel: string) => {
+    if (!registered) register();
+    const calls = handle.mock.calls.filter((c) => c[0] === channel);
+    return calls[calls.length - 1][1] as (...a: unknown[]) => unknown;
+  };
+  const unbound = { mainFrame: { frameTreeNodeId: 1 } };
+  const asSender = (event: unknown, provider: () => unknown) => {
+    let live = false;
+    try {
+      const w = provider() as { isDestroyed(): boolean; webContents: unknown } | null;
+      live = !!w && !w.isDestroyed() && w.webContents === mainWebContents;
+    } catch {
+      live = false;
+    }
+    if (live) return event;
+    return new Proxy(event as object, {
+      get: (t, p) => (p === 'sender' ? unbound : Reflect.get(t, p)),
+    });
+  };
+  return {
+    ...mod,
+    reg,
+    registerAudiocapIpc: (..._legacy: unknown[]) => register(),
+    handleAudiocapStart: (event: unknown, request: unknown, _o: unknown, provider: () => unknown) =>
+      wrapper('audiocap:start')(asSender(event, provider), request) as ReturnType<
+        typeof mod.handleAudiocapStart
+      >,
+    handleAudiocapStop: (event: unknown, _o: unknown, provider: () => unknown): void => {
+      wrapper('audiocap:stop')(asSender(event, provider));
+    },
+  };
 }
 
 /**
@@ -74,7 +131,7 @@ const getMainWindow = () => ({ isDestroyed: () => false, webContents: mainWebCon
 
 /** A sender frame the allowlist accepts, FROM THE MAIN WINDOW'S OWN MAIN FRAME. */
 const trustedEvent = {
-  senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+  senderFrame: { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 },
   sender: mainWebContents,
 } as never;
 
@@ -99,7 +156,7 @@ beforeEach(() => {
 describe('audiocap:start — fence 1, the sender frame (A4, spec test 4)', () => {
   it('refuses an untrusted origin', async () => {
     const { handleAudiocapStart } = await loadIpc();
-    const evt = { senderFrame: { url: 'https://evil.example/' } } as never;
+    const evt = { senderFrame: { parent: null, url: 'https://evil.example/' } } as never;
     const r = await handleAudiocapStart(
       evt,
       { sourceId: 'window:42:0' },
@@ -125,7 +182,7 @@ describe('audiocap:start — fence 1, the sender frame (A4, spec test 4)', () =>
 
   it('reads the frame BEFORE the enumeration, so a hostile sender costs no OS work', async () => {
     const { handleAudiocapStart } = await loadIpc();
-    const evt = { senderFrame: { url: 'https://evil.example/' } } as never;
+    const evt = { senderFrame: { parent: null, url: 'https://evil.example/' } } as never;
     await handleAudiocapStart(evt, { sourceId: 'window:42:0' }, getRemoteSpaOrigin, getMainWindow);
     // The ORDER is the design (A4): a validation that runs after other work is a
     // validation a future edit can reorder past. Asserting the enumeration never
@@ -218,7 +275,11 @@ describe('audiocap:start — what reaches the host', () => {
     expect(r).toEqual({ ok: true, generation: 1, perProcessAudio: true });
     // OBEYED, NOT MERELY PASSED (spec test 9): assert what reached the host, not
     // that an options object was shaped a certain way.
-    expect(startAudiocapHost).toHaveBeenCalledWith(1, 42);
+    expect(startAudiocapHost).toHaveBeenCalledWith(
+      1,
+      42,
+      expect.objectContaining({ kind: 'audiocap' })
+    );
     expect(JSON.stringify(startAudiocapHost.mock.calls[0])).not.toContain('systemAudio');
   });
 
@@ -236,7 +297,11 @@ describe('audiocap:start — what reaches the host', () => {
     // caller proves the value is CARRIED rather than constant-folded. This is the
     // rule #3198 PR 2 wrote after `screenAudioRefusalMessage` gained a `platform`
     // parameter that no call site ever varied.
-    expect(startAudiocapHost).toHaveBeenCalledWith(1, 1337);
+    expect(startAudiocapHost).toHaveBeenCalledWith(
+      1,
+      1337,
+      expect.objectContaining({ kind: 'audiocap' })
+    );
   });
 
   it('mints a NEW generation per share, so a stale result is distinguishable', async () => {
@@ -299,7 +364,9 @@ describe('audiocap:start — renderer-loss and post-await sender re-check (#3394
       event: {
         sender: mainWebContents,
         get senderFrame() {
-          return gone ? null : { url: 'app://concord/index.html', frameTreeNodeId: 1 };
+          return gone
+            ? null
+            : { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 };
         },
       } as never,
       documentGone: () => {
@@ -377,7 +444,11 @@ describe('audiocap:start — renderer-loss and post-await sender re-check (#3394
       getMainWindow
     );
     expect(r).toEqual({ ok: true, generation: 1, perProcessAudio: true });
-    expect(startAudiocapHost).toHaveBeenCalledWith(1, 42);
+    expect(startAudiocapHost).toHaveBeenCalledWith(
+      1,
+      42,
+      expect.objectContaining({ kind: 'audiocap' })
+    );
   });
 });
 
@@ -437,7 +508,11 @@ describe('audiocap:stop', () => {
 
     releaseSources([{ id: 'window:42:0', name: 'Some App' }]);
     await pendingStart;
-    expect(startAudiocapHost).toHaveBeenCalledWith(1, 42);
+    expect(startAudiocapHost).toHaveBeenCalledWith(
+      1,
+      42,
+      expect.objectContaining({ kind: 'audiocap' })
+    );
   });
 
   it('reaps the child on a trusted sender', async () => {
@@ -447,7 +522,7 @@ describe('audiocap:stop', () => {
   });
 
   it.each([
-    ['an untrusted origin', { senderFrame: { url: 'https://evil.example/' } }],
+    ['an untrusted origin', { senderFrame: { parent: null, url: 'https://evil.example/' } }],
     ['a null senderFrame', { senderFrame: null }],
   ])('refuses %s', async (_label, evt) => {
     const { handleAudiocapStop } = await loadIpc();
@@ -490,13 +565,13 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
   /** A trusted-origin sender that is NOT the main window (e.g. a PiP window). */
   const pipWebContents = { mainFrame: { frameTreeNodeId: 2 } };
   const pipEvent = {
-    senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 2 },
+    senderFrame: { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 2 },
     sender: pipWebContents,
   } as never;
 
   /** A trusted-origin sender whose frame is a SUBFRAME of the main window's webContents. */
   const subframeEvent = {
-    senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 999 },
+    senderFrame: { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 999 },
     sender: mainWebContents,
   } as never;
 
@@ -548,7 +623,11 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
       getMainWindow
     );
     expect(r).toEqual({ ok: true, generation: 1, perProcessAudio: true });
-    expect(startAudiocapHost).toHaveBeenCalledWith(1, 42);
+    expect(startAudiocapHost).toHaveBeenCalledWith(
+      1,
+      42,
+      expect.objectContaining({ kind: 'audiocap' })
+    );
   });
 
   it('start: the post-await re-check also enforces main-window/main-frame — a sender whose frame stops being the main frame is refused', async () => {
@@ -598,7 +677,7 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
     let gone = false;
     const flippableEvent = {
       get senderFrame() {
-        return gone ? null : { url: 'app://concord/index.html', frameTreeNodeId: 1 };
+        return gone ? null : { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 };
       },
       get sender() {
         return mainWebContents;
@@ -703,7 +782,7 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
       get: mainFrameGetter,
     });
     const eventWithDestroyedMainFrame = {
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+      senderFrame: { parent: null, url: 'app://concord/index.html', frameTreeNodeId: 1 },
       sender: contentsWithDestroyedMainFrame,
     } as never;
 
