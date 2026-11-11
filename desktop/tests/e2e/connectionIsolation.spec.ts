@@ -260,11 +260,74 @@ test('outage injected on A bumps no generation and leaves B untouched', async ({
   expect(await echo(app, v.wcB, 'b-unaffected')).toBe('b-unaffected');
 });
 
-test('legacy SPA path', async () => {
+test('legacy SPA path', async ({ app, planes }) => {
   test.fixme(
     true,
-    'not implemented in this harness: removing the contextBridge-exposed electron.connection key before the preload runs (evaluateOnNewDocument) and a renderer-observable boot-mode signal are both unverified'
+    'contextBridge exposes window.electron frozen, non-configurable and non-writable (measured after the preload: {frozen:true,configurable:false,writable:false}), so evaluateOnNewDocument cannot remove the connection key, and no production-safe switch boots a v34 preload without it'
   );
+  const v = await views(app, planes);
+  // Evaluated in A's main world on every new document, before any page script, after
+  // the preload: a pre-v34 shell is exactly a bridge without the `connection` key.
+  // contextBridge freezes the exposed object (measured: `delete` fails), so the probe
+  // can only swap in a shallow copy without the key, and only if `window.electron`
+  // is replaceable — measured: it is not.
+  const strip = `(() => {
+    const e = window.electron;
+    const d = Object.getOwnPropertyDescriptor(window, 'electron');
+    let removed = false;
+    try {
+      if (e !== undefined && d && (d.configurable || d.writable)) {
+        const { connection, ...rest } = e;
+        if (d.configurable) {
+          Object.defineProperty(window, 'electron', { value: rest, enumerable: true });
+        } else {
+          window.electron = rest;
+        }
+        removed = !('connection' in window.electron) && typeof window.electron.logout === 'function';
+      }
+    } catch {}
+    window.__e2eStrip = {
+      electron: typeof e,
+      removed,
+      frozen: Object.isFrozen(e),
+      configurable: d ? d.configurable : null,
+      writable: d ? d.writable : null,
+    };
+  })()`;
+  await app.evaluate(
+    async ({ webContents }, { id, source }) => {
+      const wc = webContents.fromId(id);
+      if (!wc) throw new Error('no view');
+      wc.debugger.attach('1.3');
+      await wc.debugger.sendCommand('Page.enable');
+      await wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source });
+      const loaded = new Promise<void>((resolve) => wc.once('did-finish-load', () => resolve()));
+      wc.reload();
+      await loaded;
+    },
+    { id: v.wcA, source: strip }
+  );
+  const stripped = await execIn<Record<string, unknown>>(app, v.wcA, 'window.__e2eStrip');
+  expect(stripped, JSON.stringify(stripped)).toMatchObject({
+    electron: 'object',
+    removed: true,
+  });
+  // The SPA's own memoised boot decision: same module URL, so the same instance.
+  const bootMode = (wc: number): Promise<string> =>
+    execIn<string>(
+      app,
+      wc,
+      `import('/src/renderer/services/system/bootConnection.ts').then((m) => m.bootConnection().mode)`
+    );
+  expect(await bootMode(v.wcA)).toBe('legacy');
+  // Positive control: the untouched view booted in connection mode.
+  expect(await bootMode(v.wcB)).toBe('connection');
+  // The legacy document still mounts the app rather than failing at boot.
+  await expect
+    .poll(() =>
+      execIn<number>(app, v.wcA, `document.getElementById('root')?.childElementCount ?? 0`)
+    )
+    .toBeGreaterThan(0);
 });
 
 test('duplicate-id fixture', async () => {
