@@ -37,7 +37,7 @@ tests/
 │   ├── csp-policy.test.ts
 │   ├── csp-prod-strip.test.ts
 │   └── no-sentry-imports.test.ts
-└── e2e/                    # Playwright E2E specs + helpers.ts
+└── e2e/                    # Playwright E2E specs + helpers.ts; electronFixture.ts + fixtures/ for the Electron spec
 ```
 
 ## Running Tests
@@ -65,6 +65,9 @@ npx vitest run tests/unit/components/Auth/
 
 # Run E2E tests (requires running dev server + backend)
 npx playwright test
+
+# Run the Electron connection-isolation e2e (build first; no backend)
+npm run build && npm run test:e2e:electron
 ```
 
 ## Test Tools
@@ -108,7 +111,7 @@ Tests run in GitHub Actions via `.github/workflows/build.yml`, invoked via `work
 
 ### E2E (Playwright)
 
-The 12 e2e specs in `tests/e2e/` run **manually** via `npm run test:e2e`. #1435 removed CI enforcement, because the signal was advisory-only and macOS visual baselines were flaky. See the historical playwright ADR-0011.
+The 13 e2e specs in `tests/e2e/` run **manually**: 12 through `npm run test:e2e`, and `connectionIsolation.spec.ts` through `npm run test:e2e:electron` (see [Electron e2e](#electron-e2e) below; `playwright.config.ts` ignores that spec). #1435 removed CI enforcement, because the signal was advisory-only and macOS visual baselines were flaky. See the historical playwright ADR-0011.
 
 No Playwright CI job exists for the desktop client — that change deleted `playwright.yml`, so nothing below runs on a PR. The only Playwright in CI is the Admin Portal's own browser-test step in `build.yml` (`.github/workflows/build.yml:717-723`). The tags below still help a local run:
 
@@ -153,6 +156,27 @@ REDIS_URL="${REDIS_URL:?set the control-plane's isolated Redis URL}" \
   E2E_API_PORT=8080 E2E_UI_PORT=3001 \
   npm run test:e2e -- tests/e2e/rich-presence.spec.ts
 ```
+
+#### Electron e2e
+
+`tests/e2e/connectionIsolation.spec.ts` is the one spec that drives the real Electron shell (Playwright `_electron`), through its own config, `playwright.electron.config.ts`. It covers connection-context isolation (#86, ADR-0051): two self-hosted connections with separate cookie jars, storage, IPC authority and pushes.
+
+```bash
+cd desktop
+npm run build
+npm run test:e2e:electron
+```
+
+What it needs:
+
+- **`npm run build` first.** The fixture (`tests/e2e/electronFixture.ts`) launches the built shell, `dist/main/main.js`, as an unpackaged app.
+- **No backend.** Two stub control planes (`tests/e2e/fixtures/controlPlaneStub.ts`) start in-process and return identical user ids.
+- **Port 3001 free.** An unpackaged shell loads every view from `http://localhost:3001`, so the fixture starts the repo's Vite dev server in-process on that port (strict). Stop `npm run dev` first.
+- **One worker.** Every test owns port 3001 and a shell.
+
+The run does not use your real profile. `HOME` points at a fresh temp directory, `fixtures/seedProfile.cjs` refuses to seed unless `userData` resolves beneath it, and the fixture checks `app.getPath('userData')` again after launch. Chromium's `--use-mock-keychain` keeps `safeStorage` off the login keychain.
+
+Of the 11 tests, 4 are `test.fixme`, each with its measured reason in the spec file: `app://concord` in a fresh `fromPath` session, the superseded audiocap request, the legacy SPA path and the duplicate-id fixture. The spec was written and run on macOS arm64 only.
 
 Pre-commit hooks (`./scripts/install-git-hooks.sh`) run local linting and type-checking before push.
 
