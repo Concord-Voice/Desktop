@@ -5865,3 +5865,213 @@ describe('main.ts', () => {
     });
   });
 });
+
+// ── #86 Task 7B (RED): per-connection main-process semantics ─────────────────
+describe('#86 connection-isolated main semantics', () => {
+  type Registry = typeof import('../../../src/main/connectionRegistry');
+  const APP_FRAME = 'app://concord/index.html';
+  let nextFrame = 9100;
+
+  /** A fake self-hosted primary registered and bound exactly like shellWindow does. */
+  function openFakeSelfHosted(origin: string) {
+    const reg: Registry = connectionRegistry;
+    const svc = reg.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = reg.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    reg.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      wc,
+      record: opened.record,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId } },
+    };
+  }
+
+  const saasEvent = () => ({
+    sender: mockWebContents,
+    senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+  });
+
+  describe('app:setBadgeCount is a per-connection sum', () => {
+    const lastBadge = async () => {
+      const { app } = await import('electron');
+      const calls = (app.setBadgeCount as Mock).mock.calls;
+      return calls[calls.length - 1]?.[0];
+    };
+
+    afterEach(async () => {
+      // Leave the saas contribution at zero for later suites.
+      await handlers.get('app:setBadgeCount')!(saasEvent(), 0);
+    });
+
+    it('A=3 and B=4 show 7, and disposing a connection drops only its share', async () => {
+      const A = openFakeSelfHosted('https://badge-a.lan');
+      const B = openFakeSelfHosted('https://badge-b.lan');
+      try {
+        await handlers.get('app:setBadgeCount')!(saasEvent(), 0);
+        await handlers.get('app:setBadgeCount')!(A.event, 3);
+        await handlers.get('app:setBadgeCount')!(B.event, 4);
+        expect(await lastBadge()).toBe(7);
+
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        expect(await lastBadge()).toBe(4);
+      } finally {
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it('clamps the summed total (9000 + 9000) to 9999', async () => {
+      const A = openFakeSelfHosted('https://clamp-a.lan');
+      const B = openFakeSelfHosted('https://clamp-b.lan');
+      try {
+        await handlers.get('app:setBadgeCount')!(A.event, 9000);
+        await handlers.get('app:setBadgeCount')!(B.event, 9000);
+        expect(await lastBadge()).toBe(9999);
+      } finally {
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+  });
+
+  describe('selfHosted:probeServer from the saas view', () => {
+    it('opens an approved other origin in its own connection and never re-homes saas', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      const { WebContentsView } = await import('electron');
+      const { serviceIdForApiBase } = await import('../../../src/main/selfHostedProfile');
+      const origin = new URL('https://other-approved.lan').origin;
+      approvalStore.records.length = 0;
+      approvalStore.records.push({ origin });
+      (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok', apiBase: origin });
+      mockResolveForDisplay.mockResolvedValue({ ok: true } as never);
+
+      // A fresh view for the new connection (the shared mock view is the saas one).
+      const newWc = {
+        send: vi.fn(),
+        on: vi.fn(),
+        once: vi.fn(),
+        getURL: vi.fn(() => ''),
+        loadURL: vi.fn().mockResolvedValue(undefined),
+        loadFile: vi.fn().mockResolvedValue(undefined),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        mainFrame: { url: APP_FRAME, frameTreeNodeId: 9001 },
+      };
+      (WebContentsView as unknown as Mock).mockImplementationOnce(function () {
+        return {
+          webContents: newWc,
+          setBounds: vi.fn(),
+          setVisible: vi.fn(),
+          setBackgroundColor: vi.fn(),
+        };
+      });
+      mockWebContents.loadURL.mockClear();
+      const saasBefore = connectionRegistry.foreground()?.connectionId;
+
+      const result = await handlers.get('selfHosted:probeServer')!(saasEvent(), origin);
+
+      try {
+        expect(result).toEqual({
+          status: 'opened-in-connection',
+          serviceId: serviceIdForApiBase(origin),
+        });
+        // Activated: the new connection is foreground, the saas view was not navigated.
+        const opened = connectionRegistry
+          .liveConnections()
+          .find((r) => r.serviceId === serviceIdForApiBase(origin));
+        expect(opened).toBeDefined();
+        expect(connectionRegistry.foreground()?.connectionId).toBe(opened!.connectionId);
+        expect(connectionRegistry.foreground()?.connectionId).not.toBe(saasBefore);
+        expect(mockWebContents.loadURL).not.toHaveBeenCalledWith(
+          expect.stringContaining('other-approved')
+        );
+        expect(mockWebContents.loadURL).not.toHaveBeenCalled();
+      } finally {
+        for (const r of connectionRegistry.liveConnections()) {
+          if (r.serviceId === serviceIdForApiBase(origin)) {
+            connectionRegistry.disposeConnection(r.connectionId);
+          }
+        }
+        if (saasBefore) connectionRegistry.setForeground(saasBefore);
+        mockResolveForDisplay.mockReset();
+      }
+    });
+  });
+
+  describe('deep links are delivered to the saas connection only', () => {
+    it('a self-hosted primary signalling ready neither receives nor drains a deep link', async () => {
+      const { ipcMain } = await import('electron');
+      const S = openFakeSelfHosted('https://deeplink-self.lan');
+      const onCall = (ch: string): CallbackFn => {
+        const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === ch);
+        expect(call, `ipcMain.on('${ch}') was never registered`).toBeDefined();
+        return call![1] as CallbackFn;
+      };
+      const openUrl = appOnCallbacks.get('open-url')!;
+      try {
+        // Drop both readiness flags the way a reload does, then queue a link.
+        const reload = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        reload();
+        mockWebContents.send.mockClear();
+        openUrl({ preventDefault: vi.fn() }, 'concord://invite/AbCdEfGj');
+
+        onCall('invite:renderer-ready')(S.event);
+        onCall('deeplink:renderer-ready')(S.event);
+        // Never to the self-hosted primary, and its signal must not count as saas readiness.
+        expect(S.wc.send).not.toHaveBeenCalled();
+        expect(mockWebContents.send).not.toHaveBeenCalledWith('invite:received', expect.anything());
+
+        // The first saas primary load/ready drains the queued link to saas.
+        onCall('invite:renderer-ready')(saasEvent());
+        expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code: 'AbCdEfGj' });
+        expect(S.wc.send).not.toHaveBeenCalled();
+      } finally {
+        connectionRegistry.disposeConnection(S.record.connectionId);
+        reload_cleanup();
+      }
+
+      function reload_cleanup(): void {
+        const r = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        r();
+        mockWebContents.send.mockClear();
+      }
+    });
+  });
+
+  describe('X1: a packaged build restores views onto the bundled app, not the dev server', () => {
+    it('does not pass the dev server URL to the shell unconditionally', async () => {
+      const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+      const src = realFs.readFileSync(
+        new URL('../../../src/main/main.ts', import.meta.url),
+        'utf8'
+      );
+      const m = /devConnectionUrl:\s*([^\n]+)/.exec(src);
+      expect(m, 'main.ts must pass devConnectionUrl').not.toBeNull();
+      const value = m![1];
+      expect(value).not.toMatch(/^DEV_SERVER_URL\s*,?\s*$/);
+      expect(value).toMatch(/isPackaged/);
+      expect(value).toContain('app://concord/index.html');
+    });
+  });
+});

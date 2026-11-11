@@ -399,3 +399,16 @@ describe('connection:generation push', () => {
     expect(saas.record.generation).toBe(1);
   });
 });
+
+describe('connection:create X4 (no orphan service after a refused view)', () => {
+  it('does not leave the service registered when openConnectionView refuses after registerService', async () => {
+    const saas = conn(SAAS_ORIGIN, 1);
+    setForeground(saas.record.connectionId);
+    deps.openConnectionView.mockResolvedValueOnce({ ok: false, reason: 'limit' });
+    expect(await call('connection:create', ev(saas.wc), NEW)).toEqual({
+      status: 'rejected',
+      reason: 'limit',
+    });
+    expect(getService(serviceIdForApiBase(NEW))).toBeUndefined();
+  });
+});

@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('electron', () => ({
-  app: { quit: vi.fn() },
+  app: { quit: vi.fn(), getPath: () => '/tmp/concord-test-userdata' },
   ipcMain: { handle: vi.fn() },
 }));
 
 import { app, ipcMain } from 'electron';
 import { registerWindowControlsIpc, getCachedClientBehavior } from '@/main/ipc/windowControls';
 import { DEFAULT_CLIENT_BEHAVIOR } from '@/shared/clientBehavior';
+import {
+  _resetConnectionRegistryForTesting,
+  bindSender,
+  openConnection,
+  registerService,
+  setForeground,
+} from '@/main/connectionRegistry';
+import { _resetIpcRegistryForTesting } from '@/main/ipc/registry';
 
 const makeMockWindow = () => ({
   setTitleBarOverlay: vi.fn(),
@@ -125,5 +133,88 @@ describe('registerWindowControlsIpc', () => {
     )![1];
     handler({} as never, { color: 'rgba(26, 22, 48, 1)', symbolColor: '#ffffff' });
     expect(window.setTitleBarOverlay).toHaveBeenCalled();
+  });
+});
+
+// #86 Task 7B: low-stakes channels are admitted for the FOREGROUND primary only; any other
+// sender (a background primary) gets a silent no-op (undefined, no warn, no effect).
+describe('window controls: binding-derived admission (#86 Task 7B)', () => {
+  function conn(origin: string, id: number) {
+    const r = registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record, id };
+  }
+  const ev = (c: { wc: unknown; id: number }) =>
+    ({
+      sender: c.wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: c.id,
+        detached: false,
+      },
+    }) as never;
+  const handlerFor = (channel: string) => {
+    const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === channel
+    );
+    return calls[calls.length - 1][1] as (...a: unknown[]) => unknown;
+  };
+
+  function boot() {
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    const window = makeMockWindow();
+    registerWindowControlsIpc(() => window as never);
+    const fg = conn('https://api.concordvoice.chat', 21);
+    const bg = conn(new URL('https://a.example').origin, 22);
+    setForeground(fg.record.connectionId);
+    return { window, fg, bg };
+  }
+
+  it('setTitleBarOverlayColor from a background primary is a silent no-op', () => {
+    const { window, bg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = handlerFor('window:setTitleBarOverlayColor')(ev(bg), {
+      color: '#000000',
+      symbolColor: '#ffffff',
+    });
+    expect(r).toBeUndefined();
+    expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('setClientBehavior from a background primary is a silent no-op and keeps the cache', () => {
+    const { bg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const before = getCachedClientBehavior();
+    const r = handlerFor('window:setClientBehavior')(ev(bg), {
+      toTray: 'none',
+      toToolbar: 'close',
+    });
+    expect(r).toBeUndefined();
+    expect(getCachedClientBehavior()).toEqual(before);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('both channels still work from the foreground primary', () => {
+    const { window, fg } = boot();
+    handlerFor('window:setTitleBarOverlayColor')(ev(fg), {
+      color: '#000000',
+      symbolColor: '#ffffff',
+    });
+    expect(window.setTitleBarOverlay).toHaveBeenCalledTimes(1);
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'close' });
   });
 });

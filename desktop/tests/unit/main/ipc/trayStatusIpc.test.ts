@@ -16,6 +16,7 @@ const { handlers, mockApplyTraySnapshot } = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/concord-test-userdata' },
   ipcMain: {
     handle: vi.fn((channel: string, fn: Handler) => {
       handlers.set(channel, fn);
@@ -31,7 +32,18 @@ import {
   attachTrayResetHooks,
   createTokenBucket,
   registerTrayStatusIpc,
+  setTrayOwner,
+  trayOwner,
 } from '../../../../src/main/ipc/trayStatus';
+import {
+  _resetConnectionRegistryForTesting,
+  bindSender,
+  openConnection,
+  refOf,
+  registerService,
+  setForeground,
+} from '../../../../src/main/connectionRegistry';
+import { _resetIpcRegistryForTesting } from '../../../../src/main/ipc/registry';
 
 const SNAPSHOT: TrayStatusSnapshot = {
   v: 1,
@@ -281,6 +293,103 @@ describe('attachTrayResetHooks (AC13)', () => {
     fire('did-navigate');
     mockApplyTraySnapshot.mockClear();
     fire('responsive');
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+  });
+});
+
+// #86 Task 7B: sender authority is the main-held binding. getMainWindow is null below so the
+// legacy main-window identity gate can never admit these senders.
+describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
+  function conn(origin: string, id: number) {
+    const r = registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record, id, ref: refOf(o.record) };
+  }
+  const ev = (c: { wc: unknown; id: number }, over: Record<string, unknown> = {}) =>
+    ({
+      sender: c.wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: c.id,
+        detached: false,
+        ...over,
+      },
+    }) as never;
+
+  function boot() {
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    handlers.clear();
+    setTrayOwner(null);
+    mockApplyTraySnapshot.mockReset();
+    vi.spyOn(Date, 'now').mockImplementation(() => 1_000);
+    registerTrayStatusIpc(
+      () => null,
+      () => null
+    );
+    const handler = handlers.get(TRAY_SET_STATUS)!;
+    const A = conn('https://api.concordvoice.chat', 31);
+    const B = conn(new URL('https://a.example').origin, 32);
+    setForeground(A.record.connectionId);
+    return { handler, A, B };
+  }
+
+  it('trayOwner() is null by default and round-trips setTrayOwner', () => {
+    const { B } = boot();
+    expect(trayOwner()).toBeNull();
+    setTrayOwner(B.ref);
+    expect(trayOwner()).toEqual(B.ref);
+    setTrayOwner(null);
+    expect(trayOwner()).toBeNull();
+  });
+
+  it('with no tray owner it admits the foreground primary only', async () => {
+    const { handler, A, B } = boot();
+    expect(await handler(ev(B), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(await handler(ev(A), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('after setTrayOwner(refB) it admits B only, even while A is foreground', async () => {
+    // CONTRACT: assumes tray:setStatus is admitted as connection-bound plus an owner
+    // check (7A classified it app-global-mutate; 7B may revise that row).
+    const { handler, A, B } = boot();
+    setTrayOwner(B.ref);
+    expect(await handler(ev(A), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(await handler(ev(B), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a stale tray owner ref (owner generation advanced)', async () => {
+    const { handler, B } = boot();
+    const reg = await import('../../../../src/main/connectionRegistry');
+    setTrayOwner(B.ref);
+    reg.advanceGeneration(B.record.connectionId, 'document');
+    expect(await handler(ev(B), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+  });
+
+  it('refuses a detached sender frame and a destroyed sender, resolving true', async () => {
+    const { handler, A } = boot();
+    expect(await handler(ev(A, { detached: true }), SNAPSHOT)).toBe(true);
+    const destroyed = ev(A) as { senderFrame: unknown };
+    Object.defineProperty(destroyed, 'senderFrame', {
+      get: () => {
+        throw new Error('Object has been destroyed');
+      },
+    });
+    expect(await handler(destroyed, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
   });
 });

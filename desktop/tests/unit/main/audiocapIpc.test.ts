@@ -37,6 +37,7 @@ const handle = vi.fn();
 const audiocapRendererLossEpoch = vi.fn();
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/concord-test-userdata' },
   ipcMain: { handle: (...a: unknown[]) => handle(...a) },
   desktopCapturer: { getSources: (...a: unknown[]) => getSources(...a) },
 }));
@@ -762,5 +763,143 @@ describe('audiocap:start / audiocap:stop admission — main window main frame on
 
     expect(stopAudiocapHost).not.toHaveBeenCalled();
     expect(webContentsGetter).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// #86 Task 7B: owner binding and binding-derived admission. The sender authority is the
+// main-held connection binding (connectionRegistry), never the legacy getMainWindow().
+// `getMainWindow` returns null below so the legacy gate can NEVER admit these senders.
+// ---------------------------------------------------------------------------------------
+describe('audiocap #86 owner binding (Task 7B)', () => {
+  const SELF = new URL('https://a.example').origin;
+
+  async function boot() {
+    vi.resetModules();
+    const reg = await import('../../../src/main/connectionRegistry');
+    const cap = await import('../../../src/main/connectionCapability');
+    const ipc = await import('../../../src/main/ipc/audiocap');
+    const ipcReg = await import('../../../src/main/ipc/registry');
+    ipcReg._resetIpcRegistryForTesting();
+    reg._resetConnectionRegistryForTesting();
+    handle.mockClear();
+    const open = (origin: string, id: number) => {
+      const r = reg.registerService(origin, {
+        makeSession: () => ({}) as never,
+        makeCustody: () => ({}) as never,
+        isValidatedSelfHostedApiBase: () => true,
+      });
+      if (!r.ok) throw new Error(r.reason);
+      const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+      const o = reg.openConnection(r.service.serviceId, wc, null);
+      if (!o.ok) throw new Error(o.reason);
+      reg.bindSender(wc, o.record.connectionId, 'primary');
+      return { wc, record: o.record, ref: reg.refOf(o.record) };
+    };
+    const A = open('https://api.concordvoice.chat', 11);
+    const B = open(SELF, 12);
+    ipc.registerAudiocapIpc(getRemoteSpaOrigin, () => null);
+    const call = (channel: string) => {
+      const h = handle.mock.calls.find((c) => c[0] === channel)?.[1] as
+        ((...a: unknown[]) => unknown) | undefined;
+      if (!h) throw new Error(channel + ' not registered');
+      return h;
+    };
+    return { reg, cap, A, B, call };
+  }
+  const evOf = (c: { wc: unknown }, over: Record<string, unknown> = {}) => {
+    const id = (c.wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
+    return {
+      sender: c.wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: id,
+        detached: false,
+        ...over,
+      },
+    };
+  };
+  const REQ = { sourceId: 'window:42:0' };
+
+  it('start from the saas primary succeeds and the session is bindOwner("audiocap", ref)', async () => {
+    const { cap, A, call } = await boot();
+    const r = await call('audiocap:start')(evOf(A), REQ);
+    expect(r).toMatchObject({ ok: true });
+    expect(startAudiocapHost).toHaveBeenCalledTimes(1);
+    // CONTRACT: third argument of startAudiocapHost is the minted OwnerBinding.
+    const owner = startAudiocapHost.mock.calls[0][2] as { kind: string; ref: unknown };
+    expect(owner.kind).toBe('audiocap');
+    expect(owner.ref).toEqual(A.ref);
+    expect(cap.isOwnerCurrent(owner as never)).toBe(true);
+  });
+
+  it('start from a self-hosted primary succeeds too and binds THAT connection', async () => {
+    const { B, call } = await boot();
+    const r = await call('audiocap:start')(evOf(B), REQ);
+    expect(r).toMatchObject({ ok: true });
+    const owner = startAudiocapHost.mock.calls[0][2] as { ref: unknown };
+    expect(owner.ref).toEqual(B.ref);
+  });
+
+  it('start from an unbound sender is refused without enumerating sources', async () => {
+    const { call } = await boot();
+    const stranger = { wc: { id: 99, mainFrame: { frameTreeNodeId: 99 } } };
+    const r = await call('audiocap:start')(evOf(stranger), REQ);
+    expect(r).not.toMatchObject({ ok: true });
+    expect(getSources).not.toHaveBeenCalled();
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+  });
+
+  it('stop from another connection is refused; from the owner it stops the host', async () => {
+    const { A, B, call } = await boot();
+    await call('audiocap:start')(evOf(A), REQ);
+    await call('audiocap:stop')(evOf(B));
+    expect(stopAudiocapHost).not.toHaveBeenCalled();
+    await call('audiocap:stop')(evOf(A));
+    expect(stopAudiocapHost).toHaveBeenCalledTimes(1);
+  });
+
+  it('a start superseded by advanceGeneration on the owner drops its post-await effect', async () => {
+    const { reg, A, call } = await boot();
+    let release!: (v: unknown) => void;
+    getSources.mockReturnValueOnce(new Promise((res) => (release = res)));
+    const pending = call('audiocap:start')(evOf(A), REQ) as Promise<unknown>;
+    reg.advanceGeneration(A.record.connectionId, 'document');
+    release([{ id: 'window:42:0', name: 'Some App' }]);
+    const r = await pending;
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ ok: false });
+  });
+
+  it.each([
+    ['detached', { detached: true }],
+    ['a subframe', { parent: {} }],
+  ])('start refuses a %s sender frame before any OS work', async (_n, over) => {
+    const { A, call } = await boot();
+    const r = await call('audiocap:start')(evOf(A, over), REQ);
+    expect(r).not.toMatchObject({ ok: true });
+    expect(getSources).not.toHaveBeenCalled();
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+  });
+
+  it('start refuses a destroyed sender (senderFrame read throws) without throwing', async () => {
+    const { A, call } = await boot();
+    const ev = evOf(A);
+    Object.defineProperty(ev, 'senderFrame', {
+      get: () => {
+        throw new Error('Object has been destroyed');
+      },
+    });
+    const r = await call('audiocap:start')(ev, REQ);
+    expect(r).not.toMatchObject({ ok: true });
+    expect(startAudiocapHost).not.toHaveBeenCalled();
+  });
+
+  it('stop refuses a detached sender frame even from the owner', async () => {
+    const { A, call } = await boot();
+    await call('audiocap:start')(evOf(A), REQ);
+    await call('audiocap:stop')(evOf(A, { detached: true }));
+    expect(stopAudiocapHost).not.toHaveBeenCalled();
   });
 });
