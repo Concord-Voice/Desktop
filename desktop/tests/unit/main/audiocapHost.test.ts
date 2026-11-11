@@ -1562,13 +1562,15 @@ describe('audiocapRendererLossEpoch always bumps on a recognized loss event, liv
     });
     getSources.mockReturnValueOnce(pending);
 
-    const mainWebContents = { mainFrame: { frameTreeNodeId: 1 } };
-    const getMainWindow = () =>
-      ({ isDestroyed: () => false, webContents: mainWebContents }) as never;
-    const trusted = {
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
-      sender: mainWebContents,
-    } as never;
+    // #86 Task 7B re-point: the handler takes the main-held binding the registry admitted.
+    // The sender is a bound, foreground primary whose own main frame (`parent: null`)
+    // sends the event, which is the shape the registry admits.
+    const { bindTestSender } = await import('./ipc/boundSenderFixture');
+    const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+    const bound = bindTestSender();
+    const trusted = bound.event();
+    const sender = requireConnectionSender(trusted, { roles: ['primary'] }, null);
+    if (sender === null) throw new Error('fixture sender not admitted');
 
     const contents = { handlers: {} as Record<string, (...a: unknown[]) => void>, on: vi.fn() };
     (contents.on as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1578,12 +1580,7 @@ describe('audiocapRendererLossEpoch always bumps on a recognized loss event, liv
     );
     host.wireAudiocapRendererLoss(contents as never);
 
-    const pendingStart = handleAudiocapStart(
-      trusted,
-      { sourceId: 'window:42:0' },
-      () => null,
-      getMainWindow
-    );
+    const pendingStart = handleAudiocapStart(sender, trusted, { sourceId: 'window:42:0' });
     expect(contents.handlers['did-navigate']).toBeTypeOf('function');
     contents.handlers['did-navigate']!({}, 'https://example.invalid/', 200, 'OK');
     release([{ id: 'window:42:0', name: 'Some App' }]);
@@ -1772,24 +1769,32 @@ describe('audiocap:stop spares the windowless app-start probe (#3394 PR 1, R4)',
 
   it('control: a stop during a REAL capture still stops it', async () => {
     const host = await loadHost();
-    const { handleAudiocapStop } = await import('../../../src/main/ipc/audiocap');
+    const { handleAudiocapStart, handleAudiocapStop } = await import(
+      '../../../src/main/ipc/audiocap'
+    );
     const child = makeChild();
     fork.mockReturnValue(child);
     host.setAudiocapPortSink(vi.fn());
-    const started = host.startAudiocapHost(1, 42);
+    // #86 Task 7B re-point: the handler takes the main-held binding the registry admitted.
+    // The sender is a bound, foreground primary whose own main frame (`parent: null`)
+    // sends the event, which is the shape the registry admits.
+    const { bindTestSender } = await import('./ipc/boundSenderFixture');
+    const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+    const bound = bindTestSender();
+    const trusted = bound.event();
+    const sender = requireConnectionSender(trusted, { roles: ['primary'] }, null);
+    if (sender === null) throw new Error('fixture sender not admitted');
+    // A stop ends only the share its connection OWNS (a stop with no owner is a no-op since
+    // #86 Task 7B), so the real capture is started through audiocap:start by the same bound
+    // primary that stops it, not by a bare host start that has no owner.
+    const started = handleAudiocapStart(sender, trusted, { sourceId: 'window:42:0' });
+    await vi.waitFor(() => expect(fork).toHaveBeenCalledTimes(1));
     child.handlers.message(validHello());
     child.handlers.message(STARTED);
-    await started;
+    await expect(started).resolves.toMatchObject({ ok: true });
     child.postMessage.mockClear();
 
-    const mainWebContents = { mainFrame: { frameTreeNodeId: 1 } };
-    const getMainWindow = () =>
-      ({ isDestroyed: () => false, webContents: mainWebContents }) as never;
-    const trusted = {
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
-      sender: mainWebContents,
-    } as never;
-    handleAudiocapStop(trusted, () => null, getMainWindow);
+    handleAudiocapStop(sender, trusted);
 
     // The GRACEFUL stop, not a bare kill (electron.md "IPC contract v28" / #3198 PR 3
     // rationale): a real capture must still be ended by a trusted stop.
