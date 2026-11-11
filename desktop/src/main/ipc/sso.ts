@@ -43,14 +43,23 @@
  *                                     the target from its own state, so the
  *                                     renderer carries no authority.
  *
- * Sender-frame validation (the only layer the renderer cannot bypass) is
- * enforced via `isPermittedFrameUrl` — the same helper `openExternal.ts` uses,
- * which keeps the trust boundary consistent across IPC handlers. An untrusted
- * frame causes the invoke handlers to throw (renderer sees a rejected promise)
- * and the send handler to silently no-op.
+ * Admission (#86 contract v34): every channel registers through `registerIpc` as
+ * `connection-bound`, so the sender is a bound primary main frame whose URL its
+ * service kind permits, and the handler receives that main-held binding. A
+ * refused sender makes the invoke handlers reject (the renderer sees a rejected
+ * promise; `sso:abandonReservation` resolves false) and the send handlers no-op.
+ *
+ * Authority comes from the binding alone: the API origin a handler dials is the
+ * sender's service origin (a supplied `apiBase` is only cross-checked, and a
+ * mismatch is refused as wrong-owner before any dial or custody call), custody is
+ * the sender's service custody, and the four credentials:'include' requests go
+ * through that service's session (`sessionFetchFor`), whose cookie jar is the one
+ * the connection's renderer reads. Pending SSO state is keyed by ConnectionId and
+ * fenced by an owner binding re-checked after every `await`.
  *
  * Per-port handle accounting lets `sso:cancelLoopback` and `sso:awaitCallback`
- * find the running server. We also auto-clean the entry once the loopback
+ * find the running server, and only the connection document that started a
+ * loopback may await or cancel it. We also auto-clean the entry once the loopback
  * promise settles — if the renderer never calls awaitCallback the active map
  * does not leak forever.
  */
@@ -58,9 +67,17 @@
 // already bound to Electron's `net` above/below, and a default import would shadow it.
 import { isIP } from 'node:net';
 
-import { ipcMain, net, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { shell } from 'electron';
 
 import { getApiBaseUrl, PRODUCTION_API_BASE } from '../apiBaseUrl';
+import {
+  bindOwner,
+  isOwnerCurrent,
+  requireOwner,
+  type OwnerBinding,
+} from '../connectionCapability';
+import { onGenerationAdvanced, recordFor, refOf, type ProfileCustody } from '../connectionRegistry';
+import { sessionFetchFor } from '../connectionSession';
 import { classifyAddress } from '../egressPolicy';
 import { guardedRequest } from '../guardedRequest';
 import { getMachineId } from '../machineId';
@@ -75,9 +92,6 @@ import { verifyGoogleIDToken } from '../oauth/google/idTokenVerifier';
 import { normalizeSelfHostedUrl } from '../selfHostedProbe';
 import { isTier2DialApproved, isValidatedSelfHostedApiBase } from '../selfHostedProfile';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';
-// TRANSITIONAL (#86 Task 5): every call names the API base its custody belongs
-// to; Task 7B replaces custodyForApiBase with the sender's own custody.
-import { custodyForApiBase, liveCustody } from '../tokenManager';
 
 import type { MainSSOSignInResult } from '../oauth/ssoFlowShared';
 import type { CredentialOwner } from '../ipcContract';
@@ -89,10 +103,13 @@ import type {
   SSOCompletionResult,
   SSOSignInResult,
 } from '../../shared/sso';
+import type { ConnectionId } from '../../shared/connectionIdentity';
 
-import { isPermittedFrameUrl } from './frameValidation';
+import { crossCheckApiBase, type ConnectionSender, type SenderRefusal } from './connectionSender';
+import { registerIpc } from './registry';
 
-type RemoteSpaOriginProvider = () => string | null;
+/** A connection service's own session fetch (`sessionFetchFor`). */
+type SessionFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * Resolves any fetch-input shape to its URL string — String(input) on a
@@ -108,7 +125,13 @@ function resolveFetchUrl(input: Parameters<typeof fetch>[0]): string {
   return input.url;
 }
 
-const active = new Map<number, LoopbackHandle>();
+/** A loopback and the connection document that started it (#86: owner-scoped). */
+interface OwnedLoopback {
+  readonly handle: LoopbackHandle;
+  readonly owner: OwnerBinding;
+}
+
+const active = new Map<number, OwnedLoopback>();
 const SESSION_ID_HEADER = 'X-Concord-Session-ID';
 // Well above a healthy verify, which answers in well under the control plane's
 // 15 s WriteTimeout. It fires for a stuck connection or a stalled handler
@@ -126,6 +149,8 @@ interface PendingSSOCompletion {
   provider: 'google' | 'apple';
   branch: 'new_user' | 'account_link';
   ssoToken: string;
+  /** The connection document the sign-in ran for; stale once its generation moves. */
+  owner: OwnerBinding;
 }
 
 // #2424: the reserved owner + challenge token held across an SSO MFA challenge.
@@ -138,6 +163,20 @@ interface PendingSSOMFA {
   credentialOwner: CredentialOwner;
   provider: 'google' | 'apple';
   mfaChallengeToken: string;
+  /** The connection document the sign-in ran for; stale once its generation moves. */
+  owner: OwnerBinding;
+}
+
+/** One Apple/Google sign-in, captured in the admission tick. */
+interface SignInContext {
+  readonly id: ConnectionId;
+  readonly owner: OwnerBinding;
+  readonly signIn: number;
+  readonly custody: ProfileCustody;
+  readonly fetch: SessionFetch;
+  readonly apiBase: string;
+  readonly provider: 'google' | 'apple';
+  readonly credentialOwner: CredentialOwner;
 }
 
 interface MainCompletionTokens {
@@ -154,15 +193,6 @@ let cachedGoogleClientSecret: string | undefined;
 function googleClientSecret(): string {
   cachedGoogleClientSecret ??= loadGoogleClientSecret();
   return cachedGoogleClientSecret;
-}
-
-/** Validates the IPC sender frame matches a permitted SPA origin. */
-function checkFrame(
-  event: IpcMainInvokeEvent | IpcMainEvent,
-  getSpaBaseUrl: RemoteSpaOriginProvider
-): boolean {
-  const url = event.senderFrame?.url ?? '';
-  return isPermittedFrameUrl(url, getSpaBaseUrl());
 }
 
 export function approvedApiBase(value: unknown): string | null {
@@ -318,10 +348,14 @@ async function revokeExplicitSession(apiBase: string, tokens: MainCompletionToke
 /** Test seam for the #2354 guarded-egress contract. Not part of the IPC surface. */
 export const __revokeExplicitSessionForTest = revokeExplicitSession;
 
-async function revokeCookieBoundSession(apiBase: string, sessionId: string | null): Promise<void> {
+async function revokeCookieBoundSession(
+  fetchFn: SessionFetch,
+  apiBase: string,
+  sessionId: string | null
+): Promise<void> {
   if (!sessionId || !UUID_PATTERN.test(sessionId)) return;
   try {
-    await net.fetch(`${apiBase}/api/v1/auth/logout`, {
+    await fetchFn(`${apiBase}/api/v1/auth/logout`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'X-Session-ID': sessionId },
@@ -337,49 +371,104 @@ function captureSessionId(response: Response): string | null {
   return sessionId && UUID_PATTERN.test(sessionId) ? sessionId : null;
 }
 
+/** A refused `handle` channel rejects (the renderer sees a rejected promise). */
+const rejectUntrusted =
+  (channel: string) =>
+  (reason: SenderRefusal): Promise<never> =>
+    Promise.reject(new Error(`${channel} rejected: untrusted sender frame (${reason})`));
+
+/** A refused `on` channel is a silent no-op; the registry already logged the refusal. */
+const ignoreRefused = (): void => undefined;
+
+type SenderApiBase = { ok: true; apiBase: string } | { ok: false; wrongOwner: boolean };
+
 /**
- * registerSSOIPC wires the three sso:* IPC channels used by the renderer's
- * SSO flow. The Electron main process owns the ephemeral loopback HTTP
- * server; the renderer drives the OAuth provider redirect via the system
- * browser and then awaits the captured code+state via awaitCallback.
- *
- * `getSpaBaseUrl` returns the currently-active validated remote SPA origin
- * (or null when the bundled build is loaded). The accessor is injected so
- * main.ts can wire the live value once the SPA loader has decided which
- * build to serve.
+ * D3: the API base a handler speaks to is the sender's own service origin. The
+ * renderer-supplied value is a cross-check, never a selector: it must be a string,
+ * name the sender's service origin (`crossCheckApiBase`, else `wrongOwner`), and pass
+ * the existing exact-form approval. Synchronous, so a caller refuses before any dial,
+ * custody call or budget spend.
  */
-export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
-  let pendingCompletion: PendingSSOCompletion | null = null;
-  const discardPendingCompletion = (completion: PendingSSOCompletion): void => {
-    if (pendingCompletion === completion) pendingCompletion = null;
+function senderApiBase(sender: ConnectionSender, requested: unknown): SenderApiBase {
+  if (typeof requested !== 'string') return { ok: false, wrongOwner: false };
+  if (!crossCheckApiBase(sender, requested)) return { ok: false, wrongOwner: true };
+  const apiBase = approvedApiBase(requested);
+  return apiBase !== null && apiBase === sender.service.origin
+    ? { ok: true, apiBase }
+    : { ok: false, wrongOwner: false };
+}
+
+/**
+ * The fence for effects after an `await`, bound to the sender's connection as it
+ * stands NOW. Call it in the same tick as the admission and after any reserve:
+ * `reserveCredentialOwner` advances the generation ('credential-start'), so a binding
+ * minted from the admission-time ref would be stale at birth.
+ */
+function ownerNow(sender: ConnectionSender): OwnerBinding {
+  const record = recordFor(sender.ref.connectionId);
+  if (!record) throw new Error('sso: connection is gone');
+  return bindOwner('sso-loopback', refOf(record));
+}
+
+/**
+ * registerSSOIPC wires the eleven sso:* IPC channels through `registerIpc`
+ * (connection-bound). The admitted sender's binding names the connection, its
+ * service (the only API origin a handler dials) and its custody (the only custody a
+ * handler touches). Pending SSO state, sign-in generations and loopbacks are keyed
+ * by ConnectionId, so one connection can neither read nor clear another's.
+ */
+export function registerSSOIPC(): void {
+  const pendingCompletion = new Map<ConnectionId, PendingSSOCompletion>();
+  const pendingMFA = new Map<ConnectionId, PendingSSOMFA>();
+  // A newer sign-in on the same connection supersedes an older one still in flight.
+  const signInGeneration = new Map<ConnectionId, number>();
+  // The connection that started the provider flow now in flight (one per provider
+  // module); only it may cancel that flow.
+  const flowOwner: Record<'apple' | 'google', ConnectionId | null> = {
+    apple: null,
+    google: null,
   };
-  // #2424: the reserved owner + challenge token held across an SSO MFA challenge,
-  // so sso:completeMFA can conditionally store the MFA credential under that exact
-  // owner. Cleared on a new sign-in, on completion, and on owner supersession.
-  let pendingMFA: PendingSSOMFA | null = null;
-  const discardPendingMFA = (mfa: PendingSSOMFA): void => {
-    if (pendingMFA === mfa) pendingMFA = null;
+
+  const discardPendingCompletion = (id: ConnectionId, completion: PendingSSOCompletion): void => {
+    if (pendingCompletion.get(id) === completion) pendingCompletion.delete(id);
   };
+  const discardPendingMFA = (id: ConnectionId, mfa: PendingSSOMFA): void => {
+    if (pendingMFA.get(id) === mfa) pendingMFA.delete(id);
+  };
+
+  // Any advance (new document, renderer gone, credential event, disposal) makes every
+  // owner binding of that connection stale, so the fences below already refuse what
+  // this drops; dropping it frees the ceremony state and the loopback port promptly.
+  onGenerationAdvanced((id, _from, _to, reason) => {
+    pendingCompletion.delete(id);
+    pendingMFA.delete(id);
+    if (reason === 'disposed') signInGeneration.delete(id);
+    for (const [port, entry] of active) {
+      if (entry.owner.ref.connectionId !== id) continue;
+      active.delete(port);
+      entry.handle.close();
+    }
+  });
+
+  const isLive = (ctx: SignInContext): boolean =>
+    isOwnerCurrent(ctx.owner) && signInGeneration.get(ctx.id) === ctx.signIn;
 
   const finishSignIn = async (
     result: MainSSOSignInResult,
-    apiBase: string,
-    provider: 'google' | 'apple',
-    credentialOwner: CredentialOwner,
+    ctx: SignInContext,
     cookieBoundSessionId: string | null
   ): Promise<SSOSignInResult> => {
-    if (!custodyForApiBase(apiBase).credentialOwnerIsCurrent(credentialOwner)) {
+    const { apiBase, custody, credentialOwner, id } = ctx;
+    if (!isLive(ctx) || !custody.credentialOwnerIsCurrent(credentialOwner)) {
+      await revokeCookieBoundSession(ctx.fetch, apiBase, cookieBoundSessionId);
       if (result.kind === 'tokens') {
-        await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
         await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
-      } else {
-        await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
       }
       return { kind: 'error', code: 'sso_cancelled' };
     }
 
     if (result.kind === 'tokens') {
-      const storedOwner = custodyForApiBase(apiBase).storeRefreshTokenIfOwner(
+      const storedOwner = custody.storeRefreshTokenIfOwner(
         {
           refreshToken: result.refreshToken,
           rememberMe: true,
@@ -389,11 +478,11 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
         credentialOwner
       );
       if (storedOwner === null) {
-        await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
+        await revokeCookieBoundSession(ctx.fetch, apiBase, cookieBoundSessionId);
         await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
         return { kind: 'error', code: 'sso_cancelled' };
       }
-      pendingCompletion = null;
+      pendingCompletion.delete(id);
       return {
         kind: 'tokens',
         accessToken: result.accessToken,
@@ -403,13 +492,14 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     }
 
     if (result.kind === 'sso_token') {
-      pendingCompletion = {
+      pendingCompletion.set(id, {
         apiBase,
         credentialOwner,
-        provider,
+        provider: ctx.provider,
         branch: result.branch,
         ssoToken: result.ssoToken,
-      };
+        owner: ctx.owner,
+      });
       return result;
     }
 
@@ -420,49 +510,72 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       // refresh token out of the renderer. Do NOT release the owner here — a
       // released owner would force the renderer onto the unrestricted
       // auth:storeRefreshToken path (the owner-CAS gap this change closes).
-      pendingMFA = {
+      pendingMFA.set(id, {
         apiBase,
         credentialOwner,
-        provider,
+        provider: ctx.provider,
         mfaChallengeToken: result.mfaChallengeToken,
-      };
+        owner: ctx.owner,
+      });
       return { ...result, credentialOwner };
     }
 
     // Terminal error (the only remaining kind): revoke the cookie-bound session
     // and release this reservation so switching to registration can safely use
-    // the pre-credential key staging path.
-    await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
-    custodyForApiBase(apiBase).clearTokensIfOwner(credentialOwner);
+    // the pre-credential key staging path. A connection that moved on during the
+    // revoke keeps its reservation; sso:abandonReservation releases an orphan.
+    await revokeCookieBoundSession(ctx.fetch, apiBase, cookieBoundSessionId);
+    if (isLive(ctx)) custody.clearTokensIfOwner(credentialOwner);
     return result;
   };
 
   const controlPlaneFetch = (
+    fetchFn: SessionFetch,
     sessionUrl: string,
     onSession: (sessionId: string | null) => void
   ): typeof fetch =>
     (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = resolveFetchUrl(input);
-      const response = await net.fetch(url, { ...init, credentials: 'include' });
+      const response = await fetchFn(url, { ...init, credentials: 'include' });
       if (url === sessionUrl && response.ok) onSession(captureSessionId(response));
       return response;
     }) as typeof fetch;
 
+  /**
+   * After the exchange: revoke what the server issued and report cancellation when the
+   * owner moved on while the request was in flight, so nothing is stored for it.
+   */
+  const revokeIfSuperseded = async (
+    owner: OwnerBinding,
+    fetchFn: SessionFetch,
+    apiBase: string,
+    response: Response,
+    body: unknown
+  ): Promise<boolean> => {
+    if (isOwnerCurrent(owner)) return false;
+    const issued = response.ok ? parseCompletionTokens(body) : null;
+    await revokeCookieBoundSession(fetchFn, apiBase, captureSessionId(response));
+    if (issued) await revokeExplicitSession(apiBase, issued);
+    return true;
+  };
+
   const completeSSO = async (
+    sender: ConnectionSender,
     completion: PendingSSOCompletion,
     endpoint: 'complete-registration' | 'complete-link',
     requestBody: Record<string, string>
   ): Promise<SSOCompletionResult> => {
-    if (
-      !custodyForApiBase(completion.apiBase).credentialOwnerIsCurrent(completion.credentialOwner)
-    ) {
-      discardPendingCompletion(completion);
+    const id = sender.ref.connectionId;
+    const { custody } = sender;
+    const fetchFn = sessionFetchFor(sender.service);
+    if (!custody.credentialOwnerIsCurrent(completion.credentialOwner)) {
+      discardPendingCompletion(id, completion);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
     let response: Response;
     try {
-      response = await net.fetch(
+      response = await fetchFn(
         `${completion.apiBase}/api/v1/auth/sso/${completion.provider}/${endpoint}`,
         {
           method: 'POST',
@@ -477,8 +590,12 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
 
     const cookieBoundSessionId = captureSessionId(response);
     const body = await responseJson(response);
+    if (await revokeIfSuperseded(completion.owner, fetchFn, completion.apiBase, response, body)) {
+      discardPendingCompletion(id, completion);
+      return { kind: 'error', status: 409, code: 'sso_cancelled' };
+    }
     if (!response.ok) {
-      await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
+      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
       const safeBody = sanitizeCompletionErrorBody(body);
       return {
         kind: 'error',
@@ -490,13 +607,13 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
 
     const tokens = parseCompletionTokens(body);
     if (!tokens) {
-      await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
-      discardPendingCompletion(completion);
-      custodyForApiBase(completion.apiBase).clearTokensIfOwner(completion.credentialOwner);
+      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
+      discardPendingCompletion(id, completion);
+      if (isOwnerCurrent(completion.owner)) custody.clearTokensIfOwner(completion.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
     }
 
-    const storedOwner = custodyForApiBase(completion.apiBase).storeRefreshTokenIfOwner(
+    const storedOwner = custody.storeRefreshTokenIfOwner(
       {
         refreshToken: tokens.refreshToken,
         rememberMe: tokens.rememberMe,
@@ -506,13 +623,13 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       completion.credentialOwner
     );
     if (storedOwner === null) {
-      await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
+      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
       await revokeExplicitSession(completion.apiBase, tokens);
-      discardPendingCompletion(completion);
+      discardPendingCompletion(id, completion);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
-    pendingCompletion = null;
+    pendingCompletion.delete(id);
     return {
       kind: 'tokens',
       accessToken: tokens.accessToken,
@@ -526,17 +643,21 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
   // token never crosses into the renderer (parity with completeSSO / the direct
   // SSO path). Mirrors completeSSO's owner-CAS + fail-closed shape.
   const completeMFA = async (
+    sender: ConnectionSender,
     mfa: PendingSSOMFA,
     requestBody: Record<string, unknown>
   ): Promise<SSOCompletionResult> => {
-    if (!custodyForApiBase(mfa.apiBase).credentialOwnerIsCurrent(mfa.credentialOwner)) {
-      discardPendingMFA(mfa);
+    const id = sender.ref.connectionId;
+    const { custody } = sender;
+    const fetchFn = sessionFetchFor(sender.service);
+    if (!custody.credentialOwnerIsCurrent(mfa.credentialOwner)) {
+      discardPendingMFA(id, mfa);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
     let response: Response;
     try {
-      response = await net.fetch(`${mfa.apiBase}/api/v1/auth/mfa/verify`, {
+      response = await fetchFn(`${mfa.apiBase}/api/v1/auth/mfa/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -559,8 +680,12 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
 
     const cookieBoundSessionId = captureSessionId(response);
     const body = await responseJson(response);
+    if (await revokeIfSuperseded(mfa.owner, fetchFn, mfa.apiBase, response, body)) {
+      discardPendingMFA(id, mfa);
+      return { kind: 'error', status: 409, code: 'sso_cancelled' };
+    }
     if (!response.ok) {
-      await revokeCookieBoundSession(mfa.apiBase, cookieBoundSessionId);
+      await revokeCookieBoundSession(fetchFn, mfa.apiBase, cookieBoundSessionId);
       const safeBody = sanitizeCompletionErrorBody(body);
       return {
         kind: 'error',
@@ -572,13 +697,13 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
 
     const tokens = parseCompletionTokens(body);
     if (!tokens) {
-      await revokeCookieBoundSession(mfa.apiBase, cookieBoundSessionId);
-      discardPendingMFA(mfa);
-      custodyForApiBase(mfa.apiBase).clearTokensIfOwner(mfa.credentialOwner);
+      await revokeCookieBoundSession(fetchFn, mfa.apiBase, cookieBoundSessionId);
+      discardPendingMFA(id, mfa);
+      if (isOwnerCurrent(mfa.owner)) custody.clearTokensIfOwner(mfa.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
     }
 
-    const storedOwner = custodyForApiBase(mfa.apiBase).storeRefreshTokenIfOwner(
+    const storedOwner = custody.storeRefreshTokenIfOwner(
       {
         refreshToken: tokens.refreshToken,
         rememberMe: tokens.rememberMe,
@@ -588,13 +713,13 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       mfa.credentialOwner
     );
     if (storedOwner === null) {
-      await revokeCookieBoundSession(mfa.apiBase, cookieBoundSessionId);
+      await revokeCookieBoundSession(fetchFn, mfa.apiBase, cookieBoundSessionId);
       await revokeExplicitSession(mfa.apiBase, tokens);
-      discardPendingMFA(mfa);
+      discardPendingMFA(id, mfa);
       return { kind: 'error', status: 409, code: 'sso_cancelled' };
     }
 
-    discardPendingMFA(mfa);
+    discardPendingMFA(id, mfa);
     return {
       kind: 'tokens',
       accessToken: tokens.accessToken,
@@ -603,66 +728,152 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     };
   };
 
-  ipcMain.handle('sso:startLoopback', async (event) => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('sso:startLoopback rejected: untrusted sender frame');
+  /**
+   * The shared Apple/Google sign-in: cross-check, reserve in the sender's custody,
+   * bind the fence, run the provider flow, then finish under the fence. Everything up
+   * to `run` is synchronous with the admission.
+   */
+  const signIn = async (
+    sender: ConnectionSender,
+    requestedApiBase: unknown,
+    provider: 'apple' | 'google',
+    run: (
+      apiBase: string,
+      fetchFn: SessionFetch,
+      onSession: (id: string | null) => void
+    ) => Promise<MainSSOSignInResult>
+  ): Promise<SSOSignInResult> => {
+    const channel = provider === 'apple' ? 'sso:appleSignIn' : 'sso:googleSignIn';
+    const checked = senderApiBase(sender, requestedApiBase);
+    if (!checked.ok) {
+      // Fixed vocabulary; the supplied value is never echoed.
+      throw new Error(
+        `${channel} rejected: unapproved API origin${checked.wrongOwner ? ' (wrong-owner)' : ''}`
+      );
     }
-    const handle = await startLoopback();
-    active.set(handle.port, handle);
-    // Auto-cleanup if the promise settles outside an awaitCallback call —
-    // e.g. the loopback timed out before the renderer wired up the await,
-    // or a stale entry from a flow the renderer abandoned without sending
-    // sso:cancelLoopback. Without this the active map would leak forever.
-    handle.promise
-      .catch(() => {})
-      .finally(() => {
-        active.delete(handle.port);
-      });
-    return { port: handle.port, redirectURI: handle.redirectURI };
-  });
-
-  ipcMain.handle('sso:awaitCallback', async (event, port: number) => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('sso:awaitCallback rejected: untrusted sender frame');
-    }
-    const handle = active.get(port);
-    if (!handle) throw new Error('sso:awaitCallback: unknown port');
+    const { apiBase } = checked;
+    const id = sender.ref.connectionId;
+    const { custody } = sender;
+    const credentialOwner = custody.reserveCredentialOwner();
+    const ctx: SignInContext = {
+      id,
+      owner: ownerNow(sender),
+      signIn: (signInGeneration.get(id) ?? 0) + 1,
+      custody,
+      fetch: sessionFetchFor(sender.service),
+      apiBase,
+      provider,
+      credentialOwner,
+    };
+    signInGeneration.set(id, ctx.signIn);
+    pendingCompletion.delete(id);
+    pendingMFA.delete(id);
+    flowOwner[provider] = id;
+    let cookieBoundSessionId: string | null = null;
+    let result: MainSSOSignInResult;
     try {
-      return await handle.promise;
+      result = await run(apiBase, ctx.fetch, (sessionId) => {
+        cookieBoundSessionId = sessionId;
+      });
     } finally {
-      active.delete(port);
-    }
-  });
-
-  ipcMain.on('sso:cancelLoopback', (event, port: number) => {
-    if (!checkFrame(event, getSpaBaseUrl)) return;
-    const handle = active.get(port);
-    if (!handle) return;
-    handle.close();
-    active.delete(port);
-  });
-
-  ipcMain.handle(
-    'sso:completeRegistration',
-    async (event, requestedApiBase: unknown, payload: unknown): Promise<SSOCompletionResult> => {
-      if (!checkFrame(event, getSpaBaseUrl)) {
-        throw new Error('sso:completeRegistration rejected: untrusted sender frame');
+      if (flowOwner[provider] === id && signInGeneration.get(id) === ctx.signIn) {
+        flowOwner[provider] = null;
       }
-      const apiBase = approvedApiBase(requestedApiBase);
-      if (!apiBase || !isCompleteRegistrationPayload(payload)) {
+    }
+    return finishSignIn(result, ctx, cookieBoundSessionId);
+  };
+
+  /** Only the connection whose flow is in flight may cancel it (nothing in flight: a no-op). */
+  const cancelFlow = (sender: ConnectionSender, provider: 'apple' | 'google'): void => {
+    const owner = flowOwner[provider];
+    if (owner !== null && owner !== sender.ref.connectionId) return;
+    if (provider === 'apple') cancelActiveAppleFlow();
+    else cancelActiveGoogleFlow();
+  };
+
+  registerIpc(
+    'sso:startLoopback',
+    'connection-bound',
+    async (sender) => {
+      const owner = ownerNow(sender);
+      const handle = await startLoopback();
+      // Auto-cleanup if the promise settles outside an awaitCallback call —
+      // e.g. the loopback timed out before the renderer wired up the await,
+      // or a stale entry from a flow the renderer abandoned without sending
+      // sso:cancelLoopback. Without this the active map would leak forever.
+      handle.promise
+        .catch(() => {})
+        .finally(() => {
+          if (active.get(handle.port)?.handle === handle) active.delete(handle.port);
+        });
+      if (!isOwnerCurrent(owner)) {
+        handle.close();
+        throw new Error('sso:startLoopback rejected: connection moved on');
+      }
+      active.set(handle.port, { handle, owner });
+      return { port: handle.port, redirectURI: handle.redirectURI };
+    },
+    { refusal: rejectUntrusted('sso:startLoopback') }
+  );
+
+  registerIpc(
+    'sso:awaitCallback',
+    'connection-bound',
+    async (_sender, event, port: number) => {
+      const entry = active.get(port);
+      // Another connection's port answers exactly like an unknown one.
+      if (!entry || requireOwner(event, entry.owner) === null) {
+        throw new Error('sso:awaitCallback: unknown port');
+      }
+      try {
+        return await entry.handle.promise;
+      } finally {
+        if (active.get(port) === entry) active.delete(port);
+      }
+    },
+    { refusal: rejectUntrusted('sso:awaitCallback') }
+  );
+
+  registerIpc(
+    'sso:cancelLoopback',
+    'connection-bound',
+    (_sender, event, port: number): void => {
+      const entry = active.get(port);
+      if (!entry || requireOwner(event, entry.owner) === null) return;
+      active.delete(port);
+      entry.handle.close();
+    },
+    { method: 'on', refusal: ignoreRefused }
+  );
+
+  registerIpc(
+    'sso:completeRegistration',
+    'connection-bound',
+    async (
+      sender,
+      _event,
+      requestedApiBase: unknown,
+      payload: unknown
+    ): Promise<SSOCompletionResult> => {
+      const checked = senderApiBase(sender, requestedApiBase);
+      if (!checked.ok || !isCompleteRegistrationPayload(payload)) {
+        if (!checked.ok && checked.wrongOwner) {
+          console.warn('[sso] sso:completeRegistration refused (wrong-owner)');
+        }
         return { kind: 'error', status: 400, code: 'sso_invalid_request' };
       }
-      const completion = pendingCompletion;
+      const completion = pendingCompletion.get(sender.ref.connectionId);
       if (
         !completion ||
-        completion.apiBase !== apiBase ||
+        !isOwnerCurrent(completion.owner) ||
+        completion.apiBase !== checked.apiBase ||
         completion.provider !== payload.provider ||
         completion.branch !== 'new_user' ||
         completion.ssoToken !== payload.ssoToken
       ) {
         return { kind: 'error', status: 409, code: 'sso_cancelled' };
       }
-      return completeSSO(completion, 'complete-registration', {
+      return completeSSO(sender, completion, 'complete-registration', {
         sso_token: payload.ssoToken,
         username: payload.username,
         password: payload.passphrase,
@@ -670,52 +881,66 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
         key_derivation_salt: payload.keyDerivationSalt,
         public_key: payload.publicKey,
       });
-    }
+    },
+    { refusal: rejectUntrusted('sso:completeRegistration') }
   );
 
-  ipcMain.handle(
+  registerIpc(
     'sso:completeLink',
-    async (event, requestedApiBase: unknown, payload: unknown): Promise<SSOCompletionResult> => {
-      if (!checkFrame(event, getSpaBaseUrl)) {
-        throw new Error('sso:completeLink rejected: untrusted sender frame');
-      }
-      const apiBase = approvedApiBase(requestedApiBase);
-      if (!apiBase || !isCompleteLinkPayload(payload)) {
+    'connection-bound',
+    async (
+      sender,
+      _event,
+      requestedApiBase: unknown,
+      payload: unknown
+    ): Promise<SSOCompletionResult> => {
+      const checked = senderApiBase(sender, requestedApiBase);
+      if (!checked.ok || !isCompleteLinkPayload(payload)) {
+        if (!checked.ok && checked.wrongOwner) {
+          console.warn('[sso] sso:completeLink refused (wrong-owner)');
+        }
         return { kind: 'error', status: 400, code: 'sso_invalid_request' };
       }
-      const completion = pendingCompletion;
+      const completion = pendingCompletion.get(sender.ref.connectionId);
       if (
         !completion ||
-        completion.apiBase !== apiBase ||
+        !isOwnerCurrent(completion.owner) ||
+        completion.apiBase !== checked.apiBase ||
         completion.provider !== payload.provider ||
         completion.branch !== 'account_link' ||
         completion.ssoToken !== payload.ssoToken
       ) {
         return { kind: 'error', status: 409, code: 'sso_cancelled' };
       }
-      return completeSSO(completion, 'complete-link', {
+      return completeSSO(sender, completion, 'complete-link', {
         sso_token: payload.ssoToken,
         password: payload.password,
       });
-    }
+    },
+    { refusal: rejectUntrusted('sso:completeLink') }
   );
 
-  ipcMain.handle(
+  registerIpc(
     'sso:completeMFA',
-    async (event, requestedApiBase: unknown, payload: unknown): Promise<SSOCompletionResult> => {
-      if (!checkFrame(event, getSpaBaseUrl)) {
-        throw new Error('sso:completeMFA rejected: untrusted sender frame');
-      }
-      const apiBase = approvedApiBase(requestedApiBase);
-      if (!apiBase || !isCompleteMFAPayload(payload)) {
+    'connection-bound',
+    async (
+      sender,
+      _event,
+      requestedApiBase: unknown,
+      payload: unknown
+    ): Promise<SSOCompletionResult> => {
+      const checked = senderApiBase(sender, requestedApiBase);
+      if (!checked.ok || !isCompleteMFAPayload(payload)) {
+        if (!checked.ok && checked.wrongOwner) {
+          console.warn('[sso] sso:completeMFA refused (wrong-owner)');
+        }
         return { kind: 'error', status: 400, code: 'sso_invalid_request' };
       }
-      const mfa = pendingMFA;
-      if (!mfa) {
-        return { kind: 'error', status: 409, code: 'sso_cancelled' };
-      }
+      const mfa = pendingMFA.get(sender.ref.connectionId);
       if (
-        mfa.apiBase !== apiBase ||
+        !mfa ||
+        !isOwnerCurrent(mfa.owner) ||
+        mfa.apiBase !== checked.apiBase ||
         mfa.provider !== payload.provider ||
         mfa.credentialOwner !== payload.credentialOwner ||
         mfa.mfaChallengeToken !== payload.mfaChallengeToken
@@ -728,148 +953,138 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       };
       if (payload.code !== undefined) requestBody.code = payload.code;
       if (payload.assertion !== undefined) requestBody.assertion = payload.assertion;
-      return completeMFA(mfa, requestBody);
-    }
+      return completeMFA(sender, mfa, requestBody);
+    },
+    { refusal: rejectUntrusted('sso:completeMFA') }
   );
 
   // #2394: release an ORPHANED SSO reservation so a later password registration
   // can stage its E2EE keys. Zero-argument by design — main resolves the target
-  // entirely from its own state, so the renderer carries no authority here.
-  ipcMain.handle('sso:abandonReservation', (event): boolean => {
-    // The frame check is the FIRST statement and this handler has no `await`,
-    // so event.senderFrame is read immediately (Electron: late access after a
-    // cross-origin navigation returns null). This channel fires while the
-    // renderer is transitioning between auth screens — the riskiest window.
-    // It must also stay AHEAD of the pending discard: an untrusted call
-    // mutates nothing at all.
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      console.warn('[sso:abandonReservation] rejected — sender frame validation failed');
-      return false;
-    }
-    // Deliberate deviation: sibling sso:* handlers THROW on an untrusted frame.
-    // This one returns false because it is invoked from Register.handleSubmit,
-    // where a throw would turn a fail-closed *release* into a fail-closed
-    // *registration*. Precedent: the auth:getCapabilities handler in main.ts.
-    // Do NOT copy this shape into a channel where a throw is required.
-    // Zero-argument by design: the renderer names nothing, so the reservation to
-    // release is the active custody's own (TRANSITIONAL routing, #86 Task 5).
-    const released = liveCustody()?.releaseCredentialReservation() ?? false;
-    // Discard the pendings ONLY when the release actually happened. A
-    // successful release bumps the credential generation, which already
-    // terminally fails every continuation bound to it, so clearing the
-    // pendings is correct cleanup of state that is provably dead.
-    //
-    // A `false` release changed nothing, and must therefore destroy nothing.
-    // This handler is invoked from stale UI (a Register submit, an MFA-modal
-    // cancel, a link-confirm cancel) that can sit in the IPC queue, so an
-    // unconditional discard could wipe a NEWER sign-in's live pendingMFA /
-    // pendingCompletion while doing no useful work — e.g. once
-    // restoreRefreshToken has nulled the reservation but a challenge is still
-    // in flight. Every other pending-clearing site in this file is likewise
-    // identity-checked (discardPendingCompletion / discardPendingMFA) or fires
-    // from a supersede-everything context. (#2655 review.)
-    if (released) {
-      pendingCompletion = null;
-      pendingMFA = null;
-    }
-    return released;
-  });
-
-  ipcMain.handle('sso:appleSignIn', async (event, requestedApiBase: unknown) => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('sso:appleSignIn rejected: untrusted sender frame');
-    }
-    const apiBase = approvedApiBase(requestedApiBase);
-    if (!apiBase) {
-      throw new Error('sso:appleSignIn rejected: unapproved API origin');
-    }
-    const credentialOwner = custodyForApiBase(apiBase).reserveCredentialOwner();
-    pendingCompletion = null;
-    pendingMFA = null;
-    let cookieBoundSessionId: string | null = null;
-    const result = await runAppleSignIn({
-      apiBase,
-      // Electron net.fetch + credentials:'include' (NOT Node's fetch): the
-      // /session response sets the refresh-token cookie, which must land in
-      // the default-session jar — the SAME jar the renderer's /auth/refresh
-      // reads. Node's fetch would silently drop it and strand the session at
-      // access-token expiry (15 min). Plan deviation D2.
-      controlPlaneFetch: controlPlaneFetch(
-        `${apiBase}/api/v1/auth/sso/apple/session`,
-        (sessionId) => {
-          cookieBoundSessionId = sessionId;
-        }
-      ),
-      // Apple endpoints are cookie-less by design — plain global fetch.
-      appleFetch: fetch,
-      openExternal: async (url: string) => {
-        // Defense-in-depth: the authorize URL comes from our own server, but
-        // an https-only gate keeps a tampered response from launching
-        // arbitrary schemes (passive-nav posture, internal-reference
-        // §External-link scheme policy).
-        if (!url.startsWith('https://')) {
-          throw new Error('sso_initiate_failed');
-        }
-        await shell.openExternal(url);
+  // entirely from the sender's binding, so the renderer carries no authority here.
+  registerIpc(
+    'sso:abandonReservation',
+    'connection-bound',
+    (sender): boolean => {
+      // Admission runs before this body and reads event.senderFrame in the same tick,
+      // and this handler has no `await`. This channel fires while the renderer is
+      // transitioning between auth screens — the riskiest window. A refused call
+      // mutates nothing at all.
+      //
+      // Deliberate deviation: sibling sso:* handlers REJECT on a refused sender.
+      // This one returns false because it is invoked from Register.handleSubmit,
+      // where a throw would turn a fail-closed *release* into a fail-closed
+      // *registration*. Precedent: the auth:getCapabilities handler in main.ts.
+      // Do NOT copy this shape into a channel where a throw is required.
+      const released = sender.custody.releaseCredentialReservation();
+      // Discard the pendings ONLY when the release actually happened. A
+      // successful release bumps the credential generation, which already
+      // terminally fails every continuation bound to it, so clearing the
+      // pendings is correct cleanup of state that is provably dead.
+      //
+      // A `false` release changed nothing, and must therefore destroy nothing.
+      // This handler is invoked from stale UI (a Register submit, an MFA-modal
+      // cancel, a link-confirm cancel) that can sit in the IPC queue, so an
+      // unconditional discard could wipe a NEWER sign-in's live pendingMFA /
+      // pendingCompletion while doing no useful work — e.g. once
+      // restoreRefreshToken has nulled the reservation but a challenge is still
+      // in flight. Every other pending-clearing site in this file is likewise
+      // identity-checked (discardPendingCompletion / discardPendingMFA) or fires
+      // from a supersede-everything context. (#2655 review.)
+      if (released) {
+        pendingCompletion.delete(sender.ref.connectionId);
+        pendingMFA.delete(sender.ref.connectionId);
+      }
+      return released;
+    },
+    {
+      refusal: () => {
+        console.warn('[sso:abandonReservation] rejected — sender frame validation failed');
+        return false;
       },
-      startLoopback,
-      signClientSecret,
-      appleTokenCall,
-      verifyIdToken: verifyAppleIDToken,
-    });
-    return finishSignIn(result, apiBase, 'apple', credentialOwner, cookieBoundSessionId);
-  });
-
-  ipcMain.on('sso:appleCancel', (event) => {
-    if (!checkFrame(event, getSpaBaseUrl)) return;
-    cancelActiveAppleFlow();
-  });
-
-  ipcMain.handle('sso:googleSignIn', async (event, requestedApiBase: unknown) => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('sso:googleSignIn rejected: untrusted sender frame');
     }
-    const apiBase = approvedApiBase(requestedApiBase);
-    if (!apiBase) {
-      throw new Error('sso:googleSignIn rejected: unapproved API origin');
-    }
-    const credentialOwner = custodyForApiBase(apiBase).reserveCredentialOwner();
-    pendingCompletion = null;
-    pendingMFA = null;
-    let cookieBoundSessionId: string | null = null;
-    const result = await runGoogleSignIn({
-      apiBase,
-      // Embedded non-confidential client_secret (Google native-app guidance);
-      // client_id is NOT supplied here — googleFlow parses it from the
-      // server-built authorize URL (sourced from the control-plane's
-      // GOOGLE_CLIENT_ID config).
-      clientSecret: googleClientSecret(),
-      // Electron net.fetch + credentials:'include' so /session's refresh-token
-      // cookie lands in the default-session jar the renderer reads (parity with
-      // the Apple handler above).
-      controlPlaneFetch: controlPlaneFetch(
-        `${apiBase}/api/v1/auth/sso/google/session`,
-        (sessionId) => {
-          cookieBoundSessionId = sessionId;
-        }
+  );
+
+  registerIpc(
+    'sso:appleSignIn',
+    'connection-bound',
+    (sender, _event, requestedApiBase: unknown) =>
+      signIn(sender, requestedApiBase, 'apple', (apiBase, fetchFn, onSession) =>
+        runAppleSignIn({
+          apiBase,
+          // The service's own session fetch + credentials:'include' (NOT Node's
+          // fetch): the /session response sets the refresh-token cookie, which must
+          // land in this connection's jar — the SAME jar its renderer's /auth/refresh
+          // reads (for saas, the default session, as before #86). Node's fetch would
+          // silently drop it and strand the session at access-token expiry (15 min).
+          // Plan deviation D2.
+          controlPlaneFetch: controlPlaneFetch(
+            fetchFn,
+            `${apiBase}/api/v1/auth/sso/apple/session`,
+            onSession
+          ),
+          // Apple endpoints are cookie-less by design — plain global fetch.
+          appleFetch: fetch,
+          openExternal: async (url: string) => {
+            // Defense-in-depth: the authorize URL comes from our own server, but
+            // an https-only gate keeps a tampered response from launching
+            // arbitrary schemes (passive-nav posture, internal-reference
+            // §External-link scheme policy).
+            if (!url.startsWith('https://')) {
+              throw new Error('sso_initiate_failed');
+            }
+            await shell.openExternal(url);
+          },
+          startLoopback,
+          signClientSecret,
+          appleTokenCall,
+          verifyIdToken: verifyAppleIDToken,
+        })
       ),
-      // Google endpoints are cookie-less by design — plain global fetch.
-      googleFetch: fetch,
-      openExternal: async (url: string) => {
-        if (!url.startsWith('https://')) {
-          throw new Error('sso_initiate_failed');
-        }
-        await shell.openExternal(url);
-      },
-      startLoopback,
-      googleTokenCall,
-      verifyIdToken: verifyGoogleIDToken,
-    });
-    return finishSignIn(result, apiBase, 'google', credentialOwner, cookieBoundSessionId);
+    { refusal: rejectUntrusted('sso:appleSignIn') }
+  );
+
+  registerIpc('sso:appleCancel', 'connection-bound', (sender) => cancelFlow(sender, 'apple'), {
+    method: 'on',
+    refusal: ignoreRefused,
   });
 
-  ipcMain.on('sso:googleCancel', (event) => {
-    if (!checkFrame(event, getSpaBaseUrl)) return;
-    cancelActiveGoogleFlow();
+  registerIpc(
+    'sso:googleSignIn',
+    'connection-bound',
+    (sender, _event, requestedApiBase: unknown) =>
+      signIn(sender, requestedApiBase, 'google', (apiBase, fetchFn, onSession) =>
+        runGoogleSignIn({
+          apiBase,
+          // Embedded non-confidential client_secret (Google native-app guidance);
+          // client_id is NOT supplied here — googleFlow parses it from the
+          // server-built authorize URL (sourced from the control-plane's
+          // GOOGLE_CLIENT_ID config).
+          clientSecret: googleClientSecret(),
+          // The service's session fetch + credentials:'include' so /session's
+          // refresh-token cookie lands in this connection's jar (parity with Apple).
+          controlPlaneFetch: controlPlaneFetch(
+            fetchFn,
+            `${apiBase}/api/v1/auth/sso/google/session`,
+            onSession
+          ),
+          // Google endpoints are cookie-less by design — plain global fetch.
+          googleFetch: fetch,
+          openExternal: async (url: string) => {
+            if (!url.startsWith('https://')) {
+              throw new Error('sso_initiate_failed');
+            }
+            await shell.openExternal(url);
+          },
+          startLoopback,
+          googleTokenCall,
+          verifyIdToken: verifyGoogleIDToken,
+        })
+      ),
+    { refusal: rejectUntrusted('sso:googleSignIn') }
+  );
+
+  registerIpc('sso:googleCancel', 'connection-bound', (sender) => cancelFlow(sender, 'google'), {
+    method: 'on',
+    refusal: ignoreRefused,
   });
 }

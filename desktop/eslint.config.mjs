@@ -22,7 +22,6 @@ const TRANSITIONAL_RAW_IPCMAIN_FILES = [
   'src/main/ipc/billing.ts',
   'src/main/ipc/openExternal.ts',
   'src/main/ipc/saveImage.ts',
-  'src/main/ipc/sso.ts',
   'src/main/ipc/versionInfo.ts',
 ];
 

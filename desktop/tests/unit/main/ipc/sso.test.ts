@@ -277,6 +277,8 @@ const linkPayload = {
   password: 'account-password', // pragma: allowlist secret
 };
 
+// Ignored since #86 7B (admission reads the registry's remote-SPA source); the 7B
+// describe below still passes it.
 const getSpaBaseUrl = () => null;
 
 describe('sso IPC handlers', () => {
@@ -310,11 +312,79 @@ describe('sso IPC handlers', () => {
   ) => Promise<unknown>;
   let abandonReservationHandler: (event: FakeInvokeEvent) => boolean;
 
+  // #86 Task 7B: the handlers are registerIpc admission wrappers, so a call must come
+  // from a sender bound in the main-held connection registry. Each fake event keeps
+  // its own senderFrame URL (TRUSTED / UNTRUSTED / null still decides admission) and
+  // is re-pointed at the bound connection whose service origin the call names (the
+  // saas connection otherwise). Each service has its own custody and session: the
+  // custody forwards into tokenMocks with the service origin recorded on the
+  // reservation, and the session fetch forwards into the net.fetch mock, so the
+  // request-shape assertions below now pin the service session's fetch.
+  const boundByOrigin = new Map<string, { id: number; contents: unknown }>();
+  const bindFakeConnection = (origin: string, id: number): void => {
+    const r = registerService(origin, {
+      makeSession: () =>
+        ({ fetch: (url: string, init?: RequestInit) => vi.mocked(net.fetch)(url, init) }) as never,
+      makeCustody: (_serviceId: unknown, serviceOrigin: string) =>
+        ({
+          reserveCredentialOwner: () => tokenMocks.reserveCredentialOwner(serviceOrigin),
+          credentialOwnerIsCurrent: tokenMocks.credentialOwnerIsCurrent,
+          storeRefreshTokenIfOwner: tokenMocks.storeRefreshTokenIfOwner,
+          clearTokensIfOwner: tokenMocks.clearTokensIfOwner,
+          releaseCredentialReservation: tokenMocks.releaseCredentialReservation,
+        }) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const contents = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, contents, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(contents, o.record.connectionId, 'primary');
+    boundByOrigin.set(r.service.origin, { id, contents });
+  };
+  const originOf = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    try {
+      return new URL(value).origin;
+    } catch {
+      return null;
+    }
+  };
+  const asBound = (fake: { senderFrame: { url: string } | null }, apiBase: unknown) => {
+    const target = boundByOrigin.get(originOf(apiBase) ?? '') ?? boundByOrigin.get(SAAS_API_BASE);
+    if (!target) throw new Error('no bound saas connection');
+    return {
+      sender: target.contents,
+      senderFrame:
+        fake.senderFrame === null
+          ? null
+          : {
+              url: fake.senderFrame.url,
+              parent: null,
+              frameTreeNodeId: target.id,
+              detached: false,
+            },
+    };
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rebind =
+    (raw: (...a: any[]) => any) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (event: { senderFrame: { url: string } | null }, ...args: any[]) =>
+      raw(asBound(event, args[0]), ...args);
+
   beforeEach(() => {
     vi.clearAllMocks();
     tokenMocks.reset();
     mocked.fakeHandles.length = 0;
-    registerSSOIPC(getSpaBaseUrl);
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    setRemoteSpaOriginSource(() => null);
+    boundByOrigin.clear();
+    bindFakeConnection(SAAS_API_BASE, 41);
+    bindFakeConnection(DEV_API_BASE, 42);
+    bindFakeConnection(SELF_HOSTED_API_BASE, 43);
+    registerSSOIPC();
 
     // Pull each handler out of the mocked ipcMain.handle / on calls.
     const startCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:startLoopback');
@@ -323,25 +393,25 @@ describe('sso IPC handlers', () => {
     if (!startCall || !awaitCall || !cancelCall) {
       throw new Error('IPC handlers not registered');
     }
-    startLoopbackHandler = startCall[1];
-    awaitCallbackHandler = awaitCall[1];
-    cancelLoopbackHandler = cancelCall[1];
+    startLoopbackHandler = rebind(startCall[1]);
+    awaitCallbackHandler = rebind(awaitCall[1]);
+    cancelLoopbackHandler = rebind(cancelCall[1]);
 
     const appleSignInCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:appleSignIn');
     const appleCancelCall = mocked.onSpy.mock.calls.find((c) => c[0] === 'sso:appleCancel');
     if (!appleSignInCall || !appleCancelCall) {
       throw new Error('apple IPC handlers not registered');
     }
-    appleSignInHandler = appleSignInCall[1];
-    appleCancelHandler = appleCancelCall[1];
+    appleSignInHandler = rebind(appleSignInCall[1]);
+    appleCancelHandler = rebind(appleCancelCall[1]);
 
     const googleSignInCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:googleSignIn');
     const googleCancelCall = mocked.onSpy.mock.calls.find((c) => c[0] === 'sso:googleCancel');
     if (!googleSignInCall || !googleCancelCall) {
       throw new Error('google IPC handlers not registered');
     }
-    googleSignInHandler = googleSignInCall[1];
-    googleCancelHandler = googleCancelCall[1];
+    googleSignInHandler = rebind(googleSignInCall[1]);
+    googleCancelHandler = rebind(googleCancelCall[1]);
 
     const completeRegistrationCall = mocked.handleSpy.mock.calls.find(
       (c) => c[0] === 'sso:completeRegistration'
@@ -351,13 +421,13 @@ describe('sso IPC handlers', () => {
     if (!completeRegistrationCall || !completeLinkCall || !completeMFACall) {
       throw new Error('SSO completion IPC handlers not registered');
     }
-    completeRegistrationHandler = completeRegistrationCall[1];
-    completeLinkHandler = completeLinkCall[1];
-    completeMFAHandler = completeMFACall[1];
+    completeRegistrationHandler = rebind(completeRegistrationCall[1]);
+    completeLinkHandler = rebind(completeLinkCall[1]);
+    completeMFAHandler = rebind(completeMFACall[1]);
 
     const abandonCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:abandonReservation');
     if (!abandonCall) throw new Error('sso:abandonReservation handler not registered');
-    abandonReservationHandler = abandonCall[1];
+    abandonReservationHandler = rebind(abandonCall[1]);
   });
 
   describe('sender-frame validation', () => {
@@ -1653,11 +1723,18 @@ describe('sso owner-scoping and session fetch (#86 7B)', () => {
     const id = (wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
     return {
       sender: wc,
-      senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: id, detached: false },
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: id,
+        detached: false,
+      },
     };
   };
   const handler = (channel: string) => {
-    const c = [...mocked.handleSpy.mock.calls, ...mocked.onSpy.mock.calls].find((x) => x[0] === channel);
+    const c = [...mocked.handleSpy.mock.calls, ...mocked.onSpy.mock.calls].find(
+      (x) => x[0] === channel
+    );
     if (!c) throw new Error(`${channel} not registered`);
     return c[1] as (...a: unknown[]) => Promise<unknown>;
   };
@@ -1722,7 +1799,9 @@ describe('sso owner-scoping and session fetch (#86 7B)', () => {
       mfaChallengeToken: 'tok-A',
       methods: ['totp'],
     } as never);
-    const started = (await handler('sso:appleSignIn')(ev(A.wc), ORIGIN_A)) as { credentialOwner: number };
+    const started = (await handler('sso:appleSignIn')(ev(A.wc), ORIGIN_A)) as {
+      credentialOwner: number;
+    };
     const out = await handler('sso:completeMFA')(ev(B.wc), ORIGIN_B, {
       provider: 'apple',
       mfaChallengeToken: 'tok-A',
@@ -1733,5 +1812,120 @@ describe('sso owner-scoping and session fetch (#86 7B)', () => {
     expect(out).toMatchObject({ kind: 'error', code: 'sso_cancelled' });
     expect(sessionFetch).not.toHaveBeenCalled();
     expect(vi.mocked(net.fetch)).not.toHaveBeenCalled();
+  });
+});
+
+// #86 Task 7B (implementer negatives): the owner-generation fence after every await and
+// the owner-scoped provider cancel. Each test fails if its guard in sso.ts is removed.
+import { advanceGeneration } from '../../../../src/main/connectionRegistry';
+
+describe('sso connection fences (#86 7B)', () => {
+  const sessionFetch = vi.fn(async () => new Response('{}', { status: 200 }));
+  const ORIGIN_A = 'https://a.example';
+  const ORIGIN_B = 'https://b.example';
+  const bound = (origin: string, id: number) => {
+    const r = registerService(origin, {
+      makeSession: () => ({ fetch: sessionFetch }) as never,
+      makeCustody: () => tokenMocks as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record };
+  };
+  const ev = (wc: unknown) => {
+    const id = (wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
+    return {
+      sender: wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: id,
+        detached: false,
+      },
+    };
+  };
+  const handler = (channel: string) => {
+    const c = [...mocked.handleSpy.mock.calls, ...mocked.onSpy.mock.calls].find(
+      (x) => x[0] === channel
+    );
+    if (!c) throw new Error(`${channel} not registered`);
+    return c[1] as (...a: unknown[]) => Promise<unknown>;
+  };
+  let A: ReturnType<typeof bound>;
+  let B: ReturnType<typeof bound>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tokenMocks.reset();
+    profileMocks.isValidatedSelfHostedApiBase.mockImplementation(() => true);
+    profileMocks.isTier2DialApproved.mockImplementation(() => true);
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    setRemoteSpaOriginSource(() => null);
+    A = bound(ORIGIN_A, 1);
+    B = bound(ORIGIN_B, 2);
+    registerSSOIPC();
+  });
+
+  afterEach(() => {
+    const only = (b: string) => b === 'https://voice.example';
+    profileMocks.isValidatedSelfHostedApiBase.mockImplementation(only);
+    profileMocks.isTier2DialApproved.mockImplementation(only);
+  });
+
+  it('a sign-in whose connection document moves on mid-flight stores nothing and revokes', async () => {
+    appleMocks.runAppleSignIn.mockImplementationOnce(async () => {
+      advanceGeneration(A.record.connectionId, 'document');
+      return { kind: 'tokens', accessToken: 'at', refreshToken: 'rt', sessionId: 'sid' } as never;
+    });
+    const out = await handler('sso:appleSignIn')(ev(A.wc), ORIGIN_A);
+    expect(out).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+    expect(guardedMocks.guardedRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('an MFA proof whose connection moves on during verify stores nothing', async () => {
+    appleMocks.runAppleSignIn.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'tok-A',
+      methods: ['totp'],
+    } as never);
+    const started = (await handler('sso:appleSignIn')(ev(A.wc), ORIGIN_A)) as {
+      credentialOwner: number;
+    };
+    sessionFetch.mockImplementationOnce(async () => {
+      advanceGeneration(A.record.connectionId, 'document');
+      return new Response(
+        JSON.stringify({
+          access_token: 'at',
+          refresh_token: 'rt',
+          session_id: SUCCESS_SESSION_ID,
+        }),
+        { status: 200 }
+      );
+    });
+    const out = await handler('sso:completeMFA')(ev(A.wc), ORIGIN_A, {
+      provider: 'apple',
+      mfaChallengeToken: 'tok-A',
+      method: 'totp',
+      code: '123456',
+      credentialOwner: started.credentialOwner,
+    });
+    expect(out).toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+    expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+    expect(guardedMocks.guardedRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("B's sso:appleCancel cannot cancel A's in-flight Apple flow; A's can", async () => {
+    appleMocks.runAppleSignIn.mockImplementationOnce(() => new Promise(() => undefined) as never);
+    void handler('sso:appleSignIn')(ev(A.wc), ORIGIN_A);
+    handler('sso:appleCancel')(ev(B.wc));
+    expect(appleMocks.cancelActiveAppleFlow).not.toHaveBeenCalled();
+    handler('sso:appleCancel')(ev(A.wc));
+    expect(appleMocks.cancelActiveAppleFlow).toHaveBeenCalledTimes(1);
   });
 });

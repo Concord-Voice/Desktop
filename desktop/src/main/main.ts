@@ -1700,7 +1700,7 @@ app.whenReady().then(async () => {
   // #1729 — native Save-As for decrypted image attachments. Lazy window provider
   // (mirrors registerPermissionHandlers) so the dialog parents to the live window.
   registerSaveImageHandler(shellWindow, getRemoteSpaBaseUrl);
-  registerSSOIPC(getRemoteSpaBaseUrl);
+  registerSSOIPC();
   registerAttestationIpc(getRemoteSpaBaseUrl);
   // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
   // connection:whoAmI/create/activate and the connection:generation push. Before
