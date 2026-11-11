@@ -1596,11 +1596,9 @@ const createWindow = async (): Promise<void> => {
   // bounds to window-state.json with 500ms debounce (#806).
   attachWindowState(win);
 
-  // Register the window-control + version-info IPC surfaces (#806). The
-  // factory closures defer the window lookup so the late-bind window
-  // reference is always current (handles the brief teardown window).
-  registerWindowControlsIpc(shellWindow);
-  registerVersionInfoIpc(() => broadcastPushTarget);
+  // The window-control + version-info IPC surfaces (#806) are registered once, in the
+  // ready path, not here: the dock 'activate' path re-runs createWindow, and a second
+  // registration throws in registerIpc (and in ipcMain.handle before #86).
 
   // Client Behavior [-] minimize intercept (#806). When the user clicks the
   // native minimize button AND their Client Behavior config routes minimize
@@ -1713,6 +1711,10 @@ app.whenReady().then(async () => {
   registerSaveImageHandler(shellWindow);
   registerSSOIPC();
   registerAttestationIpc();
+  // Window-control + version-info IPC (#806), once per process. Their getters are
+  // late-bound, so a window re-created by 'activate' is the one they act on.
+  registerWindowControlsIpc(shellWindow);
+  registerVersionInfoIpc(() => broadcastPushTarget);
   // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
   // connection:whoAmI/create/activate and the connection:generation push. Before
   // createWindow, so the first view's preload finds its whoAmI handler.
