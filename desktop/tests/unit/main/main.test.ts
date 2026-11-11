@@ -2961,8 +2961,13 @@ describe('main.ts', () => {
       const { stopAutoUpdater } = await import('../../../src/main/updater');
       const beforeQuit = appOnCallbacks.get('before-quit');
       expect(beforeQuit).toBeDefined();
+      // #86 R8: the opener must be the bound saas view's MAIN frame (parent null,
+      // its frameTreeNodeId); a bare-url frame is refused and opens no PiP.
       await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: { url: 'http://localhost:3001/' } },
+        {
+          sender: mockWebContents,
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+        },
         { id: 'before-quit-pip' }
       );
       mockPipWindow.destroy.mockClear();
@@ -2979,8 +2984,13 @@ describe('main.ts', () => {
         (call) => call[0] === 'before-quit-for-update'
       )?.[1] as (() => void) | undefined;
       expect(beforeQuitForUpdate).toBeDefined();
+      // #86 R8: the opener must be the bound saas view's MAIN frame (parent null,
+      // its frameTreeNodeId); a bare-url frame is refused and opens no PiP.
       await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: { url: 'http://localhost:3001/' } },
+        {
+          sender: mockWebContents,
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+        },
         { id: 'before-update-quit-pip' }
       );
       mockPipWindow.destroy.mockClear();
