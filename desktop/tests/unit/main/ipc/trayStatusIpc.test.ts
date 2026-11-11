@@ -64,7 +64,7 @@ const SNAPSHOT: TrayStatusSnapshot = {
 };
 
 function makeWindow() {
-  const contents = { mainFrame: { frameTreeNodeId: 1 } };
+  const contents = { id: 1, mainFrame: { frameTreeNodeId: 1, parent: null, detached: false } };
   const win = { isDestroyed: vi.fn(() => false), webContents: contents };
   return { contents, win };
 }
@@ -72,17 +72,35 @@ function makeWindow() {
 function setup(now?: () => number) {
   handlers.clear();
   const { contents, win } = makeWindow();
-  let current: typeof win | null = win;
   vi.spyOn(Date, 'now').mockImplementation(now ?? (() => 1_000));
-  registerTrayStatusIpc(
-    () => null,
-    () => current as never
-  );
+  // #86 Task 7B re-point: admission is the main-held binding, not a main-window identity
+  // gate. `contents` is the bound FOREGROUND saas primary; `setWindow(null)` now means
+  // "no connection is foreground", which is what the old null-window case guarded.
+  _resetConnectionRegistryForTesting();
+  _resetIpcRegistryForTesting();
+  setTrayOwner(null);
+  const svc = registerService('https://api.concordvoice.chat', {
+    makeSession: () => ({}) as never,
+    makeCustody: () => ({}) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!svc.ok) throw new Error(svc.reason);
+  const opened = openConnection(svc.service.serviceId, contents as never, null);
+  if (!opened.ok) throw new Error(opened.reason);
+  bindSender(contents as never, opened.record.connectionId, 'primary');
+  setForeground(opened.record.connectionId);
+  const connectionId = opened.record.connectionId;
+  registerTrayStatusIpc();
   const handler = handlers.get(TRAY_SET_STATUS);
   if (!handler) throw new Error('tray:setStatus not registered');
   const trusted = {
     sender: contents,
-    senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+    senderFrame: {
+      url: 'app://concord/index.html',
+      frameTreeNodeId: 1,
+      parent: null,
+      detached: false,
+    },
   };
   return {
     handler,
@@ -90,7 +108,7 @@ function setup(now?: () => number) {
     win,
     trusted,
     setWindow: (w: typeof win | null) => {
-      current = w;
+      setForeground(w ? connectionId : null);
     },
   };
 }
@@ -137,7 +155,12 @@ describe('tray:setStatus handler (AC8)', () => {
     const { handler, contents } = setup();
     const evil = {
       sender: contents,
-      senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 1 },
+      senderFrame: {
+        url: 'https://evil.example/',
+        frameTreeNodeId: 1,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(evil, SNAPSHOT)).toBe(true);
     expect(await handler({ sender: contents, senderFrame: null }, SNAPSHOT)).toBe(true);
@@ -147,8 +170,13 @@ describe('tray:setStatus handler (AC8)', () => {
   it('refuses a PiP sender that shares the origin', async () => {
     const { handler } = setup();
     const pip = {
-      sender: { mainFrame: { frameTreeNodeId: 9 } },
-      senderFrame: { url: 'app://concord/pip.html', frameTreeNodeId: 9 },
+      sender: { mainFrame: { frameTreeNodeId: 9, parent: null, detached: false } },
+      senderFrame: {
+        url: 'app://concord/pip.html',
+        frameTreeNodeId: 9,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(pip, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
@@ -158,22 +186,20 @@ describe('tray:setStatus handler (AC8)', () => {
     const { handler, contents } = setup();
     const sub = {
       sender: contents,
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 5 },
+      senderFrame: {
+        url: 'app://concord/index.html',
+        frameTreeNodeId: 5,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(sub, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
   });
 
-  it('refuses when there is no main window, or it is destroyed, or reading it throws', async () => {
-    const { handler, trusted, win, setWindow } = setup();
+  it('refuses when no connection is foreground and no owner is set (#86 Task 7B re-point)', async () => {
+    const { handler, trusted, setWindow } = setup();
     setWindow(null);
-    expect(await handler(trusted, SNAPSHOT)).toBe(true);
-    setWindow(win);
-    win.isDestroyed.mockReturnValue(true);
-    expect(await handler(trusted, SNAPSHOT)).toBe(true);
-    win.isDestroyed.mockImplementation(() => {
-      throw new Error('Object has been destroyed');
-    });
     expect(await handler(trusted, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
   });
