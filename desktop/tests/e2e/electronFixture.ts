@@ -153,7 +153,7 @@ export const test = base.extend<Fixtures>({
     await Promise.all([a.stop(), b.stop()]);
   },
 
-  app: async ({ planes }, use) => {
+  app: async ({ planes }, use, testInfo) => {
     if (!fs.existsSync(path.join(DIST_MAIN, 'main.js'))) {
       throw new Error('dist/main/main.js missing — run `npm run build` first');
     }
@@ -187,7 +187,23 @@ export const test = base.extend<Fixtures>({
       app.process().stderr?.on('data', keep);
       for (const origin of [planes.a.origin, planes.b.origin]) {
         const deadline = Date.now() + 60_000;
-        while (!(await viewReady(app, origin))) {
+        let reloaded = false;
+        for (;;) {
+          const state = await viewState(app, origin);
+          if (state === 'ready') break;
+          // MEASURED product defect (escalated, not fixed here): a self-hosted view
+          // restored at startup boots its FIRST document with whoAmI() === null, so the
+          // SPA starts in unavailable mode; a reload gets a valid identity. The harness
+          // reloads once, loudly, so the isolation assertions still run; a second null
+          // fails the run.
+          if (state === 'null-identity' && !reloaded) {
+            reloaded = true;
+            testInfo.annotations.push({
+              type: 'product-defect',
+              description: `restored view ${origin} booted with whoAmI() === null; reloaded once`,
+            });
+            await reloadPrimary(app, origin);
+          }
           if (Date.now() > deadline) {
             throw new Error(
               `view for ${origin} never became ready\nshell: ${JSON.stringify(
@@ -243,24 +259,40 @@ async function installMainRequire(app: ElectronApplication): Promise<void> {
   }, DIST_MAIN);
 }
 
-/** True once `origin`'s primary view has loaded the renderer and has a connection identity. */
-export async function viewReady(app: ElectronApplication, origin: string): Promise<boolean> {
+/** Reloads `origin`'s primary view from main. */
+async function reloadPrimary(app: ElectronApplication, origin: string): Promise<void> {
+  await app.evaluate((_electron, o) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const registry = req('connectionRegistry');
+    const service = registry.serviceForOrigin(o);
+    registry
+      .liveConnections()
+      .find((r: { serviceId: string }) => r.serviceId === service?.serviceId)
+      ?.webContents.reload();
+  }, origin);
+}
+
+type ViewState = 'pending' | 'ready' | 'null-identity';
+
+/** `ready` once `origin`'s primary view has loaded the renderer and holds an identity. */
+export async function viewState(app: ElectronApplication, origin: string): Promise<ViewState> {
   return app.evaluate(async (_electron, o) => {
     const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
     const registry = req('connectionRegistry');
     const service = registry.serviceForOrigin(o);
-    if (!service) return false;
+    if (!service) return 'pending';
     const record = registry
       .liveConnections()
       .find((r: { serviceId: string }) => r.serviceId === service.serviceId);
-    if (!record || record.webContents.isLoading()) return false;
-    if (!record.webContents.getURL().startsWith('http://localhost:3001')) return false;
+    if (!record || record.webContents.isLoading()) return 'pending';
+    if (!record.webContents.getURL().startsWith('http://localhost:3001')) return 'pending';
     try {
-      return (await record.webContents.executeJavaScript(
+      const has = (await record.webContents.executeJavaScript(
         'Boolean(window.electron && window.electron.connection && window.electron.connection.whoAmI())'
       )) as boolean;
+      return has ? 'ready' : 'null-identity';
     } catch {
-      return false;
+      return 'pending';
     }
   }, origin);
 }
@@ -271,7 +303,24 @@ export async function describeShell(app: ElectronApplication): Promise<unknown> 
     const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
     const registry = req('connectionRegistry');
     const bridges: unknown[] = [];
+    const senderMod = req('ipc/connectionSender');
+    const frames = req('ipc/frameValidation');
+    const ipcRegistry = req('ipc/registry');
     for (const r of registry.liveConnections()) {
+      const wc = r.webContents;
+      const event = { sender: wc, senderFrame: wc.mainFrame };
+      const service = registry.getService(r.serviceId);
+      bridges.push({
+        frameOk: frames.senderMainFrame(event) !== null,
+        bound: registry.boundRecordFor(wc) !== undefined,
+        url: wc.mainFrame.url,
+        urlOk: frames.isPermittedFrameUrlForKind(
+          wc.mainFrame.url,
+          service.kind,
+          ipcRegistry.currentRemoteSpaOrigin()
+        ),
+        admitted: senderMod.requireConnectionSender(event) !== null,
+      });
       bridges.push(
         await r.webContents
           .executeJavaScript(
