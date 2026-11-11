@@ -396,6 +396,12 @@ vi.mock('../../../src/main/machineId', () => ({
   getMachineId: vi.fn(() => 'mock-machine-id'),
 }));
 
+// #86 Task 6: the startup migration's own connections.json write would otherwise land
+// in the mocked fs and interleave with the writes these suites assert on.
+vi.mock('../../../src/main/connectionMigration', () => ({
+  runConnectionMigration: vi.fn(() => ({ entries: [], derived: false })),
+}));
+
 vi.mock('../../../src/main/selfHostedProbe', async (importActual) => ({
   // normalizeSelfHostedUrl stays REAL — the ceremony keys its approval on the same
   // normalized origin the probe will dial.

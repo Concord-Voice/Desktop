@@ -157,11 +157,13 @@ import {
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
+  restorePersistedConnections,
   saasPrimary,
   saasPrimaryHandle,
   sendToConnection,
   shellWindow,
 } from './shellWindow';
+import { runConnectionMigration } from './connectionMigration';
 import { readApprovalsFile } from './selfHostedApprovals';
 import { SAAS_SERVICE_ID, type ConnectionRef } from '../shared/connectionIdentity';
 import {
@@ -190,6 +192,13 @@ migrateUserData();
 // Hydrate the in-memory validated-origin set from the durable approval store (#2354).
 // Trust is minted only by the native ceremony below; this replays prior decisions.
 loadApprovedSelfHostedOrigins();
+
+// #86 §3.6: P0/P1 once, read-only on the legacy files; then connections.json alone.
+// After the approvals load (a self-hosted entry needs the ledger) and before any
+// window or custody restore. It never throws: a malformed entry is dropped.
+const startupConnections = runConnectionMigration(app.getPath('userData'), {
+  isValidatedSelfHostedApiBase,
+}).entries;
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -1631,6 +1640,13 @@ const createWindow = async (): Promise<void> => {
     return;
   }
   const contents = opened.record.webContents;
+
+  // One view per other persisted connection, then the last-foreground one is shown.
+  void restorePersistedConnections(
+    app.getPath('userData'),
+    startupConnections,
+    registerConnectionService
+  );
 
   // Always open DevTools in dev mode regardless of load path.
   if (!app.isPackaged && process.env.DEVTOOLS !== '0') {

@@ -118,6 +118,7 @@ import {
   type ServiceRecord,
 } from './connectionRegistry';
 import { assertDefaultSessionIsSaas } from './connectionSession';
+import { writeConnectionsFile, type ConnectionsFileEntry } from './connectionsFile';
 
 export interface ShellDeps {
   /** `buildBrowserWindowConfig` minus `webPreferences`, plus the restored bounds. */
@@ -284,19 +285,88 @@ export async function openConnectionView(
   return { ok: true, record };
 }
 
-/** The live connection of `serviceId` becomes the only visible view. */
-export function activateConnection(serviceId: ServiceId): boolean {
-  const record = liveConnections().find((r) => r.serviceId === serviceId && r.state !== 'disposed');
-  if (!record) return false;
-  setForeground(record.connectionId);
+/** The restored `connections.json` entries, kept so a foreground change can be recorded. */
+let persisted: { root: string; entries: ConnectionsFileEntry[] } | null = null;
+
+/** Layout only: stamps `lastForegroundAt` on the entry, never adds or admits one. */
+function recordForeground(serviceId: ServiceId): void {
+  const state = persisted;
+  if (!state) return;
+  const index = state.entries.findIndex((e) => e.serviceId === serviceId);
+  if (index < 0) return;
+  const entries = [...state.entries];
+  entries[index] = { ...entries[index], lastForegroundAt: new Date().toISOString() };
+  state.entries = entries;
+  writeConnectionsFile(state.root, entries).catch(() => {
+    console.warn('[shellWindow] connections.json was not updated');
+  });
+}
+
+function showConnection(serviceId: ServiceId, record: boolean): boolean {
+  const target = liveConnections().find((r) => r.serviceId === serviceId && r.state !== 'disposed');
+  if (!target) return false;
+  const changed = foreground()?.connectionId !== target.connectionId;
+  setForeground(target.connectionId);
   layoutViews();
+  if (record && changed) recordForeground(serviceId);
   try {
-    record.webContents.focus();
+    target.webContents.focus();
   } catch {
     // Keyboard focus is best-effort; the view is shown either way.
   }
   refreshDevConnectionMenu();
   return true;
+}
+
+/** The live connection of `serviceId` becomes the only visible view. */
+export function activateConnection(serviceId: ServiceId): boolean {
+  return showConnection(serviceId, true);
+}
+
+/**
+ * The entry to show first: the latest `lastForegroundAt`, else the first in file
+ * order (P0 puts the self-hosted profile the pointer named first). Layout only.
+ */
+function entryToForeground(entries: readonly ConnectionsFileEntry[]): ConnectionsFileEntry | null {
+  let best: ConnectionsFileEntry | null = null;
+  for (const entry of entries) {
+    if (entry.lastForegroundAt === null) continue;
+    if (best === null || entry.lastForegroundAt > (best.lastForegroundAt ?? '')) {
+      best = entry;
+    }
+  }
+  return best ?? entries[0] ?? null;
+}
+
+/**
+ * Startup (#86 §3.6): open one view per validated `connections.json` entry after the
+ * saas view, which the caller has already opened. `register` re-admits each origin
+ * through the registry, so an entry whose origin is no longer approved opens nothing.
+ * The views are created in file order before any of them finishes loading.
+ */
+export async function restorePersistedConnections(
+  userDataRoot: string,
+  entries: readonly ConnectionsFileEntry[],
+  register: (origin: string) => ServiceRecord | null
+): Promise<void> {
+  persisted = { root: userDataRoot, entries: [...entries] };
+  const url = deps?.devConnectionUrl ?? DEFAULT_CONNECTION_URL;
+  const loads: Promise<void>[] = [];
+  for (const entry of entries) {
+    if (entry.serviceId === SAAS_SERVICE_ID) continue;
+    if (liveConnections().some((r) => r.serviceId === entry.serviceId)) continue;
+    const service = register(entry.origin);
+    if (!service || service.serviceId !== entry.serviceId) continue;
+    // Everything before the view's load runs synchronously, so the record exists on return.
+    loads.push(
+      openConnectionView(service.serviceId, url).then((result) => {
+        if (!result.ok) console.warn(`[shellWindow] connection not restored (${result.reason})`);
+      })
+    );
+  }
+  const first = entryToForeground(entries);
+  if (first) showConnection(first.serviceId, false);
+  await Promise.all(loads);
 }
 
 /** Invariant 6. A no-op with no window; with no foreground every view is hidden. */
