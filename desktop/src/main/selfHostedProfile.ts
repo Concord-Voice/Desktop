@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { appendApprovalRecord, findApprovalRecord, readApprovalsFile } from './selfHostedApprovals';
 import { classifyAddress } from './egressPolicy';
-import { firstPartyApiOrigin } from './apiBaseUrl';
+import { firstPartyApiOrigin } from './firstPartyOrigin';
 import type { ServiceId } from '../shared/connectionIdentity';
 
 const SAAS_API_ORIGIN = 'https://api.concordvoice.chat';

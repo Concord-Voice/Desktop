@@ -21,12 +21,12 @@ vi.mock('../../../src/main/tokenManager', () => ({
   getPersistedApiBase: () => mocked.persistedApiBase,
 }));
 
+import { getApiBaseUrl } from '@/main/apiBaseUrl';
 import {
   _resetFirstPartyApiOriginForTesting,
   firstPartyApiOrigin,
-  getApiBaseUrl,
   pinFirstPartyApiOrigin,
-} from '@/main/apiBaseUrl';
+} from '@/main/firstPartyOrigin';
 import { serviceIdForApiBase } from '@/main/selfHostedProfile';
 
 describe('getApiBaseUrl', () => {

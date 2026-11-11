@@ -38,7 +38,8 @@ import {
 } from './audiocapHost';
 import { registerVersionInfoIpc } from './ipc/versionInfo';
 import { buildBrowserWindowConfig } from './browserWindowConfig';
-import { PRODUCTION_API_BASE, pinFirstPartyApiOrigin } from './apiBaseUrl';
+import { PRODUCTION_API_BASE } from './apiBaseUrl';
+import { pinFirstPartyApiOrigin } from './firstPartyOrigin';
 import { revealLoadFailure } from './loadFailureVisibility';
 import { loadWindowState, attachWindowState } from './windowState';
 import { isWayland } from './waylandDetect';
