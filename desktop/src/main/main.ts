@@ -1641,6 +1641,8 @@ const createWindow = async (): Promise<void> => {
   // Status-aware tray (tray-status spec §3/§4): window focus gates the mention burst.
   win.on('focus', () => setTrayWindowFocused(true));
   win.on('blur', () => setTrayWindowFocused(false));
+  // #86 RT7: the window coming back answers every connection's flash request.
+  win.on('focus', answerFlashRequests);
 
   installDevConnectionMenu();
 
@@ -2458,19 +2460,55 @@ registerIpc(
   { refusal: () => undefined }
 );
 
+// #86 RT7: one flash request per connection. The window flashes while any connection
+// has one outstanding, so a connection's `false` withdraws only its own request and
+// cannot stop another connection's flash. main calls `flashFrame` only when that
+// aggregate changes, so the window sees one start and one stop however many ask.
+// The window's focus answers every request (Electron's own pairing: stop on focus),
+// and a disposed connection's request leaves with it.
+const flashRequests = new Set<ConnectionRef['connectionId']>();
+
+function updateFlashRequests(change: () => void): void {
+  const wasFlashing = flashRequests.size > 0;
+  change();
+  const flashing = flashRequests.size > 0;
+  if (flashing !== wasFlashing) shellWindow()?.flashFrame(flashing);
+}
+
+function answerFlashRequests(): void {
+  updateFlashRequests(() => flashRequests.clear());
+}
+
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason !== 'disposed' || !flashRequests.has(id)) return;
+  updateFlashRequests(() => flashRequests.delete(id));
+});
+
 registerIpc(
   'app:flashFrame',
   'connection-bound',
-  (_sender, _event, flash: unknown) => {
+  (sender, _event, flash: unknown) => {
     if (typeof flash !== 'boolean') return;
-    shellWindow()?.flashFrame(flash);
+    const id = sender.ref.connectionId;
+    if (!flash) {
+      updateFlashRequests(() => flashRequests.delete(id));
+      return;
+    }
+    // A request while the window is focused is dropped, as the renderer drops its own
+    // (a hidden view cannot see the focus): the focus that would answer it has already
+    // happened, so it would stay outstanding and swallow the next real flash.
+    const win = shellWindow();
+    if (!win || win.isFocused()) return;
+    updateFlashRequests(() => flashRequests.add(id));
   },
   { refusal: () => undefined }
 );
 
+// #86 RT6: foreground only. A background view focusing the window would pull the
+// user's keystrokes into the foreground connection's document at a time it chose.
 registerIpc(
   'app:focusWindow',
-  'connection-bound',
+  'app-global-mutate',
   () => {
     const win = shellWindow();
     if (win) {

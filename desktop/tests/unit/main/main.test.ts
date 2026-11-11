@@ -54,6 +54,7 @@ const {
     close: vi.fn(),
     focus: vi.fn(),
     isMinimized: vi.fn(() => false),
+    isFocused: vi.fn(() => false),
     isDestroyed: vi.fn(() => false),
     restore: vi.fn(),
     setAlwaysOnTop: vi.fn(),
@@ -7088,6 +7089,107 @@ describe('#86 connection-isolated main semantics', () => {
         expect(await lastBadge()).toBe(9999);
       } finally {
         connectionRegistry.disposeConnection(A.record.connectionId);
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+  });
+
+  // #86 RT6/RT7 (Phase-4 red-team WIN-1 and WIN-2; WIN-3 is the badge suite above).
+  describe('RT6/RT7: window chrome from a background connection', () => {
+    const fireWindow = (name: 'focus' | 'blur') => {
+      for (const [event, listener] of mockMainWindow.on.mock.calls as Array<[string, () => void]>) {
+        if (event === name) listener();
+      }
+    };
+
+    beforeEach(() => {
+      // Start with no flash request outstanding: the window's focus answers them all.
+      fireWindow('focus');
+      mockMainWindow.flashFrame.mockClear();
+    });
+
+    afterEach(() => {
+      fireWindow('blur');
+      mockMainWindow.isFocused.mockReturnValue(false);
+      mockMainWindow.isMinimized.mockReturnValue(false);
+    });
+
+    it('WIN-1: a background self-hosted view cannot restore and focus the shell window', async () => {
+      const B = openFakeSelfHosted('https://win-1.lan');
+      try {
+        expect(connectionRegistry.foreground()?.connectionId).not.toBe(B.record.connectionId);
+        mockMainWindow.isMinimized.mockReturnValue(true);
+        mockMainWindow.restore.mockClear();
+        mockMainWindow.focus.mockClear();
+        await handlers.get('app:focusWindow')!(B.event);
+        expect({
+          restore: mockMainWindow.restore.mock.calls.length,
+          focus: mockMainWindow.focus.mock.calls.length,
+        }).toEqual({ restore: 0, focus: 0 });
+
+        // The foreground primary still can: its notification click focuses the window.
+        await handlers.get('app:focusWindow')!(saasEvent());
+        expect({
+          restore: mockMainWindow.restore.mock.calls.length,
+          focus: mockMainWindow.focus.mock.calls.length,
+        }).toEqual({ restore: 1, focus: 1 });
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it("WIN-2: a background self-hosted view cannot cancel CVNet's taskbar flash", async () => {
+      const B = openFakeSelfHosted('https://win-2.lan');
+      try {
+        await handlers.get('app:flashFrame')!(saasEvent(), true); // CVNet: a mention
+        await handlers.get('app:flashFrame')!(B.event, false); // B, in the background
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true]]);
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it('the window flashes while any connection asks and stops when the last one withdraws', async () => {
+      const B = openFakeSelfHosted('https://win-any.lan');
+      try {
+        await handlers.get('app:flashFrame')!(saasEvent(), true);
+        await handlers.get('app:flashFrame')!(B.event, true);
+        await handlers.get('app:flashFrame')!(saasEvent(), false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true]]);
+        await handlers.get('app:flashFrame')!(B.event, false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it("a disposed connection's request leaves with it, and the window's focus answers every request", async () => {
+      const B = openFakeSelfHosted('https://win-dispose.lan');
+      await handlers.get('app:flashFrame')!(B.event, true);
+      connectionRegistry.disposeConnection(B.record.connectionId);
+      expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+
+      await handlers.get('app:flashFrame')!(saasEvent(), true);
+      fireWindow('focus');
+      expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false], [true], [false]]);
+      // Answered: the next request starts a new flash.
+      fireWindow('blur');
+      await handlers.get('app:flashFrame')!(saasEvent(), true);
+      expect(mockMainWindow.flashFrame.mock.calls.at(-1)).toEqual([true]);
+    });
+
+    it('a request made while the window is focused is dropped, not left outstanding', async () => {
+      const B = openFakeSelfHosted('https://win-focused.lan');
+      try {
+        mockMainWindow.isFocused.mockReturnValue(true);
+        await handlers.get('app:flashFrame')!(B.event, true); // hidden B cannot see the focus
+        expect(mockMainWindow.flashFrame).not.toHaveBeenCalled();
+
+        mockMainWindow.isFocused.mockReturnValue(false);
+        await handlers.get('app:flashFrame')!(saasEvent(), true);
+        await handlers.get('app:flashFrame')!(saasEvent(), false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+      } finally {
         connectionRegistry.disposeConnection(B.record.connectionId);
       }
     });

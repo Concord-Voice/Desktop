@@ -119,7 +119,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'image:saveAs': 'connection-bound',
   'app:setBadgeCount': 'connection-bound',
   'app:flashFrame': 'connection-bound',
-  'app:focusWindow': 'connection-bound',
+  'app:focusWindow': 'app-global-mutate',
   'spa:requestSelfHeal': 'connection-bound',
   'pip:open': 'app-global-mutate',
 

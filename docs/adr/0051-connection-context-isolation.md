@@ -470,6 +470,36 @@ visible always-on-top windows, so this is not hidden activity. The churn bound i
 connection: the process-wide creation rate is 8 per 3 s times the number of connections that
 can be foreground in that window.
 
+**RT6 — A background connection could restore and focus the window (LOW, Phase-4 red-team).**
+`app:focusWindow` was `connection-bound`, so a hidden view could restore a minimized window
+and focus it at a moment it chose, pulling the user's keystrokes into the foreground
+connection's document. Fix: `app:focusWindow` is `app-global-mutate`. Its one renderer caller
+is the notification click (`desktopNotificationService.handleClick`). The foreground
+connection's click still focuses the window. A background connection's click now records its
+pending navigation and does not focus the window. Before the fix that click focused the window
+onto the foreground connection, not onto the clicked one, so it never took the user to the
+target either. **Residual (RT6):** a click on a background connection's notification does not
+bring the app forward. Doing that would need main to own the notification and to switch to that
+connection on the click (main-owned activation). That is a design change, not built here.
+
+**RT7 — A background connection could stop another connection's taskbar flash (LOW, Phase-4
+red-team).** `app:flashFrame` wrote the window directly, so B's `flashFrame(false)` cancelled the
+flash CVNet started for a mention. Fix, in `main.ts`:
+
+- Main keeps one flash request per connection (`flashRequests`). `true` adds the sender's
+  connection and `false` removes only the sender's own request. The window flashes while any
+  request is outstanding, and main calls `flashFrame` only when that changes.
+- The window's `focus` answers every request (Electron's documented pairing). A `disposed`
+  generation removes the connection's request.
+- A `true` while the window is focused, or with no window, is dropped. The renderer drops its
+  own the same way, but a hidden view cannot see the window's focus. Its request would stay
+  outstanding and the next real flash would not start.
+
+`desktop/tests/unit/main/main.test.ts` § "RT6/RT7" ports the red-team PoCs WIN-1 and WIN-2; WIN-3
+(the badge sum) was already defended and is the badge suite beside it.
+**Residual (RT7):** a background connection can still start a flash while the window is not
+focused. It cannot stop one it did not start.
+
 ### The development-build `saas` origin pin
 
 The `saas` service's API origin is resolved once, in main, by `pinFirstPartyApiOrigin()`
@@ -496,6 +526,8 @@ Each row is a security decision taken in review. The table of record is
 | `audiocap:start` | `app-global-mutate` | S-1 |
 | `sso:appleSignIn`, `sso:googleSignIn` | `app-global-mutate`; the handler also refuses while another connection owns that provider's flow | RT2, RT1 |
 | `spa:requestSelfHeal` (and the `did-fail-load` self-heal trigger, no channel) | `connection-bound`; `attemptSelfHeal` acts only when the requester is the saas view, and `did-fail-load` reaches it only from the saas primary's main frame | RT3 |
+| `app:focusWindow` | `app-global-mutate` | RT6 |
+| `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
