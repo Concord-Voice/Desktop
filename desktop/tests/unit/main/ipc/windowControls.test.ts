@@ -22,9 +22,37 @@ const makeMockWindow = () => ({
   isDestroyed: vi.fn(() => false),
 });
 
+// #86 Task 7B re-point: handlers now run behind registerIpc, so the legacy `{}` event
+// is replaced by the FOREGROUND primary's event (the only sender these channels admit).
+// The registry is reset per case because registerIpc refuses a duplicate channel.
+let fgEvent: unknown = null;
+const fgEv = () => fgEvent as never;
+
 describe('registerWindowControlsIpc', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    const r = registerService('https://api.concordvoice.chat', {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id: 7, mainFrame: { frameTreeNodeId: 7 } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    setForeground(o.record.connectionId);
+    fgEvent = {
+      sender: wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: 7,
+        detached: false,
+      },
+    };
   });
 
   it('starts with the safe default cached client behavior (close→tray, minimize→toolbar)', () => {
@@ -46,7 +74,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
-    handler({} as never, { toTray: 'minimize', toToolbar: 'close' });
+    handler(fgEv(), { toTray: 'minimize', toToolbar: 'close' });
     expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
   });
 
@@ -55,7 +83,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:quit'
     )![1];
-    handler({} as never);
+    handler(fgEv());
     expect(app.quit).toHaveBeenCalledTimes(1);
   });
 
@@ -65,7 +93,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '#000000', symbolColor: '#ffffff' });
+    handler(fgEv(), { color: '#000000', symbolColor: '#ffffff' });
     expect(window.setTitleBarOverlay).toHaveBeenCalledWith(
       expect.objectContaining({ color: '#000000', symbolColor: '#ffffff' })
     );
@@ -78,7 +106,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '#000', symbolColor: '#fff' });
+    handler(fgEv(), { color: '#000', symbolColor: '#fff' });
     expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
   });
 
@@ -92,7 +120,7 @@ describe('registerWindowControlsIpc', () => {
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
     const before = getCachedClientBehavior();
-    handler({} as never, { toTray: 'EVIL', toToolbar: 'minimize' });
+    handler(fgEv(), { toTray: 'EVIL', toToolbar: 'minimize' });
     expect(getCachedClientBehavior()).toEqual(before);
   });
 
@@ -102,7 +130,7 @@ describe('registerWindowControlsIpc', () => {
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
     const before = getCachedClientBehavior();
-    handler({} as never, 'not-an-object');
+    handler(fgEv(), 'not-an-object');
     expect(getCachedClientBehavior()).toEqual(before);
   });
 
@@ -111,7 +139,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
-    handler({} as never, { toTray: 'minimize', toToolbar: 'close' });
+    handler(fgEv(), { toTray: 'minimize', toToolbar: 'close' });
     expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
   });
 
@@ -121,7 +149,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '<script>alert(1)</script>', symbolColor: '#fff' });
+    handler(fgEv(), { color: '<script>alert(1)</script>', symbolColor: '#fff' });
     expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
   });
 
@@ -131,7 +159,7 @@ describe('registerWindowControlsIpc', () => {
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: 'rgba(26, 22, 48, 1)', symbolColor: '#ffffff' });
+    handler(fgEv(), { color: 'rgba(26, 22, 48, 1)', symbolColor: '#ffffff' });
     expect(window.setTitleBarOverlay).toHaveBeenCalled();
   });
 });
