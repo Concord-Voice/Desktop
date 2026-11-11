@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router';
 import App from './App';
 import DesktopAppRequired, { isUnsupportedBrowser } from './components/ui/DesktopAppRequired';
+import ConnectionUnavailable from './components/Auth/ConnectionUnavailable';
+import { bootConnection } from './services/system/bootConnection';
 import { installSelfHealHandlers } from './spaSelfHealClient';
 import { ModalProvider } from './components/ui/ModalContext';
 import { configureRefreshFailureReset } from './services/system/apiClient';
@@ -102,6 +104,10 @@ const root = createRoot(container);
 // client-version or attestation gates, so it gets the download page instead.
 if (isUnsupportedBrowser()) {
   root.render(<DesktopAppRequired />);
+} else if (bootConnection().mode === 'unavailable') {
+  // #86 §3.10: a v34 shell gave this document no valid connection identity. Fatal,
+  // and never the build-time server: App (and everything that fetches) stays unmounted.
+  root.render(<ConnectionUnavailable />);
 } else {
   root.render(
     <React.StrictMode>

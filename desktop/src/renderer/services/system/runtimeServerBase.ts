@@ -1,7 +1,21 @@
 import { API_BASE, WS_BASE } from '../../config';
+import { bootConnection } from './bootConnection';
 
-let runtimeApiBase = API_BASE;
-let runtimeWsBase = WS_BASE;
+// #86 §3.10: the base this document boots with. A connection document is pinned to
+// its identity's apiOrigin; an unavailable one gets an address that can never resolve
+// (RFC 6761 `.invalid`), because it must never fall back to the build-time API_BASE.
+// Only a legacy (pre-v34 shell) document starts from API_BASE and may change it.
+const boot = bootConnection();
+const UNAVAILABLE_API_BASE = 'https://connection-unavailable.invalid';
+const bootApiBase =
+  boot.mode === 'connection'
+    ? boot.identity.apiOrigin
+    : boot.mode === 'unavailable'
+      ? UNAVAILABLE_API_BASE
+      : API_BASE;
+
+let runtimeApiBase = bootApiBase;
+let runtimeWsBase = boot.mode === 'legacy' ? WS_BASE : deriveWsBase(bootApiBase);
 let runtimeServerSelectionEpoch = 0;
 const runtimeServerSelectionListeners = new Set<() => void>();
 
@@ -63,7 +77,14 @@ export function mediaUrl(url?: string | null): string | undefined {
   return undefined;
 }
 
+function assertRuntimeServerBaseMutable(): void {
+  if (boot.mode !== 'legacy') {
+    throw new Error(`runtimeServerBase is boot-immutable in ${boot.mode} mode`);
+  }
+}
+
 export function setRuntimeServerBase(base: string): void {
+  assertRuntimeServerBaseMutable();
   const apiBase = normalizeHttpBase(base);
   const wsBase = deriveWsBase(apiBase);
   runtimeApiBase = apiBase;
@@ -73,6 +94,7 @@ export function setRuntimeServerBase(base: string): void {
 }
 
 export function resetRuntimeServerBase(): void {
+  assertRuntimeServerBaseMutable();
   runtimeApiBase = API_BASE;
   runtimeWsBase = WS_BASE;
   runtimeServerSelectionEpoch += 1;

@@ -6,10 +6,12 @@ import { useUserStore, UserProfile } from '../../stores/auth/userStore';
 import { usePendingRegistrationStore } from '../../stores/auth/pendingRegistrationStore';
 import { useSSOStore } from '../../stores/auth/ssoStore';
 import { clientConfigService } from '../../services/system/clientConfigService';
+import { bootConnection } from '../../services/system/bootConnection';
 import {
   resetRuntimeServerBase,
   setRuntimeServerBase,
 } from '../../services/system/runtimeServerBase';
+import { SAAS_SERVICE_ID } from '../../../shared/connectionIdentity';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
@@ -119,12 +121,39 @@ const AuthFlow: React.FC = () => {
   };
 
   const handleServerConnect = (url: string) => {
+    const boot = bootConnection();
+    if (boot.mode === 'connection') {
+      // #86 §3.10: this document's server base is boot-immutable, so main opens (or
+      // activates) the origin in its own connection. The probe answers 'ok' only for
+      // this document's own service, so an opened result naming it continues to login
+      // here; anything else leaves this view where it started.
+      globalThis.electron.connection.create(url).then(
+        (result) => {
+          const ownService =
+            result.status === 'opened' && result.serviceId === boot.identity.serviceId;
+          setStep(ownService ? 'hosted-login' : 'connection-select');
+        },
+        () => {
+          console.warn('[AuthFlow] connection.create failed');
+          setStep('connection-select');
+        }
+      );
+      return;
+    }
     setRuntimeServerBase(url);
     void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('hosted-login');
   };
 
   const handleBack = () => {
+    if (bootConnection().mode === 'connection') {
+      // Back leaves for the saas connection instead of re-homing this document.
+      globalThis.electron.connection.activate(SAAS_SERVICE_ID).catch(() => {
+        console.warn('[AuthFlow] connection.activate failed');
+      });
+      setStep('connection-select');
+      return;
+    }
     resetRuntimeServerBase();
     void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('connection-select');

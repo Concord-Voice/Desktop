@@ -11,7 +11,7 @@ paths:
 
 ## State Management
 
-- ~47 Zustand stores (v5.0.12) — always use selective subscriptions: `useStore((s) => s.field)`
+- 45 Zustand stores (v5.0.16) — always use selective subscriptions: `useStore((s) => s.field)`
 - Actions live on the store — never define state-changing logic in components
 - Use `persist` middleware only for data surviving app restart
 - Store files: `src/renderer/stores/<concern>/{name}Store.ts` — one per file
