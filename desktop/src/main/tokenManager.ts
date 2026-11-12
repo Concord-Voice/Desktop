@@ -32,6 +32,7 @@ import { clearAttestationToken } from './attestationService';
 import { encryptForDisk, isSecureStorageAvailable, isUnprotectedCiphertext } from './secureStorage';
 import type { CredentialOwner, RefreshResult } from './ipcContract';
 import {
+  SAAS_SERVICE_ID,
   isAccountKey,
   isServiceId,
   type AccountKey,
@@ -958,10 +959,12 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
     }
     // A meta naming another server's API base is not this profile's credential: a
     // restore would hand this profile's refresh token to that server. Refused before
-    // any decrypt, and nothing from the meta is adopted.
+    // any decrypt, and nothing from the meta is adopted. Nothing is deleted either:
+    // in the SaaS root this is a pre-#1618 layout holding a self-hosted credential,
+    // which connectionMigration promises a downgraded shell finds byte-identical. A
+    // later login here replaces the files.
     if (new URL(meta.apiBase).origin !== apiOrigin) {
       console.warn('[TokenManager] restoreRefreshToken: meta names another origin; refusing');
-      deleteFiles();
       return { status: 'tampered' };
     }
 
@@ -1127,8 +1130,10 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
         // The cached attestation token is keyed to the session this refresh
         // just retired, so relaying it under the new sid only earns
         // ATTESTATION_INVALID (#4211 review). Re-attesting here under the new
-        // session lands with the attest() caller (#4208).
-        if (newSessionId) clearAttestationToken();
+        // session lands with the attest() caller (#4208). That cache is
+        // app-global and minted for the SaaS control plane only, so another
+        // service's rotation must not clear it (the ipc/attestation.ts rule).
+        if (newSessionId && serviceId === SAAS_SERVICE_ID) clearAttestationToken();
         return {
           result: {
             status: 'ok',
@@ -1452,7 +1457,11 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
   function getCredentialApiBase(): string | null {
     if (inMemoryApiBase) return inMemoryApiBase;
     const meta = readMeta(instancePaths().metaFile);
-    return meta?.apiBase || null;
+    // The check restoreRefreshToken refuses on: a meta naming another origin (a
+    // pre-#1618 root layout, which restore now leaves on disk) is not this
+    // profile's credential, so it names no API base here either.
+    if (!meta || new URL(meta.apiBase).origin !== apiOrigin) return null;
+    return meta.apiBase;
   }
 
   async function getCapabilities(): Promise<{ persistAvailable: boolean }> {

@@ -210,6 +210,32 @@ describe('tokenManager cross-instance isolation', () => {
     expect(snapshotTree(userData.dir)).toEqual(before);
   });
 
+  // A pre-#1618 layout kept a self-hosted credential in the root files, which are
+  // the SaaS profile's paths now. connectionMigration promises a downgraded shell
+  // finds them byte-identical, so the SaaS restore refuses them without deleting.
+  it('saas restore refuses a root meta naming another origin and deletes nothing', async () => {
+    const saas = make(SAAS);
+    try {
+      const saasPaths = profilePathsForApiBase(SAAS);
+      fs.mkdirSync(userData.dir, { recursive: true });
+      fs.writeFileSync(saasPaths.tokenFile, 'v11legacy-selfhost-token');
+      fs.writeFileSync(
+        saasPaths.metaFile,
+        JSON.stringify({ apiBase: ORIGIN_A, rememberMe: true, credentialOwner: 3 })
+      );
+      fs.writeFileSync(saasPaths.e2eeFile, 'v11legacy-selfhost-e2ee');
+      const before = snapshotTree(userData.dir);
+
+      await expect(saas.restoreRefreshToken()).resolves.toEqual({ status: 'tampered' });
+      await saas._flushDiskWritesForTesting();
+
+      expect(snapshotTree(userData.dir)).toEqual(before);
+      expect(saas.getCredentialApiBase()).toBeNull();
+    } finally {
+      saas._resetForTesting();
+    }
+  });
+
   it('removed fallback: an empty instance never reports or restores another profile', async () => {
     const saas = make(SAAS);
     try {

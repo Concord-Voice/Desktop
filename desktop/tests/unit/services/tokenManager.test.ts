@@ -143,6 +143,7 @@ import {
   _resetSelfHostedProfileForTesting,
 } from '@/main/selfHostedProfile';
 import { _resetApprovalsCacheForTesting } from '@/main/selfHostedApprovals';
+import { SAAS_SERVICE_ID } from '../../../src/shared/connectionIdentity';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 
@@ -1454,7 +1455,6 @@ describe.each([
           previous_session_id: 'sid0',
         })
       );
-      mockClearAttestationToken.mockClear();
 
       const result = await performRefresh();
 
@@ -1472,7 +1472,26 @@ describe.each([
       expect(opts.headers['X-Machine-Id']).toBe('mid');
       expect(opts.credentials).toBe('omit');
       expect(mockGetMachineId).toHaveBeenCalledWith(origin);
-      expect(mockClearAttestationToken).toHaveBeenCalledOnce();
+    });
+
+    // The attestation cache is app-global and minted for the SaaS control plane
+    // only, so only the SaaS custody's session rotation may clear it: a
+    // self-hosted refresh naming a new session leaves it alone.
+    it('clears the attestation token on a new session only from the SaaS custody', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: origin,
+      });
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: jwt, session_id: 'sid1', previous_session_id: 'sid0' })
+      );
+      mockClearAttestationToken.mockClear();
+
+      expect((await performRefresh()).status).toBe('ok');
+      const isSaas = serviceIdForApiBase(origin) === SAAS_SERVICE_ID;
+      expect(mockClearAttestationToken).toHaveBeenCalledTimes(isSaas ? 1 : 0);
     });
 
     it('keeps the attestation token when the refresh names no new session', async () => {
@@ -2656,11 +2675,11 @@ describe.each([
 
     it('restores no session, and falls back to no profile, when the pointer is not a URL', async () => {
       fsRead.impl = readMockDisk;
-      // A default-profile credential exists, so a fallback past the pointer would restore it.
+      // This profile's own credential exists, so a fallback past the pointer would restore it.
       storeRefreshToken({
         refreshToken: 'rt-default',
         rememberMe: true,
-        apiBase: 'https://api.concordvoice.chat',
+        apiBase: origin,
       });
       await flushDiskWrites();
       const pointer = [...fsFiles.keys()].find((path) => path.endsWith('active-profile.json'));
@@ -2669,7 +2688,8 @@ describe.each([
 
       // #86: a custody never reads the pointer; choosing which profile a restart
       // restores moved to the transitional router, which must choose none here.
-      expect(getCredentialApiBase()).toBe('https://api.concordvoice.chat');
+      // It reports its own credential's origin, and never another profile's.
+      expect(getCredentialApiBase()).toBe(origin);
       expect(() => clearTokens()).not.toThrow();
     });
 
