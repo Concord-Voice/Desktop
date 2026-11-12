@@ -49,6 +49,8 @@
 
 .capture-moved-banner__dismiss:hover {
   background: var(--bg-hover);
+  /* --bg-hover is nearly --bg-tertiary in the dark themes; the border carries the hover. */
+  border-color: var(--text-secondary);
 }
 
 .capture-moved-banner__dismiss:focus-visible {
