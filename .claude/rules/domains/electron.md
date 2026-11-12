@@ -1186,6 +1186,78 @@ authorisation token by itself.
 | `Generation` | main, per connection (`connectionRegistry`) | one connection's live document and credential lifecycle | `document`, `renderer-gone`, `credential-start`, `credential-end`, `disposed` | "is this `ConnectionRef` still current?" (`isOwnerCurrent`, `sendToConnection`) |
 | `authGeneration` | the renderer, per document | that document's login/restore lifecycle | a replacement lifecycle or clear; not a refresh | "is this renderer continuation still current?" (§ IPC contract v18) |
 
+### IPC contract v35 — capture lease (#87)
+
+`IPC_CONTRACT_VERSION` moved 34 → 35. `SPA_MIN_CONTRACT` stays **19**: the renderer
+feature-detects `typeof globalThis.electron?.capture?.acquire === 'function'`, and a shell
+below 35 keeps today's behaviour. Capability, not demand. Spec:
+`docs/superpowers/specs/2026-11-09-87-capture-lease-and-resource-budgets-design.md` §3.2, §3.9.
+
+**Four channels.** Both invokes register in `src/main/ipc/capture.ts` (`registerCaptureIpc`);
+the lease itself is `src/main/captureLease.ts`.
+
+| Channel | Direction | Shape | Admission | Failure |
+|---|---|---|---|---|
+| `capture:acquire` | invoke | `{ intent: CaptureIntent }` → `CaptureAcquireResult` | `connection-bound` (a bound primary main frame); a fresh acquire and the ceremony are foreground-only inside the lease | `rejected` with a `CaptureRejectReason`; malformed input → `untrusted-sender` |
+| `capture:release` | invoke | `{ intent: CaptureIntent }` → `boolean` | `connection-bound`; the lease also requires `requireOwner` on the holder binding | `false` |
+| `capture:lease` | push | `CaptureLeaseState` `{ held, mine }` | the holder, the foreground primary, and the connection whose own lease just ended (once) | the preload drops a malformed push |
+| `capture:leaseRevoked` | push | `CaptureLeaseRevoked` `{ reason: 'moved' \| 'backgrounded' }` | the holder only, through `sendToConnection` | a no-op when the ref is stale |
+
+- **The acquire refusal is explicit (RC-13).** `registerIpc`'s default refusal is
+  `{ status: 'rejected', reason: SenderRefusal }`, and `wrong-owner`, `not-saas` and
+  `not-primary` are not `CaptureRejectReason`s, so the preload's exact-key guard would drop
+  that reply. `captureAcquireRefusal` keeps `not-foreground` and maps every other value,
+  an unknown one included, to `untrusted-sender`. A refused release is `false`. As built,
+  `connection-bound` admission refuses only `untrusted-sender` (a PiP fails the primary-only
+  role check, `registry.ts`), but the mapping covers the whole type.
+- **The bridge.** `electron.capture.{acquire, release, onLeaseChanged, onLeaseRevoked}`. The
+  invokes forward a fresh `{ intent }` and nothing else. Both pushes are validated with the
+  shared exact-key guards (`src/shared/captureLease.ts`, import-free) and then copied, so a
+  callback never receives `data`. A module-scope listener registered at preload evaluation
+  keeps the LAST VALIDATED `capture:lease` state, and `onLeaseChanged` replays it
+  synchronously to every new subscriber, a fresh copy each time, until a newer valid push
+  supersedes it: main pushes to a view the moment it becomes foreground, often before the SPA
+  has subscribed (Review Focus 1). A malformed push never supersedes. `onLeaseRevoked` does
+  not replay: a revocation instructs the document it was sent to at that moment. Both
+  unsubscribe functions disarm a local `subscribed` flag and remove the `ipcRenderer`
+  listener (the `onTrayAction` reasoning). The preload still imports only `electron` at run
+  time (`tests/integration/preload-sandbox-contract.test.ts`).
+- **The lease rules.** Exclusive: one holder at a time, across every connection. A FRESH
+  acquire is admitted only from the foreground primary; the holder may re-acquire from
+  anywhere, since it already holds. A holder carries a claims set (`voice-join`,
+  `device-test`); a release drops one claim and the lease frees when none is left. A HELD
+  lease asked for by another foreground connection goes through the native consent ceremony;
+  on Join the holder is sent `capture:leaseRevoked { reason: 'moved' }` and must ack with a
+  release within `HANDOFF_ACK_TIMEOUT_MS` (5 s) — any release from that document is the ack.
+- **Ack or crash, never a bare `reload()`.** A holder that does not ack is ended with
+  `webContents.forcefullyCrashRenderer()`, and the reload is issued from the
+  `render-process-gone` listener (`crashAndReloadRenderer`). T0 row 4
+  (`desktop/spikes/capture-gate/results/macos-arm64.md`) measured both halves: `reload()` alone
+  did not end the tracks of a document with sticky user activation (its `beforeunload` veto
+  held), and a `reload()` in the same task as the crash reached the dying renderer and was
+  lost, leaving the view crashed. The crash is asynchronous, so the reload must follow the
+  event. Windows and Linux are NOT MEASURED for the lost same-task reload.
+- **The legacy gate (§5.2), and the T0 branch taken.** A pre-35 SPA never calls
+  `capture:acquire`, so `legacyAcquire` grants it an implicit `voice-join` lease from the
+  permission REQUEST handler when the lease is free, no handoff is pending, the requester is
+  the current foreground primary main frame, its document has not shown itself lease-aware
+  (any acquire or release marks it), and the service's media capability is not `false`. A
+  legacy holder never releases; a generation advance frees it. It logs the fixed marker
+  `[capture] legacy implicit lease`. T0 row 1 passed 3 / 3, so
+  `CAPTURE_CHECK_POLICY = 'bound-primary-main-frame'` (`src/main/capturePolicy.ts`): a
+  permission CHECK answers for any current bound primary main frame, and the legacy gate is
+  kept. On the T0-FAIL branch the policy would be `'holder'` and the legacy gate dropped.
+- **Changed semantics, no shape change.** `media:getDesktopSources` returns `[]` to a
+  non-holder; `audiocap:start` admits only the holder, in place of v34's refuse-while-owned
+  rule; `tray:setStatus` is stored per connection and applied for the displayed one, and
+  `tray:action` routes to the displayed connection; `permission:changed` also goes to the
+  holder; `sso:startLoopback` supersedes, one loopback per connection (the cross-connection
+  port refusal is #86's).
+- **`mainResourceCounts()`** (`src/main/mainResourceCounts.ts`) is a read-only view for tests
+  and the churn budgets: `{ captureHolder, handoffPending, loopbacks, traySnapshots,
+  audiocapCapture }`, each read from the map that owns it, each at most
+  `MAX_LIVE_CONNECTIONS`. There is no second ledger to drift.
+
 ### IPC contract v32 — billing launcher (#1305)
 
 `IPC_CONTRACT_VERSION` moved 31 → 32. `SPA_MIN_CONTRACT` stays **19**: the renderer
@@ -1304,6 +1376,21 @@ The rule "validate all IPC senders" applies primarily to handlers that reach a p
 For `IpcMainInvokeEvent` handlers, use `requireTrustedSender(event, getRemoteSpaBaseUrl())`: it snapshots `event.senderFrame` and delegates to `isPermittedFrameUrl`, returning `null` before any side effect for a missing or untrusted frame. `main.ts` uses it for capture, hardware settings, update checks/downloads, and developer-mode IPC; `permissionManager.ts` uses it for every OS-permission handler. `clipboard:writeText` is `app-global-mutate` (#199 re-expressed for #86: the foreground connection's bound primary main frame) and REJECTS a refused sender or a non-string payload, so a failed Cut keeps its selection. The web clipboard permissions (`clipboard-sanitized-write`, `clipboard-read`) are decided in `connectionSession.ts` before the capture arbiter, which cannot widen them: only a bound primary of the foreground connection, from its main frame, at a URL permitted for its service kind; an off-document check denies them. Lifecycle actions (`window:quit`, `app:quit`, `app:relaunch`, and `update:install`) are `app-global-mutate` (#198 re-expressed for #86): only the foreground connection's bound primary main frame is admitted, so a PiP, a background view, a subframe and an unbound or replaced webContents fail closed. `pip:open` (#178) admits only the foreground connection's bound primary main frame (`app-global-mutate`, so a hidden view cannot raise an always-on-top window; the PiP belongs to that opener connection), accepts only its closed option schema, and rejects a refused or failed open instead of resolving. Its budget is per connection under a process-wide ceiling (#86 RT5): at most 12 live PiP windows in the process, at most 6 held by any one connection (half the ceiling, so one connection can never leave a second without a PiP), and at most 8 new windows in 3 seconds per connection, whose rate history is dropped when the connection is disposed. The PiP id namespace is per connection too (#86 RT4): main keys each PiP `<owner connectionId>:<id>` and every lookup builds the key from the SENDER's own connectionId, so another connection's PiP of the same id is exactly an absent one: it cannot be squatted, focused, addressed or probed for. The key is unambiguous only because neither half can contain `:` (connection ids are base64url; a PiP id must pass `isPipId`, on every `pip:*` lookup as well as at open). Within a connection, PiP mutation binds each PiP ID to its creating `frameTreeNodeId`, so a second permitted frame cannot focus or mutate another frame's window. The PiP window's own validated main frame may close itself or change its always-on-top state. **`pip:session` (#3104 D6) is the strictest of the PiP handlers:** `resolvePipSender` performs the same checks and then requires `isPipMainFrame`, so the token that authenticates the renderer-side PiP RPC channel reaches only that PiP's own main frame — the OPENER frame is refused even though it passes the ownership test used by `pip:close`, because it already received the value on the `pip:opened` push. Every other outcome is `null`, which the renderer treats as "no PiP voice" and never as "proceed unauthenticated". The token is never logged: the private `BroadcastChannel` is NAMED from it (see [`frontend.md`](frontend.md) § "PiP channel authentication").
 
 **Tray and badge handlers (IPC contract v33).** `tray:setStatus` admits only the main window's own main frame (`requireTrustedSender` AND `event.sender === mainWindow.webContents` AND the sender frame is that webContents' main frame), then a 20/s token bucket and the exact-shape guard; it is not a low-stakes exception. It resolves `false` only for a rate-limit drop, `true` otherwise. `app:setBadgeCount`, `app:flashFrame` and `app:focusWindow` were hardened in the same contract: each now calls `requireTrustedSender` first, and `app:setBadgeCount` rejects anything but a non-negative integer and clamps it to 9999, and `app:flashFrame` rejects anything but a boolean. Their refusals are silent no-ops, and their signatures are unchanged. Under #86, `app:focusWindow` is `app-global-mutate` (RT6): only the foreground connection's bound primary may restore and focus the window, so a background connection's notification click no longer focuses it. `app:flashFrame` keeps one flash request per connection (RT7), like the badge's per-connection count: `false` withdraws only the sender's own request, the window flashes while any request is outstanding, and main calls `flashFrame` only when that changes. The window's `focus` and a `disposed` generation clear requests. A `true` while the window is focused is dropped, or it would stay outstanding and swallow the next flash.
+
+**Capture-lease handlers (IPC contract v35, #87).** Each row's admission runs before the
+handler, and the lease checks run inside it.
+
+| Channel | Admission | Lease rule |
+|---|---|---|
+| `capture:acquire` | `connection-bound` (bound primary main frame) | fresh acquire foreground-only; holder re-acquire anywhere; refusal mapped onto `CaptureRejectReason` (RC-13) |
+| `capture:release` | `connection-bound` | `requireOwner` on the holder binding; refused → `false` |
+| `media:getDesktopSources` | `app-global-mutate` | `[]` to a non-holder |
+| `audiocap:start` | `app-global-mutate` | the holder only, before the await and again after it |
+| `tray:setStatus` | `connection-bound` | stored per connection; applied only for the displayed connection (`trayOwner()` while the lease names one, else the foreground) |
+
+A holder that does not ack a handoff within 5 s is ended with `forcefullyCrashRenderer()`, and
+the reload follows `render-process-gone`, never a bare `reload()` (T0 row 4; see § "IPC contract
+v35").
 
 **Low-stakes UI-state IPC may legitimately omit `isPermittedFrameUrl` validation when ALL of the following hold:**
 
@@ -1644,6 +1731,13 @@ content protection, `permission:request`/`openSettings`, `connection:create`/`ac
 the same set the single renderer could reach before #86. A **background** document cannot
 reach them. #88 re-targets that exposure. Containment covers every channel: since #86 Task 7B
 no `src/main` file registers outside `registerIpc`.
+
+**A compromised foreground renderer may acquire a FREE capture lease (#87).** It can do so
+explicitly through `capture:acquire` or implicitly through the legacy gate. This is the same
+class as #86's foreground `app-global-mutate` exposure: the foreground document could start
+capture before the lease existed. What the lease adds is that a **background** document cannot
+take a free lease, and no document can take a HELD one unless the user chooses Join in the
+native consent ceremony, which a renderer cannot type into or abort.
 
 **If this risk profile changes** (e.g., a future feature elevates the renderer's attack surface), revisit `will-navigate` to either suppress externalization for programmatic navigation or introduce a host allowlist (Option B/C from #754's brainstorm).
 

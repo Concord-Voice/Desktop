@@ -90,6 +90,11 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // and applies only the displayed connection's: trayOwner() when the capture lease names
   // one (a stale owner shows a neutral tray), else the foreground primary.
   'tray:setStatus': 'connection-bound',
+  // #87 (contract v35): the capture lease. Connection-bound so a background primary can
+  // release, and a holder re-acquire, from where it is; a FRESH acquire and the consent
+  // ceremony are foreground-only inside captureLease.ts. A PiP is refused at admission.
+  'capture:acquire': 'connection-bound',
+  'capture:release': 'connection-bound',
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
   'window:setTitleBarOverlayColor': 'exempt-low-stakes',

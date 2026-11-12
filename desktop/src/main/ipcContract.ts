@@ -349,8 +349,34 @@ import type {
  *        `electron.connection` bridge runs the legacy single-connection path, and
  *        only a bridge that answers null renders "connection unavailable".
  *        Capability, not demand.
+ * - v35: Capture lease (#87, spec 2026-11-09 §3.9). Two invokes, both
+ *        `connection-bound` with an explicit refusal: `capture:acquire`
+ *        (`{ intent }` -> `CaptureAcquireResult`; an admission refusal maps to
+ *        `rejected` with `not-foreground` kept and every other reason
+ *        `untrusted-sender`) and `capture:release` (`{ intent }` -> boolean;
+ *        refused -> `false`). Two pushes: `capture:lease` (`CaptureLeaseState`,
+ *        which the preload validates, copies and replays to each new subscriber
+ *        until superseded) and `capture:leaseRevoked` (`CaptureLeaseRevoked`, to
+ *        the holder only, no replay). Changed semantics, no shape change:
+ *        `media:getDesktopSources` returns `[]` to a non-holder; `audiocap:start`
+ *        uses the holder gate in place of v34's refuse-while-owned rule;
+ *        `tray:setStatus` is stored per connection and applied for the displayed
+ *        one; `tray:action` routes to the displayed connection;
+ *        `permission:changed` also goes to the holder; `sso:startLoopback`
+ *        supersedes, one loopback per connection.
+ *
+ *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
+ *        `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell
+ *        below 35 keeps today's behaviour. Capability, not demand.
  */
-export const IPC_CONTRACT_VERSION = 34;
+export const IPC_CONTRACT_VERSION = 35;
+
+export type {
+  CaptureAcquireResult,
+  CaptureIntent,
+  CaptureLeaseRevoked,
+  CaptureLeaseState,
+} from '../shared/captureLease';
 
 /** `connection:create` reply (#86 §3.7). The renderer never learns more than the reason. */
 export type ConnectionCreateResult =

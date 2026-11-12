@@ -55,6 +55,21 @@ import {
   type TrayAction,
   type TrayStatusSnapshot,
 } from '../shared/trayStatus';
+// `captureLease` has no imports of its own. It supplies the channel constants and the
+// exact-key guards, so the `capture:lease` and `capture:leaseRevoked` pushes narrow
+// against the same anchor main and the renderer use (#87 §3.9).
+import {
+  CAPTURE_ACQUIRE,
+  CAPTURE_LEASE_PUSH,
+  CAPTURE_LEASE_REVOKED_PUSH,
+  CAPTURE_RELEASE,
+  isCaptureLeaseRevoked,
+  isCaptureLeaseState,
+  type CaptureAcquireInput,
+  type CaptureAcquireResult,
+  type CaptureLeaseRevoked,
+  type CaptureLeaseState,
+} from '../shared/captureLease';
 
 // `tsconfig.preload.json` pins `lib` to ES2022 with no DOM, so the global
 // `window` has no type in this build leg. Declare exactly the slice the relay
@@ -120,6 +135,20 @@ function generationPushFor(
   if (typeof reason !== 'string' || !GENERATION_REASONS.has(reason)) return null;
   return { connectionId: current.connectionId, generation, reason: reason as GenerationReason };
 }
+
+/**
+ * #87 Review Focus 1: main pushes `capture:lease` to a view the moment it becomes
+ * foreground, which can be before the SPA has booted and subscribed. This listener is
+ * registered at preload evaluation, so it runs before any subscriber's, and keeps the
+ * LAST VALIDATED state (a frozen field copy) for `onLeaseChanged` to replay. A malformed
+ * push never reaches it, so it cannot supersede a valid one.
+ */
+let lastLeaseState: Readonly<CaptureLeaseState> | null = null;
+ipcRenderer.on(CAPTURE_LEASE_PUSH, (_event: Electron.IpcRendererEvent, data: unknown) => {
+  if (isCaptureLeaseState(data)) {
+    lastLeaseState = Object.freeze({ held: data.held, mine: data.mine });
+  }
+});
 
 contextBridge.exposeInMainWorld('electron', {
   // App info
@@ -555,6 +584,55 @@ contextBridge.exposeInMainWorld('electron', {
       subscribed = false;
       ipcRenderer.removeListener(TRAY_ACTION, handler);
     };
+  },
+
+  /**
+   * The capture lease (#87 §3.9, contract 35). Feature-detect
+   * `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell below 35 keeps
+   * today's behaviour. The invokes AUTHORISE NOTHING here: they forward a fresh
+   * `{ intent }` and nothing else, and main resolves the connection, the holder and every
+   * refusal from its own binding.
+   *
+   * The pushes are VALIDATED, THEN COPIED with the shared exact-key guards, so a callback
+   * never receives `data` itself. `onLeaseChanged` replays the last validated state
+   * synchronously on subscribe (a new copy each time) until a newer valid push supersedes
+   * it; `onLeaseRevoked` replays nothing, because a revocation is an instruction for the
+   * document it was sent to at that moment. Unsubscribe disarms as well as removes (same
+   * reasoning as `onTrayAction`).
+   */
+  capture: {
+    acquire: (input: CaptureAcquireInput) =>
+      ipcRenderer.invoke(CAPTURE_ACQUIRE, {
+        intent: input.intent,
+      }) as Promise<CaptureAcquireResult>,
+    release: (input: CaptureAcquireInput) =>
+      ipcRenderer.invoke(CAPTURE_RELEASE, { intent: input.intent }) as Promise<boolean>,
+    onLeaseChanged: (callback: (state: CaptureLeaseState) => void) => {
+      const cached = lastLeaseState;
+      if (cached !== null) callback({ held: cached.held, mine: cached.mine });
+      let subscribed = true;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        if (!subscribed || !isCaptureLeaseState(data)) return;
+        callback({ held: data.held, mine: data.mine });
+      };
+      ipcRenderer.on(CAPTURE_LEASE_PUSH, handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener(CAPTURE_LEASE_PUSH, handler);
+      };
+    },
+    onLeaseRevoked: (callback: (revoked: CaptureLeaseRevoked) => void) => {
+      let subscribed = true;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        if (!subscribed || !isCaptureLeaseRevoked(data)) return;
+        callback({ reason: data.reason });
+      };
+      ipcRenderer.on(CAPTURE_LEASE_REVOKED_PUSH, handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener(CAPTURE_LEASE_REVOKED_PUSH, handler);
+      };
+    },
   },
 
   // Open a URL in the user's default browser via the main process. The main
@@ -1044,6 +1122,15 @@ export interface ElectronAPI {
   /** Resolves `false` only when main's rate limit dropped the snapshot. */
   traySetStatus: (s: TrayStatusSnapshot) => Promise<boolean>;
   onTrayAction: (callback: (action: TrayAction) => void) => () => void;
+
+  // Capture lease (#87 §3.9, contract 35). `onLeaseChanged` replays the last validated
+  // state on subscribe; `onLeaseRevoked` does not.
+  capture: {
+    acquire: (input: CaptureAcquireInput) => Promise<CaptureAcquireResult>;
+    release: (input: CaptureAcquireInput) => Promise<boolean>;
+    onLeaseChanged: (callback: (state: CaptureLeaseState) => void) => () => void;
+    onLeaseRevoked: (callback: (revoked: CaptureLeaseRevoked) => void) => () => void;
+  };
 
   // Open an external URL via shell.openExternal (main process enforces
   // http/https/mailto protocol allowlist).
