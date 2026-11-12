@@ -561,9 +561,7 @@ These are stated so that nobody reads the ADR as claiming more than the code doe
    keys are covered by unit tests only.
 3. **Logged-in-idle footprint, Windows, Linux and the drag region** are NOT MEASURED or NOT
    VERIFIED (§ Footprint).
-4. **Dead transitional exports.** `foregroundPrimaryHandle`, `saasPrimaryHandle` and
-   `PrimaryHandle` remain in `shellWindow.ts` with no caller.
-5. **`tests/**` is neither type-checked nor linted** in this repo. That predates #86.
+4. **`tests/**` is neither type-checked nor linted** in this repo. That predates #86.
 
 ## Consequences
 

@@ -454,36 +454,6 @@ export function saasPrimary(): ConnectionRecord | null {
   return liveConnections().find((r) => r.serviceId === SAAS_SERVICE_ID) ?? null;
 }
 
-/**
- * TRANSITIONAL (#86 Task 4 → Task 7B): a primary in the `{ isDestroyed, webContents }`
- * shape the pre-#86 handlers took from the main `BrowserWindow`. A handle reads as
- * destroyed once its connection is no longer the one it was taken for. Task 7B
- * resolves those handlers' connection from the sender binding and deletes these.
- */
-export interface PrimaryHandle {
-  isDestroyed(): boolean;
-  readonly webContents: WebContents;
-}
-
-function handleFor(record: ConnectionRecord | null): PrimaryHandle | null {
-  if (!record || record.state === 'disposed') return null;
-  const { connectionId, webContents } = record;
-  return {
-    isDestroyed: () => webContents.isDestroyed() || recordFor(connectionId) !== record,
-    webContents,
-  };
-}
-
-/** TRANSITIONAL: the foreground view (tray status/actions, permission pushes). */
-export function foregroundPrimaryHandle(): PrimaryHandle | null {
-  return handleFor(foreground());
-}
-
-/** TRANSITIONAL: the saas view (audiocap admission and its owner pushes). */
-export function saasPrimaryHandle(): PrimaryHandle | null {
-  return handleFor(saasPrimary());
-}
-
 function sendTo(contents: WebContents, channel: string, args: unknown[]): boolean {
   try {
     if (contents.isDestroyed()) return false;
