@@ -42,7 +42,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 - **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
-- **Servers:** Each server connection now runs in its own isolated browser session, with its own storage, cookies and sign-in. A server that cannot be reached shows a "connection unavailable" screen instead of a blank window.
+- **Servers:** Each server connection now runs in its own isolated browser session, with its own storage, cookies and sign-in. A window that cannot confirm which server connection it belongs to shows a "connection unavailable" screen instead of falling back to the default server.
 
 ### Fixed
 
