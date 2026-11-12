@@ -306,6 +306,7 @@ All paths under `desktop/src/renderer/`.
 | B moves A's lease without consent | No | only `voice-join` from the foreground reaches the main-drawn ceremony; default/Escape = Stay; post-await holder re-check; labels main-sourced |
 | B spams or stacks ceremonies | Bounded | single-flight, token bucket, cross-kind modal mutex → `busy` |
 | A ignores revocation, or vetoes unload | No | gate flips first; audiocap killed (probe spared); `forcefullyCrashRenderer` cannot be vetoed (R1) |
+| A sends a fake ack (`capture:release`) and keeps its tracks | **Yes, accepted** | the ack disarms the crash; tracks already granted keep running; only new requests and the audiocap share are stopped. ADR-0052 open question 4 |
 | PiP or subframe acquires | No | role `primary` ∧ `isMainFrame` required |
 | Stale generation acquires or releases | No | `requireOwner` / `isOwnerCurrent` after every await |
 | Background B learns the user is in a call elsewhere | No (R6) | state pushed only to holder, foreground, own-lease-ended; `not-foreground` precedes the held check |

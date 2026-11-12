@@ -255,6 +255,15 @@ same-task `reload()` is lost there too; and rows 1, 3, 5 and 7.
   `device-test` claim in main; the count lives in `captureLeaseClient.ts`. A compromised renderer
   can release the claim early, which only frees its own lease.
 
+- **A hostile holder that sends the ack keeps the tracks it already has (security review).** Main
+  cannot tell whether a renderer really stopped capturing, so any well-formed `capture:release`
+  from the revoked holder counts as the ack and disarms the 5 s crash. A compromised holder can
+  therefore release and keep running tracks it was already granted; the gate stops only new
+  requests, and only the audiocap share is killed. The crash enforces against legacy and hung
+  holders, not against a hostile one that acks. The same holds for a holder that releases its last
+  claim while keeping tracks. Open question 4 asks whether to crash and reload on every `moved`
+  handoff instead.
+
 ## Release gate
 
 **R16: no release tag ships #86 (ADR-0051) without #87 (ADR-0052).** #86's arbiter default
@@ -274,6 +283,10 @@ body.
    `contextBridge` freezes `window.electron`, so no e2e view can omit the `capture` key; a
    test-only preload switch would be its own production attack surface. Default: unit-only, with
    the e2e row `test.fixme`.
+4. **Fake ack.** Whether a `moved` handoff always crashes and reloads the old holder, treating the
+   ack only as a signal to do it sooner, or whether the gap in Accepted risks is accepted.
+   Default: accepted, because an always-crash handoff reloads the old connection's page on every
+   honest move.
 
 ## Consequences
 
