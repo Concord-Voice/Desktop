@@ -579,12 +579,9 @@ export function useMicTest(): UseMicTestReturn {
         // #87: the capture lease is asked for before any OS prompt or getUserMedia.
         const lease = await acquire('device-test');
         if (generation !== generationRef.current) {
-          // Stopped while main answered. A successor that is starting adopts the
-          // claim (its stop releases it); otherwise nothing owns it.
-          if (lease.status === 'granted') {
-            if (pendingRef.current || isTestingRef.current) leaseHeldRef.current = true;
-            else void release('device-test');
-          }
+          // Stopped while main answered. This grant owns nothing: give its count back. A
+          // successor's own acquire is already counted, so the claim survives for it.
+          if (lease.status === 'granted') void release('device-test');
           return null;
         }
         if (lease.status !== 'granted') {

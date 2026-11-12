@@ -223,4 +223,37 @@ describe('useMicTest capture lease (#87)', () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(result.current.isTesting).toBe(false);
   });
+
+  it('Stop then Start while the first acquire is in flight: every grant is released once', async () => {
+    const resolvers: Array<(v: { status: 'granted' }) => void> = [];
+    vi.mocked(acquire).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const { result } = renderHook(() => useMicTest());
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.startTest();
+    });
+    act(() => result.current.stopTest());
+    act(() => {
+      second = result.current.startTest();
+    });
+    await act(async () => {
+      resolvers[0]({ status: 'granted' });
+      await first;
+    });
+    // The stale grant owns nothing: it gives its count back instead of being adopted.
+    expect(release).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolvers[1]({ status: 'granted' });
+      await second;
+    });
+    act(() => result.current.stopTest());
+    // One release per grant. Adopting the stale grant would leave the count at 1.
+    expect(release).toHaveBeenCalledTimes(2);
+  });
 });

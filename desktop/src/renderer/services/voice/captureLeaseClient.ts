@@ -117,15 +117,21 @@ export async function acquire(
   if (typeof invoke !== 'function') return { status: 'granted' };
   const tracked = intent === 'voice-join';
   if (tracked) setPendingJoins(pendingJoins + 1);
+  // A device-test hold is counted BEFORE the invoke, so an overlapping release cannot see
+  // a count that excludes an acquire still in flight; a non-grant gives the hold back.
+  const counted = intent === 'device-test';
+  if (counted) deviceTestHolds += 1;
+  let granted = false;
   try {
     const result: unknown = await invoke({ intent });
     // The invoke reply is not guarded by the preload; fail closed on any other shape.
     if (!isCaptureAcquireResult(result)) return IPC_ERROR;
-    if (intent === 'device-test' && result.status === 'granted') deviceTestHolds += 1;
+    granted = result.status === 'granted';
     return result;
   } catch {
     return IPC_ERROR;
   } finally {
+    if (counted && !granted) deviceTestHolds = Math.max(0, deviceTestHolds - 1);
     if (tracked) setPendingJoins(pendingJoins - 1);
   }
 }

@@ -128,7 +128,7 @@ describe('installCaptureRevocationHandler', () => {
     expect(useVoiceStore.getState().captureMovedNotice).toBe(false);
   });
 
-  it('a throwing emergencyCleanup still emits the event, releases and clears the lease', async () => {
+  it('a throwing emergencyCleanup withholds the voice-join release (the ack) but still frees device tests', async () => {
     vi.mocked(voiceService.emergencyCleanup).mockImplementationOnce(() => {
       throw new Error('cleanup failed');
     });
@@ -137,7 +137,9 @@ describe('installCaptureRevocationHandler', () => {
     revoke({ reason: 'moved' });
     await vi.waitFor(() => expect(log).toContain('setCaptureLease:none'));
     expect(log).toContain('capture-revoked:moved');
-    expect(log).toContain('release:voice-join');
+    // The release is the ack main reads: without a clean teardown the 5 s crash must run.
+    expect(log).not.toContain('release:voice-join');
+    expect(log).toContain('release:device-test');
     // Message-only log: never the error object.
     for (const call of warn.mock.calls) {
       for (const arg of call) expect(arg).not.toBeInstanceOf(Error);

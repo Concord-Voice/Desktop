@@ -172,6 +172,44 @@ describe('captureLeaseClient — overlapping device tests share one claim', () =
     expect(releaseFn).toHaveBeenCalledTimes(1);
   });
 
+  it('counts an acquire still in flight, so an overlapping release cannot free the claim', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    let grantFirst: (r: { status: 'granted' }) => void = () => undefined;
+    let grantSecond: (r: { status: 'granted' }) => void = () => undefined;
+    const acquireFn = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((res) => (grantFirst = res)))
+      .mockImplementationOnce(() => new Promise((res) => (grantSecond = res)));
+    setBridge({ acquire: acquireFn, release: releaseFn });
+    const first = acquire('device-test');
+    const second = acquire('device-test');
+    // The first test is stopped and restarted: its stale grant lands, then the successor's.
+    grantFirst({ status: 'granted' });
+    await first;
+    await release('device-test'); // the stale grant gives its count back
+    expect(releaseFn).not.toHaveBeenCalled();
+    grantSecond({ status: 'granted' });
+    await second;
+    await release('device-test'); // the successor stops: now the last hold
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a release while another acquire is still in flight does not free the claim', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    let grant: (r: { status: 'granted' }) => void = () => undefined;
+    const acquireFn = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'granted' })
+      .mockImplementationOnce(() => new Promise((res) => (grant = res)));
+    setBridge({ acquire: acquireFn, release: releaseFn });
+    await acquire('device-test'); // the webcam probe
+    const pending = acquire('device-test'); // a mic test, still waiting on main
+    await release('device-test'); // the probe finishes
+    expect(releaseFn).not.toHaveBeenCalled();
+    grant({ status: 'granted' });
+    await pending;
+  });
+
   it('a revocation clears the count so the stopping tests still release', async () => {
     const releaseFn = vi.fn().mockResolvedValue(true);
     bridgeWith(releaseFn);
