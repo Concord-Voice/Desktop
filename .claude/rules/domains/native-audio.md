@@ -240,10 +240,12 @@ under the release file name `concord_audiocap.node`.** `desktop/scripts/audiocap
 copies `dist/`, the unmodified loader and the synthetic build, renamed, into a fresh directory under
 the OS temp directory, so the shipped loader's one development path reaches it. Never stage it
 inside the repository, and never reach it through a loader selector. The probe fails unless the
-stage is outside the repository and the staged file's SHA-256 equals the synthetic build's and
-differs from the shipped one when that exists. It refuses to run when `app.isPackaged`, and it
-deletes the stage on every exit the probe controls; a hard kill of the probe itself can leave the
-temp directory behind.
+stage's resolved path lies outside the repository's, compared case-insensitively on macOS and
+Windows, and the staged file's SHA-256 equals the synthetic build's and differs from the shipped
+one when that exists. The path check compares resolved spellings, so an alias the resolver does
+not see through, such as a `/System/Volumes/Data` firmlink spelling of the checkout, is not caught.
+It refuses to run when `app.isPackaged`, and it deletes the stage on every exit the probe controls;
+a hard kill of the probe itself can leave the temp directory behind.
 
 ## Non-negotiable, independent of JSF++
 

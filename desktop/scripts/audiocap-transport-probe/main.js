@@ -35,8 +35,9 @@ const SYNTHETIC = path.join(RELEASE_DIR, 'concord_audiocap_synthetic.node');
 const SHIPPED = path.join(RELEASE_DIR, 'concord_audiocap.node');
 // After a stall the quanta already in flight (credit bound 8) and in the ring (8
 // slots) arrive first, stale: at most 16 before the first gap shows. The bridge's
-// overrun total lags a drop by up to 8 more, so the witnesses are read 32 fresh
-// quanta after the stall, never sooner.
+// overrun total lags a drop by up to 8 more, so the witnesses are read 32 quanta
+// after the stall, never sooner: at most 16 of those are stale, so at least 16 are
+// fresh, twice the 8-quantum lag.
 const STALE_LIMIT = 16;
 const SETTLE_QUANTA = 32;
 
@@ -117,6 +118,12 @@ function finish(code) {
   if (win !== null && !win.isDestroyed()) win.destroy();
   if (!removeStage()) cleanedUp = false;
   app.exit(cleanedUp ? code : Math.max(code, 2));
+}
+
+/** End the run outside a pass: an earlier violated invariant outranks could-not-run. */
+function endOutsidePass(reason) {
+  say(failed > 0 ? `PROBE FAIL (${failed}; ${reason})` : `PROBE FAIL (${reason})`);
+  finish(failed > 0 ? 1 : 2);
 }
 
 function couldNotRun(reason) {
@@ -202,8 +209,10 @@ function guardFailure() {
     return 'the synthetic addon is missing or older than its source; run `npm run build:native -- --synthetic`';
   }
   const mainTs = fs.readFileSync(path.join(ROOT, 'src/main/main.ts'), 'utf8');
-  if (!mainTs.includes("webContents.postMessage('audiocap:port'")) {
-    return "main.ts no longer hands the port over with webContents.postMessage('audiocap:port'; update the probe's port sink to match";
+  // The whole call the port sink re-states, payload and transfer list included.
+  const portCall = "webContents.postMessage('audiocap:port', { generation }, [port])";
+  if (!mainTs.includes(portCall)) {
+    return `main.ts no longer hands the port over with ${portCall}; update the probe's port sink to match`;
   }
   return null;
 }
@@ -211,9 +220,16 @@ function guardFailure() {
 /** Copy dist/, the loader and the synthetic binary (under the release name) to a fresh temp tree. */
 function buildStage() {
   stage = fs.mkdtempSync(path.join(os.tmpdir(), 'audiocap-probe-'));
+  // realpathSync keeps the caller's letter case, and darwin and win32 volumes are
+  // case-insensitive by default, so there the compare folds case (on a case-sensitive
+  // volume that refuses more stages, never fewer).
+  // ponytail: compares resolved spellings; an alias realpathSync does not resolve, such
+  // as a /System/Volumes/Data firmlink spelling, is not caught.
+  const fold = ['darwin', 'win32'].includes(process.platform) ? (p) => p.toLowerCase() : (p) => p;
   const realStage = fs.realpathSync(stage);
-  const realRepo = fs.realpathSync(REPO);
-  if (realStage === realRepo || realStage.startsWith(realRepo + path.sep)) {
+  const stageKey = fold(realStage);
+  const repoKey = fold(fs.realpathSync(REPO));
+  if (stageKey === repoKey || stageKey.startsWith(repoKey + path.sep)) {
     return `the stage ${realStage} resolves inside the repository`;
   }
   fs.cpSync(path.join(ROOT, 'dist'), path.join(stage, 'dist'), { recursive: true });
@@ -331,13 +347,16 @@ async function openWindow() {
       say(line);
     }
   });
+  // The probe runs the production preload, so an error in it fails the run.
   win.webContents.on('preload-error', (_event, preload, error) => {
     say(`FAIL preload: ${path.basename(preload)}: ${errorText(error)}`);
+    failed += 1;
   });
+  // ponytail: a page() call the crash rejects before this event arrives has already
+  // counted as a failure, so such a crash exits 1, not 2; both fail the run.
   win.webContents.on('render-process-gone', (_event, details) => {
     say(`FAIL renderer: the renderer process is gone (${details.reason})`);
-    say('PROBE FAIL (could not run)');
-    finish(2);
+    endOutsidePass('could not run');
   });
   await loadProbePage(null);
 }
@@ -731,6 +750,12 @@ async function heapPass() {
   const seqGaps = after.stats.seqGaps - before.stats.seqGaps;
   const overrun = after.stats.overrun - before.stats.overrun;
   const quantaNominal = Math.round(elapsedS * QUANTA_PER_SECOND) - seqGaps;
+  // A source that wakes late skips slots without a sequence gap, so the nominal count
+  // can overstate delivery; the page's count-only write wrapper is the witness. Both
+  // readings sit outside the window (the GC and attach steps add a few quanta), hence
+  // the 10-quantum slack and the smaller of the two as the denominator.
+  const delivered = after.writes - before.writes;
+  const quanta = Math.min(delivered, quantaNominal);
   const { sampledBytes, top } = profileSites(profile.head);
   measured.heap = {
     scope: 'renderer isolate: bridge plus preload relay',
@@ -739,8 +764,10 @@ async function heapPass() {
     generation2Start: result,
     sampledBytes,
     quantaNominal,
-    denominatorNote: 'nominal: elapsed x 100 minus seqGaps; the bridge has no delivered counter',
-    bytesPerQuantum: sampledBytes / quantaNominal,
+    quantaDelivered: delivered,
+    denominatorNote:
+      'the smaller of delivered (writes the page counted) and nominal (elapsed x 100 minus seqGaps)',
+    bytesPerQuantum: sampledBytes / quanta,
     usedSizeBefore: usageBefore.usedSize,
     usedSizeAfter: usageAfter.usedSize,
     usedSizeDelta: usageAfter.usedSize - usageBefore.usedSize,
@@ -761,12 +788,22 @@ async function heapPass() {
   if (seqGaps !== 0 || overrun !== 0) {
     voids.push(`seqGaps delta ${seqGaps}, overrun delta ${overrun} in the heap window`);
   }
+  if (!Number.isInteger(delivered) || delivered < quantaNominal - 10) {
+    voids.push(`${delivered} quanta delivered against ${quantaNominal} nominal in the heap window`);
+  }
+  if (before.visibility !== 'visible' || after.visibility !== 'visible') {
+    voids.push(`visibilityState ${before.visibility} before, ${after.visibility} after`);
+  }
+  // The bridge allocates on every quantum (design section 4), so a profile with no
+  // bytes, or with no largest site in bridge.js, measured nothing.
+  if (sampledBytes === 0) voids.push('the sampler recorded 0 bytes');
+  if (!top.some((site) => site.file === 'bridge.js')) voids.push('no largest site is in bridge.js');
   if (voids.length > 0) measured.heap.void = voids;
   // A debugger left attached fails the pass, and a failure outranks a void.
   if (detachFailure !== null) throw new Error(detachFailure);
   if (voids.length > 0) throw new Void(`void: ${voids.join('; ')}`);
   return [
-    `generation 2 -> ${JSON.stringify(result)}; ${sampledBytes} B sampled over ${quantaNominal} nominal quanta; usedSize delta ${measured.heap.usedSizeDelta} B`,
+    `generation 2 -> ${JSON.stringify(result)}; ${sampledBytes} B sampled over ${quanta} quanta (${delivered} delivered, ${quantaNominal} nominal); usedSize delta ${measured.heap.usedSizeDelta} B`,
   ];
 }
 
@@ -1050,16 +1087,12 @@ if (MEASURE) app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-re
 
 main().catch((err) => {
   say(`FAIL probe: ${errorText(err)}`);
-  say('PROBE FAIL (could not run)');
-  finish(2);
+  endOutsidePass('could not run');
 });
 
 // A hung probe must fail the job, not hang the runner. A measure run adds two
 // windows, their 5 s discards and two calibrations.
 setTimeout(
-  () => {
-    say('PROBE FAIL (timeout)');
-    finish(2);
-  },
+  () => endOutsidePass('timeout'),
   MEASURE && Number.isInteger(SECONDS) ? 180_000 + 2 * SECONDS * 1000 : 120_000
 ).unref();

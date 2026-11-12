@@ -257,7 +257,8 @@ transport sources, so the workflow runs when they change.
 ## 9. Docs that ship in the same pull request
 
 - **ADR-0043**, a new addendum at the end: the latency table against S1 with its caveat; the
-  criterion 1 figures and the approved wording; the slow-consumer result; one sentence stating
+  criterion 1 figures and the proposed wording, marked pending the project lead's ruling; the
+  slow-consumer result; one sentence stating
   that a crashed capture child is never respawned (in code as invariant I6, in no document
   today); and two record corrections: the watchdog functions the first addendum said would return
   did not (a later addendum already keeps that gap open by decision), and the bounded timeout it

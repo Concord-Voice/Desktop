@@ -43,6 +43,28 @@ describe('parseTable', () => {
     const text = `static constexpr u32 kTable[kTableLen] = { ${entries.join(', ')} };`;
     expect(() => parseTable(text)).toThrow();
   });
+
+  it('throws when the table has 48 entries', () => {
+    const entries = Array.from(
+      [...table, table[0]],
+      (v) => `0x${v.toString(16).padStart(8, '0')}u`
+    );
+    const text = `static constexpr u32 kTable[kTableLen] = { ${entries.join(', ')} };`;
+    expect(() => parseTable(text)).toThrow(/expected 47 table entries, found 48/);
+  });
+
+  it('throws when the header has no kTable declaration', () => {
+    expect(() => parseTable('static constexpr u32 kTableLen = 47u;')).toThrow(
+      /kTable declaration not found/
+    );
+  });
+
+  // The oracle restates the header's table length and right-channel lead; the
+  // quanta below are built from the oracle's copy, so only this ties it to the header.
+  it("matches the header's table length and right-channel lead", () => {
+    expect(Number(/kTableLen = (\d+)u;/.exec(headerText)?.[1])).toBe(TABLE_LEN);
+    expect(Number(/kRightPhaseOffset = (\d+)u;/.exec(headerText)?.[1])).toBe(RIGHT_LEAD);
+  });
 });
 
 describe('checkQuantum', () => {
@@ -59,6 +81,13 @@ describe('checkQuantum', () => {
       expect(['not-in-table', 'mismatch']).toContain(result.reason);
       expect(result.index).toBe(101);
     }
+  });
+
+  it('rejects a wrong left sample mid-quantum that is still a table entry', () => {
+    const bits = buildQuantum(5);
+    // Frame 100's left sample, replaced by frame 101's: in the table, but wrong here.
+    bits[200] = table[(5 + 101) % TABLE_LEN];
+    expect(checkQuantum(bits, table)).toEqual({ ok: false, reason: 'mismatch', index: 200 });
   });
 
   it('rejects left and right channels swapped in every frame', () => {
@@ -158,11 +187,22 @@ describe('judgeStall', () => {
     expect(judgeStall({ content: 0, seqGaps: 0, overrun: 0, control: true }).ok).toBe(true);
   });
 
-  it('rejects a control stall that dropped anything', () => {
-    expect(judgeStall({ content: 1, seqGaps: 0, overrun: 0, control: true }).ok).toBe(false);
+  it.each([
+    { content: 1, seqGaps: 0, overrun: 0 },
+    { content: 0, seqGaps: 1, overrun: 0 },
+    { content: 0, seqGaps: 0, overrun: 1 },
+  ])('rejects a control stall that dropped anything: %o', (counts) => {
+    expect(judgeStall({ ...counts, control: true }).ok).toBe(false);
   });
 
-  it('rejects a real stall whose counters disagree', () => {
-    expect(judgeStall({ content: 14, seqGaps: 14, overrun: 13, control: false }).ok).toBe(false);
+  it.each([
+    { content: 14, seqGaps: 14, overrun: 13 },
+    { content: 13, seqGaps: 14, overrun: 14 },
+    // A duplicated quantum inside the stall reads as 46 more missing by content.
+    { content: 60, seqGaps: 14, overrun: 14 },
+  ])('rejects a real stall whose counters disagree: %o', (counts) => {
+    const verdict = judgeStall({ ...counts, control: false });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reason).toMatch(/disagree/);
   });
 });

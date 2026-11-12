@@ -8,8 +8,9 @@
 // before it starts the host, so the bridge's module-scope handoff listener is
 // also in place before the relay posts the port.
 //
-// `?mode=heap` is the heap pass's page: no hook and no track processor, so the
-// heap being sampled holds the bridge's own allocations and nothing of the probe's.
+// `?mode=heap` is the heap pass's page: no oracle hook and no track processor, only
+// a write counter that allocates nothing, so the heap being sampled holds the
+// bridge's own allocations and nothing of the probe's.
 //
 // Every catch reports through `console.log('FAIL <class>: ...')`, except the
 // reader's cancel, which settles after the record is taken and so logs a `NOTE `
@@ -85,6 +86,7 @@ let headN = 0;
 let audioContext = null;
 let analyser = null;
 let analyserBuf = null;
+let writes = 0;
 
 function errorText(err) {
   return err && typeof err.message === 'string' ? err.message : String(err);
@@ -166,6 +168,17 @@ function installHook() {
       }
       if (recording) noteWrite(chunk.timestamp, entryMs, phase);
     }
+    return originalWrite.call(this, chunk);
+  };
+}
+
+// Heap page only: the heap pass's delivery witness. It allocates nothing of its own,
+// but it is a frame on every write's stack, so the sampler may attribute the write's
+// own allocations to it rather than to the bridge.
+function installCounter() {
+  const originalWrite = WritableStreamDefaultWriter.prototype.write;
+  WritableStreamDefaultWriter.prototype.write = function countWrite(chunk) {
+    writes += 1;
     return originalWrite.call(this, chunk);
   };
 }
@@ -292,7 +305,8 @@ async function prepare() {
   const response = await fetch('/table.json');
   if (!response.ok) throw new Error(`table.json answered ${response.status}`);
   table = Uint32Array.from(await response.json());
-  if (mode !== 'heap') installHook();
+  if (mode === 'heap') installCounter();
+  else installHook();
   await loadClassicScript('/bridge.js');
   if (typeof globalThis.__bridge?.createScreenAudioBridge !== 'function') {
     throw new TypeError('the bridge bundle did not define createScreenAudioBridge');
@@ -428,7 +442,7 @@ globalThis.__probe = {
     analyser.getFloatTimeDomainData(analyserBuf);
     let peak = 0;
     for (const v of analyserBuf) if (Math.abs(v) > peak) peak = Math.abs(v);
-    return { audioState: audioContext.state, peak, ...windowSnapshot() };
+    return { audioState: audioContext.state, peak, writes, ...windowSnapshot() };
   },
 };
 

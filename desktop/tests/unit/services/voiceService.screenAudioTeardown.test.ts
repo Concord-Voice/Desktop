@@ -663,6 +663,7 @@ describe('screen-audio interrupt handling (#3394 PR 2 T5a)', () => {
     expect(screenProducer.close).not.toHaveBeenCalled();
     expect(videoTrack.stop).not.toHaveBeenCalled();
     expect(stream.getVideoTracks()).toHaveLength(1);
+    expect(stream.getAudioTracks()).toHaveLength(0);
     // Zero audiocap:stop invokes: an interrupt releases the bridge, it does not run
     // the full `stopScreenAudioHost()` teardown -- that distinction is the whole
     // reason `releaseScreenAudioBridge()` exists as its own method in the plan.

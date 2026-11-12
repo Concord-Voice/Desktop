@@ -305,8 +305,11 @@ Two findings came out of it:
 
 `desktop/scripts/audiocap-transport-probe/` runs main, the capture utility process and a sandboxed
 renderer on production code, with the synthetic source, and checks that every quantum reaches the
-bridge's write bit-exact. It also proves that a slow consumer drops cleanly, that a killed capture
-child raises exactly one crash interrupt, and that no addon code loads in main or the renderer.
+bridge's write bit-exact. It also proves that a slow consumer drops cleanly and that a killed
+capture child raises exactly one crash interrupt. Its isolation pass checks that the page's main
+world has no `require` or `process`, and, on macOS only, that `lsof` lists the staged addon in the
+capture process and in neither main nor the renderer. On other platforms that half is skipped and
+the pass prints `skip lsof`.
 
 Build, from `desktop/`:
 
