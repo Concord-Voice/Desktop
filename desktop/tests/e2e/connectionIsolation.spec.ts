@@ -146,7 +146,7 @@ test('wrong-owner electron.* call via executeJavaScript is refused', async ({ ap
   expect(planes.b.requests.filter((r) => r.path.includes('apple'))).toEqual([]);
 });
 
-test('superseded request is refused after its await', async ({ app }) => {
+test('superseded request is refused after its await', async ({ app, planes }) => {
   const screen = await app.evaluate(({ systemPreferences }) =>
     systemPreferences.getMediaAccessStatus('screen')
   );
@@ -158,6 +158,74 @@ test('superseded request is refused after its await', async ({ app }) => {
     true,
     'the harness has no main-side probe of a live audiocap session, so "no capture running" after the reload cannot be asserted yet'
   );
+  const v = await views(app, planes);
+  // audiocap:start is foreground-only, so A must be the connection on screen.
+  const activated = await app.evaluate((_electron, sid) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    return req('shellWindow').activateConnection(sid) as boolean;
+  }, v.a);
+  expect(activated).toBe(true);
+  // A live window id, so the start clears its payload and prefix fences and parks in
+  // its one await, the window enumeration.
+  const sourceId = await app.evaluate(async ({ desktopCapturer }) => {
+    const [first] = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+    });
+    return first?.id ?? null;
+  });
+  expect(sourceId).not.toBeNull();
+  // Hold the enumeration open until the test releases it, so the reload lands inside
+  // the await rather than racing it.
+  await app.evaluate(({ desktopCapturer }) => {
+    const gate = globalThis as unknown as { __e2eReleaseSources?: () => void };
+    const original = desktopCapturer.getSources.bind(desktopCapturer);
+    desktopCapturer.getSources = (options) =>
+      new Promise((resolve, reject) => {
+        gate.__e2eReleaseSources = () => {
+          original(options).then(resolve, reject);
+        };
+      });
+  });
+  const parked = (): Promise<boolean> =>
+    app.evaluate(
+      () =>
+        typeof (globalThis as unknown as { __e2eReleaseSources?: unknown }).__e2eReleaseSources ===
+        'function'
+    );
+  // The generation of ANY live capture child, 0 for none. The start-up capability
+  // probe also holds one until its handshake settles, so wait that out first.
+  const liveCapture = (): Promise<number> =>
+    app.evaluate(() => {
+      const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+      return req('audiocapHost').currentAudiocapGeneration() as number;
+    });
+  await expect.poll(liveCapture).toBe(0);
+
+  const before = await generationOf(app, v.a);
+  await execIn(
+    app,
+    v.wcA,
+    `(() => { window.electron.audiocap.start(${lit(sourceId)}); return true; })()`
+  );
+  // Positive control: the start reached its await. Without this, a start refused at
+  // admission would make every assertion below vacuous.
+  await expect.poll(parked).toBe(true);
+
+  await app.evaluate(({ webContents }, id) => {
+    webContents.fromId(id)?.reload();
+  }, v.wcA);
+  await expect
+    .poll(async () => (await generationOf(app, v.a)).generation)
+    .toBeGreaterThan(before.generation);
+
+  await app.evaluate(() => {
+    (globalThis as unknown as { __e2eReleaseSources: () => void }).__e2eReleaseSources();
+  });
+  await settle(2_000);
+  // The start resumed for a document that is gone: its effect is dropped, so no
+  // capture child was forked for it.
+  expect(await liveCapture()).toBe(0);
 });
 
 test('logout in A leaves B authenticated with its websocket open', async ({ app, planes }) => {
@@ -330,9 +398,76 @@ test('legacy SPA path', async ({ app, planes }) => {
     .toBeGreaterThan(0);
 });
 
-test('duplicate-id fixture', async () => {
+test('duplicate-id fixture', async ({ app, planes }) => {
   test.fixme(
     true,
     "the stub planes do not implement the SPA's post-login bootstrap (E2EE key bundle, servers, socket.io), so neither view reaches a logged-in userStore or a notification; recording that surface needs a local control plane, which is not available without secrets"
   );
+  const v = await views(app, planes);
+  // Both planes answer with the SAME user id, so only the connection can tell the two
+  // accounts apart. A session-only credential, then a reload: the SPA restores it from
+  // main memory and runs its post-login bootstrap against its own plane.
+  for (const [wc, origin] of [
+    [v.wcA, planes.a.origin],
+    [v.wcB, planes.b.origin],
+  ] as const) {
+    const owner = await execIn(
+      app,
+      wc,
+      `window.electron.storeRefreshToken(${lit({
+        refreshToken: `seed-${origin}`,
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: STUB_USER_ID,
+      })})`
+    );
+    expect(typeof owner).toBe('number');
+    await app.evaluate(async ({ webContents }, id) => {
+      const view = webContents.fromId(id);
+      if (!view) throw new Error('no view');
+      const loaded = new Promise<void>((resolve) => view.once('did-finish-load', () => resolve()));
+      view.reload();
+      await loaded;
+    }, wc);
+  }
+
+  interface Account {
+    userId: string | null;
+    apiBase: string;
+    key: string | null;
+  }
+  // The view's own module instances: same module URLs as the SPA, so the same stores.
+  const account = (wc: number): Promise<Account> =>
+    execIn<Account>(
+      app,
+      wc,
+      `Promise.all([
+         import('/src/renderer/stores/auth/userStore.ts'),
+         import('/src/renderer/services/system/runtimeServerBase.ts'),
+         import('/src/renderer/services/system/bootConnection.ts'),
+         import('/src/shared/connectionIdentity.ts'),
+       ]).then(([users, server, boot, identity]) => {
+         const userId = users.useUserStore.getState().user?.id ?? null;
+         const booted = boot.bootConnection();
+         return {
+           userId,
+           apiBase: server.getApiBase(),
+           key:
+             userId !== null && booted.mode === 'connection'
+               ? identity.compositeKey(booted.identity.serviceId, userId)
+               : null,
+         };
+       })`
+    );
+  await expect.poll(async () => (await account(v.wcA)).userId).toBe(STUB_USER_ID);
+  await expect.poll(async () => (await account(v.wcB)).userId).toBe(STUB_USER_ID);
+  const a = await account(v.wcA);
+  const b = await account(v.wcB);
+  // The same server-side id, held under two different API origins...
+  expect(a.apiBase).toBe(planes.a.origin);
+  expect(b.apiBase).toBe(planes.b.origin);
+  // ...and keyed apart: the composite key is the service plus the local id.
+  expect(a.key).not.toBeNull();
+  expect(b.key).not.toBeNull();
+  expect(a.key).not.toBe(b.key);
 });
