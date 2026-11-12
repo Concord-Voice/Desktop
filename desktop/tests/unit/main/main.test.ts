@@ -1428,16 +1428,43 @@ describe('main.ts', () => {
   });
 
   describe('IPC: media & clipboard', () => {
-    it('media:getDesktopSources returns source list', async () => {
-      const result = (await handlers.get('media:getDesktopSources')!(trustedIpcEvent)) as Array<{
-        id: string;
-        name: string;
-        thumbnail: string;
-      }>;
-      expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('screen:1');
-      expect(result[0].name).toBe('Screen 1');
-      expect(result[0].thumbnail).toContain('data:image');
+    // #87 RC-8: only the capture-lease holder may enumerate the screens and windows. The
+    // holder fixture is a real lease grant to the bound saas primary, released after.
+    it('media:getDesktopSources returns source list to the capture-lease holder', async () => {
+      const lease = await import('../../../src/main/captureLease');
+      const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+      const { desktopCapturer } = await import('electron');
+      const sender = requireConnectionSender(trustedIpcEvent as never, { roles: ['primary'] });
+      if (sender === null) throw new Error('fixture: the saas view is not a bound primary');
+      expect(await lease.acquire(sender, { intent: 'voice-join' })).toEqual({ status: 'granted' });
+      try {
+        (desktopCapturer.getSources as Mock).mockClear();
+        const result = (await handlers.get('media:getDesktopSources')!(trustedIpcEvent)) as Array<{
+          id: string;
+          name: string;
+          thumbnail: string;
+        }>;
+        expect(desktopCapturer.getSources).toHaveBeenCalledOnce();
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('screen:1');
+        expect(result[0].name).toBe('Screen 1');
+        expect(result[0].thumbnail).toContain('data:image');
+      } finally {
+        expect(lease.release(sender, trustedIpcEvent as never, { intent: 'voice-join' })).toBe(
+          true
+        );
+      }
+    });
+
+    it('media:getDesktopSources answers [] to a non-holder without enumerating', async () => {
+      const lease = await import('../../../src/main/captureLease');
+      const { desktopCapturer } = await import('electron');
+      // The bound foreground saas primary, holding no lease: admission alone is not enough.
+      expect(lease.holderRef()).toBeNull();
+      (desktopCapturer.getSources as Mock).mockClear();
+      const result = await handlers.get('media:getDesktopSources')!(trustedIpcEvent);
+      expect(result).toEqual([]);
+      expect(desktopCapturer.getSources).not.toHaveBeenCalled();
     });
 
     it('clipboard:writeText refuses a same-origin PiP sender', async () => {
@@ -4110,10 +4137,34 @@ describe('main.ts', () => {
       expect(callback).toHaveBeenCalledWith(false);
     });
 
-    it('allows camera requests', () => {
-      const callback = vi.fn();
-      sessionHandlers.permissionRequest!(mockWebContents, 'media', callback);
-      expect(callback).toHaveBeenCalledWith(true);
+    // #87: capture requests go through the capture-lease arbiter main installs. The
+    // holder's own main frame is granted; a subframe is not, and neither is the same main
+    // frame once the lease is released (it already spoke the lease protocol, so it gets
+    // no legacy implicit lease either).
+    it('grants a camera request to the capture-lease holder main frame only', async () => {
+      const lease = await import('../../../src/main/captureLease');
+      const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+      const sender = requireConnectionSender(trustedIpcEvent as never, { roles: ['primary'] });
+      if (sender === null) throw new Error('fixture: the saas view is not a bound primary');
+      const mainFrame = { isMainFrame: true };
+      expect(await lease.acquire(sender, { intent: 'voice-join' })).toEqual({ status: 'granted' });
+      try {
+        const granted = vi.fn();
+        sessionHandlers.permissionRequest!(mockWebContents, 'media', granted, mainFrame);
+        expect(granted).toHaveBeenCalledWith(true);
+        const subframe = vi.fn();
+        sessionHandlers.permissionRequest!(mockWebContents, 'media', subframe, {
+          isMainFrame: false,
+        });
+        expect(subframe).toHaveBeenCalledWith(false);
+      } finally {
+        expect(lease.release(sender, trustedIpcEvent as never, { intent: 'voice-join' })).toBe(
+          true
+        );
+      }
+      const noLease = vi.fn();
+      sessionHandlers.permissionRequest!(mockWebContents, 'media', noLease, mainFrame);
+      expect(noLease).toHaveBeenCalledWith(false);
     });
 
     it('allows notification requests', () => {
@@ -4134,9 +4185,12 @@ describe('main.ts', () => {
       expect(result).toBe(false);
     });
 
-    it('permission check allows camera', () => {
-      const result = sessionHandlers.permissionCheck!(null, 'media');
-      expect(result).toBe(true);
+    // #87 RC-5: a check with no document (`wc === null`) cannot name a lease holder, so
+    // capture is denied there; every other permission keeps the static policy.
+    it('an off-document permission check denies capture and keeps the static policy', () => {
+      expect(sessionHandlers.permissionCheck!(null, 'media')).toBe(false);
+      expect(sessionHandlers.permissionCheck!(null, 'display-capture')).toBe(false);
+      expect(sessionHandlers.permissionCheck!(null, 'notifications')).toBe(true);
     });
 
     it('permission check allows speaker-selection', () => {
@@ -4215,6 +4269,69 @@ describe('main.ts', () => {
       beforeQuitForUpdate!();
 
       expect(mockPipWindow.destroy).toHaveBeenCalled();
+    });
+
+    // #87 RC-10: both quit hooks abort an open capture ceremony and disarm the handoff
+    // crash timer, right after the PiPs are destroyed and before the capture child is
+    // reaped, so no renderer is crashed during shutdown. `will-quit` is not a lease hook.
+    // The shutdown is stubbed: its own behaviour is captureLease.test.ts's, and a real
+    // call would leave the lease shut for every later test in this file.
+    async function expectLeaseShutdownAfterPipDestroy(
+      hook: () => void,
+      pipId: string
+    ): Promise<void> {
+      const lease = await import('../../../src/main/captureLease');
+      const host = await import('../../../src/main/audiocapHost');
+      await handlers.get('pip:open')!(
+        {
+          sender: mockWebContents,
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+        },
+        { id: pipId }
+      );
+      mockPipWindow.destroy.mockClear();
+      const shutdown = vi.spyOn(lease, 'shutdownCaptureLeaseForQuit').mockImplementation(() => {});
+      const kill = vi.spyOn(host, 'killAudiocapHost');
+      try {
+        hook();
+        expect(shutdown).toHaveBeenCalledOnce();
+        const destroyOrder = mockPipWindow.destroy.mock.invocationCallOrder[0] ?? Number.NaN;
+        const shutdownOrder = shutdown.mock.invocationCallOrder[0] ?? Number.NaN;
+        const killOrder = kill.mock.invocationCallOrder[0] ?? Number.NaN;
+        expect(destroyOrder).toBeLessThan(shutdownOrder);
+        expect(shutdownOrder).toBeLessThan(killOrder);
+      } finally {
+        shutdown.mockRestore();
+        kill.mockRestore();
+      }
+    }
+
+    it('before-quit shuts the capture lease down right after destroying PiP windows', async () => {
+      const beforeQuit = appOnCallbacks.get('before-quit');
+      if (beforeQuit === undefined) throw new Error('no before-quit handler');
+      await expectLeaseShutdownAfterPipDestroy(beforeQuit, 'lease-quit-pip');
+    });
+
+    it('before-quit-for-update shuts the capture lease down right after destroying PiP windows', async () => {
+      const { autoUpdater } = await import('electron');
+      const hook = (autoUpdater.on as Mock).mock.calls.find(
+        (call) => call[0] === 'before-quit-for-update'
+      )?.[1] as (() => void) | undefined;
+      if (hook === undefined) throw new Error('no before-quit-for-update handler');
+      await expectLeaseShutdownAfterPipDestroy(hook, 'lease-update-quit-pip');
+    });
+
+    it('will-quit does not touch the capture lease', async () => {
+      const lease = await import('../../../src/main/captureLease');
+      const willQuit = appOnCallbacks.get('will-quit');
+      if (willQuit === undefined) throw new Error('no will-quit handler');
+      const shutdown = vi.spyOn(lease, 'shutdownCaptureLeaseForQuit').mockImplementation(() => {});
+      try {
+        willQuit();
+        expect(shutdown).not.toHaveBeenCalled();
+      } finally {
+        shutdown.mockRestore();
+      }
     });
 
     it('window-all-closed quits on non-macOS', async () => {
@@ -7023,6 +7140,206 @@ describe('main.ts', () => {
       interruptSpy.mockRestore();
       portSinkSpy.mockRestore();
       registerSpy.mockRestore();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // CAPTURE LEASE WIRING (#87 Task 4, RC-11).
+  //
+  // `initCaptureLease` and `installCaptureLeaseArbiter` run ONCE, in `app.whenReady`,
+  // after `registerAudiocapIpc` and before the first connection view opens -- never in
+  // `createWindow`, which the dock 'activate' path re-runs. Same fresh-import harness as
+  // the block above, for the same reason: a one-time registration cannot be spied on
+  // after the fact.
+  // ─────────────────────────────────────────────────────────────────────
+  describe('capture lease wiring (#87 Task 4)', () => {
+    type LeaseDeps = Parameters<
+      (typeof import('../../../src/main/captureLease'))['initCaptureLease']
+    >[0];
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+    it('initialises the lease once, between registerAudiocapIpc and the first view; activate does not re-run it', async () => {
+      vi.resetModules();
+      const leaseModule = await import('../../../src/main/captureLease');
+      const policyModule = await import('../../../src/main/capturePolicy');
+      const ipcModule = await import('../../../src/main/ipc/audiocap');
+      const shellModule = await import('../../../src/main/shellWindow');
+      const electron = await import('electron');
+      const initSpy = vi.spyOn(leaseModule, 'initCaptureLease');
+      const arbiterSpy = vi.spyOn(policyModule, 'installCaptureLeaseArbiter');
+      const registerSpy = vi.spyOn(ipcModule, 'registerAudiocapIpc');
+      const captureIpcModule = await import('../../../src/main/ipc/capture');
+      const captureIpcSpy = vi.spyOn(captureIpcModule, 'registerCaptureIpc');
+      const openSpy = vi.spyOn(shellModule, 'openConnectionView');
+      const appOnBefore = (electron.app.on as Mock).mock.calls.length;
+      const winOnBefore = mockMainWindow.on.mock.calls.length;
+      try {
+        await import('../../../src/main/main');
+        await settle();
+
+        expect(initSpy, 'main never initialised the capture lease').toHaveBeenCalledOnce();
+        expect(arbiterSpy, 'main never installed the lease arbiter').toHaveBeenCalledOnce();
+        expect(registerSpy).toHaveBeenCalledOnce();
+        expect(openSpy, 'main never opened a connection view').toHaveBeenCalled();
+        const registerOrder = registerSpy.mock.invocationCallOrder[0] ?? Number.NaN;
+        const initOrder = initSpy.mock.invocationCallOrder[0] ?? Number.NaN;
+        const arbiterOrder = arbiterSpy.mock.invocationCallOrder[0] ?? Number.NaN;
+        const openOrder = openSpy.mock.invocationCallOrder[0] ?? Number.NaN;
+        expect(captureIpcSpy, 'main never registered the capture channels').toHaveBeenCalledOnce();
+        const captureIpcOrder = captureIpcSpy.mock.invocationCallOrder[0] ?? Number.NaN;
+        expect(initOrder).toBeLessThan(captureIpcOrder);
+        expect(captureIpcOrder).toBeLessThan(openOrder);
+        expect(registerOrder).toBeLessThan(initOrder);
+        expect(registerOrder).toBeLessThan(arbiterOrder);
+        expect(initOrder).toBeLessThan(openOrder);
+        expect(arbiterOrder).toBeLessThan(openOrder);
+
+        // Close the window the way the 'closed' handler does, then let 'activate'
+        // re-create it: createWindow runs again (a second view opens), the lease does not.
+        const closed = mockMainWindow.on.mock.calls
+          .slice(winOnBefore)
+          .find((c: unknown[]) => c[0] === 'closed')?.[1] as (() => void) | undefined;
+        const activate = (electron.app.on as Mock).mock.calls
+          .slice(appOnBefore)
+          .find((c: unknown[]) => c[0] === 'activate')?.[1] as (() => void) | undefined;
+        if (closed === undefined || activate === undefined) {
+          throw new Error('this import registered no closed/activate handler');
+        }
+        closed();
+        expect(shellModule.shellWindow()).toBeNull();
+        const opensBefore = openSpy.mock.calls.length;
+        activate();
+        await settle();
+        expect(openSpy.mock.calls.length, 'activate did not re-run createWindow').toBeGreaterThan(
+          opensBefore
+        );
+        expect(initSpy).toHaveBeenCalledOnce();
+        expect(arbiterSpy).toHaveBeenCalledOnce();
+      } finally {
+        initSpy.mockRestore();
+        arbiterSpy.mockRestore();
+        registerSpy.mockRestore();
+        openSpy.mockRestore();
+      }
+    });
+
+    it('passes the lease its deps; runCeremony reads the shell window at ceremony time', async () => {
+      vi.resetModules();
+      const leaseModule = await import('../../../src/main/captureLease');
+      const shellModule = await import('../../../src/main/shellWindow');
+      const ceremonyModule = await import('../../../src/main/captureCeremony');
+      const budgetModule = await import('../../../src/main/captureCeremonyBudget');
+      const audiocapModule = await import('../../../src/main/ipc/audiocap');
+      const trayStatusModule = await import('../../../src/main/ipc/trayStatus');
+      const registry = await import('../../../src/main/connectionRegistry');
+      const initSpy = vi.spyOn(leaseModule, 'initCaptureLease');
+      const ceremonySpy = vi.spyOn(ceremonyModule, 'runCaptureCeremony');
+      try {
+        await import('../../../src/main/main');
+        await settle();
+        const deps: LeaseDeps | undefined = initSpy.mock.calls[0]?.[0];
+        if (deps === undefined) throw new Error('main never initialised the capture lease');
+
+        expect(deps.foreground).toBe(registry.foreground);
+        expect(deps.recordFor).toBe(registry.recordFor);
+        expect(deps.serviceMediaCapability).toBe(registry.serviceMediaCapability);
+        expect(deps.sendToConnection).toBe(shellModule.sendToConnection);
+        expect(deps.setTrayOwner).toBe(trayStatusModule.setTrayOwner);
+        expect(deps.revokeAudiocapShare).toBe(audiocapModule.revokeAudiocapShare);
+        expect(deps.consumeCeremonyToken).toBe(budgetModule.consumeCaptureCeremonyToken);
+        expect(deps.crashAndReload, 'crashAndReload is left to the module default').toBeUndefined();
+        expect(deps.isQuitting()).toBe(false);
+        const releaseModal = deps.tryAcquireModal();
+        expect(releaseModal).toBeTypeOf('function');
+        releaseModal?.();
+
+        const saas = registry.liveConnections()[0];
+        if (saas === undefined) throw new Error('this import opened no connection');
+        const ref = registry.refOf(saas);
+        const signal = new AbortController().signal;
+
+        // No shell window when the ceremony runs: nothing to parent the dialog to.
+        vi.spyOn(shellModule, 'shellWindow').mockReturnValueOnce(null);
+        await expect(deps.runCeremony(ref, ref, signal)).resolves.toBe('stay');
+        // A connection the registry no longer knows: nothing to label.
+        const gone = { connectionId: 'conn-gone', generation: 1 } as never;
+        await expect(deps.runCeremony(gone, ref, signal)).resolves.toBe('stay');
+        await expect(deps.runCeremony(ref, gone, signal)).resolves.toBe('stay');
+        expect(ceremonySpy).not.toHaveBeenCalled();
+
+        // Control: with a window and both services, the ceremony itself runs.
+        ceremonySpy.mockResolvedValueOnce('join');
+        await expect(deps.runCeremony(ref, ref, signal)).resolves.toBe('join');
+        const service = registry.getService(saas.serviceId);
+        expect(ceremonySpy).toHaveBeenCalledWith(
+          shellModule.shellWindow(),
+          service,
+          service,
+          signal
+        );
+      } finally {
+        initSpy.mockRestore();
+        ceremonySpy.mockRestore();
+      }
+    });
+
+    it('routes tray:action to sendToConnection(trayActionTarget()), never the foreground contents', async () => {
+      vi.resetModules();
+      const trayModule = await import('../../../src/main/tray');
+      const trayStatusModule = await import('../../../src/main/ipc/trayStatus');
+      const shellModule = await import('../../../src/main/shellWindow');
+      const senderSpy = vi.spyOn(trayModule, 'setTrayActionSender');
+      try {
+        await import('../../../src/main/main');
+        await settle();
+        const send = senderSpy.mock.calls[0]?.[0];
+        if (send === undefined) throw new Error('main never set a tray action sender');
+
+        const target = { connectionId: 'conn-tray', generation: 4 } as never;
+        const targetSpy = vi
+          .spyOn(trayStatusModule, 'trayActionTarget')
+          .mockReturnValueOnce(target)
+          .mockReturnValueOnce(null);
+        const sendSpy = vi.spyOn(shellModule, 'sendToConnection').mockReturnValue(true);
+        const fgSpy = vi.spyOn(shellModule, 'foregroundWebContents');
+        const action = { kind: 'leave-voice' } as const;
+
+        send(action);
+        expect(sendSpy).toHaveBeenCalledWith(target, 'tray:action', action);
+        // A null target (a stale tray owner) sends nothing.
+        send(action);
+        expect(targetSpy).toHaveBeenCalledTimes(2);
+        expect(sendSpy).toHaveBeenCalledOnce();
+        expect(fgSpy).not.toHaveBeenCalled();
+        targetSpy.mockRestore();
+        sendSpy.mockRestore();
+        fgSpy.mockRestore();
+      } finally {
+        senderSpy.mockRestore();
+      }
+    });
+
+    it('hands the permission handlers sendToConnection and a live holder callback', async () => {
+      vi.resetModules();
+      const permissionModule = await import('../../../src/main/permissionManager');
+      const leaseModule = await import('../../../src/main/captureLease');
+      const shellModule = await import('../../../src/main/shellWindow');
+      await import('../../../src/main/main');
+      await settle();
+      const call = (permissionModule.registerIpcHandlers as Mock).mock.calls.at(-1);
+      expect(call?.[0]).toBe(shellModule.sendToConnection);
+      const holder = call?.[1] as (() => unknown) | undefined;
+      if (typeof holder !== 'function') throw new Error('no holder callback was passed');
+      // Read per call, never captured once: the holder changes over the session.
+      const ref = { connectionId: 'conn-holder', generation: 2 } as never;
+      const holderSpy = vi.spyOn(leaseModule, 'holderRef').mockReturnValueOnce(ref);
+      try {
+        expect(holder()).toBe(ref);
+        expect(holder()).toBeNull();
+        expect(holderSpy).toHaveBeenCalledTimes(2);
+      } finally {
+        holderSpy.mockRestore();
+      }
     });
   });
 
