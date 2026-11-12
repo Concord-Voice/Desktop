@@ -1,4 +1,12 @@
-import React, { useState, useCallback, useId, useMemo, useRef, useEffect } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useEffect,
+  useSyncExternalStore,
+} from 'react';
 import { Ellipsis, MessageSquare, Users, Phone, Timer, Eraser } from 'lucide-react';
 import MessageList, { type MessageListHandle } from '../Chat/MessageList';
 import DMPinnedMessagesPanel from './DMPinnedMessagesPanel';
@@ -20,6 +28,8 @@ import { useEditLastMessage } from '../../hooks/messaging/useEditLastMessage';
 import { apiFetch, safeJson } from '../../services/system/apiClient';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { voiceService } from '../../services/voice/voiceService';
+import { isAcquirePending, subscribeAcquirePending } from '../../services/voice/captureLeaseClient';
+import { CaptureLeaseHint } from '../Voice/CaptureLeaseAnnouncer';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { identityInitialStyle, resolveUserAccentColors } from '../../utils/ui/schemeColors';
 import { getThreadName } from '../../utils/messaging/dmThreadName';
@@ -63,6 +73,56 @@ function voiceJoinButtonLabel(availability: VoiceJoinAvailability): string {
   if (availability === 'joining') return 'Joining voice call';
   return 'Join voice call';
 }
+
+interface DMJoinCallButtonProps {
+  conversationId: string;
+  availability: VoiceJoinAvailability;
+}
+
+/**
+ * Join voice call (#1219 R5, 1:1 since #4179). Routes through voiceService.joinChannel with
+ * the 'dm' join type, mirroring acceptIncomingCall. #87: from the click until main answers
+ * the capture prompt the button is busy but stays focusable (aria-disabled + a guarded
+ * click, never native `disabled`), and it carries the capture hint while the microphone is
+ * in a call on another connection.
+ */
+export const DMJoinCallButton: React.FC<DMJoinCallButtonProps> = ({
+  conversationId,
+  availability,
+}) => {
+  const joinPending = useSyncExternalStore(subscribeAcquirePending, isAcquirePending);
+  const leaseHeldElsewhere = useVoiceStore((s) => s.captureLease === 'other');
+  const hintId = useId();
+  const shown: VoiceJoinAvailability = joinPending ? 'joining' : availability;
+  return (
+    <>
+      <button
+        type="button"
+        className="dm-chat-header-join-call-btn"
+        disabled={availability !== 'available' && !joinPending}
+        aria-disabled={joinPending || undefined}
+        aria-busy={joinPending || undefined}
+        aria-describedby={leaseHeldElsewhere ? hintId : undefined}
+        onClick={() => {
+          if (joinPending) return;
+          void voiceService.joinChannel(conversationId, 'dm').catch((err: unknown) => {
+            // .catch prevents an unhandled rejection at the click
+            // boundary; joinChannel surfaces its own user-facing error.
+            console.error(
+              'Join voice call:',
+              err instanceof Error ? err.message : 'non-Error thrown'
+            );
+          });
+        }}
+        aria-label={voiceJoinButtonLabel(shown)}
+      >
+        <Phone size={16} />
+        <span>{shown === 'joining' ? 'Joining…' : 'Join voice call'}</span>
+      </button>
+      {leaseHeldElsewhere && <CaptureLeaseHint id={hintId} />}
+    </>
+  );
+};
 
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, onRequestRemoval }) => {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
@@ -463,34 +523,15 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, onRequestRemo
                 <Timer size={18} aria-hidden="true" />
               </button>
             )}
-            {/* Join voice call (#1219 R5, 1:1 since #4179). Shown when the DM
-              has an active voice call the local user is NOT already in — a
-              member who was offline/declined at ring, who closed and reopened
-              the conversation, or whose client exited while the peer stayed
-              in the call, can jump back in. Routes through
-              voiceService.joinChannel with the 'dm' join type, mirroring
-              acceptIncomingCall. */}
+            {/* Join voice call. Shown when the DM has an active voice call the
+              local user is NOT already in — a member who was offline/declined at
+              ring, who closed and reopened the conversation, or whose client
+              exited while the peer stayed in the call, can jump back in. */}
             {activeConv && !activeConv.isPersonal && activeCall && !isInThisCall && (
-              <button
-                type="button"
-                className="dm-chat-header-join-call-btn"
-                disabled={voiceJoinAvailability !== 'available'}
-                onClick={() => {
-                  if (!activeConv) return;
-                  void voiceService.joinChannel(activeConv.id, 'dm').catch((err: unknown) => {
-                    // .catch prevents an unhandled rejection at the click
-                    // boundary; joinChannel surfaces its own user-facing error.
-                    console.error(
-                      'Join voice call:',
-                      err instanceof Error ? err.message : 'non-Error thrown'
-                    );
-                  });
-                }}
-                aria-label={voiceJoinButtonLabel(voiceJoinAvailability)}
-              >
-                <Phone size={16} />
-                <span>{voiceJoinAvailability === 'joining' ? 'Joining…' : 'Join voice call'}</span>
-              </button>
+              <DMJoinCallButton
+                conversationId={activeConv.id}
+                availability={voiceJoinAvailability}
+              />
             )}
             <button
               type="button"

@@ -80,6 +80,31 @@ connection moves on: a reload, a lost renderer, a credential change or disposal.
 listener is never shared between connections. Another connection's port, or a
 connection's own port from a listener that has since closed, is refused as unknown.
 
+## Voice and capture across connections
+
+Only one connection can be in a voice call at a time, because the microphone can
+only be in one call.
+
+- **Joining while another connection is in a call.** The Join control's description
+  says so before you click: "Your microphone is in a call on another connection.
+  Joining here will ask before ending that call." Clicking Join opens a dialog with
+  two choices. **Join** ends the call on the other connection and starts this one.
+  **Stay** keeps the existing call; nothing changes and no error is shown.
+- **The other connection sees you leave.** When a call moves, the connection that
+  lost it leaves the channel the usual way, so other people in that call see you
+  leave. When you next view that connection, a banner says "Your call ended because
+  your microphone moved to another connection." It stays until you dismiss it or
+  join again. Nothing rejoins on its own.
+- **The dialog is drawn by the operating system,** not by Concord Voice, so it
+  follows your OS appearance rather than the app's theme.
+- **Microphone and camera tests** follow the same rule. A test cannot start while
+  another connection is in a call, and a running test stops when you switch to
+  another connection.
+
+**Terminology.** These messages say "connection" for each server you are signed in
+to. When [#88](https://github.com/Concord-Voice/Desktop/issues/88) settles the name,
+every message changes together.
+
 ## TLS Modes
 
 - **Let's Encrypt / public CA:** supported.

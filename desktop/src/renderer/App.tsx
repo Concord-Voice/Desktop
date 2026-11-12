@@ -13,6 +13,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
+import CaptureMovedBanner from './components/Voice/CaptureMovedBanner';
+import CaptureLeaseAnnouncer from './components/Voice/CaptureLeaseAnnouncer';
 import { UpdateSecurityBanner } from './components/Updates/UpdateSecurityBanner';
 import MediaPolicyDialog from './components/Voice/MediaPolicyDialog';
 import VoiceJoinErrorNotice from './components/Voice/VoiceJoinErrorNotice';
@@ -685,6 +687,8 @@ function App() {
           <MediaPolicyDialog />
           {!isPipWindow && <VoiceJoinErrorNotice />}
           <UpdateBanner />
+          {!isPipWindow && <CaptureMovedBanner />}
+          <CaptureLeaseAnnouncer />
           {/* DM voice call ring UI (#1209). IncomingCallBanner: corner banner
               for callee. OutgoingCallModal: bottom-right non-modal prompt for
               caller. Both render nothing when voiceStore.callState.kind is idle. */}

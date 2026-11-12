@@ -1215,6 +1215,31 @@ Spec §3.8 (`docs/superpowers/specs/2026-11-09-87-capture-lease-and-resource-bud
 | `superseded` | "Your connection restarted before voice could start. Join again." |
 | `untrusted-sender`, IPC throws, unknown | "Couldn't start voice. Restart Concord Voice and try again." |
 
+- **Join controls: hint by `aria-describedby`, pending by `aria-disabled` + `aria-busy`.**
+  Every control that calls `joinChannel` from a click (`VoiceView`'s `JoinPrompt`,
+  `DMChatArea`'s `DMJoinCallButton`) subscribes to `captureLease` and to
+  `isAcquirePending` through `useSyncExternalStore`. While `'other'`, `aria-describedby`
+  points at a `CaptureLeaseHint` node (visually hidden; never a `title`). While pending,
+  the control is `aria-busy` and `aria-disabled` with a guarded click, and never natively
+  `disabled`: Chromium drops focus to `<body>` from a disabled button, and focus must still
+  be on the control when the user picks Stay. A pre-existing native `disabled` (connecting,
+  busy) is suspended for the pending window. `VoiceView` re-arms its single-flight ref
+  after a join that resolves unjoined, or a declined prompt locks Join Voice. Server
+  `voice_move` (`useWebSocketMessages`) and recovery rejoin are not controls and carry
+  neither.
+- **`CaptureMovedBanner` sits in `.app` flow directly after `UpdateBanner`, as
+  `{!isPipWindow && <CaptureMovedBanner />}`.** It is inline, not a global overlay, so the
+  top-layer rules above do not apply. `role="status"`; text is set one frame after
+  `document.visibilityState` is `visible` (T0 row 7), because a backgrounded connection's
+  document reports `hidden` and an announcement there is lost. Dismiss moves focus to the
+  first tabbable after the banner, else to `.app` with `tabindex="-1"`, never `<body>`.
+  The reduced-motion block stays last in its CSS.
+- **`CaptureLeaseAnnouncer` is its own polite region beside the banner**, not
+  `MediaPolicyNotice`'s. It mounts on a pending join or a decline, sets text one frame
+  later, and a module-level `lastAnnouncedSeq` stops a remount re-announcing a decline.
+- **Terminology.** Copy says "connection" until #88 names these; every string changes
+  together then (`docs/self-hosted-client.md` records the same).
+
 ## Codec selection and status truth (`voiceCodecSelection.ts`, post-#2242)
 
 `voiceCodecSelection.ts` is the canonical codec-order seam for runtime selection and Settings
