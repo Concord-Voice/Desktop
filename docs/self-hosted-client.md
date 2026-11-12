@@ -73,6 +73,13 @@ settings are not copied from CVNet. Per-server settings are tracked in
 named by `active-profile.json`, whose path is unchanged. Only the local UI storage in a
 self-hosted `session/` directory is lost to it.
 
+**OAuth callback ownership.** Each connection's view can hold one ephemeral OAuth
+callback listener on `127.0.0.1`. When a view starts a new one, for example to retry a
+sign-in, its previous listener is closed. The listener also closes whenever its
+connection moves on: a reload, a lost renderer, a credential change or disposal. A
+listener is never shared between connections. Another connection's port, or a
+connection's own port from a listener that has since closed, is refused as unknown.
+
 ## TLS Modes
 
 - **Let's Encrypt / public CA:** supported.

@@ -6,9 +6,9 @@
  *   - `sso:startLoopback` (invoke)  — spin up a 127.0.0.1 ephemeral-port server
  *                                     and return `{port, redirectURI}` for the
  *                                     renderer to embed in the provider URL.
- *   - `sso:awaitCallback` (invoke)  — await the captured `{code, state}` for a
- *                                     previously started loopback (keyed by
- *                                     port, since the renderer already knows it).
+ *   - `sso:awaitCallback` (invoke)  — await the captured `{code, state}` for the
+ *                                     sender connection's current loopback,
+ *                                     named by its port.
  *   - `sso:cancelLoopback` (send)   — best-effort tear-down for a port the
  *                                     renderer abandoned (user closed the
  *                                     auth tab, switched flows, etc).
@@ -57,11 +57,13 @@
  * the connection's renderer reads. Pending SSO state is keyed by ConnectionId and
  * fenced by an owner binding re-checked after every `await`.
  *
- * Per-port handle accounting lets `sso:cancelLoopback` and `sso:awaitCallback`
- * find the running server, and only the connection document that started a
- * loopback may await or cancel it. We also auto-clean the entry once the loopback
- * promise settles — if the renderer never calls awaitCallback the active map
- * does not leak forever.
+ * Each connection holds at most one loopback (#87): a second `sso:startLoopback`
+ * from the same connection closes the first. `sso:cancelLoopback` and
+ * `sso:awaitCallback` find the sender connection's entry and act only when the
+ * port matches it, so a superseded port, or another connection's, answers like an
+ * unknown one, and only the connection document that started a loopback may await
+ * or cancel it. We also auto-clean the entry once the loopback promise settles —
+ * if the renderer never calls awaitCallback the active map does not leak forever.
  */
 // `isIP` is imported as a NAMED binding, not a default `net` namespace: `net` is
 // already bound to Electron's `net` above/below, and a default import would shadow it.
@@ -133,7 +135,29 @@ interface OwnedLoopback {
   readonly owner: OwnerBinding;
 }
 
-const active = new Map<number, OwnedLoopback>();
+// At most one renderer-driven loopback per connection (#87): a newer sso:startLoopback
+// from the same connection supersedes (closes) the older one, so a renderer cannot hold
+// more than one listener open, and a superseded port answers like an unknown one.
+const active = new Map<ConnectionId, OwnedLoopback>();
+
+/** Live renderer-driven loopbacks, one per connection at most. */
+export function loopbackCount(): number {
+  return active.size;
+}
+
+/**
+ * Logs the settle of a loopback's promise. A timeout or a close (cancel, supersede,
+ * generation advance) is routine. Anything else gets ONE fixed line: the error text can
+ * carry the provider's `error` parameter, a handler message or a socket address, so
+ * nothing derived from it is logged.
+ */
+function logLoopbackSettle(e: unknown): void {
+  const message = e instanceof Error ? e.message : null;
+  if (message === 'oauth_timeout') console.debug('[sso] loopback timed out');
+  else if (message === 'oauth_cancelled') console.debug('[sso] loopback closed');
+  else console.warn('[sso] loopback ended with an unexpected error');
+}
+
 const SESSION_ID_HEADER = 'X-Concord-Session-ID';
 // Well above a healthy verify, which answers in well under the control plane's
 // 15 s WriteTimeout. It fires for a stuck connection or a stalled handler
@@ -480,10 +504,10 @@ export function registerSSOIPC(): void {
       if (p === 'apple') cancelActiveAppleFlow();
       else cancelActiveGoogleFlow();
     }
-    for (const [port, entry] of active) {
-      if (entry.owner.ref.connectionId !== id) continue;
-      active.delete(port);
-      entry.handle.close();
+    const loopback = active.get(id);
+    if (loopback) {
+      active.delete(id);
+      loopback.handle.close();
     }
   });
 
@@ -845,22 +869,26 @@ export function registerSSOIPC(): void {
     'sso:startLoopback',
     'connection-bound',
     async (sender) => {
+      const id = sender.ref.connectionId;
       const owner = ownerNow(sender);
       const handle = await startLoopback();
       // Auto-cleanup if the promise settles outside an awaitCallback call —
       // e.g. the loopback timed out before the renderer wired up the await,
       // or a stale entry from a flow the renderer abandoned without sending
       // sso:cancelLoopback. Without this the active map would leak forever.
-      handle.promise
-        .catch(() => {})
-        .finally(() => {
-          if (active.get(handle.port)?.handle === handle) active.delete(handle.port);
-        });
+      // Identity-guarded: a superseded handle settles after its successor is set.
+      handle.promise.catch(logLoopbackSettle).finally(() => {
+        if (active.get(id)?.handle === handle) active.delete(id);
+      });
       if (!isOwnerCurrent(owner)) {
         handle.close();
         throw new Error('sso:startLoopback rejected: connection moved on');
       }
-      active.set(handle.port, { handle, owner });
+      // Supersede in the same tick as the set, after the await: two overlapping starts
+      // from one connection then still leave one entry, and the older one closed.
+      const superseded = active.get(id);
+      active.set(id, { handle, owner });
+      superseded?.handle.close();
       return { port: handle.port, redirectURI: handle.redirectURI };
     },
     { refusal: rejectUntrusted('sso:startLoopback') }
@@ -869,16 +897,18 @@ export function registerSSOIPC(): void {
   registerIpc(
     'sso:awaitCallback',
     'connection-bound',
-    async (_sender, event, port: number) => {
-      const entry = active.get(port);
-      // Another connection's port answers exactly like an unknown one.
-      if (!entry || requireOwner(event, entry.owner) === null) {
+    async (sender, event, port: number) => {
+      const id = sender.ref.connectionId;
+      const entry = active.get(id);
+      // Another connection's port, or this connection's superseded one, answers exactly
+      // like an unknown one.
+      if (!entry || entry.handle.port !== port || requireOwner(event, entry.owner) === null) {
         throw new Error('sso:awaitCallback: unknown port');
       }
       try {
         return await entry.handle.promise;
       } finally {
-        if (active.get(port) === entry) active.delete(port);
+        if (active.get(id) === entry) active.delete(id);
       }
     },
     { refusal: rejectUntrusted('sso:awaitCallback') }
@@ -887,10 +917,13 @@ export function registerSSOIPC(): void {
   registerIpc(
     'sso:cancelLoopback',
     'connection-bound',
-    (_sender, event, port: number): void => {
-      const entry = active.get(port);
-      if (!entry || requireOwner(event, entry.owner) === null) return;
-      active.delete(port);
+    (sender, event, port: number): void => {
+      const id = sender.ref.connectionId;
+      const entry = active.get(id);
+      if (!entry || entry.handle.port !== port || requireOwner(event, entry.owner) === null) {
+        return;
+      }
+      active.delete(id);
       entry.handle.close();
     },
     { method: 'on', refusal: ignoreRefused }

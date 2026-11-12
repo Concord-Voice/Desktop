@@ -254,7 +254,12 @@ vi.mock('../../../../src/main/machineId', () => ({
   getMachineId: vi.fn(() => TEST_MACHINE_ID),
 }));
 
-import { __revokeExplicitSessionForTest, approvedApiBase, registerSSOIPC } from '@/main/ipc/sso';
+import {
+  __revokeExplicitSessionForTest,
+  approvedApiBase,
+  loopbackCount,
+  registerSSOIPC,
+} from '@/main/ipc/sso';
 import type { ConnectionId } from '@/shared/connectionIdentity';
 
 interface FakeInvokeEvent {
@@ -2110,5 +2115,197 @@ describe('sso connection fences (#86 7B)', () => {
     expect(appleMocks.cancelActiveAppleFlow).not.toHaveBeenCalled();
     handler('sso:appleCancel')(ev(A.wc));
     expect(appleMocks.cancelActiveAppleFlow).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #87 Task 5 (RC-6): one renderer-driven loopback per connection. A second
+// sso:startLoopback from the same connection supersedes (closes) the first, the superseded
+// port answers like an unknown one, and a settle is logged without anything from its error.
+describe('sso one loopback per connection (#87 Task 5)', () => {
+  const ORIGIN_A = 'https://a.example';
+  const ORIGIN_B = 'https://b.example';
+  const bound = (origin: string, id: number) => {
+    const r = registerService(origin, {
+      makeSession: () => ({ fetch: vi.fn() }) as never,
+      makeCustody: () => tokenMocks as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record };
+  };
+  const ev = (wc: unknown) => {
+    const id = (wc as { mainFrame: { frameTreeNodeId: number } }).mainFrame.frameTreeNodeId;
+    return {
+      sender: wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: id,
+        detached: false,
+      },
+    };
+  };
+  const handler = (channel: string) => {
+    const c = [...mocked.handleSpy.mock.calls, ...mocked.onSpy.mock.calls].find(
+      (x) => x[0] === channel
+    );
+    if (!c) throw new Error(`${channel} not registered`);
+    return c[1] as (...a: unknown[]) => Promise<unknown>;
+  };
+  const flush = () => new Promise<void>((r) => setImmediate(r));
+  const start = async (wc: unknown) =>
+    (await handler('sso:startLoopback')(ev(wc))) as { port: number; redirectURI: string };
+  const fakeFor = (port: number) => {
+    const h = mocked.fakeHandles.find((x) => x.port === port);
+    if (!h) throw new Error(`no fake handle on port ${port}`);
+    return h;
+  };
+  // An await that would hang reads as 'hung' instead of timing the test out; a rejection
+  // reads as its message.
+  const outcome = (p: Promise<unknown>) =>
+    Promise.race([
+      p.then(
+        () => 'resolved',
+        (e: unknown) => (e instanceof Error ? e.message : 'rejected')
+      ),
+      new Promise((r) => setTimeout(() => r('hung'), 100)),
+    ]);
+  let A: ReturnType<typeof bound>;
+  let B: ReturnType<typeof bound>;
+  // `active` is module state and earlier describes leave entries behind under connection
+  // ids that no longer exist, so counts are read relative to the start of each test.
+  let base: number;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    tokenMocks.reset();
+    mocked.fakeHandles.length = 0;
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    setRemoteSpaOriginSource(() => null);
+    A = bound(ORIGIN_A, 1);
+    B = bound(ORIGIN_B, 2);
+    registerSSOIPC();
+    await flush();
+    base = loopbackCount();
+  });
+
+  it('a second sso:startLoopback from the same connection supersedes the first', async () => {
+    const first = await start(A.wc);
+    const second = await start(A.wc);
+    const old = fakeFor(first.port);
+    expect(second.port).not.toBe(first.port);
+    expect(old.__closeCalls).toBe(1);
+    await expect(old.promise).rejects.toThrow('oauth_cancelled');
+    expect(fakeFor(second.port).__closeCalls).toBe(0);
+    expect(loopbackCount() - base).toBe(1);
+  });
+
+  it("the superseded handle's late settle does not delete its successor", async () => {
+    await start(A.wc);
+    const second = await start(A.wc);
+    await flush(); // the superseded handle's settle cleanup has run
+    expect(loopbackCount() - base).toBe(1);
+    fakeFor(second.port).__resolve({ code: 'auth-code', state: 'state-x' });
+    await expect(handler('sso:awaitCallback')(ev(A.wc), second.port)).resolves.toEqual({
+      code: 'auth-code',
+      state: 'state-x',
+    });
+    expect(loopbackCount() - base).toBe(0);
+  });
+
+  it('a stale port after supersede answers like an unknown one; the successor is intact', async () => {
+    const first = await start(A.wc);
+    const second = await start(A.wc);
+    expect(await outcome(handler('sso:awaitCallback')(ev(A.wc), first.port))).toBe(
+      'sso:awaitCallback: unknown port'
+    );
+    expect(handler('sso:cancelLoopback')(ev(A.wc), first.port)).toBeUndefined();
+    const live = fakeFor(second.port);
+    expect(live.__closeCalls).toBe(0);
+    expect(loopbackCount() - base).toBe(1);
+    live.__resolve({ code: 'auth-code', state: 'state-x' });
+    await expect(handler('sso:awaitCallback')(ev(A.wc), second.port)).resolves.toEqual({
+      code: 'auth-code',
+      state: 'state-x',
+    });
+  });
+
+  it("A and B each hold one loopback; B's cancel leaves A's intact", async () => {
+    const a = await start(A.wc);
+    const b = await start(B.wc);
+    expect(loopbackCount() - base).toBe(2);
+    handler('sso:cancelLoopback')(ev(B.wc), b.port);
+    expect(fakeFor(b.port).__closeCalls).toBe(1);
+    expect(fakeFor(a.port).__closeCalls).toBe(0);
+    expect(loopbackCount() - base).toBe(1);
+    fakeFor(a.port).__resolve({ code: 'auth-code', state: 'state-x' });
+    await expect(handler('sso:awaitCallback')(ev(A.wc), a.port)).resolves.toEqual({
+      code: 'auth-code',
+      state: 'state-x',
+    });
+  });
+
+  // R11 is withdrawn: every advance, credential events included, ends the connection's
+  // loopback (#86, 89ed3dc0).
+  it.each(['document', 'renderer-gone', 'credential-start', 'credential-end'] as const)(
+    "an advance of A's generation (%s) closes A's loopback and leaves B's",
+    async (reason) => {
+      const a = await start(A.wc);
+      const b = await start(B.wc);
+      advanceGeneration(A.record.connectionId, reason);
+      expect(fakeFor(a.port).__closeCalls).toBe(1);
+      expect(fakeFor(b.port).__closeCalls).toBe(0);
+      expect(loopbackCount() - base).toBe(1);
+      expect(await outcome(handler('sso:awaitCallback')(ev(A.wc), a.port))).toBe(
+        'sso:awaitCallback: unknown port'
+      );
+    }
+  );
+
+  describe('settle logging', () => {
+    it.each(['oauth_timeout', 'oauth_cancelled'])('%s is logged at debug only', async (code) => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const a = await start(A.wc);
+        fakeFor(a.port).__reject(new Error(code));
+        await flush();
+        expect(debug).toHaveBeenCalledTimes(1);
+        expect(debug.mock.calls[0].every((arg) => typeof arg === 'string')).toBe(true);
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        debug.mockRestore();
+        warn.mockRestore();
+      }
+    });
+
+    it('any other error is one fixed-text warn carrying nothing from the error', async () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const message =
+        'oauth_provider_error:access_denied code=AUTHCODE state=STATEVAL http://127.0.0.1:51000/cb';
+      try {
+        const a = await start(A.wc);
+        fakeFor(a.port).__reject(new Error(message));
+        await flush();
+        expect(warn).toHaveBeenCalledTimes(1);
+        const args = warn.mock.calls[0];
+        // Strings only: a raw Error would carry its message into the log buffer.
+        expect(args.every((arg) => typeof arg === 'string')).toBe(true);
+        const text = args.join(' ');
+        expect(text).not.toMatch(/code=|state=|http/);
+        expect(text).not.toContain('access_denied');
+        expect(text).not.toContain(message);
+        expect(debug).not.toHaveBeenCalled();
+      } finally {
+        debug.mockRestore();
+        warn.mockRestore();
+      }
+    });
   });
 });
