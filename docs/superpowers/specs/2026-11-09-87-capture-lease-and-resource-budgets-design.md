@@ -17,6 +17,8 @@ Cross-checked against Context7 `/electron/electron` (latest indexed 44.9.3). Zus
 
 Repo facts verified in the worktree on 2026-11-09: `ipcContract.ts:328` `IPC_CONTRACT_VERSION = 33`, `:361` `SPA_MIN_CONTRACT = 19`; `main.ts:1657-1668` allows every permission except `geolocation`; `audiocapHost.ts:18` "AT MOST ONE CHILD", `killAudiocapHost` `:450`, `killAudiocapCapture` `:494`, `stopAudiocapHost` `:591`; `PipWindow.tsx:102-115` installs a `beforeunload` veto; `main.ts:1536` only logs `render-process-gone`; `voiceStore.ts:1196-1207` `reset()` spreads `initialState` with an explicit preserve list (`machineScreenAudioCapable` `:1205`, the #2153 dialog field `:605`); `services/system/resetService.ts:101` `gracefulReset()`; `App.tsx:678-679` renders `{!isPipWindow && <VoiceJoinErrorNotice />}` then `<UpdateBanner />`; `voiceService.joinChannel` `:4075` has no outer timeout in `:4075-4300`; `selfHostedCeremonyBudget.ts` is a 5-per-10-minute windowed budget (`CEREMONY_BUDGET`, `CEREMONY_WINDOW_MS`); `frontend.md:2436` (O1) requires `aria-disabled`, never native `disabled`, on guarded controls; `tests/unit/styles/contrast-pairs.test.ts` exists.
 
+**As built by #86** *(#86 as built, 2026-11-11)*: the facts above predate #86 and the plan's "Reconciliation against #86 as built" (RC-1..RC-15) is authoritative where they differ. `IPC_CONTRACT_VERSION = 34` at `ipcContract.ts:353`, `SPA_MIN_CONTRACT = 19` at `:408`. Permissions go through the per-session `captureArbiter` (`connectionSession.ts`), whose default allows bound `media` requests, while an off-document check (`webContents === null`) gets the static policy (true for `media` / `display-capture`). `media:getDesktopSources` and `audiocap:start` are `app-global-mutate` (foreground only); `audiocap:start` refuses while another connection owns a live share and #86's own generation listener stops the owner's share gracefully on every advance. `trayOwner` / `setTrayOwner` exist (`ipc/trayStatus.ts:75`, `:80`) and `tray:setStatus` is already `connection-bound`, narrowed in the handler. Loopbacks are `OwnedLoopback { handle, owner: OwnerBinding }` in `active: Map<port, OwnedLoopback>` (`ipc/sso.ts:131-136`), refused to other connections and torn down on every advance. `requestSelfHostedApproval` is `main.ts:2625`; `killAudiocapCapture` is `audiocapHost.ts:505`. `credential-start` / `credential-end` advance the generation while the same document keeps running (`tokenManager.ts:864`, `:873`, `:1207` via `shellWindow.ts:220`).
+
 ---
 
 ## 0. Reconciliation record
@@ -28,7 +30,7 @@ Three passes fed this spec: the architect's Mode-2 draft, the system-engineer's 
 | # | Topic | Mode-2 position | Final | Why |
 |---|---|---|---|---|
 | R1 | Forced end of a non-acking holder | `webContents.reload()` at 5 s | **`forcefullyCrashRenderer()` then `reload()`** | A renderer can veto `reload()` through `beforeunload`; the repo already depends on that veto (`PipWindow.tsx:102-115`). Killing the process cannot be vetoed and ends every `MediaStreamTrack`, worker and `MediaEncryption`. Different `Session`s never share a renderer process, so the kill reaches only A's documents (A's PiP may share A's process and dies with it, acceptable). `main.ts:1536` only logs `render-process-gone`, so main calls `reload()` itself. |
-| R2 | Audiocap teardown on handoff or generation advance | `killAudiocapHost()` | **`killAudiocapCapture()`** | `killAudiocapHost` also reaps the windowless app-start probe, memoizing `child-crash` and leaving per-process screen-share audio dead for the process lifetime (`audiocapHost.ts:470-498`; ADR-0043 regression). `killAudiocapCapture` spares the probe. |
+| R2 | Audiocap teardown on handoff or generation advance | `killAudiocapHost()` | **`killAudiocapCapture()`, on handoff only**, through `revokeAudiocapShare()` (also clears `shareOwner`) *(#86 as built, 2026-11-11)* | `killAudiocapHost` also reaps the windowless app-start probe, memoizing `child-crash` and leaving per-process screen-share audio dead for the process lifetime (ADR-0043 regression). `killAudiocapCapture` spares the probe. On a generation advance #86's own listener already stops the share gracefully (`stopAudiocapHost`), so the lease calls nothing there. |
 | R3 | `LeaseId` crossing IPC | 128-bit `leaseId` returned and passed back | **No lease token crosses IPC.** `release({ intent })` resolves the holder from the sender binding (`requireOwner`). Pushes carry no id. | #86 R4: no bearer secrets in renderers unless the proof is renderer↔renderer. |
 | R4 | Release granularity | One `release(leaseId)` clears the lease | **Claims set** `claims: Set<'voice-join' \| 'device-test'>`; the lease frees when empty. | A Settings mic test inside the holder's own call would otherwise free the lease mid-call on test stop. |
 | R5 | Fresh acquire from a background document | Allowed when free | **Fresh acquire requires the foreground primary main frame.** A holder's re-acquire does not. | A compromised background renderer must not open the mic while the user looks elsewhere; and a background C taking a lease A freed mid-ceremony would make B's "Join" move capture away from a connection the dialog never named. |
@@ -36,8 +38,8 @@ Three passes fed this spec: the architect's Mode-2 draft, the system-engineer's 
 | R7 | Legacy (pre-35) SPA on a 35 shell | Not addressed | **Legacy gate** (§5.2): implicit acquire at the request handler for a document that has made no `capture:*` call in its generation, only when free, no handoff pending and the requester is the foreground primary main frame. T0 row 1 must pass. | The `saas` view loads the remote SPA and the LKG cache can hold an older build; a strict gate would break voice for the installed base in that window. The legacy gate's exposure equals an explicit free acquire's. |
 | R8 | Check handler | `isHolder` | **Depends on T0 row 1.** Pass → `boundPrimaryMainFrame` (device labels keep working); fail → `isHolder` and the legacy gate is dropped. | A permissive check may let Chromium skip the request; a strict check strips `enumerateDevices` labels before any join. |
 | R9 | `resourceBudget.ts` ledger | A new counting ledger | **No ledger.** Maps keyed by `ConnectionId` hold at most one entry per connection under `MAX_LIVE_CONNECTIONS`; read-only `mainResourceCounts()` for tests. | A second copy of state the owning maps already hold is a drift bug. |
-| R10 | Loopback keying | `Map<ConnectionId, LoopbackHandle>` | **Same, plus identity-guarded deletes** (`if (active.get(id) === handle) active.delete(id)`) in every `finally` and cancel. | With supersede, the old handle's `finally` would otherwise delete the new entry. |
-| R11 | SSO pending-slot teardown | Every generation advance | **Only on `document`, `renderer-gone`, `disposed`.** The capture lease still releases on **all** reasons. | `credential-start`/`credential-end` fire inside SSO flows (MFA, #2424). |
+| R10 | Loopback keying | `Map<ConnectionId, LoopbackHandle>` | **`Map<ConnectionId, OwnedLoopback>`** *(#86 as built, 2026-11-11)*, identity-guarded deletes (`active.get(id)?.handle === handle`) kept from #86. | With supersede, the old handle's settle would otherwise delete the new entry. |
+| R11 | SSO pending-slot teardown | Every generation advance | **Withdrawn** *(#86 as built, 2026-11-11)*: #86's teardown on every advance (89ed3dc0) stays. **Capture lease:** only `document`, `renderer-gone`, `disposed` end the holder; `credential-start` / `credential-end` re-key it to the new generation (plan RC-14). | Owner bindings are generation-exact, so an SSO slot kept across `credential-start` could never be completed; the sign-in flow binds its owner after its own `credential-start`. For capture the reverse holds: a credential advance leaves the same document and its live tracks running, so clearing the lease would allow a second live mic with no ceremony. |
 | R12 | Device-test lease while backgrounded | Not addressed | **Main revokes a device-test-only lease when its connection leaves the foreground** (`capture:leaseRevoked { reason: 'backgrounded' }`). | A forgotten Settings meter in A must not force a ceremony on B's join or silently pre-empt it. |
 | R13 | Ceremony exclusivity | Capture single-flight | **One main-owned modal at a time across ceremony kinds** (capture ↔ self-hosted approval): the other returns `busy`. | A hostile foreground renderer could otherwise stack two native modals. |
 | R14 | `permission:request` widening for the holder | Widen to foreground ∨ holder | **Not widened**; `permission:changed` is also delivered to the holder. | Every capture-starting flow begins in the foreground document; widening adds red-team surface no flow needs. Closes #86 open item 3 for #87. |
@@ -80,7 +82,7 @@ Mode-2 decisions that stand: **D1** native ceremony (Q1), **D2** one lease for m
 
 After #86, each connection is its own document on its own Chromium `Session`, which isolates network, storage, custody and IPC authority. #86 leaves shared the things the OS has only one of: the physical microphone, camera and screen; the single audio-capture child (`audiocapHost.ts:18`); the loopback OAuth listeners (`ipc/sso.ts`, keyed by port); and the tray.
 
-Today's handlers answer `callback(true)` for every `media` and `display-capture` request (`main.ts:1657-1668`). `media:getDesktopSources` returns live screen thumbnails to any trusted sender, and `audiocap:start` admits any trusted primary. CVNet, self-hosted A and self-hosted B can each call `getUserMedia` and publish the same microphone to three servers. A compromised renderer in B can open the mic while the user believes only A's call is live.
+Before #86, the handlers answered `callback(true)` for every `media` and `display-capture` request (`main.ts:1657-1668`), `media:getDesktopSources` returned live screen thumbnails to any trusted sender, and `audiocap:start` admitted any trusted primary. *(#86 as built, 2026-11-11)*: #86 fences part of this — `getDesktopSources` and `audiocap:start` are foreground-only and `audiocap:start` refuses while another connection owns a live share — but its arbiter default still allows every bound `media` request, so the problem below stands. CVNet, self-hosted A and self-hosted B can each call `getUserMedia` and publish the same microphone to three servers. A compromised renderer in B can open the mic while the user believes only A's call is live.
 
 #87 makes capture exclusive and owner-bound, binds main-owned listeners and children to their `ConnectionRef`, and releases what a connection owns when its generation advances. It does this without rewriting `voiceService.ts` (12,273 lines), without a new store, and without pre-empting #90.
 
@@ -89,7 +91,7 @@ Today's handlers answer `callback(true)` for every `media` and `display-capture`
 | Constraint | Source |
 |---|---|
 | `contextIsolation`, `sandbox`, no `nodeIntegration`, no `@electron/remote`; preload imports only `electron`; sender-frame validation on every privileged handler through `registerIpc(channel, class, handler)` | `electron.md:20-34`; #86 §3.7 |
-| `IPC_CONTRACT_VERSION` 34 → **35** (33 in-tree at `ipcContract.ts:328`; #86 takes 34); `SPA_MIN_CONTRACT` stays **19** (`:361`); server-config `spaIpcContract` not raised | `electron.md:321-346` |
+| `IPC_CONTRACT_VERSION` 34 → **35** (34 at `ipcContract.ts:353`, *(#86 as built, 2026-11-11)*); `SPA_MIN_CONTRACT` stays **19** (`:408`); server-config `spaIpcContract` not raised | `electron.md:321-346` |
 | Owner primitives only: `ConnectionRef`, `bindOwner`, `isOwnerCurrent`, `requireOwner`, `onGenerationAdvanced(id, from, to, reason)` (fired synchronously after revocation) | #86 §3.1, §3.8 |
 | Permission policy enters through #86's `captureArbiter.decide(ref \| null, permission, details)`; unbound → deny | #86 §3.3(2) |
 | ADR-0043 per-process screen-share audio untouched; audiocap kill semantics (`killAudiocapHost` quit-safe and probe-reaping; `killAudiocapCapture` spares the probe; `stopAudiocapHost` graceful) | `audiocapHost.ts:450-600`; `native-audio.md` |
@@ -128,7 +130,7 @@ In-memory only. Nothing is persisted.
 ```ts
 holder:  { ref: ConnectionRef; binding: OwnerBinding; claims: Set<CaptureIntent>; legacy: boolean } | null
 handoff: { from: ConnectionRef; to: ConnectionRef; settle: (r: CaptureAcquireResult) => void; timer: Timeout } | null
-leaseAware: WeakMap<OwnerBinding, true>    // set by any capture:* call; scoped to the generation through the binding
+leaseAware: Map<ConnectionId, Generation>  // set by any capture:* call; carried forward on credential reasons, deleted on document-replacing ones (#86 as built, 2026-11-11; plan Task 2)
 ```
 
 **Predicates (synchronous):** `free() = holder === null && handoff === null`; `isHolder(ref) = holder !== null && same connectionId && same generation && isOwnerCurrent(holder.binding)`. `primaryMainFrame(event | webContents, details?)` holds when the binding role is `'primary'` (a PiP is never a capture principal), the frame is the main frame, and the binding is current.
@@ -149,10 +151,11 @@ leaseAware: WeakMap<OwnerBinding, true>    // set by any capture:* call; scoped 
 **`release(event, { intent })` → `boolean`.** `requireOwner(event, holder.binding)` must succeed, otherwise `false`. Delete the claim. If the set is empty: clear the holder, push `{ held: false, mine: false }` to the former holder and current state to the foreground, settle any handoff waiting on this holder. Synchronous, never throws.
 
 **`onGenerationAdvanced((id, from, to, reason) => …)`** runs inside #86's synchronous `advanceGeneration` block, after revocation:
-- **Holder's connection, any reason:** clear the holder, `killAudiocapCapture()` (idempotent; R2), drop that connection's tray snapshot, settle any handoff whose `from` is this connection by granting `to`, push state to the foreground.
+- **Holder's connection, `document` / `renderer-gone` / `disposed`:** clear the holder, `setTrayOwner(null)`, settle any handoff whose `from` is this connection by granting `to`, push state to the foreground. No audiocap call (#86's listener stops the share gracefully) and no tray-snapshot drop (the tray module's own listener does it) *(#86 as built, 2026-11-11)*.
+- **Holder's connection, `credential-start` / `credential-end`:** re-key the holder (and `handoff.from`) to the new generation with a fresh `bindOwner('capture-lease', …)` and `setTrayOwner(newRef)`; claims kept; no push. The document and its tracks are unchanged, so the lease stays exclusive *(#86 as built, 2026-11-11)*.
 - **Handoff `to` connection:** abort its ceremony signal if still open; settle `superseded`. The lease ends free.
 
-**`onForegroundChanged(prev, next)`** is a small additive export of #86's `connectionRegistry.ts`:
+**`onForegroundChanged(prev, next)`** is a small additive export of #86's `connectionRegistry.ts`, fired from `setForeground` and from `disposeConnection`'s direct foreground clear (`next = null`) *(#86 as built, 2026-11-11)*:
 - If `prev` holds a lease whose claims are exactly `{device-test}`, run the handoff with `reason: 'backgrounded'` (R12).
 - Push current state to `next`. Nobody else receives anything.
 
@@ -160,7 +163,7 @@ leaseAware: WeakMap<OwnerBinding, true>    // set by any capture:* call; scoped 
 
 ### 3.3 Ceremony: `desktop/src/main/captureCeremony.ts`
 
-Same dependency-injection shape as `requestSelfHostedApproval` (`main.ts:2361-2380`), with an injected `showMessageBox` for tests. Default calls `dialog.showMessageBox(baseWindow, options)`; the `BaseWindow` signature is confirmed in 45.0.0, so no `BrowserWindow` cast.
+Same dependency-injection shape as `requestSelfHostedApproval` (`main.ts:2625`, *(#86 as built, 2026-11-11)*), with an injected `showMessageBox` for tests. Default calls `dialog.showMessageBox(baseWindow, options)`; the `BaseWindow` signature is confirmed in 45.0.0, so no `BrowserWindow` cast.
 
 ```ts
 { type: 'question', noLink: true, normalizeAccessKeys: true, signal,
@@ -180,10 +183,10 @@ Same dependency-injection shape as `requestSelfHostedApproval` (`main.ts:2361-23
 ### 3.4 Handoff: ack-or-crash
 
 Runs synchronously up to the wait:
-1. Set `handoff = { from: holder.ref, to: B.ref, … }`, then `holder = null`, so `isHolder(A)` is false at once: the gate, `getDesktopSources` and `audiocap:start` refuse A, and `free()` is false so the legacy gate cannot fire. Call `killAudiocapCapture()` (R2).
+1. Set `handoff = { from: holder.ref, to: B.ref, … }`, then `holder = null`, so `isHolder(A)` is false at once: the gate, `getDesktopSources` and `audiocap:start` refuse A, and `free()` is false so the legacy gate cannot fire. Call `revokeAudiocapShare()` → `killAudiocapCapture()` (R2; *(#86 as built, 2026-11-11)*).
 2. `sendToConnection(A.ref, 'capture:leaseRevoked', { reason })`.
-3. Wait for one of: A's `capture:release` (any release from A while `handoff.from === A` counts as the ack; the honest renderer sends it synchronously after `emergencyCleanup()`); A's generation advancing for any reason; `HANDOFF_ACK_TIMEOUT_MS` (5000) → step 4.
-4. **Timeout:** `A.webContents.forcefullyCrashRenderer()` then `A.webContents.reload()` (R1). `render-process-gone` advances A's generation (`renderer-gone`, #86 R6), and that listener settles the handoff.
+3. Wait for one of: A's `capture:release` (any release from A while `handoff.from === A` counts as the ack; the honest renderer sends it synchronously after `emergencyCleanup()`); A's generation advancing for a document-replacing reason (`document`, `renderer-gone`, `disposed`; *(#86 as built, 2026-11-11)*); `HANDOFF_ACK_TIMEOUT_MS` (5000) → step 4.
+4. **Timeout:** `A.webContents.forcefullyCrashRenderer()` then `A.webContents.reload()` (R1). `render-process-gone` advances A's generation (`renderer-gone`, #86 R6), and that listener settles the handoff. A credential advance on A does not settle it (the document is still running); the ack and the timer still apply *(#86 as built, 2026-11-11)*.
 5. Grant B: `isOwnerCurrent(B)` else `superseded`; `holder = { ref: B, claims: {'voice-join'}, legacy: false }` → `granted`.
 
 No second document's `getUserMedia` is granted while the first document's tracks may still be live. Chromium gates only *new* requests; step 4 is what makes "no cloned capture" structural instead of cooperative.
@@ -192,7 +195,7 @@ No second document's `getUserMedia` is granted while the first document's tracks
 
 **Request handler, `media` and `display-capture`:** unbound, PiP, subframe (`details.isMainFrame === false`) or stale → **deny**; `isHolder(ref)` → allow; legacy gate (§5.2): `!leaseAware(binding) ∧ free() ∧ foreground primary` → implicit acquire (`claims: {'voice-join'}`, `legacy: true`) → allow; otherwise **deny** (`getUserMedia` rejects `NotAllowedError`).
 
-**Check handler, `media` and `display-capture`:** `boundPrimaryMainFrame` if T0 row 1 passes, `isHolder(ref)` if it fails (R8). `webContents === null` (service worker) → false.
+**Check handler, `media` and `display-capture`:** `boundPrimaryMainFrame` if T0 row 1 passes, `isHolder(ref)` if it fails (R8). `webContents === null` (off-document: service worker, notifications) → false. *(#86 as built, 2026-11-11)*: #86 answers this branch with the static policy, which is **true** for both, without the arbiter; #87 changes it to false in `connectionSession.ts` and rewrites #86's pin.
 
 **Other permissions:** #86's default unchanged (deny `geolocation`, allow the rest; unbound → deny). `setDevicePermissionHandler` unchanged.
 
@@ -200,11 +203,11 @@ No second document's `getUserMedia` is granted while the first document's tracks
 
 ### 3.6 Handler gating
 
-- **`media:getDesktopSources`** (`main.ts:2000`) requires `isHolder(ref)` after sender validation, otherwise returns `undefined` without calling `desktopCapturer` (the existing refusal shape at `:2001`). T7 verifies `ScreenSharePicker.tsx:301` and `voiceService.ts:5748` tolerate it and show refusal copy.
-- **`audiocap:start`** additionally requires `isHolder(ref)`, otherwise the existing `wrong-owner` refusal shape, no fork. `stop`, `port`, `interrupted` stay owner-only (#86).
-- **Tray:** `trayOwner() = holder?.ref ?? foreground`. `tray:setStatus` stores a snapshot per connection; the tray renders `snapshot[trayOwner()]` (R15). `tray:action` (`set-muted`, `leave-voice`, `stop-share`) routes to `trayOwner()`.
+- **`media:getDesktopSources`** (`main.ts:2106-2129`) requires `isHolder(ref)` after sender validation, otherwise returns `[]` without calling `desktopCapturer` (#86's refusal value, `:2128`) *(#86 as built, 2026-11-11)*. T7 verifies `ScreenSharePicker.tsx:301` and `voiceService.ts:5748` tolerate it and show refusal copy.
+- **`audiocap:start`** additionally requires `isHolder(ref)` (before the await and again after it), otherwise `{ ok: false, reason: 'protocol-fault' }`, no fork. This **replaces** #86's refuse-while-another-connection-owns-a-live-share rule; the consent handoff ends the old share through `revokeAudiocapShare()`. The class stays foreground-only. `stop`, `port`, `interrupted` stay owner-only (#86) *(#86 as built, 2026-11-11)*.
+- **Tray:** `trayOwner() = holder?.ref ?? foreground`. #86 provides `trayOwner` / `setTrayOwner` and the `connection-bound` class but drops non-owner snapshots; R15 replaces that with storage: `tray:setStatus` stores a snapshot per connection and the tray renders the displayed connection's (a stale owner fails closed to a neutral tray). `tray:action` (`set-muted`, `leave-voice`, `stop-share`) routes to that connection (`main.ts:1935-1939`) *(#86 as built, 2026-11-11)*.
 - **`permission:request` / `openSettings`** stay foreground-only (R14). `permission:changed` goes to the requester and to the holder.
-- **Loopback** (`ipc/sso.ts`; the only change in the #90 region): `active: Map<ConnectionId, LoopbackHandle & { owner: ConnectionRef }>`; `startLoopback` from a connection that already has a handle closes the old one (supersede, D7; its promise rejects `cancelled`); `awaitCallback(port)` / `cancelLoopback(port)` keep their IPC shape with `port` as a cross-check against the sender's handle, refused on mismatch; every delete identity-guarded (R10); the bare `.catch(() => {})` at `:618` becomes `.catch((e) => logLoopbackSettle(e))` (`console.debug` for `oauth_timeout`/`cancelled`, `console.warn` with the reason class only otherwise — never URL, code or state); an `onGenerationAdvanced` listener filtered to `document | renderer-gone | disposed` closes the connection's handle and clears its `pendingMFA` / `pendingCompletion` slots (R11). `state`, `code`, PKCE, redirect URI and the MFA proof path are untouched. The **#90 seam** is the `owner` field plus `mainResourceCounts()`.
+- **Loopback** (`ipc/sso.ts`; the only change in the #90 region) *(#86 as built, 2026-11-11)*: `active: Map<ConnectionId, OwnedLoopback>` (#86's `OwnedLoopback { handle, owner: OwnerBinding }`); `startLoopback` from a connection that already has a handle closes the old one (supersede, D7; its promise rejects `oauth_cancelled`); `awaitCallback(port)` / `cancelLoopback(port)` keep their IPC shape and #86's cross-connection refusal, and now also refuse the sender's own superseded port; deletes stay identity-guarded (R10); the bare `.catch(() => {})` at `:855` becomes `logLoopbackSettle` (`console.debug` for `oauth_timeout` / `oauth_cancelled`, one fixed-text `console.warn` otherwise — never URL, code, state or message). No filtered listener: #86's any-advance teardown stays (R11 withdrawn). `state`, `code`, PKCE, redirect URI and the MFA proof path are untouched. The **#90 seam** is `OwnedLoopback.owner` plus `mainResourceCounts()`.
 
 ### 3.7 Self-Hosted#112 input: optional
 
@@ -228,8 +231,8 @@ All paths under `desktop/src/renderer/`.
 | `emergencyCleanup()` (`:4530`) | **releases by default** at the end of cleanup. Every call site below inherits that unless marked keep |
 | `useConnectionRecovery.ts:127` (outage with a rejoin ticket) | **keep**: call `emergencyCleanup({ keepCaptureLease: true })`. The holder re-acquire path (§3.2 step 2) has no foreground check, so a background call survives an outage. The ticket-retraction path that abandons the rejoin releases; the `.catch` at `:130` (module never loaded, no teardown) has nothing to release |
 | `resumeAfterReconnect` no-context (`:4744`); network-change resume failed while still owner (`:4831`); `io server disconnect` (`:10056`); `reconnect_failed` without a reconnecting call (`:10086`); placement recovery failed (`:10099`); encrypt re-base failed closed (`:10933`) | release (the call is over; no rejoin follows) |
-| auth session replaced/cleared (`:12257`) | release (idempotent: main's generation listener has already cleared the lease on credential reasons; `release` returns `false`) |
-| `beforeunload` (`:12271`) | nothing to send; the document's generation advance releases it in main |
+| auth session replaced/cleared (`:12257`) | release. *(#86 as built, 2026-11-11)*: main re-keys the lease on credential reasons instead of clearing it, so this release is the one that frees it |
+| `beforeunload` (`:12270`) | nothing to send; the document's generation advance releases it in main |
 
 **Device tests:** `hooks/device/useMicTest.ts`, `hooks/device/useCameraTest.ts` and the webcam capability probe call `acquire('device-test')` before `getUserMedia`; `held` shows the visible row; stopping releases. Each hook exposes `stoppedReason: 'held' | 'backgrounded' | null` as local state, cleared on the next Start or when the pane closes.
 
@@ -273,12 +276,12 @@ All paths under `desktop/src/renderer/`.
 
 | Channel | Direction | Shape | Admission class | Failure |
 |---|---|---|---|---|
-| `capture:acquire` | invoke | `{ intent: CaptureIntent }` → `CaptureAcquireResult` | connection-bound primary main frame; fresh/ceremony branches foreground-only | `rejected` reasons; malformed → `rejected: untrusted-sender` |
+| `capture:acquire` | invoke | `{ intent: CaptureIntent }` → `CaptureAcquireResult` | connection-bound primary main frame; fresh/ceremony branches foreground-only | `rejected` reasons; malformed → `rejected: untrusted-sender`; admission refusals mapped explicitly onto `CaptureRejectReason` (`not-foreground` kept, every other `SenderRefusal` → `untrusted-sender`) *(#86 as built, 2026-11-11)* |
 | `capture:release` | invoke | `{ intent: CaptureIntent }` → `boolean` | connection-bound, `requireOwner` on the holder binding | `false` |
 | `capture:lease` | push | `CaptureLeaseState` | holder, foreground primary, own-lease-ended (once) | preload drops malformed |
 | `capture:leaseRevoked` | push | `CaptureLeaseRevoked` | holder only, `sendToConnection` | no-op if ref stale |
 
-**Changed semantics, no shape change:** `media:getDesktopSources`, `audiocap:start`, `tray:setStatus`, `tray:action` routing, `permission:changed` delivery, `sso:startLoopback` (supersede), `sso:awaitCallback` / `sso:cancelLoopback` (port cross-check).
+**Changed semantics, no shape change:** `media:getDesktopSources`, `audiocap:start`, `tray:setStatus`, `tray:action` routing, `permission:changed` delivery, `sso:startLoopback` (supersede only; the cross-connection port refusal is already #86's, *(#86 as built, 2026-11-11)*).
 
 **Bridge:** `electron.capture.{acquire, release, onLeaseChanged, onLeaseRevoked}`. Preload still imports only `electron`. The registry classification table gains 2 rows; the snapshot test fails on an unclassified channel.
 
@@ -287,7 +290,7 @@ All paths under `desktop/src/renderer/`.
 - All lease mutations are synchronous in main. The only awaits are the ceremony (§3.2 step 6) and the handoff wait (§3.4 step 3). After each, re-check `isOwnerCurrent` for the requester and holder identity before any effect.
 - `onGenerationAdvanced` and `onForegroundChanged` listeners take no `await`.
 - Renderer→main `invoke` messages from one document arrive in order, and the acquire/release fast paths are synchronous, so leave→rejoin cannot reorder a release behind a later acquire. Regression-tested.
-- Quit: no new await on the quit path. A pending ceremony is aborted via `signal` and resolves `declined`; a pending handoff timer is cleared in both quit hooks.
+- Quit: no new await on the quit path. A pending ceremony is aborted via `signal` and resolves `declined`; a pending handoff timer is cleared in both quit hooks (`before-quit-for-update`, `before-quit`; *(#86 as built, 2026-11-11)*).
 
 ## 4. Security section (stands alone for `@security-reviewer` + `@red-team`)
 
@@ -298,7 +301,7 @@ All paths under `desktop/src/renderer/`.
 | Threat (compromised renderer unless stated) | Reachable? | Enforcement |
 |---|---|---|
 | B opens mic or camera while A holds | No | request handler denies `media`; `NotAllowedError` |
-| B screen-captures or reads live thumbnails while A holds | No | `display-capture` denied; `getDesktopSources` → `undefined`; `audiocap:start` refused |
+| B screen-captures or reads live thumbnails while A holds | No | `display-capture` denied; `getDesktopSources` → `[]`; `audiocap:start` refused |
 | Background B opens capture while the lease is free | No (R5) | fresh acquire and the legacy gate require the foreground primary main frame |
 | B moves A's lease without consent | No | only `voice-join` from the foreground reaches the main-drawn ceremony; default/Escape = Stay; post-await holder re-check; labels main-sourced |
 | B spams or stacks ceremonies | Bounded | single-flight, token bucket, cross-kind modal mutex → `busy` |
@@ -308,7 +311,7 @@ All paths under `desktop/src/renderer/`.
 | Background B learns the user is in a call elsewhere | No (R6) | state pushed only to holder, foreground, own-lease-ended; `not-foreground` precedes the held check |
 | B receives A's media or frame keys | No | separate documents/`Session`s; key context lives only in the holder's document |
 | Hostile server payload makes the honest SPA capture | No | the SPA acquires only on user join or test |
-| Loopback callback consumed by another connection | No | per-connection handle + port cross-check + identity-guarded cleanup |
+| Loopback callback consumed by another connection | No | #86's owner-bound handle refusal + per-connection supersede + identity-guarded cleanup |
 | Foreground compromised renderer acquires a **free** lease (explicitly or via the legacy gate) | **Yes, accepted** | Same class as today's single-renderer exposure and #86's foreground `app-global-mutate` (`electron.md` § Accepted risk). Recorded in the v35 section. |
 | Local user launches with `--use-fake-ui-for-media-stream` | Out of model | The local account owner is outside the threat model. The e2e asserts the flag is absent; T0 row 5 records its effect. |
 
@@ -340,7 +343,7 @@ Desktop-only, one PR after #86 merges. No server, Hosted or Self-Hosted change. 
 | T2 | `main/captureLease.ts` state machine, claims, handoff, generation and foreground listeners, push targeting, `mainResourceCounts()`; `onForegroundChanged` export in `connectionRegistry.ts` | #86 T2 | P with T3, T5 |
 | T3 | `captureCeremony.ts` (DI, labels + truncation, `signal`, `normalizeAccessKeys`, `captureCeremonyBudget`, cross-kind mutex shared with the self-hosted ceremony) | — | P |
 | T4 | Arbiter policy, `getDesktopSources` / `audiocap:start` gating, tray snapshot map + routing, `permission:changed` delivery, SH#112 seam | T2, #86 T3/T7 | — |
-| T5 | `ipc/sso.ts` loopback keying, supersede, port cross-check, identity-guarded deletes, filtered teardown, `:618` logging | T2 | P with T4 |
+| T5 | `ipc/sso.ts` loopback keying and supersede, `:855` settle logging (reduced: the rest is #86's, *(#86 as built, 2026-11-11)*) | T2 | P with T4 |
 | T6 | Contract 35: registry rows, preload `electron.capture.*`, `ipcContract.ts` history entry | T1–T5 | — |
 | T7 | Renderer: `captureLeaseClient`, `joinChannel` acquire + `declined` path, release classification incl. `emergencyCleanup({ keepCaptureLease })`, revoke handler, device-test hooks + `stoppedReason`, three `voiceStore` fields + `reset()` preserve list + `gracefulReset` clearing, join-control hint/pending, `CaptureMovedBanner`, `CaptureLeaseAnnouncer`, copy, contrast-test pairs, visual check | T6 | — |
 | T8 | e2e `tests/e2e/captureArbitration.spec.ts`; ADR-0052; docs (§8) | all | — |
@@ -352,11 +355,11 @@ Sequence: T0 → T1 → {T2, T3, T5} → T4 → T6 → T7 → T8. Phase-4 count 
 **Unit (vitest; `tests/unit/{main,shared,services,hooks,components,styles}`):**
 - Lease matrix: free/foreground → granted; free/background → `not-foreground`; holder re-acquire from background → granted; held + device-test → `held`; held + join (foreground) → ceremony; busy (in flight, handoff, bucket, cross-kind mutex); declined; dialog throws → declined; signal abort → declined then `superseded` on re-check; holder changed during the ceremony → `busy`; holder freed during the ceremony → granted with no handoff.
 - Claims: a device test inside the holder's call, then its release, leaves the lease held (R4).
-- Handoff: the gate is false for A before the push; `killAudiocapCapture` called and the probe result unchanged; ack → grant; A's generation advance → grant; timeout (fake timers) → `forcefullyCrashRenderer` then `reload`, exactly once each; B's advance mid-handoff → `superseded`, lease free.
-- Generation listener for every reason; foreground-change revocation of device-test-only leases; push targeting (background non-holder receives nothing; former holder receives one `{false,false}`).
+- Handoff: the gate is false for A before the push; `revokeAudiocapShare` (→ `killAudiocapCapture`) called and the probe result unchanged; ack → grant; A's generation advance → grant; timeout (fake timers) → `forcefullyCrashRenderer` then `reload`, exactly once each; B's advance mid-handoff → `superseded`, lease free.
+- Generation listener for every reason (document-replacing ends the holder; credential re-keys it); foreground-change revocation of device-test-only leases; push targeting (background non-holder receives nothing; former holder receives one `{false,false}`).
 - Arbiter decide table: {holder, non-holder, unbound, PiP, subframe, stale, legacy-free-foreground, legacy-free-background, legacy-during-handoff} × {`media`, `display-capture`} × {request, check-T0-pass, check-T0-fail}. `setDisplayMediaRequestHandler` never installed.
 - `getDesktopSources` refusal makes no `desktopCapturer` call; `audiocap:start` refusal does not fork.
-- Tray snapshot selection; loopback (one per connection; supersede; R10; port mismatch; teardown on `document` but **not** `credential-start`; settle logging classes).
+- Tray snapshot selection; loopback (one per connection; supersede; R10; stale own port after supersede; settle logging classes). Credential reasons on the holder re-key the lease and do not free it *(#86 as built, 2026-11-11)*.
 - Ceremony: labels only from `ServiceRecord` (payload-injection test); punycode host; 28-char middle truncation; equal labels → "your other connection"; default/cancel = Stay; `normalizeAccessKeys: true` and `signal` present in options; quit → declined; bucket 3 then `busy`, refill after 20 s.
 - Guards reject extra keys.
 
@@ -383,7 +386,7 @@ Sequence: T0 → T1 → {T2, T3, T5} → T4 → T6 → T7 → T8. Phase-4 count 
 - A reload releases the lease.
 - Three-service CVNet+A+B: exactly one document has live tracks at any sampled instant; no audiocap child outside the holder.
 - 50× loopback start/cancel churn on B leaves A's SSO and voice untouched; `mainResourceCounts()` returns to baseline.
-- Legacy-SPA fixture (bridge calls stubbed out) captures when free and foreground.
+- Legacy-SPA fixture captures when free and foreground — `test.fixme` *(#86 as built, 2026-11-11)*: `contextBridge` freezes `window.electron`, so a view without the `capture` key cannot be booted; covered by unit rows. The hostile holder is a lease-aware view with a `beforeunload` veto and a wedged renderer.
 
 **Visual (before the PR, captures attached):** pending join control; the hidden hint rendered visible in the a11y tree inspector; both device-test rows; banner at rest, hover, focus; every error string including long wrapped ones; all 15 schemes × dark/light, plus `data-high-contrast`, plus one 200% pass. The native ceremony captured once per platform, including macOS keyboard reach to Join.
 
@@ -409,7 +412,7 @@ Sequence: T0 → T1 → {T2, T3, T5} → T4 → T6 → T7 → T8. Phase-4 count 
 | # | Criterion | Verification |
 |---|---|---|
 | A1 | CVNet + A + B with identical remote ports: no local listener or callback collision; at most one ephemeral loopback per connection | loopback unit + e2e churn |
-| A2 | Concurrent SSO ceremonies cannot overwrite, replay or consume each other's state | owner-keyed handles, port cross-check, identity-guarded deletes, filtered teardown |
+| A2 | Concurrent SSO ceremonies cannot overwrite, replay or consume each other's state | #86's owner-bound handles and any-advance teardown (`ssoCrossConnection.test.ts`), per-connection supersede, identity-guarded deletes |
 | A3 | A hostile service cannot start capture (including from the background), steal a session, or receive another service's media or keys | §4 tests; e2e `NotAllowedError`; three-service scenario |
 | A4 | Repeated connect/refuse/reconnect and a failed service stay bounded and preserve other connections | `mainResourceCounts()` baseline after churn; generation teardown units |
 | A5 | Structural E2EE and encrypted transports preserved; TURN unchanged | no diff in `mediaEncryption.ts` / TLS / TURN; e2ee suites green |
@@ -419,7 +422,7 @@ Sequence: T0 → T1 → {T2, T3, T5} → T4 → T6 → T7 → T8. Phase-4 count 
 | A9 | ADR-0043 preserved: the handoff never reaps the probe | probe-result-unchanged test |
 | A10 | Renderer surfaces accessible (no native `disabled`, hint via `aria-describedby`, focus never lands on `<body>`, no timer) and visually verified in all 30 combinations + high contrast + 200%; native dialog captured per platform | component tests; contrast pairs; captures |
 | A11 | **Docs to update**: every §8 row lands in the PR | docs-reviewer |
-| A12 | **Quality gate** (`docs/ci/quality-gate-definition.md`; absent in Desktop — org copy at `Hosted/docs/ci/quality-gate-definition.md`): 0 new blocker/critical issues, 0 new high-confidence security hotspots, ≥80% new-code coverage | SonarCloud PR decoration |
+| A12 | **Quality gate** (`docs/ci/quality-gate-definition.md`; absent in Desktop; use the org copy): 0 new blocker/critical issues, 0 new high-confidence security hotspots, ≥80% new-code coverage | SonarCloud PR decoration |
 
 ## 10. Risk register
 
@@ -434,7 +437,7 @@ Sequence: T0 → T1 → {T2, T3, T5} → T4 → T6 → T7 → T8. Phase-4 count 
 | Hidden views do not report `visibilityState: hidden` | M | Low | T0 row 7; `capture:lease` push fallback already in the contract |
 | `--state-focused` ring fails contrast on a scheme | M | Low | contrast-test rows; per-scheme override |
 | #86-only release ships uncontrolled multi-capture | M | High | R16 release gate (Q3) |
-| #90 collides in `ipc/sso.ts` | M | Medium | #87 edits only keying, supersede, cross-check, teardown, logging; seam named |
+| #90 collides in `ipc/sso.ts` | M | Medium | #87 edits only keying, supersede and logging (#86 as built, 2026-11-11); seam named |
 | Forced crash triggers crash-reporting noise | L | Low | `reason=killed` is distinguishable; the ADR notes it |
 | ADR number collision | L | Low | re-grep before merge |
 
