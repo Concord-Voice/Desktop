@@ -905,6 +905,27 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
   }
 
   /**
+   * `restoreRefreshToken`'s answer when reading or decrypting the token file threw.
+   * Called synchronously from its `catch`, so nothing runs between the throw and these
+   * checks. A superseded restore touches nothing; a temporarily unavailable keyring
+   * keeps the file; anything else is treated as tampered and deletes it.
+   */
+  function restoreDecryptFailure(
+    err: unknown,
+    superseded: () => boolean
+  ): RestoreRefreshTokenResult {
+    if (superseded()) return memoryRestoreResult();
+    if (DECRYPT_TEMPORARILY_UNAVAILABLE.test(errorMessage(err))) {
+      console.warn('[TokenManager] Token decryption temporarily unavailable; not deleting it');
+      return { status: 'unavailable' };
+    }
+    // decryptStringAsync rejects on tampered ciphertext (AES-GCM auth tag failure)
+    console.error('[TokenManager] Token decryption failed (tampered?):', errorMessage(err));
+    deleteFiles();
+    return { status: 'tampered' };
+  }
+
+  /**
    * Restore the refresh token on app startup — main-process memory first, then
    * this profile's own files. Returns the token or an error status. Never reads
    * the restart pointer: which profile a restart restores is the router's choice,
@@ -953,15 +974,7 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
       }
       ({ result: plaintext, shouldReEncrypt } = await safeStorage.decryptStringAsync(encrypted));
     } catch (err) {
-      if (superseded()) return memoryRestoreResult();
-      if (DECRYPT_TEMPORARILY_UNAVAILABLE.test(errorMessage(err))) {
-        console.warn('[TokenManager] Token decryption temporarily unavailable; not deleting it');
-        return { status: 'unavailable' };
-      }
-      // decryptStringAsync rejects on tampered ciphertext (AES-GCM auth tag failure)
-      console.error('[TokenManager] Token decryption failed (tampered?):', errorMessage(err));
-      deleteFiles();
-      return { status: 'tampered' };
+      return restoreDecryptFailure(err, superseded);
     }
     if (superseded()) return memoryRestoreResult();
 

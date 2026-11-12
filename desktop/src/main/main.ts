@@ -2732,17 +2732,7 @@ async function handleProbeSelfHostedServer(
 
   const parsed = new URL(normalized.apiBase);
   const resolved: ResolveForDisplayResult = await resolveForDisplay(parsed.hostname);
-  if (!resolved.ok) {
-    switch (resolved.kind) {
-      case 'busy':
-        return { status: 'error', code: 'busy', message: '' };
-      case 'tier1':
-        // Reason token only; the renderer owns the user-facing copy.
-        return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
-      default:
-        return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
-    }
-  }
+  if (!resolved.ok) return unresolvedProbeResult(resolved);
 
   // Consent is scoped to the address class the ceremony displayed. An origin approved
   // against a public address has NOT authorized a tier-2 dial under that name, so a
@@ -2754,56 +2744,86 @@ async function handleProbeSelfHostedServer(
     approvalTier === null || (resolved.decision.tier === 'tier2' && approvalTier !== 'tier2');
 
   if (needsApproval) {
-    // The dialog speaks for the view the user is looking at: a hidden connection's
-    // view never raises it (#86).
-    if (!isForegroundSender(sender)) return probeRejected();
-    // Rations the DIALOG, not the probe: an approved origin never reaches this
-    // branch, so re-probing it stays unthrottled. The token is taken before the
-    // modal opens because a declined ceremony cost the user the same interruption
-    // an approved one did.
-    if (!consumeCeremonyToken()) {
-      console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
-      return { status: 'error', code: 'too_many_prompts', message: '' };
-    }
-    // The shell window is read HERE, at ceremony time — not at handler registration,
-    // when the auth window does not yet exist.
-    const approved = await requestSelfHostedApproval(shellWindow(), {
-      host: parsed.hostname,
-      // Every resolved address, not just the representative: the user consents to the
-      // whole set the name answers with, so the whole set is what the dialog states.
-      address: resolved.addresses.join(', '),
-      decision: resolved.decision,
-    });
-    // After every await: the view that asked must still be the one that is live.
-    if (!isSenderCurrent(sender)) return probeRejected();
-    if (!approved) {
-      return { status: 'error', code: 'approval_declined', message: 'Connection cancelled.' };
-    }
-    // Consent is not proof. The grant is PROVISIONAL until the probe shows this origin
-    // answers like a Concord server: beginPendingApproval authorizes only the dial the
-    // probe itself needs, and the durable record is written after. Committing first meant
-    // any post-consent failure — non-Concord server, TLS, ECONNREFUSED, HTTP 500 — still
-    // left a permanent grant gating auth:storeRefreshToken and the SSO exchange.
-    beginPendingApproval(normalized.apiBase, resolved.address);
-    let result: SelfHostedProbeResult;
-    try {
-      result = await probeSelfHostedServer(normalized.apiBase);
-    } finally {
-      clearPendingApproval();
-    }
-    if (result?.status !== 'ok') return result;
-    if (!isSenderCurrent(sender)) return probeRejected();
-    if (!commitSelfHostedApproval(normalized.apiBase, resolved.address)) {
-      return {
-        status: 'error',
-        code: 'approval_not_saved',
-        message: "Concord couldn't save your choice.",
-      };
-    }
-    return settleProbe(sender, normalized.apiBase, result);
+    return probeWithApprovalCeremony(sender, normalized.apiBase, parsed.hostname, resolved);
   }
 
   return settleProbe(sender, normalized.apiBase, await probeSelfHostedServer(normalized.apiBase));
+}
+
+/** The probe's answer for a name `resolveForDisplay` did not resolve to a dialable set. */
+function unresolvedProbeResult(
+  resolved: Extract<ResolveForDisplayResult, { ok: false }>
+): SelfHostedProbeResult {
+  switch (resolved.kind) {
+    case 'busy':
+      return { status: 'error', code: 'busy', message: '' };
+    case 'tier1':
+      // Reason token only; the renderer owns the user-facing copy.
+      return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
+    default:
+      return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+  }
+}
+
+/**
+ * `handleProbeSelfHostedServer`'s branch for an origin that needs the user's consent:
+ * the native ceremony, a probe under a PROVISIONAL grant, then the durable record.
+ * Every step runs in the order it always has; each `isSenderCurrent` re-check sits
+ * after the await it guards.
+ */
+async function probeWithApprovalCeremony(
+  sender: ConnectionSender,
+  apiBase: string,
+  host: string,
+  resolved: Extract<ResolveForDisplayResult, { ok: true }>
+): Promise<SelfHostedProbeResult> {
+  // The dialog speaks for the view the user is looking at: a hidden connection's
+  // view never raises it (#86).
+  if (!isForegroundSender(sender)) return probeRejected();
+  // Rations the DIALOG, not the probe: an approved origin never reaches this
+  // branch, so re-probing it stays unthrottled. The token is taken before the
+  // modal opens because a declined ceremony cost the user the same interruption
+  // an approved one did.
+  if (!consumeCeremonyToken()) {
+    console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
+    return { status: 'error', code: 'too_many_prompts', message: '' };
+  }
+  // The shell window is read HERE, at ceremony time — not at handler registration,
+  // when the auth window does not yet exist.
+  const approved = await requestSelfHostedApproval(shellWindow(), {
+    host,
+    // Every resolved address, not just the representative: the user consents to the
+    // whole set the name answers with, so the whole set is what the dialog states.
+    address: resolved.addresses.join(', '),
+    decision: resolved.decision,
+  });
+  // After every await: the view that asked must still be the one that is live.
+  if (!isSenderCurrent(sender)) return probeRejected();
+  if (!approved) {
+    return { status: 'error', code: 'approval_declined', message: 'Connection cancelled.' };
+  }
+  // Consent is not proof. The grant is PROVISIONAL until the probe shows this origin
+  // answers like a Concord server: beginPendingApproval authorizes only the dial the
+  // probe itself needs, and the durable record is written after. Committing first meant
+  // any post-consent failure — non-Concord server, TLS, ECONNREFUSED, HTTP 500 — still
+  // left a permanent grant gating auth:storeRefreshToken and the SSO exchange.
+  beginPendingApproval(apiBase, resolved.address);
+  let result: SelfHostedProbeResult;
+  try {
+    result = await probeSelfHostedServer(apiBase);
+  } finally {
+    clearPendingApproval();
+  }
+  if (result?.status !== 'ok') return result;
+  if (!isSenderCurrent(sender)) return probeRejected();
+  if (!commitSelfHostedApproval(apiBase, resolved.address)) {
+    return {
+      status: 'error',
+      code: 'approval_not_saved',
+      message: "Concord couldn't save your choice.",
+    };
+  }
+  return settleProbe(sender, apiBase, result);
 }
 
 /** `connection:create`'s pre-ceremony step (#86 §3.7): what the dialog will state. */
