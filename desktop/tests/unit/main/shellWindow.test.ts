@@ -161,6 +161,7 @@ import {
   refOf,
   registerService,
 } from '../../../src/main/connectionRegistry';
+import { bindOwner, isOwnerCurrent } from '../../../src/main/connectionCapability';
 import { assertDefaultSessionIsSaas } from '../../../src/main/connectionSession';
 import { requireConnectionSender } from '../../../src/main/ipc/connectionSender';
 import {
@@ -418,6 +419,39 @@ describe('generation hooks', () => {
     rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     expect(reasons).toEqual(['document']);
     expect(rec.generation).toBe(2);
+  });
+
+  // Until the new document commits, the OUTGOING one is still the committed main frame
+  // and is admitted at the generation did-start-navigation advanced to. Anything it
+  // binds in that window (an SSO loopback) must not stay current for its successor.
+  it.each([
+    ['did-navigate', [{}, 'https://a.example/', 200, 'OK']],
+    ['did-fail-load', [{}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://a.example/', true]],
+  ] as const)(
+    "an owner bound before the main-frame commit is stale after '%s'",
+    async (event, args) => {
+      const { rec, reasons } = await opened();
+      rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+      const owner = bindOwner('sso-loopback', refOf(rec));
+      expect(isOwnerCurrent(owner)).toBe(true);
+      rec.webContents.emit(event, ...args);
+      expect(isOwnerCurrent(owner)).toBe(false);
+      expect(reasons).toEqual(['document', 'document']);
+      expect(rec.generation).toBe(3);
+    }
+  );
+
+  it.each([
+    [
+      'a cancelled main-frame load (ERR_ABORTED)',
+      [{}, -3, 'ERR_ABORTED', 'https://a.example/', true],
+    ],
+    ['a subframe load failure', [{}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://a.example/', false]],
+  ] as const)('%s commits no document and advances nothing', async (_name, args) => {
+    const { rec, reasons } = await opened();
+    rec.webContents.emit('did-fail-load', ...args);
+    expect(reasons).toEqual([]);
+    expect(rec.generation).toBe(1);
   });
 
   // D1: the first document's whoAmI can arrive before its commit is recorded, so the

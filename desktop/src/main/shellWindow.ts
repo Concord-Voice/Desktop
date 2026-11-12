@@ -213,6 +213,16 @@ function installGenerationHooks(record: ConnectionRecord, service: ServiceRecord
     if (!details.isMainFrame || details.isSameDocument) return;
     advanceIfLive(id, 'document');
   });
+  // Advance AGAIN when the new document commits. Until then the outgoing document is
+  // still the committed main frame, admitted at the generation the start advanced to,
+  // so anything it bound in that window would stay current for its successor.
+  // `did-navigate` is main-frame, cross-document and committed only; a failed
+  // main-frame load commits an error page with no `did-navigate`, and ERR_ABORTED (-3)
+  // is a cancelled navigation that leaves the document in place (as in trayStatus.ts).
+  contents.on('did-navigate', () => advanceIfLive(id, 'document'));
+  contents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) advanceIfLive(id, 'document');
+  });
   contents.on('render-process-gone', () => advanceIfLive(id, 'renderer-gone'));
   contents.on('destroyed', () => disposeConnectionView(id));
   credentialUnsubscribers.set(

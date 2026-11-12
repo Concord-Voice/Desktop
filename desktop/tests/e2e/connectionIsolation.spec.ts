@@ -265,9 +265,11 @@ test('stale push after A reload is dropped', async ({ app, planes }) => {
   await app.evaluate(({ webContents }, id) => {
     webContents.fromId(id)?.reload();
   }, v.wcA);
+  // A reload advances twice: at did-start-navigation and again at the commit. Wait for
+  // both, or `after` can be the start's generation the commit then makes stale.
   await expect
     .poll(async () => (await generationOf(app, v.a)).generation)
-    .toBeGreaterThan(before.generation);
+    .toBeGreaterThanOrEqual(before.generation + 2);
   const after = await generationOf(app, v.a);
   expect(after.connectionId).toBe(before.connectionId);
 

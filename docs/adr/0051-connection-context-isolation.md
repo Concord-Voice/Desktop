@@ -112,8 +112,10 @@ and a `WeakMap` from `WebContents` to its binding (`primary` or `pip`).
   `service-id-collision`. `profileIdForApiBase` keeps 64 bits of the hash, so the collision is
   refused, not assumed impossible.
 - **`advanceGeneration` is the only generation mutator.** A view advances its generation on a
-  main-frame `did-start-navigation` that is not same-document (`document`), on
-  `render-process-gone` (`renderer-gone`), on its custody's credential events
+  main-frame `did-start-navigation` that is not same-document (`document`), again when that
+  navigation commits (`did-navigate`, or a main-frame `did-fail-load` other than ERR_ABORTED,
+  also `document`) so nothing the outgoing document bound before the commit stays current for
+  its successor, on `render-process-gone` (`renderer-gone`), on its custody's credential events
   (`credential-start`, `credential-end`), and on dispose (`disposed`). Refresh-token rotation
   and a network outage do not advance it: neither changes authority.
 - **Owner binding** (`desktop/src/main/connectionCapability.ts`): `bindOwner`,
