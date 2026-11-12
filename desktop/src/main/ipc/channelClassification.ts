@@ -116,7 +116,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:googleCancel': 'connection-bound',
   'audiocap:stop': 'connection-bound',
   'open-external': 'connection-bound',
-  'image:saveAs': 'connection-bound',
+  'image:saveAs': 'app-global-mutate',
   'app:setBadgeCount': 'connection-bound',
   'app:flashFrame': 'connection-bound',
   'app:focusWindow': 'app-global-mutate',

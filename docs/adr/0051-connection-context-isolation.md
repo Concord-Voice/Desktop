@@ -532,6 +532,7 @@ Each row is a security decision taken in review. The table of record is
 | `spa:requestSelfHeal` (and the `did-fail-load` self-heal trigger, no channel) | `connection-bound`; `attemptSelfHeal` acts only when the requester is the saas view, and `did-fail-load` reaches it only from the saas primary's main frame | RT3 |
 | `app:focusWindow` | `app-global-mutate` | RT6 |
 | `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
+| `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
