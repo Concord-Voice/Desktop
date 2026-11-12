@@ -361,13 +361,23 @@ function entryToForeground(entries: readonly ConnectionsFileEntry[]): Connection
  * saas view, which the caller has already opened. `register` re-admits each origin
  * through the registry, so an entry whose origin is no longer approved opens nothing.
  * The views are created in file order before any of them finishes loading.
+ *
+ * A window re-created later in the same process (macOS dock re-activate) passes the
+ * same startup snapshot again. The list already restored for that userData root is
+ * the live one, holding the connections added since, so it is used instead: the
+ * snapshot would drop them here and then overwrite `connections.json` without them.
+ * With no shell window (a quit during the saas load) nothing is opened.
  */
 export async function restorePersistedConnections(
   userDataRoot: string,
-  entries: readonly ConnectionsFileEntry[],
+  startupEntries: readonly ConnectionsFileEntry[],
   register: (origin: string) => ServiceRecord | null
 ): Promise<void> {
-  persisted = { root: userDataRoot, entries: [...entries] };
+  if (shellWindow() === null) return;
+  if (persisted?.root !== userDataRoot) {
+    persisted = { root: userDataRoot, entries: [...startupEntries] };
+  }
+  const entries = persisted.entries;
   const url = deps?.devConnectionUrl ?? DEFAULT_CONNECTION_URL;
   const loads: Promise<void>[] = [];
   for (const entry of entries) {
@@ -377,14 +387,24 @@ export async function restorePersistedConnections(
     if (service?.serviceId !== entry.serviceId) continue;
     // Everything before the view's load runs synchronously, so the record exists on return.
     loads.push(
-      openConnectionView(service.serviceId, url).then((result) => {
-        if (!result.ok) console.warn(`[shellWindow] connection not restored (${result.reason})`);
-      })
+      openConnectionView(service.serviceId, url)
+        .then((result) => {
+          if (!result.ok) console.warn(`[shellWindow] connection not restored (${result.reason})`);
+        })
+        .catch(() => {
+          // Fixed text: a refusal names no origin. The caller does not await this restore.
+          console.warn('[shellWindow] connection not restored (view could not be opened)');
+        })
     );
   }
   const first = entryToForeground(entries);
   if (first) showConnection(first.serviceId, false);
   await Promise.all(loads);
+}
+
+/** Test-only: forget the restored `connections.json` list, as a fresh process would. */
+export function _resetPersistedConnectionsForTesting(): void {
+  persisted = null;
 }
 
 /** Invariant 6. A no-op with no window; with no foreground every view is hidden. */
