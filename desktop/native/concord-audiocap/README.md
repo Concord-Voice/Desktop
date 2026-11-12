@@ -195,8 +195,11 @@ gitignored — it is per-platform build output, never committed.
 **The synthetic source is opt-in at CONFIGURE time, and that is constraint C10.**
 
 ```bash
-npx node-gyp rebuild -- -Daudiocap_synthetic=1   # adds concord_audiocap_synthetic.node
+npm run build:native -- --synthetic   # adds concord_audiocap_synthetic.node
 ```
+
+Do not call `node-gyp` directly. `desktop/scripts/build-native.mjs` passes
+`-Daudiocap_synthetic=1` itself, and a raw call drops the Electron runtime headers.
 
 A default build produces one target. The CI/test variant is a second `.node` with a
 second name, and `index.js` can only ever resolve `concord_audiocap.node` — so the

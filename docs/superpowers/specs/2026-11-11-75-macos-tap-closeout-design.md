@@ -1,7 +1,8 @@
 # Issue 75 closeout: macOS per-process audio capture (Core Audio process taps)
 
 **Status:** Design approved by the project lead on 2026-11-11, with pre-measurement decisions 1
-to 5 (section 8) taken as recommended. Decisions 6 to 11 are still open. Nothing here is built.
+to 5 (section 8) taken as recommended. Decision 11 is taken as "fix in PR 1". Decisions 6 to
+10 are still open. PR 1 builds the runner, the classifier and the clock-domain fix (section 7).
 **Date:** 2026-11-11
 **Inputs:** design panel (architect, system engineer), an adversarial check of the panel's
 spec against the code (8 claims confirmed, 2 wrong, 5 cuts, 5 gaps), ADR-0043.
@@ -45,8 +46,8 @@ since boot. Effects:
 Smallest fix: add the difference between `mach_continuous_time()` and `mach_absolute_time()`,
 read back to back and converted, to every stamp; correct both comments; add a test that seeds
 from the host clock and stamps through `nowStampNs`. It touches `rt/` and needs the JSF++
-profile run. Lead decision 11: fix it in PR 1 of this issue (recommended, because criterion 4's
-evidence reads these counters) or as its own issue.
+profile run. Lead decision 11 was taken as "fix it in PR 1", because criterion 4's evidence
+reads these counters.
 
 ## 3. Criterion 4: the decision
 
@@ -78,7 +79,7 @@ gets exactly one class:
 | `carries` | `callbackTotal` above 0, and `signalTotal / callbackTotal` at least half the ratio of the both-granted control |
 | `silent` | `callbackTotal` above 0 and `signalTotal` equal to 0 |
 | `dead` | `callbackTotal` equal to 0 and no fault. The renderer sees a live silent track, so this counts as silent |
-| `other` | Anything else: a ratio above 0 but under half the control, the OS ending the process, two runs that disagree |
+| `other` | Anything else: a ratio above 0 but under half the control, the OS ending the process, no liveness block with no fault stage, two runs that disagree |
 
 - **Rule A.** No enumerable cell is `silent`, `dead` or `other`. Ship A1. No product code.
 - **Rule B.** Every enumerable `silent` or `dead` cell has a pair of grant readings that no
@@ -89,6 +90,16 @@ gets exactly one class:
   `not-determined` for a grant the app never requests (the user cannot fix that in System
   Settings, and prompting for the microphone to enable app sound is a privacy decision); the
   mid-share revoke run silences or ends a running tap.
+
+The classifier (`desktop/scripts/audiocap-matrix-probe/classify.mjs`) also gives Rule C when
+the evidence cannot be trusted:
+
+- A cell's grant readings do not match its pair in the section 5 table.
+- R1 ran under 60 s, did not start granted/granted, or shows no grant that is no longer granted
+  after the run (`screenAfter`, `microphoneAfter`).
+- The consent runs do not share one window id.
+- The rows file holds more than one OS build or Electron version.
+- A row has no `runId`. Two rows with one `runId` are one run pasted twice and count once.
 
 A cell where the window is not enumerable is refused today by an existing fence with the
 reason `target-unresolved`. It is recorded, and whether that message is an adequate
@@ -148,12 +159,20 @@ existing probe does (`desktop/scripts/audiocap-target-probe/main.js`), needs no 
 and never reads audio: it keeps the port but attaches no listener.
 
 - Arguments: `--label` (required; printed instead of the window title, which can be private),
-  `--title` or `--window-id`, `--seconds`.
+  `--title` or `--window-id`, `--kind` (required; `consent`, `include`, `exclude` or `revoke`),
+  `--seconds`.
 - It reads both grant statuses, enumerates with the same `desktopCapturer.getSources` call the
   product fence uses, and records `enumerable`.
-- After stop it reads the child's liveness line and prints one row: OS build, Electron
-  version, build kind, both statuses, `enumerable`, fault stage, `signalTotal`,
-  `callbackTotal`, `quantaTotal`, `overrunTotal`. Never a PID, never a title.
+- After stop it reads the child's liveness line and prints one `ROW` line with these fields:
+  `runId` (random, one per run), `label`, `kind`, `osRelease`, `osVersion`, `osBuild`,
+  `electron`, `buildKind`, `screen`, `microphone`, `windowId`, `enumerable`,
+  `enumerationFailed`, `faultStage`, `counters`, `seconds`, `screenAfter`, `microphoneAfter`.
+  `counters` is the child's liveness block (`callbackTotal`, `quantaTotal`, `signalTotal`,
+  `overrunTotal`, `destroyFailures`, `silentSinceStart`, `faulted`, `quiesceProved`), or `null`
+  when the child printed none; the classifier reads a run as usable only when `faulted` is
+  `false`. `screen` and `microphone` are read before the run; `screenAfter` and
+  `microphoneAfter` are read again after it. Never a PID, never a title. The runner's file
+  header is the full reference.
 
 **Cells.** Run under the development Electron bundle's own identity
 (`open -n -W -a <absolute path>/desktop/node_modules/electron/dist/Electron.app --stdout <file>
@@ -213,9 +232,14 @@ Nothing measured here becomes a standing CI test: it needs real grants and real 
 
 ## 7. Changes, in two pull requests
 
-**PR 1, no product change.** It references the issue and does not close it; its branch name
-must not start with the issue number.
-- New `desktop/scripts/audiocap-matrix-probe/main.js` and `package.json`.
+**PR 1, one native product change (decision 11).** It references the issue and does not close
+it; its branch name must not start with the issue number.
+- New `desktop/scripts/audiocap-matrix-probe/main.js`, `package.json`, `classify.mjs` and
+  `classify.test.ts`.
+- `desktop/native/concord-audiocap/rt/platform/macos/tap_backend.mm`: the clock-domain fix in
+  section 2. It changes the stamps in the shipped macOS binary. Its test is in
+  `desktop/native/concord-audiocap/test/macos_partial_handle_test.mm` (local only), with the
+  comment fix in `test/rt_contract_test.cc` and a paragraph in the addon `README.md`.
 - `scripts/test-check-native-jsf-profile.sh`: the two case changes in section 6.
 - `.claude/rules/domains/native-audio.md`, lines 222 to 229: on darwin the shipped target has a
   producer and a start with no target returns `NoTarget`; elsewhere it returns `NoBackend`.
@@ -229,7 +253,7 @@ must not start with the issue number.
 - Rule B only: the three product files in section 3, `.claude/rules/domains/electron.md`, the
   changelog if one exists, and the unit tests.
 
-Out: any workflow edit, any `rt/` change, a README section for the runner (its usage lives in
+Out: any workflow edit, any `rt/` change beyond the decision-11 clock-domain fix, a README section for the runner (its usage lives in
 the file header, as for the existing probes).
 
 ## 8. Decisions that belong to the project lead
@@ -258,6 +282,7 @@ After the measurement:
 10. Follow-up issues: the partial-handle test in CI (needs a workflow push), and the
     whole-screen loopback path under the same grant states. The stale lines in the issue body.
 11. The tap's clock-domain mismatch (section 2): fix in PR 1 (recommended) or as its own issue.
+    Taken: fix in PR 1.
 
 ## 9. Risks
 
@@ -273,8 +298,8 @@ After the measurement:
 ## 10. Not in this work
 
 The Windows backend. A silence detector. Polling grants during a share. Prompting for the
-microphone from the share path. The launchd-parented browser limitation. Any `rt/` change. Any
-workflow edit. New IPC channels. OS versions or hardware we do not have. Any stored audio.
+microphone from the share path. The launchd-parented browser limitation. Any `rt/` change beyond the
+decision-11 clock-domain fix. Any workflow edit. New IPC channels. OS versions or hardware we do not have. Any stored audio.
 
 ## 11. Not verified
 

@@ -189,6 +189,16 @@ describe('classifyRevoke', () => {
   it('no counters and no fault stage is other', () => {
     expect(classifyRevoke(null, null, control, 10, 10)).toBe('other');
   });
+
+  // R1 runs 60 s against 20 s control runs, and the second toggle can land late.
+  const control20 = counters(2000, 2000); // 100 callbacks a second over 20 s
+  it('a tap that ends after 31 s of a 60 s run is stopped, not no-effect', () => {
+    expect(classifyRevoke(counters(3100, 3100), null, control20, 20, 60)).toBe('stopped');
+  });
+
+  it('a tap that goes silent after 48 s of a 60 s run is not no-effect', () => {
+    expect(classifyRevoke(counters(6000, 4800), null, control20, 20, 60)).toBe('other');
+  });
 });
 
 describe('applyRule', () => {
@@ -197,8 +207,9 @@ describe('applyRule', () => {
     screen: string,
     microphone: string,
     runs: string[],
-    enumerable = true
-  ) => ({ id, screen, microphone, enumerable, runs });
+    enumerable = true,
+    enumerationFailed = false
+  ) => ({ id, screen, microphone, enumerable, enumerationFailed, runs });
 
   const carryingCells = () => [
     cell('C1', 'granted', 'granted', ['carries', 'carries']),
@@ -207,7 +218,9 @@ describe('applyRule', () => {
     cell('C4', 'denied', 'denied', ['carries', 'carries']),
   ];
 
-  it('is Rule A when C1 to C4 all carry', () => {
+  // applyRule alone does not check completeness (no C5, no revoke row here); that is
+  // incompleteCells, which main() merges in. This is not the spec's Rule A.
+  it('applyRule alone gives A when C1 to C4 all carry', () => {
     expect(applyRule(carryingCells(), null, [])).toEqual({ rule: 'A' });
   });
 
@@ -275,6 +288,32 @@ describe('applyRule', () => {
     expect(applyRule(cells, null, [])).toEqual({ rule: 'A' });
   });
 
+  // A window missing from a list Screen Recording could read is hidden or stale, a
+  // state a user can reach, not the share the fence refuses.
+  it('counts a non-enumerable cell while Screen Recording reads granted', () => {
+    const cells = carryingCells();
+    cells[1] = cell('C2', 'granted', 'denied', ['silent', 'silent'], false);
+    expect(applyRule(cells, null, [])).toEqual({
+      rule: 'B',
+      predicate: [{ screen: 'granted', microphone: 'denied' }],
+    });
+  });
+
+  it('excuses a non-enumerable cell whose enumeration failed', () => {
+    const cells = carryingCells();
+    cells[1] = cell('C2', 'granted', 'denied', ['silent', 'silent'], false, true);
+    expect(applyRule(cells, null, [])).toEqual({ rule: 'A' });
+  });
+
+  // Deliberately stricter than the spec: the excuse covers silence, not `other`.
+  it('an excused cell that is other still stops the rule', () => {
+    const cells = [
+      ...carryingCells(),
+      cell('C5', 'denied', 'denied', ['carries', 'silent'], false),
+    ];
+    expect(applyRule(cells, null, []).rule).toBe('C');
+  });
+
   it('an unknown reading is a distinct pair, never held', () => {
     const cells = carryingCells();
     cells.push(cell('C5', 'granted', 'somethingnew', ['silent', 'silent']));
@@ -312,35 +351,91 @@ describe('incompleteCells', () => {
     cell('C5', 'not-determined', 'not-determined', 2),
   ];
 
+  // Spec section 5, R1: a 60 s run that starts with both grants held; by its end a
+  // grant reads turned off.
+  const r1 = (over: Record<string, unknown> = {}) => ({
+    label: 'R1',
+    screen: 'granted',
+    microphone: 'granted',
+    screenAfter: 'denied',
+    microphoneAfter: 'denied',
+    seconds: 60,
+    ...over,
+  });
+
   it('is empty for a complete set of rows', () => {
-    expect(incompleteCells(complete(), 'no-effect')).toEqual([]);
+    expect(incompleteCells(complete(), [r1()])).toEqual([]);
   });
 
   it('names a required cell with no rows', () => {
     const cells = complete().filter((c) => c.id !== 'C4');
-    expect(incompleteCells(cells, 'no-effect')).toEqual(['C4 has no rows']);
+    expect(incompleteCells(cells, [r1()])).toEqual(['C4 has no rows']);
   });
 
   it('names a cell with one run of two', () => {
     const cells = complete();
     cells[1] = cell('C2', 'granted', 'denied', 1);
-    expect(incompleteCells(cells, 'no-effect')).toEqual(['C2 has 1 of 2 runs']);
+    expect(incompleteCells(cells, [r1()])).toEqual(['C2 has 1 of 2 runs']);
   });
 
   it('names a control that does not read granted, granted', () => {
     const cells = complete();
     cells[0] = cell('C1', 'granted', 'denied', 2);
-    expect(incompleteCells(cells, 'no-effect')).toEqual(['C1 does not read granted, granted']);
+    expect(incompleteCells(cells, [r1()])).toEqual([
+      'C1 reads granted, denied; expected granted, granted',
+    ]);
   });
 
   it('names a missing revoke run', () => {
-    expect(incompleteCells(complete(), null)).toEqual(['the revoke run R1 has no row']);
+    expect(incompleteCells(complete(), [])).toEqual(['the revoke run R1 has no row']);
+  });
+
+  // The toggles never reached the runner's identity: every cell reads the control's pair.
+  it('names every cell that does not read the pair that defines it', () => {
+    const cells = complete().map((c) => ({ ...c, screen: 'granted', microphone: 'granted' }));
+    expect(incompleteCells(cells, [r1()])).toEqual([
+      'C2 reads granted, granted; expected granted, denied',
+      'C3 reads granted, granted; expected denied, granted',
+      'C4 reads granted, granted; expected denied, denied',
+      "C5 reads granted, granted, the control's pair; expected the readings after a reset",
+    ]);
+  });
+
+  it('names a revoke run shorter than 60 s', () => {
+    expect(incompleteCells(complete(), [r1({ seconds: 20 })])).toEqual([
+      'R1 ran 20 s; expected at least 60 s',
+    ]);
+  });
+
+  it('names a revoke run with no recorded length', () => {
+    expect(incompleteCells(complete(), [r1({ seconds: undefined })])).toEqual([
+      'R1 ran for an unrecorded time; expected at least 60 s',
+    ]);
+  });
+
+  it('names a revoke run that did not start with both grants held', () => {
+    expect(incompleteCells(complete(), [r1({ microphone: 'denied' })])).toEqual([
+      'R1 starts reading granted, denied; expected granted, granted',
+    ]);
+  });
+
+  it.each([
+    ['both still read granted', { screenAfter: 'granted', microphoneAfter: 'granted' }],
+    ['no after-readings', { screenAfter: undefined, microphoneAfter: undefined }],
+    ['an unknown after-reading', { screenAfter: 'unknown', microphoneAfter: 'granted' }],
+  ])('names a revoke run that shows no revoke: %s', (_, over) => {
+    expect(incompleteCells(complete(), [r1(over)])).toEqual(['R1 shows no revoke']);
+  });
+
+  it('one grant read turned off after the run is a revoke', () => {
+    expect(incompleteCells(complete(), [r1({ screenAfter: 'granted' })])).toEqual([]);
   });
 });
 
 describe('classify.mjs CLI', () => {
-  const row = (label: string, screen: string, microphone: string) =>
+  const row = (label: string, screen: string, microphone: string, runId: string) =>
     JSON.stringify({
+      runId,
       label,
       kind: 'consent',
       screen,
@@ -358,7 +453,7 @@ describe('classify.mjs CLI', () => {
     const file = path.join(dir, 'rows.jsonl');
     fs.writeFileSync(
       file,
-      `ROW ${row('C1', 'granted', 'granted')}\nROW ${row('C1', 'granted', 'granted')}\n`
+      `ROW ${row('C1', 'granted', 'granted', 'a')}\nROW ${row('C1', 'granted', 'granted', 'b')}\n`
     );
     const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
     const run = spawnSync(process.execPath, [cli, file], { encoding: 'utf8' });
@@ -367,5 +462,169 @@ describe('classify.mjs CLI', () => {
     expect(run.stdout).toContain('rule C');
     expect(run.stdout).toContain('reason C2 has no rows');
     expect(run.stdout).toContain('reason the revoke run R1 has no row');
+  });
+});
+
+describe('classify.mjs CLI, a whole session through main()', () => {
+  const session = {
+    osBuild: '26B123',
+    electron: '45.0.0',
+    windowId: 7,
+    enumerable: true,
+    enumerationFailed: false,
+    faultStage: null,
+  };
+  let runs = 0;
+  const runId = () => `run-${++runs}`;
+  const consent = (label: string, screen: string, microphone: string, cb: number, sig: number) => ({
+    ...session,
+    runId: runId(),
+    label,
+    kind: 'consent',
+    screen,
+    microphone,
+    counters: counters(cb, sig),
+    seconds: 20,
+  });
+  const revoke = (cb: number, sig: number, over: Record<string, unknown> = {}) => ({
+    ...session,
+    runId: runId(),
+    label: 'R1',
+    kind: 'revoke',
+    screen: 'granted',
+    microphone: 'granted',
+    screenAfter: 'denied',
+    microphoneAfter: 'granted',
+    counters: counters(cb, sig),
+    seconds: 60,
+    ...over,
+  });
+  // The two C1 runs give 150 callbacks a second summed, 100 for the first alone. The
+  // runs of one cell differ by a callback, so no two rows are identical.
+  const consentRows = () => [
+    consent('C1', 'granted', 'granted', 2000, 2000),
+    consent('C1', 'granted', 'granted', 4000, 4000),
+    consent('C2', 'granted', 'denied', 3000, 3000),
+    consent('C2', 'granted', 'denied', 3001, 3001),
+    consent('C3', 'denied', 'granted', 3000, 3000),
+    consent('C3', 'denied', 'granted', 3001, 3001),
+    consent('C4', 'denied', 'denied', 3000, 3000),
+    consent('C4', 'denied', 'denied', 3001, 3001),
+    consent('C5', 'not-determined', 'not-determined', 3000, 3000),
+    consent('C5', 'not-determined', 'not-determined', 3001, 3001),
+  ];
+
+  function classify(rows: object[]): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-'));
+    const file = path.join(dir, 'rows.jsonl');
+    fs.writeFileSync(file, rows.map((r) => `ROW ${JSON.stringify(r)}\n`).join(''));
+    const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
+    const run = spawnSync(process.execPath, [cli, file], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(run.status).toBe(0);
+    return run.stdout;
+  }
+
+  it('reaches Rule A for a complete carrying set and a no-effect revoke', () => {
+    const out = classify([...consentRows(), revoke(9000, 9000)]);
+    expect(out).toContain('R1\trevoke\tno-effect');
+    expect(out).toMatch(/^rule A$/m);
+  });
+
+  it("reaches Rule B with the silent cell's pair as the predicate", () => {
+    const rows = consentRows();
+    rows[6] = consent('C4', 'denied', 'denied', 3000, 0);
+    rows[7] = consent('C4', 'denied', 'denied', 3001, 0);
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule B$/m);
+    expect(out).toContain('predicate screen=denied microphone=denied');
+  });
+
+  // 7000 is under 90% of the summed control's 9000 for 60 s, but over 90% of the
+  // first run's 6000: only summing both control runs reads it as stopped.
+  it('judges the revoke run against both control runs summed', () => {
+    const out = classify([...consentRows(), revoke(7000, 7000)]);
+    expect(out).toContain('R1\trevoke\tstopped');
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason the revoke run is stopped');
+  });
+
+  it('gives Rule C for a revoke row with no seconds', () => {
+    const out = classify([...consentRows(), revoke(9000, 9000, { seconds: undefined })]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason R1 ran for an unrecorded time; expected at least 60 s');
+  });
+
+  // The toggles reached another identity: every cell reads the control's pair and carries.
+  it('gives Rule C when all five cells read granted, granted and carry', () => {
+    const rows = consentRows().map((r) => ({ ...r, screen: 'granted', microphone: 'granted' }));
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C2 reads granted, granted; expected granted, denied');
+    expect(out).toContain('reason C4 reads granted, granted; expected denied, denied');
+  });
+
+  it('counts two rows with one run id as one run', () => {
+    const rows = consentRows();
+    rows[3] = { ...rows[3], runId: rows[2].runId };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C2 has 1 of 2 runs');
+  });
+
+  // Two real runs that fault, or read dead, print the same counters; only the run id
+  // tells them apart, so neither may be dropped as a copy.
+  it('counts two identical faulted runs with their own run ids as two runs', () => {
+    const rows = consentRows().map((r) =>
+      r.label === 'C3' ? { ...r, faultStage: 'target', counters: null } : r
+    );
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).not.toContain('C3 has 1 of 2 runs');
+  });
+
+  it('gives Rule C for a row with no run id', () => {
+    const rows = consentRows();
+    const { runId: _dropped, ...noId } = rows[4];
+    rows[4] = noId as (typeof rows)[number];
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toMatch(/reason line \d+ has no run id/);
+  });
+
+  it('says why a non-enumerable cell is excused', () => {
+    const rows = consentRows().map((r) =>
+      r.label === 'C4'
+        ? { ...r, enumerable: false, enumerationFailed: true, counters: counters(2000, 0) }
+        : r
+    );
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toContain('C4 is not enumerable (the enumeration failed): reported, not counted');
+  });
+
+  it('reads a cell whose runs differ in enumerationFailed as other', () => {
+    const rows = consentRows();
+    const c2 = rows.findIndex((r) => r.label === 'C2');
+    rows[c2] = { ...rows[c2], enumerable: false, enumerationFailed: true };
+    rows[c2 + 1] = { ...rows[c2 + 1], enumerable: false, enumerationFailed: false };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toContain('reason C2 is other');
+  });
+
+  it('gives Rule C for rows from two OS builds or two Electron versions', () => {
+    const rows = consentRows();
+    rows[3] = { ...rows[3], osBuild: '26C5' };
+    rows[5] = { ...rows[5], electron: '46.0.0' };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason the rows span 2 OS builds');
+    expect(out).toContain('reason the rows span 2 Electron versions');
+  });
+
+  it('gives Rule C when the consent runs measured different windows', () => {
+    const rows = consentRows();
+    rows[3] = { ...rows[3], windowId: 8 };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason the consent runs measured 2 different windows');
   });
 });

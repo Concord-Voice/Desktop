@@ -4,11 +4,11 @@
 
 **Goal:** Produce the measured evidence that lets issue 75 close honestly: a local runner that records capture counters per grant state and per application, a fixed rule that turns those counters into a decision on criterion 4, and the record in ADR-0043.
 
-**Architecture:** A new sibling of the existing target probe forks the production capture child, reads only the child's end-of-run liveness counters, and prints one JSON row per run. A pure classifier turns rows into outcome classes and applies Rules A, B and C from the spec. Product code changes only if Rule B fires.
+**Architecture:** A new sibling of the existing target probe forks the production capture child, reads only the child's end-of-run liveness counters, and prints one JSON row per run. A pure classifier turns rows into outcome classes and applies Rules A, B and C from the spec. PR 1 changes one shipped file: the macOS tap's clock domain in `rt/platform/macos/tap_backend.mm` (decision 11, taken as "fix in PR 1", Task 4). Any other product code changes only if Rule B fires.
 
 **Tech Stack:** Electron 45 main process (plain JavaScript, as the other probes), Node ESM for the classifier, Vitest for its tests, bash for the JSF++ self-test.
 
-**Spec:** `docs/superpowers/specs/2026-11-11-75-macos-tap-closeout-design.md` (approved 2026-11-11; pre-measurement decisions 1 to 5 taken as recommended; decisions 6 to 11 open).
+**Spec:** `docs/superpowers/specs/2026-11-11-75-macos-tap-closeout-design.md` (approved 2026-11-11; pre-measurement decisions 1 to 5 taken as recommended; decision 11 taken as "fix in PR 1"; decisions 6 to 10 open).
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@
 
 ## Review Focus
 
-1. The child dies or prints no liveness line: the row must say so, never read as `silent` with zero counters. Pinned by Task 1 test `parseLiveness returns null when the line is absent` and `classifyConsent of null counters is fault`.
+1. The child dies or prints no liveness line: the row must say so, never read as `silent` with zero counters. Null counters with no fault stage are `other` (Rule C), never `fault` or `silent`; only a fault stage makes a run `fault`. Pinned by Task 1 test `parseLiveness returns null when the line is absent` and `classifyConsent of null counters is other`.
 2. stderr arrives in chunks that split the liveness object mid-key: parsing the joined buffer must give the same counters. Pinned by Task 1 test `parseLiveness reads a line split across chunks`.
 3. A cell whose window is not enumerable is silent for a reason the product already refuses: it must not decide Rule A or B. Pinned by Task 1 test `a non-enumerable silent cell does not block Rule A`.
 4. Two runs of one cell disagree: that must stop the rule, not average. Pinned by Task 1 test `disagreeing runs make the cell other and the rule C`.
@@ -81,7 +81,7 @@
 - [ ] **Step 4 (`docs-writer`):** `native-audio.md` lines 222 to 229: on darwin the shipped target has a producer, and a start with no target returns `NoTarget`; elsewhere it returns `NoBackend` (`.github/workflows/native-audiocap.yml`, near lines 310 to 315). The build command for the synthetic target is `npm run build:native -- --synthetic` (`desktop/scripts/build-native.mjs`), not a raw `node-gyp` call. The issue 73 pull request adds a paragraph to the same section: whichever merges second rebases.
 - [ ] **Step 5:** commit `test: pin the JSF++ self-test extension cases to their rule` and, separately, `docs: correct the shipped-target behaviour in the native-audio rules`, both `Refs #75`.
 
-### Task 4 (only if decision 11 is "PR 1"): the tap's clock domain
+### Task 4 (decision 11 taken as "PR 1"): the tap's clock domain
 
 **Files:**
 - Modify: `desktop/native/concord-audiocap/rt/platform/macos/tap_backend.mm:65-88`, the comment near `desktop/native/concord-audiocap/test/rt_contract_test.cc:2903`
@@ -95,7 +95,7 @@
 
 ### Task 5: PR 1
 
-- [ ] Draft PR per `/dev-lifecycle` Phase 5, then `/pr-creation`. Body: what the runner records and never records; the self-test mutation result; criterion 2 evidence (the last three nightly runs of the sanitizer and fuzz legs, by run link) and its gap (`tap_backend.mm` is never sanitized); criterion 3 evidence (the cited lines, re-read); criterion 7 as proposed in lead decision 9 (vitest coverage of the merged in-scope TypeScript: `desktop/src/main/audiocapChild.ts`, `audiocapHost.ts`, `ipc/audiocap.ts`; the native code is outside the configured gate); the open decisions 6 to 11.
+- [ ] Draft PR per `/dev-lifecycle` Phase 5, then `/pr-creation`. Body: what the runner records and never records; the self-test mutation result; criterion 2 evidence (the last three nightly runs of the sanitizer and fuzz legs, by run link) and its gap (`tap_backend.mm` is never sanitized); criterion 3 evidence (the cited lines, re-read); criterion 7 as proposed in lead decision 9 (vitest coverage of the merged in-scope TypeScript: `desktop/src/main/audiocapChild.ts`, `audiocapHost.ts`, `ipc/audiocap.ts`; the native code is outside the configured gate); decision 11 as taken (the clock-domain fix ships in this PR); the open decisions 6 to 10.
 
 ## Hands-on session (needs the project lead at the Mac, about 30 to 45 minutes)
 

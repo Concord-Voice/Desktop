@@ -4,9 +4,10 @@
 //
 // One run, one row. It reads both grant statuses, enumerates windows with the
 // product fence's own call, forks the REAL capture child with the REAL addon,
-// lets the tap run for --seconds, stops it, and prints the child's end-of-run
-// liveness counters as one `ROW <json>` line. `classify.mjs` (beside this file)
-// turns rows into classes and applies Rules A, B and C.
+// lets the tap run for --seconds, stops it, reads both grant statuses again, and
+// prints the child's end-of-run liveness counters as one `ROW <json>` line.
+// `classify.mjs` (beside this file) turns rows into classes and applies Rules A, B
+// and C.
 //
 // WHAT IT NEVER DOES.
 //   - Read audio. The PCM port's far end is held for the whole run, so it is not
@@ -21,13 +22,14 @@
 // USAGE. Development build, darwin only; it refuses when packaged.
 //
 //     cd desktop && npm run build:main && npm run build:native
-//     open -n -W -a node_modules/electron/dist/Electron.app --stdout "$PWD/rows.out" \
-//       --args "$PWD/scripts/audiocap-matrix-probe" \
+//     open -n -W -a "$PWD/node_modules/electron/dist/Electron.app" \
+//       --stdout "$PWD/rows.out" --args "$PWD/scripts/audiocap-matrix-probe" \
 //       --label C1 --title <part of one window's title> --kind consent --seconds 20
 //
 // `open -a` launches the bundle under its own identity, so the grants read and used
 // are the bundle's own (spec section 5, "Cells"); `--stdout` is how its ROW line is
-// kept, and the runner directory must be an absolute path. The terminal form,
+// kept. The bundle path and the runner directory must both be absolute: `open -a`
+// does not find a relative bundle path. The terminal form,
 // `./node_modules/.bin/electron scripts/audiocap-matrix-probe ...`, runs under the
 // terminal's grants instead: use it only for a run whose grants do not matter.
 //
@@ -36,19 +38,23 @@
 //   --window-id  or a window id (decimal CGWindowID). Exactly one of the two.
 //   --kind       required; consent | include | exclude | revoke. Copied into the row.
 //   --seconds    how long the tap runs, 1 to 600; default 20. Copied into the row,
-//                which classify.mjs needs to judge a revoke run.
+//                which classify.mjs needs to judge a revoke run. R1 needs 60.
 //
 // --title matches the name the enumeration gives a window, which is its title and
 // not its application's name: a Terminal window's name does not contain "Terminal"
 // (macOS 27.2, Electron 45.0.0, the first local run).
 //
 // OUTPUT. `ROW {label, kind, osRelease, osVersion, osBuild, electron, buildKind,
-// screen, microphone, windowId, enumerable, enumerationFailed, faultStage, counters,
-// seconds}` and exit 0, or `FAIL <reason>` and exit 2 with no row: the run did not
-// happen. `counters: null` means the child printed no liveness block (it died, or no
-// capture started); with no fault stage classify.mjs reads that as `other`, never as
-// silence. `windowId` is the handle the run used, so a later cell can target the same
-// window with --window-id. `enumerable` is false for a --window-id the fence's
+// runId, screen, microphone, screenAfter, microphoneAfter, windowId, enumerable,
+// enumerationFailed, faultStage, counters, seconds}` and exit 0, or `FAIL <reason>`
+// and exit 2 with no row: the run did not happen. `screenAfter` and
+// `microphoneAfter` are the grants read again after the run, which is how R1 shows
+// that a grant was turned off. `counters: null` means the child printed no liveness
+// block (it died, or no capture started); with no fault stage classify.mjs reads
+// that as `other`, never as silence. `windowId` is the handle the run used, so a
+// later cell can target the same window with --window-id; every consent run must
+// use one window, or classify.mjs reads Rule C. `enumerable` is false for a
+// --window-id the fence's
 // enumeration does not list, and `enumerationFailed` is true when the enumeration
 // itself rejected (the bundle holds no Screen Recording grant), so only --window-id
 // can run. Either way the run goes ahead, because what the child does with such a
@@ -67,6 +73,7 @@ const {
   systemPreferences,
   utilityProcess,
 } = require('electron');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -311,7 +318,15 @@ async function main(parsed) {
   const run = await runCapture(handle, seconds, parseLiveness);
   if (run.error) return fail(run.error);
 
+  // Read again after the run, so a revoke row shows whether a grant was turned off.
+  // If macOS does not report a mid-run change to a running process, these still read
+  // granted and classify.mjs reads R1 as no revoke: Rule C, never no-effect.
+  const screenAfter = systemPreferences.getMediaAccessStatus('screen');
+  const microphoneAfter = systemPreferences.getMediaAccessStatus('microphone');
+
   const row = {
+    // A random id, so two runs that print the same counters are still two runs.
+    runId: crypto.randomUUID(),
     label,
     kind,
     osRelease: os.release(),
@@ -321,6 +336,8 @@ async function main(parsed) {
     buildKind: 'development',
     screen,
     microphone,
+    screenAfter,
+    microphoneAfter,
     windowId: handle,
     enumerable,
     enumerationFailed: live === null,
