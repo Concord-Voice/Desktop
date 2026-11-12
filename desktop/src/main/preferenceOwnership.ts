@@ -10,8 +10,9 @@
 //     over (ServiceId, localId), so a colliding id on saas, A and B never shares a key.
 //   - serverUserId is renderer-supplied on auth:storeRefreshToken and main-derived on
 //     an SSO publish (the issued access token's user_id claim, ipc/sso.ts). It is only
-//     ever input to the hash: never persisted, logged, or returned. `isServerUserId` is
-//     the one admission rule, used at both entry points (main.ts, ipc/sso.ts) and here.
+//     ever input to the hash: never persisted, logged, or returned. `isServerUserId`
+//     (shared/serverUserId.ts) is the one admission rule, used at both entry points
+//     (main.ts, ipc/sso.ts), here, and by the renderer before it sends an id.
 //   - the scope is null until the service's custody holds an account, and null again
 //     once the credential ends (the custody clears the key).
 //   - a renderer receives only the scope. `prefsDirFor` stays in main; it never sees an
@@ -27,25 +28,10 @@ import {
   type PreferenceScope,
   type ServiceId,
 } from '../shared/connectionIdentity';
+import { isServerUserId } from '../shared/serverUserId';
 import type { ConnectionRecord, ServiceRecord } from './connectionRegistry';
 
-/** A server user id is a UUID today; the cap bounds the hash input from the renderer. */
-export const MAX_SERVER_USER_ID_LENGTH = 256;
-
-// C0 controls (NUL included), DEL and C1 controls.
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
-
 const HEX = /^[0-9a-f]+$/;
-
-/** Non-empty, bounded, no control characters. */
-export function isServerUserId(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    value.length <= MAX_SERVER_USER_ID_LENGTH &&
-    !CONTROL_CHARACTER.test(value)
-  );
-}
 
 /** hex16(sha256(compositeKey(serviceId, serverUserId))). Throws TypeError on a refused id. */
 export function accountKeyFor(serviceId: ServiceId, serverUserId: string): AccountKey {

@@ -76,7 +76,7 @@ import {
   isValidatedSelfHostedApiBase,
   loadApprovedSelfHostedOrigins,
 } from './selfHostedProfile';
-import { isServerUserId } from './preferenceOwnership';
+import { isServerUserId } from '../shared/serverUserId';
 import { resolveForDisplay, type ResolveForDisplayResult } from './guardedRequest';
 import type { EgressDecision } from './egressPolicy';
 import {
