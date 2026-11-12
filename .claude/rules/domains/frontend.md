@@ -1173,6 +1173,48 @@ half is `.claude/rules/media-plane.md` § "Media-rate policer (#2153)" — read 
   `emergencyCleanup()` with no dialog; only `handleJoinFailure` opens it. The popped-out PiP controls
   window shows no notice strip, but `toggleMute`'s guard still holds there.
 
+## Capture lease — renderer side (#87)
+
+Spec §3.8 (`docs/superpowers/specs/2026-11-09-87-capture-lease-and-resource-budgets-design.md`).
+`services/voice/captureLeaseClient.ts` is a service, not a store. It wraps
+`globalThis.electron.capture` (contract 35). With no bridge, `acquire` answers `granted` and
+`release` does nothing, which is the pre-35 behaviour.
+
+- **Join acquires first.** The first await in `joinChannel` is `acquire('voice-join')`. It runs
+  before `authorizeVoiceJoin`, E2EE init and any `getUserMedia`. A `granted` clears
+  `captureMovedNotice`. Any other non-grant except `declined` throws `CaptureLeaseError`, and
+  `setJoinError` shows `captureLeaseMessage(reason)`.
+- **`declined` is silent.** The user chose Stay in main's dialog, so no join error is shown.
+  The join calls `bumpCaptureDeclined()` and the announcer speaks once.
+- **Revocation sets the notice before cleanup and never rejoins.** `captureRevocation.ts` is
+  installed once by `App` (never in the PiP window). On `moved` it runs, in order:
+  `setCaptureMovedNotice(true)`, `advanceVoiceActionGeneration()`,
+  `setPendingVoiceRejoin(null)`, `voiceService.emergencyCleanup()`, the `capture-revoked` event
+  on `captureRevokedEvents`, a release of both claims, then `setCaptureLease('none')`. On
+  `backgrounded` (a device test only) it emits the event, releases `device-test` and clears the
+  view; a call is left alone. The same module mirrors every `capture:lease` push into
+  `captureLease`.
+- **Three `voiceStore` fields.** `reset()` **preserves** `captureLease`
+  (`'none' | 'mine' | 'other'`) and `captureMovedNotice`, because a `moved` revocation sets the
+  notice and `emergencyCleanup()` then runs `reset()`. `gracefulReset()` clears both, and
+  `resetAllStores()` pins both. `captureDeclinedSeq` is transient, so `reset()` wipes it.
+- **Copy (§3.8, verbatim).** It never names a service. `CAPTURE_LEASE_COPY` and
+  `captureLeaseMessage` export it:
+
+| Key | String |
+|---|---|
+| Hint (join controls; device test) | "Your microphone is in a call on another connection. Joining here will ask before ending that call." |
+| Device test, `held` | "Your microphone is in a call on another connection. Leave that call to test it here." |
+| Device test, `backgrounded` | "Your test stopped when you switched to another connection. Start it again to keep testing." |
+| Pending (SR) | "Joining voice…" |
+| Declined (SR) | "Staying on your current call." |
+| Banner | "Your call ended because your microphone moved to another connection." Button: "Dismiss" |
+| `busy` | "You've asked to switch a few times quickly. Wait a moment, then try again." |
+| `not-foreground` | "Voice can start only on the connection you're viewing. Join again from here." |
+| `unavailable` | "This connection doesn't offer voice." |
+| `superseded` | "Your connection restarted before voice could start. Join again." |
+| `untrusted-sender`, IPC throws, unknown | "Couldn't start voice. Restart Concord Voice and try again." |
+
 ## Codec selection and status truth (`voiceCodecSelection.ts`, post-#2242)
 
 `voiceCodecSelection.ts` is the canonical codec-order seam for runtime selection and Settings

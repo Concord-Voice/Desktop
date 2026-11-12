@@ -57,6 +57,7 @@ import { useVoiceStore } from './stores/voice/voiceStore';
 import { startBadgeSync } from './services/system/badgeSync';
 import { startTraySync } from './services/system/traySync';
 import { startTrayActionDispatcher } from './services/system/trayActionDispatcher';
+import { installCaptureRevocationHandler } from './services/voice/captureRevocation';
 import { usePendingRegistrationStore } from './stores/auth/pendingRegistrationStore';
 // resetService is eagerly registered by main.tsx; local dynamic imports resolve
 // from that loaded module while avoiding direct feature-module cycles.
@@ -481,6 +482,13 @@ function App() {
       stopSync();
       stopActions();
     };
+  }, [isPipWindow]);
+
+  // #87: mirror capture-lease pushes into voiceStore and act on revocations. The PiP
+  // window never holds the lease.
+  useEffect(() => {
+    if (isPipWindow) return undefined;
+    return installCaptureRevocationHandler();
   }, [isPipWindow]);
 
   useEffect(() => {
