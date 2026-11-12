@@ -4,10 +4,11 @@
  * Fences, in this order; nothing here throws. The result is `false` only when the
  * rate limit dropped the snapshot (the renderer resends it); every other outcome,
  * refusals included, is `true`:
- *   1. `requireTrustedSender` — a permitted SPA frame origin.
- *   2. The sender is the MAIN window's `webContents` and its main frame (R5). A PiP
- *      window shares the origin and would pass (1); only the main window may set
- *      tray status.
+ *   1. Admission (since IPC contract v34, #86): `registerIpc` as `connection-bound`
+ *      admits a bound PRIMARY main frame whose URL is permitted for its connection's
+ *      kind (a PiP shares the origin and is refused there).
+ *   2. `isTrayOwner` (R5): the tray's owner only, the bound owner's current primary
+ *      when `setTrayOwner` has named one, else the foreground connection's primary.
  *   3. A 20/s token bucket.
  *   4. `firstInvalidField` — the exact-key, closed-enum guard. A malformed payload is
  *      logged once per session with the field NAME only (a fixed-table token, never a

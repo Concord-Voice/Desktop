@@ -5,9 +5,13 @@
  * is the mistake this module's existence is meant to prevent.
  *
  * FOUR FENCES, in this order, and the order is the design:
- *   1. sender frame   -- read on the FIRST statement (A4): a permitted origin AND the
- *                        main window's own main frame (#3394 PR 1, R5). Re-run after
- *                        the only await, because the requester can go away during it.
+ *   1. sender frame   -- read on the FIRST statement (A4). Since IPC contract v34
+ *                        (#86): `app-global-mutate` admission (the foreground
+ *                        connection's primary), then `isOwnerPrimaryFrame` for the
+ *                        connection the share is bound to, and a refusal while another
+ *                        connection owns a live share. Re-run after the only await,
+ *                        with a foreground re-check, because the requester can go away
+ *                        or go to the background during it.
  *   2. payload shape  -- one known field; extras are dropped, never honoured
  *   3. prefix + shape -- re-parsed HERE, never trusted from the renderer (D4a)
  *   4. liveness       -- the id must still be in desktopCapturer's enumeration

@@ -1,7 +1,8 @@
 /**
  * The `billing:open` invoke (#1305, #2033 PR-3b, IPC contract 32).
  *
- * Two fences, in this order: the sender frame must be a trusted SPA frame, and
+ * Two fences, in this order: the sender must be the `saas` connection's bound
+ * primary main frame (`saas-only` admission, IPC contract v34, #86), and
  * the URL must be exactly the kind's Stripe host (`validateBillingUrl`). Only
  * then does main open the launcher window; the renderer never chooses where
  * the view may navigate after that.
