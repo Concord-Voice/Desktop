@@ -19,6 +19,7 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { advanceVoiceActionGeneration, getVoiceActionGeneration } from './voiceActionGeneration';
+import { acquire, captureLeaseMessage, CaptureLeaseError, release } from './captureLeaseClient';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useUpdateStatusStore } from '../../stores/ui/updateStatusStore';
 import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
@@ -4042,7 +4043,8 @@ class VoiceService {
     callStateToPreserve: Extract<CallState, { kind: 'joining' }> | undefined
   ): Promise<void> {
     if (!store.activeChannelId) return;
-    await this.leaveChannel();
+    // The join was granted the capture lease before this leave; keep it for the new call.
+    await this.leaveChannel({ keepCaptureLease: true });
     if (!callStateToPreserve || useVoiceStore.getState().callState.kind !== 'idle') return;
     useVoiceStore.getState().setCallState(callStateToPreserve);
   }
@@ -4103,9 +4105,13 @@ class VoiceService {
     try {
       const store = useVoiceStore.getState();
       const directDMJoiningState = this.claimDMJoinOwnership(channelId, joinType, store);
-      shouldRecoverJoinFailure = true;
       const callStateToPreserve = this.dmJoiningStateToPreserve(channelId, joinType);
       const ringId = joinType === 'dm' ? this.currentDMRingID(channelId) : undefined;
+      // #87 §3.8: the first await. The capture lease comes before authorization, E2EE
+      // init and any getUserMedia. A Stay (declined) ends the join silently; a non-grant
+      // tears nothing down, because this document may still hold a live call.
+      if (!(await this.acquireVoiceJoinLease(directDMJoiningState))) return;
+      shouldRecoverJoinFailure = true;
       await this.leaveActiveChannelBeforeJoin(store, callStateToPreserve);
       this.requireJoinOwnership(recoveryOwner, cleanupGeneration);
 
@@ -4175,6 +4181,31 @@ class VoiceService {
     } finally {
       this.joinInFlight = false;
     }
+  }
+
+  /**
+   * Ask main for the capture lease (#87 §3.8). `true` on a grant; `false` when the user
+   * chose Stay in main's dialog, which shows no error. Any other answer shows its copy
+   * and throws `CaptureLeaseError`. Nothing was granted on those paths, so none releases;
+   * a DM join claim this join made is handed back, as a failed join's reset would.
+   */
+  private async acquireVoiceJoinLease(
+    dmJoinClaim: Extract<CallState, { kind: 'joining' }> | undefined
+  ): Promise<boolean> {
+    const result = await acquire('voice-join');
+    const store = useVoiceStore.getState();
+    if (result.status === 'granted') {
+      store.setCaptureMovedNotice(false);
+      return true;
+    }
+    if (dmJoinClaim && store.callState === dmJoinClaim) store.setCallState({ kind: 'idle' });
+    if (result.status === 'declined') {
+      store.bumpCaptureDeclined();
+      return false;
+    }
+    const reason = result.status === 'held' ? 'held' : result.reason;
+    store.setJoinError(captureLeaseMessage(reason));
+    throw new CaptureLeaseError(reason);
   }
 
   /** Mark a join connected: restore privacy intent, sounds and the DM call state. */
@@ -4456,6 +4487,8 @@ class VoiceService {
         this.sanitizeErrForLog(cleanupErr)
       );
     }
+    // The failed join's media is gone, so its capture lease goes too (#87 §3.8).
+    void release('voice-join');
     // store.setActiveChannel runs early in joinChannel (before mic / media-
     // plane handshake), so a late-stage failure leaves activeChannelId
     // pointing at the channel we never actually joined. Reset clears that
@@ -4478,7 +4511,11 @@ class VoiceService {
   }
 
   /** Leave the current voice channel */
-  async leaveChannel(opts?: { internalRebuild?: boolean }): Promise<void> {
+  async leaveChannel(opts?: {
+    internalRebuild?: boolean;
+    /** Only a join's leave-before-join: that join already holds the lease. */
+    keepCaptureLease?: boolean;
+  }): Promise<void> {
     // Any user-initiated leave cancels a pending legacy-fallback rebuild —
     // rejoining a call the user explicitly left is never acceptable
     // (CodeRabbit, PR #2866). The rebuild's own leave passes internalRebuild.
@@ -4495,6 +4532,9 @@ class VoiceService {
       this.socket.emit('leave-room');
     }
     await this.cleanup(opts?.internalRebuild === true);
+    // #87 §3.8: the tracks are stopped, so the lease can go. A rebuild re-joins at once
+    // and keeps it. Fire-and-forget: release never rejects.
+    if (!opts?.internalRebuild && !opts?.keepCaptureLease) void release('voice-join');
 
     notificationSoundService.stopAllLoops();
     // Silent during the legacy-fallback rebuild — the user is not leaving.
@@ -4526,8 +4566,12 @@ class VoiceService {
    * Used for forced logout, token revocation, connection loss, and app close
    * where we can't wait for network round-trips.
    * All operations are idempotent — safe to call multiple times.
+   *
+   * Releases the `voice-join` capture lease at the end (#87 §3.8), never awaiting main.
+   * `keepCaptureLease` is for the sustained-outage teardown alone, whose rejoin ticket
+   * re-acquires as the holder; every other caller ends the call and releases.
    */
-  emergencyCleanup(): void {
+  emergencyCleanup(opts?: { keepCaptureLease?: boolean }): void {
     this.emergencyCleanupGeneration += 1;
     this.clearAuthRenewalRetry();
     this.mediaHandshake = null;
@@ -4551,6 +4595,8 @@ class VoiceService {
     // Reset store
     useVoiceStore.getState().clearAvailableScreenShares();
     useVoiceStore.getState().reset();
+
+    if (!opts?.keepCaptureLease) void release('voice-join');
   }
 
   /**
