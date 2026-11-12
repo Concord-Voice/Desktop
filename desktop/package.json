@@ -46,7 +46,7 @@
     "hash-wasm": "^4.12.0",
     "jose": "6.2.15",
     "lucide-react": "^1.66.0",
-    "mediasoup-client": "^3.25.3",
+    "mediasoup-client": "^3.26.0",
     "minisearch": "^7.2.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
