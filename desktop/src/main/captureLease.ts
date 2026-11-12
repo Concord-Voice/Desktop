@@ -537,12 +537,20 @@ export function shutdownCaptureLeaseForQuit(): void {
   }
 }
 
-/** R1, Q4: a crash cannot be vetoed by `beforeunload`; `reload()` then starts a new process. */
+/**
+ * R1, Q4: a crash cannot be vetoed by `beforeunload`; the reload then starts a new
+ * process. The reload runs from `render-process-gone`, not right after the crash: the
+ * capture-gate spike (results/macos-arm64.md, row 4) measured a `reload()` issued in the
+ * same task as `forcefullyCrashRenderer()` being lost, leaving the view crashed with no
+ * document.
+ */
 export function crashAndReloadRenderer(record: ConnectionRecord): void {
   const contents = record.webContents;
   if (contents.isDestroyed()) return;
+  contents.once('render-process-gone', () => {
+    if (!contents.isDestroyed()) contents.reload();
+  });
   contents.forcefullyCrashRenderer();
-  contents.reload();
 }
 
 export function captureLeaseCounts(): {

@@ -905,17 +905,43 @@ describe('counts and the default crash', () => {
     expect(captureLeaseCounts()).toEqual({ holder: 1, handoff: 0, claims: 1, leaseAware: 1 });
   });
 
-  it('crashAndReloadRenderer kills the renderer process before reloading it', () => {
+  it('crashAndReloadRenderer reloads only after the renderer process is gone', () => {
     const order: string[] = [];
+    let gone: (() => void) | null = null;
     const record = {
       webContents: {
         isDestroyed: () => false,
+        once: (event: string, cb: () => void) => {
+          if (event === 'render-process-gone') gone = cb;
+        },
         forcefullyCrashRenderer: () => order.push('crash'),
         reload: () => order.push('reload'),
       },
     } as unknown as ConnectionRecord;
     crashAndReloadRenderer(record);
+    expect(order).toEqual(['crash']);
+    gone?.();
     expect(order).toEqual(['crash', 'reload']);
+  });
+
+  it('crashAndReloadRenderer does not reload a webContents destroyed after the crash', () => {
+    let destroyed = false;
+    let gone: (() => void) | null = null;
+    const reload = vi.fn();
+    const record = {
+      webContents: {
+        isDestroyed: () => destroyed,
+        once: (_e: string, cb: () => void) => {
+          gone = cb;
+        },
+        forcefullyCrashRenderer: () => undefined,
+        reload,
+      },
+    } as unknown as ConnectionRecord;
+    crashAndReloadRenderer(record);
+    destroyed = true;
+    gone?.();
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it('crashAndReloadRenderer does nothing to a destroyed webContents', () => {
