@@ -384,6 +384,10 @@ export function release(
   if (entry.claims.size > 0) return true;
   holder = null;
   effect(() => d.setTrayOwner(null));
+  // A share must not outlive the lease that admitted it: the renderer ends its own share
+  // on a normal leave, but a release that skipped that step would leave the capture child
+  // feeding the former holder while another connection is granted the lease.
+  effect(() => d.revokeAudiocapShare());
   publish(d, entry.ref.connectionId, null);
   return true;
 }

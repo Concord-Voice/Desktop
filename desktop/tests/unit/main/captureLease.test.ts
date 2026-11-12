@@ -248,8 +248,10 @@ describe('acquire: fast paths', () => {
     expect(rel(a, TEST)).toBe(true);
     expect(isHolder(ref(a))).toBe(true);
     expect(pushes(a, CAPTURE_LEASE_PUSH)).toEqual([]);
+    expect(d.revokeAudiocapShare).not.toHaveBeenCalled();
     expect(rel(a, VOICE)).toBe(true);
     expect(isFree()).toBe(true);
+    expect(d.revokeAudiocapShare).toHaveBeenCalledTimes(1);
     expect(pushes(a, CAPTURE_LEASE_PUSH)).toEqual([{ held: false, mine: false }]);
     expect(pushes(b, CAPTURE_LEASE_PUSH)).toEqual([{ held: false, mine: false }]);
     expect(d.setTrayOwner).toHaveBeenLastCalledWith(null);
@@ -491,11 +493,12 @@ describe('acquire: the ceremony', () => {
   });
 
   it.each([
-    ['leaves voice', (a: Conn) => expect(rel(a)).toBe(true)],
-    ['reloads', (a: Conn) => advanceGeneration(a.record.connectionId, 'document')],
+    // A release ends any share itself; a reload leaves that to the audiocap listener (RC-4).
+    ['leaves voice', (a: Conn) => expect(rel(a)).toBe(true), 1],
+    ['reloads', (a: Conn) => advanceGeneration(a.record.connectionId, 'document'), 0],
   ])(
     "the named holder that %s during the dialog: 'join' grants with no handoff (Review Focus 3)",
-    async (_label, end) => {
+    async (_label, end, revokes) => {
       const { a, b } = await heldByAWithBInFront();
       const pending = acq(b);
       end(a);
@@ -503,7 +506,7 @@ describe('acquire: the ceremony', () => {
       await expect(pending).resolves.toEqual(GRANTED);
       expect(isHolder(ref(b))).toBe(true);
       expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([]);
-      expect(d.revokeAudiocapShare).not.toHaveBeenCalled();
+      expect(d.revokeAudiocapShare).toHaveBeenCalledTimes(revokes);
       vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
       expect(d.crashAndReload).not.toHaveBeenCalled();
     }
