@@ -1,5 +1,5 @@
 import { API_BASE, WS_BASE } from '../../config';
-import { bootConnection } from './bootConnection';
+import { bootConnection, type BootConnection } from './bootConnection';
 
 // #86 §3.10: the base this document boots with. A connection document is pinned to
 // its identity's apiOrigin; an unavailable one gets an address that can never resolve
@@ -7,12 +7,12 @@ import { bootConnection } from './bootConnection';
 // Only a legacy (pre-v34 shell) document starts from API_BASE and may change it.
 const boot = bootConnection();
 const UNAVAILABLE_API_BASE = 'https://connection-unavailable.invalid';
-const bootApiBase =
-  boot.mode === 'connection'
-    ? boot.identity.apiOrigin
-    : boot.mode === 'unavailable'
-      ? UNAVAILABLE_API_BASE
-      : API_BASE;
+function bootApiBaseFor(connection: BootConnection): string {
+  if (connection.mode === 'connection') return connection.identity.apiOrigin;
+  if (connection.mode === 'unavailable') return UNAVAILABLE_API_BASE;
+  return API_BASE;
+}
+const bootApiBase = bootApiBaseFor(boot);
 
 let runtimeApiBase = bootApiBase;
 let runtimeWsBase = boot.mode === 'legacy' ? WS_BASE : deriveWsBase(bootApiBase);

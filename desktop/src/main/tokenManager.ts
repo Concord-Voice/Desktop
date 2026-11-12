@@ -405,6 +405,18 @@ function parseCredentialEnvelope(
   return { token: envelope.token, owner: envelope.owner, binding: envelope.binding };
 }
 
+function credentialOwnersMatch(
+  left: RefreshOwnerSnapshot | null,
+  right: RefreshOwnerSnapshot | null
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.generation === right.generation &&
+    left.refreshToken === right.refreshToken &&
+    left.apiBase === right.apiBase
+  );
+}
+
 // ─── Custody Factory ─────────────────────────────────────────────────
 
 /**
@@ -539,18 +551,6 @@ export function createProfileCustody(serviceId: ServiceId, apiOrigin: string): P
       owner.generation === credentialGeneration &&
       owner.refreshToken === inMemoryRefreshToken &&
       owner.apiBase === inMemoryApiBase
-    );
-  }
-
-  function credentialOwnersMatch(
-    left: RefreshOwnerSnapshot | null,
-    right: RefreshOwnerSnapshot | null
-  ): boolean {
-    if (left === null || right === null) return left === right;
-    return (
-      left.generation === right.generation &&
-      left.refreshToken === right.refreshToken &&
-      left.apiBase === right.apiBase
     );
   }
 

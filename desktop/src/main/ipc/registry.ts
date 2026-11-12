@@ -111,9 +111,7 @@ function admit(cls: AdmissionClass, event: IpcEvent): Admission {
 }
 
 function classOf(channel: string): AdmissionClass | undefined {
-  return Object.prototype.hasOwnProperty.call(CHANNEL_CLASSES, channel)
-    ? CHANNEL_CLASSES[channel]
-    : undefined;
+  return Object.hasOwn(CHANNEL_CLASSES, channel) ? CHANNEL_CLASSES[channel] : undefined;
 }
 
 /**

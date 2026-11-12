@@ -304,7 +304,7 @@ export function registerAudiocapIpc(): void {
     refusal: () => undefined,
   });
   onGenerationAdvanced((id) => {
-    if (shareOwner === null || shareOwner.ref.connectionId !== id) return;
+    if (shareOwner?.ref.connectionId !== id) return;
     forgetShareOwner();
     shareOperationEpoch += 1;
     stopAudiocapHost();

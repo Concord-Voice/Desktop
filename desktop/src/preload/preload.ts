@@ -86,13 +86,13 @@ export interface TokenRefreshedData {
   previousSessionId?: string;
 }
 
-const GENERATION_REASONS: readonly string[] = [
+const GENERATION_REASONS: ReadonlySet<string> = new Set([
   'document',
   'renderer-gone',
   'credential-start',
   'credential-end',
   'disposed',
-];
+]);
 
 /**
  * #86 §3.7 (contract v34): which connection this document belongs to. ONE sendSync at
@@ -117,7 +117,7 @@ function generationPushFor(
   if (typeof data !== 'object' || data === null) return null;
   const { connectionId, generation, reason } = data as Record<string, unknown>;
   if (connectionId !== current.connectionId || !isGeneration(generation)) return null;
-  if (typeof reason !== 'string' || !GENERATION_REASONS.includes(reason)) return null;
+  if (typeof reason !== 'string' || !GENERATION_REASONS.has(reason)) return null;
   return { connectionId: current.connectionId, generation, reason: reason as GenerationReason };
 }
 

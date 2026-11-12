@@ -135,11 +135,10 @@ function uncommittedFrameUrl(contents: WebContents, frame: WebFrameMain): string
 function spaOriginForSender(
   wc: IpcMainEvent['sender'],
   role: BindingRole,
-  remoteSpaOrigin: string | null | undefined
+  remoteSpaOrigin: string | null = null
 ): string | null {
-  const current = remoteSpaOrigin ?? null;
-  if (current === null || role !== 'pip') return current;
-  return pipSpaOriginFor(wc) === current ? current : null;
+  if (remoteSpaOrigin === null || role !== 'pip') return remoteSpaOrigin;
+  return pipSpaOriginFor(wc) === remoteSpaOrigin ? remoteSpaOrigin : null;
 }
 
 /**

@@ -374,7 +374,7 @@ export async function restorePersistedConnections(
     if (entry.serviceId === SAAS_SERVICE_ID) continue;
     if (liveConnections().some((r) => r.serviceId === entry.serviceId)) continue;
     const service = register(entry.origin);
-    if (!service || service.serviceId !== entry.serviceId) continue;
+    if (service?.serviceId !== entry.serviceId) continue;
     // Everything before the view's load runs synchronously, so the record exists on return.
     loads.push(
       openConnectionView(service.serviceId, url).then((result) => {
@@ -541,7 +541,7 @@ export function createPipWindow(
   remoteSpaOrigin: string | null = null
 ): BrowserWindow | null {
   const bound = boundRecordFor(opener);
-  if (!bound || bound.role !== 'primary') return null;
+  if (bound?.role !== 'primary') return null;
   const service = getService(bound.record.serviceId);
   if (!service) return null;
   const connectionId = bound.record.connectionId;

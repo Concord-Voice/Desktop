@@ -265,7 +265,7 @@ describe('tokenManager cross-instance isolation', () => {
 
       unsub();
       A.storeRefreshToken({ refreshToken: 'rt-4', rememberMe: false, apiBase: ORIGIN_A });
-      expect(events.length).toBe(before + 1);
+      expect(events).toHaveLength(before + 1);
     });
   });
 

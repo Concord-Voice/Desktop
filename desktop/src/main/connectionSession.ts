@@ -180,7 +180,7 @@ const CLIPBOARD_PERMISSIONS: ReadonlySet<string> = new Set([
  */
 function clipboardAllowed(wc: WebContents, details: unknown, deps: ConnectionSessionDeps): boolean {
   const binding = deps.bindingFor(wc);
-  if (!binding || binding.role !== 'primary') return false;
+  if (binding?.role !== 'primary') return false;
   const record = deps.recordFor(binding.connectionId);
   if (!record || record.state === 'disposed' || record.webContents !== wc) return false;
   if (deps.foreground() !== record) return false;

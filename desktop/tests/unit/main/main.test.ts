@@ -3160,7 +3160,7 @@ describe('main.ts', () => {
           opened.push({ id, close });
         }
         // #86 RT5: one connection alone stops at its own cap, below the process-wide ceiling.
-        expect(opened.length).toBe(MAX_PIP_WINDOWS_PER_CONNECTION);
+        expect(opened).toHaveLength(MAX_PIP_WINDOWS_PER_CONNECTION);
         _resetPipOpenBudgetForTesting();
         await expect(
           handlers.get('pip:open')!(pipOwnerEvent, { id: 'over-cap' })

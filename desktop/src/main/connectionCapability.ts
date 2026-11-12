@@ -92,7 +92,7 @@ export function requireOwner(
 ): ConnectionRecord | null {
   if (senderMainFrame(event) === null) return null;
   const bound = boundRecordFor(event.sender);
-  if (!bound || bound.role !== 'primary' || !OwnerBindingImpl.isMinted(b)) return null;
+  if (bound?.role !== 'primary' || !OwnerBindingImpl.isMinted(b)) return null;
   if (bound.record.connectionId !== b.ref.connectionId) return null;
   return isOwnerCurrent(b) ? bound.record : null;
 }

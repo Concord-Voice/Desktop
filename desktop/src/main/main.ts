@@ -3418,7 +3418,7 @@ function resolveOwnedPip(
   id: unknown
 ): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
   const resolved = resolvePipSender(event, sender.ref.connectionId, id);
-  if (!resolved || resolved.entry.ownerRef.connectionId !== sender.ref.connectionId) return null;
+  if (resolved?.entry.ownerRef.connectionId !== sender.ref.connectionId) return null;
   return resolved;
 }
 
