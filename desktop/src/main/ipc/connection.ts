@@ -51,6 +51,7 @@ import {
 import type { ConnectionsFileEntry } from '../connectionsFile';
 import type { ConnectionCreateResult, ConnectionGenerationPush } from '../ipcContract';
 import { preferenceScopeFor } from '../preferenceOwnership';
+import { tryAcquireModal } from '../modalMutex';
 import { consumeCeremonyToken } from '../selfHostedCeremonyBudget';
 import { commitSelfHostedApproval, serviceIdForApiBase } from '../selfHostedProfile';
 import type { ConnectionViewLoader, OpenConnectionViewResult } from '../shellWindow';
@@ -183,7 +184,9 @@ function openRefusal(
 /**
  * The ceremony branch. Null when the origin is approved and the create continues;
  * otherwise the result to return. The budget rations the DIALOG, so its token is
- * spent before the dialog opens (as `selfHosted:probeServer` does).
+ * spent before the dialog opens (as `selfHosted:probeServer` does). One main-owned
+ * modal at a time (#87 R13): while the capture-move dialog is open this answers
+ * `busy` before a token is spent.
  */
 async function approve<P extends ConnectionProbe>(
   deps: ConnectionIpcDeps<P>,
@@ -191,8 +194,15 @@ async function approve<P extends ConnectionProbe>(
   origin: string,
   probed: P
 ): Promise<ConnectionCreateResult | null> {
-  if (!consumeCeremonyToken()) return rejected('busy');
-  const verdict = await deps.ceremony(origin, probed);
+  const releaseModal = tryAcquireModal('self-hosted-approval');
+  if (!releaseModal) return rejected('busy');
+  let verdict: ConnectionCeremonyVerdict;
+  try {
+    if (!consumeCeremonyToken()) return rejected('busy');
+    verdict = await deps.ceremony(origin, probed);
+  } finally {
+    releaseModal();
+  }
   const refusal = openerRefusal(opener);
   if (refusal) return rejected(refusal);
   if (!verdict.approved) return rejected('declined');

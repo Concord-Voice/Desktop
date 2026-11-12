@@ -2605,6 +2605,115 @@ describe('main.ts', () => {
     });
   });
 
+  // #87 R13: the approval dialog and the capture-move dialog share one main-owned modal
+  // slot. The probe handler has no 'busy' shape, so a taken slot is its rejected shape.
+  describe('cross-kind modal mutex (#87)', () => {
+    async function freshProbeState() {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      const { _resetSelfHostedProfileForTesting } =
+        await import('../../../src/main/selfHostedProfile');
+      const mutex = await import('../../../src/main/modalMutex');
+      const budget = await import('../../../src/main/selfHostedCeremonyBudget');
+      _resetSelfHostedProfileForTesting();
+      approvalStore.records.length = 0;
+      mockShowMessageBox.mockClear();
+      (probeSelfHostedServer as Mock).mockReset();
+      (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok' });
+      mutex._resetModalMutexForTesting();
+      return { probeSelfHostedServer, mutex, budget };
+    }
+
+    afterEach(async () => {
+      const { _resetModalMutexForTesting } = await import('../../../src/main/modalMutex');
+      _resetModalMutexForTesting();
+    });
+
+    it('refuses with probeRejected() while the capture modal is held, spending no token', async () => {
+      const { probeSelfHostedServer, mutex, budget } = await freshProbeState();
+      const releaseCapture = mutex.tryAcquireModal('capture');
+
+      const result = await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://held.lan');
+
+      expect(result).toEqual({
+        status: 'error',
+        code: 'rejected',
+        message: 'Self-hosted server probing is not available from this frame.',
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(probeSelfHostedServer).not.toHaveBeenCalled();
+      expect(approvalStore.records).toHaveLength(0);
+      expect(mutex.modalInFlight()).toBe('capture');
+
+      // No token was spent: the whole bucket is still there.
+      releaseCapture?.();
+      for (let i = 0; i < budget.CEREMONY_BUDGET; i++) {
+        expect(budget.consumeCeremonyToken()).toBe(true);
+      }
+      expect(budget.consumeCeremonyToken()).toBe(false);
+    });
+
+    it('holds the self-hosted-approval slot while the dialog is open, then releases it', async () => {
+      const { mutex } = await freshProbeState();
+      let during: string | null = null;
+      mockShowMessageBox.mockImplementationOnce(async () => {
+        during = mutex.modalInFlight();
+        return { response: 0 };
+      });
+
+      const result = await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://slot.lan');
+
+      expect(result).toMatchObject({ code: 'approval_declined' });
+      expect(during).toBe('self-hosted-approval');
+      expect(mutex.modalInFlight()).toBeNull();
+    });
+
+    it('releases the slot when the dialog throws', async () => {
+      const { mutex } = await freshProbeState();
+      let during: string | null = null;
+      mockShowMessageBox.mockImplementationOnce(async () => {
+        during = mutex.modalInFlight();
+        throw new Error('native dialog failed');
+      });
+
+      await expect(
+        handlers.get('selfHosted:probeServer')!(probeEvent, 'https://throws.lan')
+      ).rejects.toThrow('native dialog failed');
+
+      expect(during).toBe('self-hosted-approval');
+      expect(mutex.modalInFlight()).toBeNull();
+      expect(mutex.tryAcquireModal('capture')).not.toBeNull();
+    });
+
+    it('releases the slot when the ceremony budget refuses', async () => {
+      const { mutex, budget } = await freshProbeState();
+      for (let i = 0; i < budget.CEREMONY_BUDGET; i++) budget.consumeCeremonyToken();
+
+      const result = await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://over.lan');
+
+      expect(result).toEqual({ status: 'error', code: 'too_many_prompts', message: '' });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mutex.modalInFlight()).toBeNull();
+    });
+
+    it('an approved origin shows no dialog, so it re-probes while the capture modal is held', async () => {
+      const { mutex } = await freshProbeState();
+      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://known.lan');
+      expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+
+      mutex.tryAcquireModal('capture');
+      const known = bindSelfHostedPrimary('https://known.lan', { foreground: true });
+      try {
+        expect(
+          await handlers.get('selfHosted:probeServer')!(known.event, 'https://known.lan')
+        ).toEqual({ status: 'ok' });
+      } finally {
+        known.dispose();
+      }
+      expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
+      expect(mutex.modalInFlight()).toBe('capture');
+    });
+  });
+
   describe('probe single-flight (#2354)', () => {
     // resolveForDisplay's dns.lookup is a libuv-threadpool job that cannot be
     // cancelled, so concurrency here is a resource-exhaustion lever, not a

@@ -67,6 +67,7 @@ import fs from 'node:fs';
 import { makeServiceCustody } from './serviceCustody';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
+import { tryAcquireModal } from './modalMutex';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
 import {
   approvalTierForApiBase,
@@ -2780,23 +2781,35 @@ async function probeWithApprovalCeremony(
   // The dialog speaks for the view the user is looking at: a hidden connection's
   // view never raises it (#86).
   if (!isForegroundSender(sender)) return probeRejected();
-  // Rations the DIALOG, not the probe: an approved origin never reaches this
-  // branch, so re-probing it stays unthrottled. The token is taken before the
-  // modal opens because a declined ceremony cost the user the same interruption
-  // an approved one did.
-  if (!consumeCeremonyToken()) {
-    console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
-    return { status: 'error', code: 'too_many_prompts', message: '' };
+  // One main-owned modal at a time (#87 R13): while the capture-move dialog is open
+  // this refuses before a token is spent. The handler has no 'busy' shape.
+  const releaseModal = tryAcquireModal('self-hosted-approval');
+  if (!releaseModal) {
+    console.warn('[selfHosted:probeServer] refused — another ceremony is open');
+    return probeRejected();
   }
-  // The shell window is read HERE, at ceremony time — not at handler registration,
-  // when the auth window does not yet exist.
-  const approved = await requestSelfHostedApproval(shellWindow(), {
-    host,
-    // Every resolved address, not just the representative: the user consents to the
-    // whole set the name answers with, so the whole set is what the dialog states.
-    address: resolved.addresses.join(', '),
-    decision: resolved.decision,
-  });
+  let approved: boolean;
+  try {
+    // Rations the DIALOG, not the probe: an approved origin never reaches this
+    // branch, so re-probing it stays unthrottled. The token is taken before the
+    // modal opens because a declined ceremony cost the user the same interruption
+    // an approved one did.
+    if (!consumeCeremonyToken()) {
+      console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
+      return { status: 'error', code: 'too_many_prompts', message: '' };
+    }
+    // The shell window is read HERE, at ceremony time — not at handler registration,
+    // when the auth window does not yet exist.
+    approved = await requestSelfHostedApproval(shellWindow(), {
+      host,
+      // Every resolved address, not just the representative: the user consents to the
+      // whole set the name answers with, so the whole set is what the dialog states.
+      address: resolved.addresses.join(', '),
+      decision: resolved.decision,
+    });
+  } finally {
+    releaseModal();
+  }
   // After every await: the view that asked must still be the one that is live.
   if (!isSenderCurrent(sender)) return probeRejected();
   if (!approved) {
