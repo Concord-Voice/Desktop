@@ -213,6 +213,16 @@ function installGenerationHooks(record: ConnectionRecord, service: ServiceRecord
     if (!details.isMainFrame || details.isSameDocument) return;
     advanceIfLive(id, 'document');
   });
+  // Advance AGAIN when the new document commits. Until then the outgoing document is
+  // still the committed main frame, admitted at the generation the start advanced to,
+  // so anything it bound in that window would stay current for its successor.
+  // `did-navigate` is main-frame, cross-document and committed only; a failed
+  // main-frame load commits an error page with no `did-navigate`, and ERR_ABORTED (-3)
+  // is a cancelled navigation that leaves the document in place (as in trayStatus.ts).
+  contents.on('did-navigate', () => advanceIfLive(id, 'document'));
+  contents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) advanceIfLive(id, 'document');
+  });
   contents.on('render-process-gone', () => advanceIfLive(id, 'renderer-gone'));
   contents.on('destroyed', () => disposeConnectionView(id));
   credentialUnsubscribers.set(
@@ -361,13 +371,23 @@ function entryToForeground(entries: readonly ConnectionsFileEntry[]): Connection
  * saas view, which the caller has already opened. `register` re-admits each origin
  * through the registry, so an entry whose origin is no longer approved opens nothing.
  * The views are created in file order before any of them finishes loading.
+ *
+ * A window re-created later in the same process (macOS dock re-activate) passes the
+ * same startup snapshot again. The list already restored for that userData root is
+ * the live one, holding the connections added since, so it is used instead: the
+ * snapshot would drop them here and then overwrite `connections.json` without them.
+ * With no shell window (a quit during the saas load) nothing is opened.
  */
 export async function restorePersistedConnections(
   userDataRoot: string,
-  entries: readonly ConnectionsFileEntry[],
+  startupEntries: readonly ConnectionsFileEntry[],
   register: (origin: string) => ServiceRecord | null
 ): Promise<void> {
-  persisted = { root: userDataRoot, entries: [...entries] };
+  if (shellWindow() === null) return;
+  if (persisted?.root !== userDataRoot) {
+    persisted = { root: userDataRoot, entries: [...startupEntries] };
+  }
+  const entries = persisted.entries;
   const url = deps?.devConnectionUrl ?? DEFAULT_CONNECTION_URL;
   const loads: Promise<void>[] = [];
   for (const entry of entries) {
@@ -377,14 +397,24 @@ export async function restorePersistedConnections(
     if (service?.serviceId !== entry.serviceId) continue;
     // Everything before the view's load runs synchronously, so the record exists on return.
     loads.push(
-      openConnectionView(service.serviceId, url).then((result) => {
-        if (!result.ok) console.warn(`[shellWindow] connection not restored (${result.reason})`);
-      })
+      openConnectionView(service.serviceId, url)
+        .then((result) => {
+          if (!result.ok) console.warn(`[shellWindow] connection not restored (${result.reason})`);
+        })
+        .catch(() => {
+          // Fixed text: a refusal names no origin. The caller does not await this restore.
+          console.warn('[shellWindow] connection not restored (view could not be opened)');
+        })
     );
   }
   const first = entryToForeground(entries);
   if (first) showConnection(first.serviceId, false);
   await Promise.all(loads);
+}
+
+/** Test-only: forget the restored `connections.json` list, as a fresh process would. */
+export function _resetPersistedConnectionsForTesting(): void {
+  persisted = null;
 }
 
 /** Invariant 6. A no-op with no window; with no foreground every view is hidden. */
@@ -422,36 +452,6 @@ export function foregroundView(): WebContentsView | null {
 /** The live `saas` connection: the remote SPA, deep links and the legacy handlers. */
 export function saasPrimary(): ConnectionRecord | null {
   return liveConnections().find((r) => r.serviceId === SAAS_SERVICE_ID) ?? null;
-}
-
-/**
- * TRANSITIONAL (#86 Task 4 → Task 7B): a primary in the `{ isDestroyed, webContents }`
- * shape the pre-#86 handlers took from the main `BrowserWindow`. A handle reads as
- * destroyed once its connection is no longer the one it was taken for. Task 7B
- * resolves those handlers' connection from the sender binding and deletes these.
- */
-export interface PrimaryHandle {
-  isDestroyed(): boolean;
-  readonly webContents: WebContents;
-}
-
-function handleFor(record: ConnectionRecord | null): PrimaryHandle | null {
-  if (!record || record.state === 'disposed') return null;
-  const { connectionId, webContents } = record;
-  return {
-    isDestroyed: () => webContents.isDestroyed() || recordFor(connectionId) !== record,
-    webContents,
-  };
-}
-
-/** TRANSITIONAL: the foreground view (tray status/actions, permission pushes). */
-export function foregroundPrimaryHandle(): PrimaryHandle | null {
-  return handleFor(foreground());
-}
-
-/** TRANSITIONAL: the saas view (audiocap admission and its owner pushes). */
-export function saasPrimaryHandle(): PrimaryHandle | null {
-  return handleFor(saasPrimary());
 }
 
 function sendTo(contents: WebContents, channel: string, args: unknown[]): boolean {

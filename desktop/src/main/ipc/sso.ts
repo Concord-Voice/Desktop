@@ -92,7 +92,7 @@ import { loadGoogleClientSecret } from '../oauth/google/clientSecret';
 import { cancelActiveGoogleFlow, runGoogleSignIn } from '../oauth/google/googleFlow';
 import { googleTokenCall } from '../oauth/google/googleTokenCall';
 import { verifyGoogleIDToken } from '../oauth/google/idTokenVerifier';
-import { isServerUserId } from '../preferenceOwnership';
+import { isServerUserId } from '../../shared/serverUserId';
 import { normalizeSelfHostedUrl } from '../selfHostedProbe';
 import { isTier2DialApproved, isValidatedSelfHostedApiBase } from '../selfHostedProfile';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';

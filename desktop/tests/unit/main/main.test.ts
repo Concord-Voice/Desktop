@@ -8053,3 +8053,260 @@ describe('#86 app:getVersion is pip-scoped (the PiP SPA calls it)', () => {
     }
   });
 });
+
+// #86 PR 206 review rows 2, 6, 7 and 11: connection-scoped behaviour main owns.
+describe('#86 review rows: connection-scoped auth and window lifecycle in main', () => {
+  const APP_FRAME = 'app://concord/index.html';
+  const saasEvent = () => trustedIpcEvent;
+  const saasConnectionId = () => {
+    const binding = connectionRegistry.bindingFor(mockWebContents as never);
+    if (!binding) throw new Error('the saas view is not bound');
+    return binding.connectionId;
+  };
+  const onCall = async (channel: string): Promise<CallbackFn> => {
+    const { ipcMain } = await import('electron');
+    const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === channel);
+    if (!call) throw new Error(`ipcMain.on('${channel}') was never registered`);
+    return call[1] as CallbackFn;
+  };
+  /** Drops both saas readiness flags the way a reload does, so a link queues. */
+  const resetDeepLinkReadiness = () => {
+    const reload = mockWebContents.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'did-start-loading'
+    )?.[1] as CallbackFn;
+    reload();
+    mockWebContents.send.mockClear();
+  };
+
+  let nextFrame = 9400;
+  /** A bound self-hosted primary whose custody can log out and clear. */
+  function openSelfHostedWithCustody(origin: string) {
+    const custody = { performLogout: vi.fn(async () => undefined), clearTokens: vi.fn() };
+    const svc = connectionRegistry.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => custody as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      custody,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
+      dispose: () => connectionRegistry.disposeConnection(opened.record.connectionId),
+    };
+  }
+
+  it('row 2: a document that reloads mid-restore starts its own restore instead of joining the doomed one', async () => {
+    const { restoreRefreshToken } = await import('../../../src/main/tokenManager');
+    let release: () => void = () => undefined;
+    (restoreRefreshToken as Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              status: 'ok',
+              token: 'mock-token',
+              apiBase: SAAS_DEV_API_BASE,
+              rememberMe: true,
+            });
+        })
+    );
+    const restore = handlers.get('auth:restoreSession')!;
+    const first = restore(saasEvent()) as Promise<{ status: string }>;
+    // The document reloads while the first restore is still reading the token.
+    connectionRegistry.advanceGeneration(saasConnectionId(), 'document');
+    const second = restore(saasEvent()) as Promise<{ status: string }>;
+    release();
+
+    expect((await second).status).toBe('restored');
+    // The old document's restore still fails closed on its own generation check.
+    expect((await first).status).toBe('refresh_failed');
+  });
+
+  describe('row 7: only a saas sign-out forgets the saas deep links', () => {
+    const signOuts = [
+      ['auth:logout', [{ accessToken: 'tok' }]],
+      ['auth:clearTokens', []],
+    ] as const;
+
+    it.each(signOuts.map(([ch, args], i) => [ch, args, ['QwErTyUp', 'ZxCvBnMk'][i]] as const))(
+      '%s from a self-hosted connection leaves the pending saas invite deliverable',
+      async (channel, args, code) => {
+        const openUrl = appOnCallbacks.get('open-url')!;
+        const S = openSelfHostedWithCustody(`https://signout-${code.toLowerCase()}.lan`);
+        try {
+          resetDeepLinkReadiness();
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          await handlers.get(channel)!(S.event, ...args);
+          // The handler did run against the self-hosted custody.
+          const ran = channel === 'auth:logout' ? S.custody.performLogout : S.custody.clearTokens;
+          expect(ran).toHaveBeenCalledTimes(1);
+
+          (await onCall('invite:renderer-ready'))(saasEvent());
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code });
+        } finally {
+          S.dispose();
+          resetDeepLinkReadiness();
+        }
+      }
+    );
+
+    it.each(signOuts.map(([ch, args], i) => [ch, args, ['HgFdSaPw', 'JkMnBvCx'][i]] as const))(
+      '%s from the saas connection still forgets the pending invite',
+      async (channel, args, code) => {
+        const openUrl = appOnCallbacks.get('open-url')!;
+        try {
+          resetDeepLinkReadiness();
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          await handlers.get(channel)!(saasEvent(), ...args);
+          (await onCall('invite:renderer-ready'))(saasEvent());
+          expect(mockWebContents.send).not.toHaveBeenCalledWith('invite:received', { code });
+        } finally {
+          resetDeepLinkReadiness();
+        }
+      }
+    );
+  });
+
+  it("row 11: a proactive refresh reaches only the refreshing service's views", async () => {
+    const { setProactiveRefreshCallback } = await import('../../../src/main/tokenManager');
+    const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+    const { WebContentsView } = await import('electron');
+    const { commitSelfHostedApproval, serviceIdForApiBase } =
+      await import('../../../src/main/selfHostedProfile');
+    type RefreshCb = (accessToken: string, sessionId: string, previousSessionId: string) => void;
+    const refreshCalls = (setProactiveRefreshCallback as Mock).mock.calls;
+    // Service A is saas, registered at startup through main's own connectionServiceDeps.
+    const refreshA = refreshCalls[0]?.[0] as RefreshCb;
+    expect(refreshA).toBeDefined();
+
+    // Service B: registered through the same real deps, by opening it from the saas view.
+    const origin = new URL('https://refresh-owner-b.lan').origin;
+    commitSelfHostedApproval(origin, '10.0.0.7');
+    (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok', apiBase: origin });
+    mockResolveForDisplay.mockResolvedValue({
+      ok: true,
+      address: '10.0.0.7',
+      addresses: ['10.0.0.7'],
+      decision: { tier: 'tier2' },
+    } as never);
+    const viewB = {
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => ''),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      loadFile: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId: 9451 },
+    };
+    (WebContentsView as unknown as Mock).mockImplementationOnce(function () {
+      return {
+        webContents: viewB,
+        setBounds: vi.fn(),
+        setVisible: vi.fn(),
+        setBackgroundColor: vi.fn(),
+      };
+    });
+    const before = refreshCalls.length;
+    const saasBefore = connectionRegistry.foreground()?.connectionId;
+    const result = await handlers.get('selfHosted:probeServer')!(saasEvent(), origin);
+    try {
+      expect(result).toEqual({
+        status: 'opened-in-connection',
+        serviceId: serviceIdForApiBase(origin),
+      });
+      expect(refreshCalls.length).toBe(before + 1);
+      const refreshB = refreshCalls[before][0] as RefreshCb;
+
+      mockWebContents.send.mockClear();
+      viewB.send.mockClear();
+      refreshA('tok-A', 'sess-A', 'prev-A');
+      refreshB('tok-B', 'sess-B', 'prev-B');
+      const refreshed = (send: Mock) =>
+        send.mock.calls
+          .filter((c: unknown[]) => c[0] === 'auth:token-refreshed')
+          .map((c: unknown[]) => (c[1] as { accessToken: string }).accessToken);
+      // Each view hears its own service's refresh (the positive control), and only it.
+      expect(refreshed(mockWebContents.send)).toEqual(['tok-A']);
+      expect(refreshed(viewB.send)).toEqual(['tok-B']);
+    } finally {
+      for (const r of connectionRegistry.liveConnections()) {
+        if (r.serviceId === serviceIdForApiBase(origin)) {
+          connectionRegistry.disposeConnection(r.connectionId);
+        }
+      }
+      if (saasBefore) connectionRegistry.setForeground(saasBefore);
+      mockResolveForDisplay.mockReset();
+    }
+  });
+
+  it('row 6: a window closed during the saas load opens nothing more and rejects nothing', async () => {
+    const closeWindow = (from = 0) => {
+      for (const [event, listener] of mockMainWindow.on.mock.calls.slice(from) as Array<
+        [string, () => void]
+      >) {
+        if (event === 'closed') listener();
+      }
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    let finishLoad: () => void = () => undefined;
+    const pendingLoad = () =>
+      new Promise<void>((resolve) => {
+        finishLoad = resolve;
+      });
+    try {
+      closeWindow();
+      expect(connectionRegistry.liveConnections()).toEqual([]);
+      mockWebContents.loadURL.mockClear();
+      mockWebContents.loadFile.mockClear();
+      mockWebContents.loadURL.mockImplementation(pendingLoad);
+      mockWebContents.loadFile.mockImplementation(pendingLoad);
+      mockWebContents.openDevTools.mockClear();
+      const mark = mockMainWindow.on.mock.calls.length;
+
+      appOnCallbacks.get('activate')!();
+      await vi.waitFor(() =>
+        expect(
+          mockWebContents.loadURL.mock.calls.length + mockWebContents.loadFile.mock.calls.length
+        ).toBeGreaterThan(0)
+      );
+      // The user quits while the saas document is still loading.
+      closeWindow(mark);
+      finishLoad();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+      expect(connectionRegistry.liveConnections()).toEqual([]);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      mockWebContents.loadURL.mockResolvedValue(undefined);
+      mockWebContents.loadFile.mockResolvedValue(undefined);
+      // Restore the shared fixture: a live window with its saas view.
+      if (connectionRegistry.bindingFor(mockWebContents as never)?.role !== 'primary') {
+        appOnCallbacks.get('activate')!();
+        await vi.waitFor(() =>
+          expect(connectionRegistry.bindingFor(mockWebContents as never)?.role).toBe('primary')
+        );
+      }
+    }
+  });
+});

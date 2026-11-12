@@ -17,6 +17,7 @@ vi.mock('node:fs/promises', () => {
 
 import { dialog, ipcMain } from 'electron';
 import { writeFile } from 'node:fs/promises';
+import { setForeground } from '@/main/connectionRegistry';
 import { registerSaveImageHandler, safeImageName } from '@/main/ipc/saveImage';
 import { bindTestSender, type BoundSenderFixture } from './boundSenderFixture';
 
@@ -130,6 +131,53 @@ describe('image:saveAs IPC handler', () => {
     mockWriteFile.mockRejectedValue(new Error('ENOSPC'));
     const result = await handler(trusted(), new Uint8Array([1]).buffer, 'x.png');
     expect(result).toEqual({ ok: false, reason: 'write-failed' });
+  });
+
+  // #86: the dialog is modal over the shared window and the path the user picks gets the
+  // SENDER's bytes, so a hidden connection must not raise it over the foreground one.
+  describe('foreground connection only (app-global-mutate)', () => {
+    let background: BoundSenderFixture;
+    beforeEach(() => {
+      background = bindTestSender({
+        origin: 'https://voice.example',
+        id: 9,
+        reset: false,
+        foreground: false,
+      });
+      mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/pic.png' });
+    });
+
+    it('refuses a background connection before any dialog or write', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const result = await handler(background.event(), new Uint8Array([6, 6]).buffer, 'cat.png');
+      expect(result).toEqual({ ok: false, reason: 'untrusted-sender' });
+      expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(warn.mock.calls.flat().join(' ')).toContain('image:saveAs refused (not-foreground)');
+      warn.mockRestore();
+    });
+
+    it('still saves for the foreground connection while a background one is open', async () => {
+      expect(await handler(trusted(), new Uint8Array([1, 2]).buffer, 'a.png')).toEqual({
+        ok: true,
+      });
+      expect(mockWriteFile).toHaveBeenCalledWith('/tmp/pic.png', expect.any(Buffer));
+    });
+
+    it('follows the foreground: the switched-to connection saves, the old one is refused', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      setForeground(background.connectionId);
+      expect(await handler(background.event(), new Uint8Array([3]).buffer, 'b.png')).toEqual({
+        ok: true,
+      });
+      mockDialog.showSaveDialog.mockClear();
+      expect(await handler(trusted(), new Uint8Array([4]).buffer, 'c.png')).toEqual({
+        ok: false,
+        reason: 'untrusted-sender',
+      });
+      expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });
 

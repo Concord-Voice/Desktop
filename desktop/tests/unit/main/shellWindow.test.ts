@@ -161,9 +161,11 @@ import {
   refOf,
   registerService,
 } from '../../../src/main/connectionRegistry';
+import { bindOwner, isOwnerCurrent } from '../../../src/main/connectionCapability';
 import { assertDefaultSessionIsSaas } from '../../../src/main/connectionSession';
 import { requireConnectionSender } from '../../../src/main/ipc/connectionSender';
 import {
+  _resetPersistedConnectionsForTesting,
   activateConnection,
   broadcastToPrimaries,
   createPipWindow,
@@ -174,6 +176,7 @@ import {
   installDevConnectionMenu,
   layoutViews,
   openConnectionView,
+  persistAddedConnections,
   restorePersistedConnections,
   sendToConnection,
   shellWindow,
@@ -218,6 +221,7 @@ const viewOf = (rec: Any) => rec.view as Any;
 
 beforeEach(() => {
   _resetConnectionRegistryForTesting();
+  _resetPersistedConnectionsForTesting();
   h.state.calls.length = 0;
   h.state.windows.length = 0;
   h.state.views.length = 0;
@@ -415,6 +419,39 @@ describe('generation hooks', () => {
     rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     expect(reasons).toEqual(['document']);
     expect(rec.generation).toBe(2);
+  });
+
+  // Until the new document commits, the OUTGOING one is still the committed main frame
+  // and is admitted at the generation did-start-navigation advanced to. Anything it
+  // binds in that window (an SSO loopback) must not stay current for its successor.
+  it.each([
+    ['did-navigate', [{}, 'https://a.example/', 200, 'OK']],
+    ['did-fail-load', [{}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://a.example/', true]],
+  ] as const)(
+    "an owner bound before the main-frame commit is stale after '%s'",
+    async (event, args) => {
+      const { rec, reasons } = await opened();
+      rec.webContents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+      const owner = bindOwner('sso-loopback', refOf(rec));
+      expect(isOwnerCurrent(owner)).toBe(true);
+      rec.webContents.emit(event, ...args);
+      expect(isOwnerCurrent(owner)).toBe(false);
+      expect(reasons).toEqual(['document', 'document']);
+      expect(rec.generation).toBe(3);
+    }
+  );
+
+  it.each([
+    [
+      'a cancelled main-frame load (ERR_ABORTED)',
+      [{}, -3, 'ERR_ABORTED', 'https://a.example/', true],
+    ],
+    ['a subframe load failure', [{}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://a.example/', false]],
+  ] as const)('%s commits no document and advances nothing', async (_name, args) => {
+    const { rec, reasons } = await opened();
+    rec.webContents.emit('did-fail-load', ...args);
+    expect(reasons).toEqual([]);
+    expect(rec.generation).toBe(1);
   });
 
   // D1: the first document's whoAmI can arrive before its commit is recorded, so the
@@ -704,5 +741,72 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(written.find((e) => e.serviceId === a.serviceId)?.lastForegroundAt).toBe(at(3));
     activateConnection(saas.serviceId); // already the foreground
     expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+  });
+
+  // #86 PR 206 review row 5: macOS keeps the app alive with no window, and the dock
+  // re-creates it. The restore must not fall back to the startup snapshot.
+  it('a re-created window restores a connection added after startup and keeps it in the file', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    const startup = [entryFor(saas, null), entryFor(a, at(3))];
+    await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+    // Added during the session, the way connection:create does it.
+    const b = register(SELF_B);
+    await mustOpen(b.serviceId);
+    await persistAddedConnections([entryFor(b, null)]);
+
+    (shellWindow() as unknown as Any).emit('closed');
+    expect(liveConnections()).toEqual([]);
+    createShellWindow(deps as never);
+    await mustOpen(saas.serviceId);
+    await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+
+    expect(liveConnections().map((r) => r.serviceId)).toEqual([
+      saas.serviceId,
+      a.serviceId,
+      b.serviceId,
+    ]);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([saas.serviceId, a.serviceId, b.serviceId]);
+  });
+
+  // Review row 6: a quit during the saas load closes the window before restore runs.
+  it('with no shell window it registers and opens nothing, and settles', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    (shellWindow() as unknown as Any).emit('closed');
+    const asked: string[] = [];
+    await expect(
+      restorePersistedConnections('/user-data', [entryFor(a, at(3))], (origin) => {
+        asked.push(origin);
+        return register(origin) as never;
+      })
+    ).resolves.toBeUndefined();
+    expect(asked).toEqual([]);
+    expect(h.state.views).toHaveLength(1); // the saas view only
+  });
+
+  it('a view that cannot be opened is logged, and the restore still settles', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    deps.wireView = vi.fn(() => {
+      throw new Error('wire failed');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(
+        restorePersistedConnections('/user-data', [entryFor(a, at(3))], (o) => register(o) as never)
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        '[shellWindow] connection not restored (view could not be opened)'
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

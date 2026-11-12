@@ -38,6 +38,29 @@ vi.mock('@/renderer/components/Auth/ServerInput', () => ({
   ),
 }));
 
+vi.mock('@/renderer/components/Auth/Login', () => ({
+  default: ({
+    onBack,
+    onSwitchToRegister,
+  }: {
+    onBack: () => void;
+    onSwitchToRegister: () => void;
+  }) => (
+    <div data-testid="login">
+      <button onClick={onSwitchToRegister}>Create Account</button>
+      <button onClick={onBack}>Login Back</button>
+    </div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Auth/Register', () => ({
+  default: ({ onBack }: { onBack: () => void }) => (
+    <div data-testid="register">
+      <button onClick={onBack}>Register Back</button>
+    </div>
+  ),
+}));
+
 import AuthFlow from '@/renderer/components/Auth/AuthFlow';
 import { _resetBootConnectionForTesting } from '@/renderer/services/system/bootConnection';
 
@@ -83,6 +106,81 @@ describe('AuthFlow in connection mode', () => {
 
     await waitFor(() => expect(activate).toHaveBeenCalledWith('saas'));
     expect(runtimeMocks.resetRuntimeServerBase).not.toHaveBeenCalled();
+  });
+
+  it('a saas document still lands Back on connection-select', async () => {
+    await openServerInput();
+
+    fireEvent.click(screen.getByText('Back'));
+
+    expect(await screen.findByText('Select Self-Hosted')).toBeInTheDocument();
+    expect(screen.queryByTestId('login')).not.toBeInTheDocument();
+  });
+});
+
+// #86: a self-hosted document's API base is pinned to its own origin, so the
+// connection selector's hosted sign-in and sign-up would run against it. Its home is
+// its own login step, on boot and on every Back.
+describe('AuthFlow in a self-hosted connection document', () => {
+  const SELFHOST_IDENTITY = {
+    connectionId: 'BBBBBBBBBBBBBBBBBBBBBB',
+    generation: 1,
+    serviceId: 'selfhost-0123456789abcdef',
+    kind: 'selfhost',
+    apiOrigin: 'https://my.server.com',
+  };
+  const create = vi.fn();
+  const activate = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    activate.mockResolvedValue(true);
+    electron().connection = {
+      whoAmI: vi.fn(() => ({ ...SELFHOST_IDENTITY })),
+      create,
+      activate,
+    };
+    _resetBootConnectionForTesting();
+  });
+
+  afterEach(() => {
+    delete electron().connection;
+    _resetBootConnectionForTesting();
+  });
+
+  it('boots on its own login step, not connection-select', () => {
+    render(<AuthFlow />);
+
+    expect(screen.getByTestId('login')).toBeInTheDocument();
+    expect(screen.queryByText('Select Self-Hosted')).not.toBeInTheDocument();
+  });
+
+  it('Back leaves for saas and lands on its own login, not connection-select', async () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Create Account'));
+    await screen.findByTestId('register');
+
+    fireEvent.click(screen.getByText('Register Back'));
+
+    await waitFor(() => expect(activate).toHaveBeenCalledWith('saas'));
+    expect(await screen.findByTestId('login')).toBeInTheDocument();
+    expect(screen.queryByText('Select Self-Hosted')).not.toBeInTheDocument();
+    expect(runtimeMocks.resetRuntimeServerBase).not.toHaveBeenCalled();
+  });
+
+  it('a refused activate is reported and still lands on its own login', async () => {
+    activate.mockResolvedValue(false);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<AuthFlow />);
+
+    fireEvent.click(screen.getByText('Login Back'));
+
+    await waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('[AuthFlow] connection.activate refused')
+    );
+    expect(screen.getByTestId('login')).toBeInTheDocument();
+    expect(screen.queryByText('Select Self-Hosted')).not.toBeInTheDocument();
+    warn.mockRestore();
   });
 });
 

@@ -83,7 +83,7 @@ import {
   isValidatedSelfHostedApiBase,
   loadApprovedSelfHostedOrigins,
 } from './selfHostedProfile';
-import { isServerUserId } from './preferenceOwnership';
+import { isServerUserId } from '../shared/serverUserId';
 import { resolveForDisplay, type ResolveForDisplayResult } from './guardedRequest';
 import type { EgressDecision } from './egressPolicy';
 import {
@@ -1684,6 +1684,9 @@ const createWindow = async (): Promise<void> => {
     return;
   }
   const contents = opened.record.webContents;
+  // A quit during the saas load closed the window under it: there is nothing left to
+  // restore views into, and its contents can no longer take DevTools.
+  if (shellWindow() === null || contents.isDestroyed()) return;
 
   // One view per other persisted connection, then the last-foreground one is shown.
   void restorePersistedConnections(
@@ -3011,10 +3014,13 @@ type RestoreSessionResult = {
   pendingE2EEUnlock?: boolean;
 };
 // Keyed by connection (#86): a shared promise would hand one connection's restored
-// access token to another connection's renderer.
+// access token to another connection's renderer. Each entry also carries the generation
+// that started it, and only a caller at that same generation joins it: a document that
+// reloads mid-restore is a new generation, and the old restore it would otherwise join
+// is already doomed to 'refresh_failed' by its own currentness checks.
 const restoreSessionByConnection = new Map<
   ConnectionRef['connectionId'],
-  Promise<RestoreSessionResult>
+  { generation: ConnectionRef['generation']; promise: Promise<RestoreSessionResult> }
 >();
 
 function rejectWrongOwner(channel: string): { status: 'rejected'; reason: 'wrong-owner' } {
@@ -3135,7 +3141,7 @@ function isCredentialOwner(value: unknown): value is CredentialOwner {
 registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
   const connectionId = sender.ref.connectionId;
   const inFlight = restoreSessionByConnection.get(connectionId);
-  if (inFlight) return inFlight;
+  if (inFlight?.generation === sender.ref.generation) return inFlight.promise;
 
   const isSaas = sender.service.serviceId === SAAS_SERVICE_ID;
   const restore: Promise<RestoreSessionResult> = (async () => {
@@ -3199,11 +3205,14 @@ registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
     }
     return { status: 'refresh_failed' };
   })().finally(() => {
-    if (restoreSessionByConnection.get(connectionId) === restore) {
+    if (restoreSessionByConnection.get(connectionId)?.promise === restore) {
       restoreSessionByConnection.delete(connectionId);
     }
   });
-  restoreSessionByConnection.set(connectionId, restore);
+  restoreSessionByConnection.set(connectionId, {
+    generation: sender.ref.generation,
+    promise: restore,
+  });
   return restore;
 });
 
@@ -3255,7 +3264,10 @@ registerIpc(
     // BEFORE the await, not after: performLogout clears the credentials on its
     // first line and only then issues an unbounded network POST, so anything after
     // the await leaves the clear open for the width of that request.
-    forgetDeliveredDeepLinks();
+    //
+    // Deep links are saas-only (#86), so only a saas logout forgets them: a self-hosted
+    // connection signing out must not wipe the saas connection's pending invite.
+    if (sender.service.serviceId === SAAS_SERVICE_ID) forgetDeliveredDeepLinks();
     await sender.custody.performLogout(data?.accessToken);
     return undefined;
   }
@@ -3302,7 +3314,10 @@ registerIpc('auth:clearTokens', 'connection-bound', (sender, _event, opts: unkno
   // connection's profile, nor one chosen from disk or by default (the double-clear
   // class above, #86).
   sender.custody.clearTokens();
-  if (!keepDeepLinks) forgetDeliveredDeepLinks();
+  // Saas-only, as in `auth:logout`: another connection's clear never reaches saas's links.
+  if (!keepDeepLinks && sender.service.serviceId === SAAS_SERVICE_ID) {
+    forgetDeliveredDeepLinks();
+  }
   return undefined;
 });
 

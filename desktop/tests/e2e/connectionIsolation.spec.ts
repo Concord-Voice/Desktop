@@ -21,6 +21,7 @@ import {
   type MainRequire,
   type Planes,
 } from './electronFixture';
+import { codeLiteral } from './codeLiteral';
 import { STUB_USER_ID } from './fixtures/controlPlaneStub';
 import type { ElectronApplication } from '@playwright/test';
 
@@ -37,7 +38,8 @@ async function views(app: ElectronApplication, planes: Planes): Promise<Views> {
   return { a, b, wcA: await primaryOf(app, a), wcB: await primaryOf(app, b) };
 }
 
-const lit = (v: unknown): string => JSON.stringify(v);
+/** Every value spliced into probe source goes through this; see codeLiteral.ts. */
+const lit = codeLiteral;
 
 /** Opens a websocket to `port`'s echo from inside a view; resolves once it is OPEN. */
 function openSocket(app: ElectronApplication, wc: number, port: number): Promise<boolean> {
@@ -265,9 +267,11 @@ test('stale push after A reload is dropped', async ({ app, planes }) => {
   await app.evaluate(({ webContents }, id) => {
     webContents.fromId(id)?.reload();
   }, v.wcA);
+  // A reload advances twice: at did-start-navigation and again at the commit. Wait for
+  // both, or `after` can be the start's generation the commit then makes stale.
   await expect
     .poll(async () => (await generationOf(app, v.a)).generation)
-    .toBeGreaterThan(before.generation);
+    .toBeGreaterThanOrEqual(before.generation + 2);
   const after = await generationOf(app, v.a);
   expect(after.connectionId).toBe(before.connectionId);
 

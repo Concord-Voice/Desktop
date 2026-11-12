@@ -10,6 +10,7 @@ import {
   runtimeServerSelectionIsCurrent,
 } from '../../services/system/runtimeServerBase';
 import type { CredentialOwner } from '../../../main/ipcContract';
+import { isServerUserId } from '../../../shared/serverUserId';
 import './EmailVerification.css';
 import './TOTPInput.css';
 
@@ -75,12 +76,12 @@ interface ConfirmResponse {
 
 /**
  * #86: main derives this connection's preference account key from the confirmed
- * account's server id. The body is not schema-validated, so anything but a
- * non-empty string is omitted — no key (a null scope), not a failed verification.
+ * account's server id. The body is not schema-validated, so an id that fails main's
+ * own admission rule is omitted — no key (a null scope), not a failed verification.
  */
 function confirmedServerUserId(data: ConfirmResponse): { serverUserId?: string } {
   const id = data.user?.id;
-  return typeof id === 'string' && id.length > 0 ? { serverUserId: id } : {};
+  return isServerUserId(id) ? { serverUserId: id } : {};
 }
 
 interface ResendResponse {

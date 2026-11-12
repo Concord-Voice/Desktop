@@ -1,7 +1,6 @@
 import { dialog, type BaseWindow } from 'electron';
 import { writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { CHANNEL_CLASSES } from './channelClassification';
 import { registerIpc } from './registry';
 import { SAVE_IMAGE_MAX_BYTES } from '../../shared/saveImage';
 
@@ -13,7 +12,8 @@ import { SAVE_IMAGE_MAX_BYTES } from '../../shared/saveImage';
  * native "Save Image As…" context item cannot reach it — the bytes are passed
  * in over IPC. This handler is the main-process layer the renderer cannot
  * bypass, mirroring `openExternal`'s defense-in-depth posture:
- *   1. sender-frame validation (`isPermittedFrameUrl`),
+ *   1. sender admission: the foreground connection's bound primary main frame only
+ *      (`app-global-mutate`, #86), at a permitted frame URL (`isPermittedFrameUrl`),
  *   2. payload-shape + size validation,
  *   3. filename sanitisation (basename only — no path traversal),
  *   4. the destination path is chosen by the user in `showSaveDialog`, never by
@@ -38,11 +38,14 @@ export function safeImageName(name: unknown): string {
 }
 
 export function registerSaveImageHandler(windowProvider: WindowProvider): void {
-  // #86 Task 7B: `connection-bound` through registerIpc; a refused sender gets the
-  // existing `untrusted-sender` result.
+  // #86: `app-global-mutate`. The dialog is modal over the shared window and the path the
+  // user picks receives the SENDER's bytes, so a background connection must not raise it
+  // over the foreground one. Written here as well as in CHANNEL_CLASSES so registerIpc
+  // throws if the table is widened alone. Every refusal, `not-foreground` included, gets
+  // the existing `untrusted-sender` result (the preload contract's closed reason set).
   registerIpc(
     'image:saveAs',
-    CHANNEL_CLASSES['image:saveAs'],
+    'app-global-mutate',
     async (_sender, _event, bytes: unknown, suggestedName: unknown): Promise<SaveImageResult> => {
       // Electron structured-clones ArrayBuffer / TypedArrays across the IPC boundary.
       if (!(bytes instanceof ArrayBuffer) && !ArrayBuffer.isView(bytes)) {

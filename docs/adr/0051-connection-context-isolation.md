@@ -112,8 +112,10 @@ and a `WeakMap` from `WebContents` to its binding (`primary` or `pip`).
   `service-id-collision`. `profileIdForApiBase` keeps 64 bits of the hash, so the collision is
   refused, not assumed impossible.
 - **`advanceGeneration` is the only generation mutator.** A view advances its generation on a
-  main-frame `did-start-navigation` that is not same-document (`document`), on
-  `render-process-gone` (`renderer-gone`), on its custody's credential events
+  main-frame `did-start-navigation` that is not same-document (`document`), again when that
+  navigation commits (`did-navigate`, or a main-frame `did-fail-load` other than ERR_ABORTED,
+  also `document`) so nothing the outgoing document bound before the commit stays current for
+  its successor, on `render-process-gone` (`renderer-gone`), on its custody's credential events
   (`credential-start`, `credential-end`), and on dispose (`disposed`). Refresh-token rotation
   and a network outage do not advance it: neither changes authority.
 - **Owner binding** (`desktop/src/main/connectionCapability.ts`): `bindOwner`,
@@ -532,6 +534,7 @@ Each row is a security decision taken in review. The table of record is
 | `spa:requestSelfHeal` (and the `did-fail-load` self-heal trigger, no channel) | `connection-bound`; `attemptSelfHeal` acts only when the requester is the saas view, and `did-fail-load` reaches it only from the saas primary's main frame | RT3 |
 | `app:focusWindow` | `app-global-mutate` | RT6 |
 | `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
+| `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
@@ -558,9 +561,7 @@ These are stated so that nobody reads the ADR as claiming more than the code doe
    keys are covered by unit tests only.
 3. **Logged-in-idle footprint, Windows, Linux and the drag region** are NOT MEASURED or NOT
    VERIFIED (§ Footprint).
-4. **Dead transitional exports.** `foregroundPrimaryHandle`, `saasPrimaryHandle` and
-   `PrimaryHandle` remain in `shellWindow.ts` with no caller.
-5. **`tests/**` is neither type-checked nor linted** in this repo. That predates #86.
+4. **`tests/**` is neither type-checked nor linted** in this repo. That predates #86.
 
 ## Consequences
 
