@@ -46,9 +46,11 @@
 //
 // Calls that carry NO webContents — a permission check made off-document (Electron
 // documents `notifications` checks and service-worker checks as always `null`) and
-// every device check — have no binding to resolve. They keep today's static policy
-// rather than reach the arbiter with `null`, which would deny every desktop
-// notification and every security key on every connection. A check is a status
+// every device check — have no binding to resolve. They do not reach the arbiter with
+// `null`, which would deny every desktop notification and every security key on every
+// connection. The capture permissions (`media`, `display-capture`) are the exception
+// (#87 RC-5): off-document they are denied outright, since no document means no
+// capture lease to consult; the rest keep today's static policy. A check is a status
 // query; the grant itself goes through the request handler, which always names a
 // webContents and so always goes through the binding.
 
@@ -65,20 +67,44 @@ import {
 import { isSupportedDesktopClientVersion } from '../shared/stableDesktopVersion';
 import { resolveAppProtocolPath } from './appProtocol';
 import { isBillingWebContents } from './billing/billingWindow';
-import type { ConnectionRecord, SenderBinding, ServiceRecord } from './connectionRegistry';
+import type {
+  BindingRole,
+  ConnectionRecord,
+  SenderBinding,
+  ServiceRecord,
+} from './connectionRegistry';
 import { isPermittedFrameUrlForKind } from './ipc/frameValidation';
 import { handleCacheProtocolRequest } from './spaCache/cacheProtocol';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 
 /**
+ * What `decideFor` knows about the asking frame beyond its connection (#87). `role` is
+ * the requester's binding role (`null` when unbound); `isMainFrame` is `true` only when
+ * Electron's details say exactly `true`.
+ */
+export interface ArbiterContext {
+  phase: 'request' | 'check';
+  role: BindingRole | null;
+  isMainFrame: boolean;
+}
+
+/**
  * Decides every permission a connection's document asks for (#86 §3.3 item 2). #87
- * replaces the default through {@link setCaptureArbiter}. The parameter list is
- * deliberately open: #87 adds an optional context argument, so nothing here may
- * check `decide.length`.
+ * replaces the default through {@link setCaptureArbiter}. `ctx` is optional so #86's
+ * two-argument callers and the default arbiter are unchanged; nothing here may check
+ * `decide.length`.
  */
 export interface CaptureArbiter {
-  decide(ref: ConnectionRef | null, permission: string, details: unknown): boolean;
+  decide(
+    ref: ConnectionRef | null,
+    permission: string,
+    details: unknown,
+    ctx?: ArbiterContext
+  ): boolean;
 }
+
+/** #87: off-document checks deny these outright (RC-5). Mirrors `CAPTURE_PERMISSIONS`. */
+const OFF_DOCUMENT_DENIED: ReadonlySet<string> = new Set(['media', 'display-capture']);
 
 /** Today's policy: deny `geolocation`, allow the rest. */
 const DENIED_PERMISSIONS: ReadonlySet<string> = new Set(['geolocation']);
@@ -196,7 +222,8 @@ function decideFor(
   wc: WebContents,
   permission: string,
   details: unknown,
-  deps: ConnectionSessionDeps
+  deps: ConnectionSessionDeps,
+  phase: ArbiterContext['phase']
 ): boolean {
   try {
     if (CLIPBOARD_PERMISSIONS.has(permission)) return clipboardAllowed(wc, details, deps);
@@ -204,10 +231,22 @@ function decideFor(
     const ref: ConnectionRef | null = record
       ? Object.freeze({ connectionId: record.connectionId, generation: record.generation })
       : null;
-    return currentArbiter.decide(ref, permission, details) === true;
+    const d = details as { isMainFrame?: unknown } | null | undefined;
+    const ctx: ArbiterContext = Object.freeze({
+      phase,
+      role: deps.bindingFor(wc)?.role ?? null,
+      isMainFrame: d?.isMainFrame === true,
+    });
+    return currentArbiter.decide(ref, permission, details, ctx) === true;
   } catch {
     return false;
   }
+}
+
+/** An off-document check (`wc === null`): capture denied, the rest the static policy. */
+function offDocumentCheckAllows(permission: string): boolean {
+  if (CLIPBOARD_PERMISSIONS.has(permission) || OFF_DOCUMENT_DENIED.has(permission)) return false;
+  return staticPolicyAllows(permission);
 }
 
 /**
@@ -237,15 +276,15 @@ function registerPermissionHandlers(ses: Session, deps: ConnectionSessionDeps): 
   // Requests always name a webContents, so every grant goes through the binding.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
-    callback(decideFor(wc, permission, details, deps));
+    callback(decideFor(wc, permission, details, deps, 'request'));
   });
 
   // Chromium queries this synchronously to verify grants; a document check resolves
   // its binding like a request. `null` is an off-document check (module header).
   ses.setPermissionCheckHandler((wc, permission, _requestingOrigin, details) =>
     wc === null
-      ? !CLIPBOARD_PERMISSIONS.has(permission) && staticPolicyAllows(permission)
-      : decideFor(wc, permission, details, deps)
+      ? offDocumentCheckAllows(permission)
+      : decideFor(wc, permission, details, deps, 'check')
   );
 
   // Device checks carry an origin and no webContents (module header).
