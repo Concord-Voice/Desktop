@@ -69,6 +69,13 @@ vi.mock('electron', () => ({
   },
 }));
 
+/**
+ * The capture-lease holder gate (#87 RC-3). The REAL `ipc/audiocap.ts` cases below start a
+ * share with no lease, so the sender is the holder here; the gate itself is pinned in
+ * `audiocapIpc.test.ts`.
+ */
+vi.mock('../../../src/main/captureLease', () => ({ isHolder: () => true }));
+
 /** A utilityProcess child stub whose handlers the test drives by hand. */
 /**
  * `kill` returns TRUE by default, because that is what Electron returns for a
@@ -2131,5 +2138,72 @@ describe('mid-share interrupt publication — the harness genuinely reaches capt
     child.kill.mockClear();
     child.handlers.message({ kind: 'fault', stage: 'protocol', message: 'x' });
     expect(child.kill).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// #87 Task 4 (RC-3, RC-4): the read-only capture probe the lease consults, and the handoff's
+// `revokeAudiocapShare`, which must never reap the app-start probe (ADR-0043 A9).
+// ─────────────────────────────────────────────────────────────────────────
+describe('audiocapCaptureActive and revokeAudiocapShare (#87 RC-3, RC-4)', () => {
+  it('reads true for a live renderer capture and false once killAudiocapCapture ends it', async () => {
+    const host = await loadHost();
+    expect(host.audiocapCaptureActive()).toBe(false);
+    const child = makeChild();
+    fork.mockReturnValue(child);
+    host.setAudiocapPortSink(vi.fn());
+    const started = host.startAudiocapHost(1, 42);
+    expect(host.audiocapCaptureActive()).toBe(true);
+    child.handlers.message(validHello());
+    child.handlers.message(STARTED);
+    await started;
+    expect(host.audiocapCaptureActive()).toBe(true);
+    host.killAudiocapCapture();
+    expect(child.kill).toHaveBeenCalled();
+    expect(host.audiocapCaptureActive()).toBe(false);
+  });
+
+  it('reads false while only the windowless app-start probe is live', async () => {
+    const host = await loadHost();
+    fork.mockReturnValue(makeChild());
+    void host.probeAudiocapCapability();
+    expect(fork).toHaveBeenCalledTimes(1);
+    expect(host.audiocapCaptureActive()).toBe(false);
+  });
+
+  it('revokeAudiocapShare spares the handshaking probe and leaves its result unchanged', async () => {
+    const host = await loadHost();
+    const { revokeAudiocapShare } = await import('../../../src/main/ipc/audiocap');
+    const probeChild = makeChild();
+    fork.mockReturnValue(probeChild);
+    const probe = host.probeAudiocapCapability();
+    expect(host.audiocapProbeResult()).toBeNull();
+
+    revokeAudiocapShare();
+
+    expect(probeChild.kill).not.toHaveBeenCalled();
+    expect(host.audiocapProbeResult()).toBeNull();
+    probeChild.handlers.message(validHello());
+    await expect(probe).resolves.toEqual({ ok: true, perProcessAudio: true });
+    expect(host.audiocapProbeResult()).toEqual({ ok: true, perProcessAudio: true });
+    revokeAudiocapShare();
+    expect(host.audiocapProbeResult()).toEqual({ ok: true, perProcessAudio: true });
+    expect(fork).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokeAudiocapShare kills a live renderer capture', async () => {
+    const host = await loadHost();
+    const { revokeAudiocapShare } = await import('../../../src/main/ipc/audiocap');
+    const child = makeChild();
+    fork.mockReturnValue(child);
+    host.setAudiocapPortSink(vi.fn());
+    const started = host.startAudiocapHost(1, 42);
+    child.handlers.message(validHello());
+    child.handlers.message(STARTED);
+    await started;
+    child.kill.mockClear();
+    revokeAudiocapShare();
+    expect(child.kill).toHaveBeenCalled();
+    expect(host.audiocapCaptureActive()).toBe(false);
   });
 });

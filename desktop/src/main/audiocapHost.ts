@@ -330,6 +330,16 @@ export function currentAudiocapGeneration(): number {
 }
 
 /**
+ * True while a RENDERER's capture session exists, starting or capturing (#87): a session
+ * with a window handle. The windowless app-start probe is no renderer's capture and reads
+ * false, which is the same line `killAudiocapCapture` draws. Read-only: it starts, stops
+ * and kills nothing.
+ */
+export function audiocapCaptureActive(): boolean {
+  return session?.windowHandle != null;
+}
+
+/**
  * The environment the child gets, in full. Every allowlisted key is present —
  * absent-in-the-parent becomes empty rather than missing — so the child's
  * environment has one shape on every machine and cannot be read as a signal of
