@@ -7,6 +7,13 @@ import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { ensureOsPermission } from '../../stores/voice/osPermissionStore';
 import { voiceService } from '../../services/voice/voiceService';
 import {
+  acquire,
+  release,
+  captureLeaseMessage,
+  captureRevokedEvents,
+  CAPTURE_REVOKED_EVENT,
+} from '../../services/voice/captureLeaseClient';
+import {
   createMicProcessor,
   gateForAudioSettings,
   type CalibrationEvent,
@@ -30,6 +37,12 @@ export type MicCalibrationCallbacks = {
 
 type InvalidationReason = Parameters<MicCalibrationCallbacks['onInvalidated']>[0];
 
+/**
+ * Why a device test is not running (#87 §3.8): another connection's call holds the
+ * capture lease, or the test was stopped when this connection went to the background.
+ */
+export type DeviceTestStoppedReason = 'held' | 'backgrounded' | null;
+
 export interface UseMicTestReturn {
   isTesting: boolean;
   isPending: boolean;
@@ -37,6 +50,7 @@ export interface UseMicTestReturn {
   inputOverloaded: boolean;
   dynamicGateStatus: DynamicGateStatus | null;
   error: string | null;
+  stoppedReason: DeviceTestStoppedReason;
   startTest: () => Promise<void>;
   stopTest: () => void;
   startCalibration: (callbacks: MicCalibrationCallbacks) => Promise<MicCalibrationSession | null>;
@@ -142,6 +156,7 @@ export function useMicTest(): UseMicTestReturn {
   const [inputOverloaded, setInputOverloaded] = useState(false);
   const [dynamicGateStatus, setDynamicGateStatus] = useState<DynamicGateStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stoppedReason, setStoppedReason] = useState<DeviceTestStoppedReason>(null);
 
   // Refs for audio resources (not state — avoids re-renders)
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -164,6 +179,8 @@ export function useMicTest(): UseMicTestReturn {
   const pendingRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startTestRef = useRef<() => Promise<void>>(async () => {});
+  // True while this hook holds the `device-test` capture claim (#87).
+  const leaseHeldRef = useRef(false);
 
   const releaseCallTestSuspension = useCallback(() => {
     if (!callSuspensionRef.current) return;
@@ -222,12 +239,17 @@ export function useMicTest(): UseMicTestReturn {
         stopStreamTracks(micStreamRef.current);
         micStreamRef.current = null;
       }
+      if (leaseHeldRef.current) {
+        leaseHeldRef.current = false;
+        void release('device-test');
+      }
 
       setIsTesting(false);
       setDbfsLevel(-Infinity);
       setInputOverloaded(false);
       setDynamicGateStatus(null);
       setError(null);
+      setStoppedReason(null);
       if (!options.finished) calibration?.onInvalidated(options.reason ?? 'cancelled');
       // A completed calibration has no capture callbacks left. Its review still
       // needs to observe later activity, including Stop while already idle.
@@ -554,6 +576,25 @@ export function useMicTest(): UseMicTestReturn {
       const useProcessing = !adv.musicMode;
 
       try {
+        // #87: the capture lease is asked for before any OS prompt or getUserMedia.
+        const lease = await acquire('device-test');
+        if (generation !== generationRef.current) {
+          // Stopped while main answered. A successor that is starting adopts the
+          // claim (its stop releases it); otherwise nothing owns it.
+          if (lease.status === 'granted') {
+            if (pendingRef.current || isTestingRef.current) leaseHeldRef.current = true;
+            else void release('device-test');
+          }
+          return null;
+        }
+        if (lease.status !== 'granted') {
+          stopTest({ reason: 'competing-test' });
+          if (lease.status === 'held') setStoppedReason('held');
+          else
+            setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
+          return null;
+        }
+        leaseHeldRef.current = true;
         // JIT permission check (#197): request mic access on macOS before getUserMedia.
         if (!(await ensureMicPermission(generation))) {
           if (generation === generationRef.current) {
@@ -612,9 +653,17 @@ export function useMicTest(): UseMicTestReturn {
   }, []);
   startTestRef.current = startTest;
 
-  // Cleanup on unmount
+  // A revoked lease (#87) stops a running or starting test; cleanup on unmount.
   useEffect(() => {
+    const onCaptureRevoked = (event: Event) => {
+      if (!pendingRef.current && !isTestingRef.current) return;
+      const reason: unknown = event instanceof CustomEvent ? event.detail : undefined;
+      stopTest({ reason: 'capture-lost' });
+      if (reason === 'backgrounded') setStoppedReason('backgrounded');
+    };
+    captureRevokedEvents.addEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
     return () => {
+      captureRevokedEvents.removeEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
       stopTest();
     };
   }, [stopTest]);
@@ -626,6 +675,7 @@ export function useMicTest(): UseMicTestReturn {
     inputOverloaded,
     dynamicGateStatus,
     error,
+    stoppedReason,
     startTest,
     stopTest,
     startCalibration,

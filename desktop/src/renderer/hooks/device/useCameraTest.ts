@@ -1,5 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
+import {
+  acquire,
+  release,
+  captureLeaseMessage,
+  captureRevokedEvents,
+  CAPTURE_REVOKED_EVENT,
+} from '../../services/voice/captureLeaseClient';
+import type { DeviceTestStoppedReason } from './useMicTest';
 
 const VOICE_CALL_CONNECTION_STATES = new Set(['connected', 'connecting', 'reconnecting']);
 
@@ -10,6 +18,7 @@ function isInVoiceCall(connectionState: string): boolean {
 interface UseCameraTestReturn {
   isTesting: boolean;
   error: string | null;
+  stoppedReason: DeviceTestStoppedReason;
   stream: MediaStream | null;
   toggleTest: () => Promise<void>;
   stopTest: () => void;
@@ -20,14 +29,25 @@ interface UseCameraTestReturn {
  * MediaStream from the currently-selected video input via getUserMedia and
  * exposes it for inline <video> rendering. Guarantees all tracks are stopped
  * on toggle-off and on unmount so no MediaStreamTracks leak.
+ *
+ * #87: the `device-test` capture lease is acquired before getUserMedia and
+ * released when the preview stops; a revoked lease stops the preview.
  */
 export function useCameraTest(): UseCameraTestReturn {
   const [isTesting, setIsTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stoppedReason, setStoppedReason] = useState<DeviceTestStoppedReason>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const generationRef = useRef(0);
   const pendingRef = useRef(false);
+  const leaseHeldRef = useRef(false);
+
+  const releaseLease = useCallback(() => {
+    if (!leaseHeldRef.current) return;
+    leaseHeldRef.current = false;
+    void release('device-test');
+  }, []);
 
   const stopTest = useCallback(() => {
     generationRef.current++;
@@ -36,36 +56,60 @@ export function useCameraTest(): UseCameraTestReturn {
       for (const t of streamRef.current.getTracks()) t.stop();
       streamRef.current = null;
     }
+    releaseLease();
     setStream(null);
     setIsTesting(false);
-  }, []);
+    setStoppedReason(null);
+  }, [releaseLease]);
 
-  const startTest = useCallback(async (generation: number) => {
-    setError(null);
-    try {
-      const deviceId = useVoiceStore.getState().videoDeviceId;
-      const next = await navigator.mediaDevices.getUserMedia({
-        video: deviceId ? { deviceId: { exact: deviceId } } : true,
-      });
+  const startTest = useCallback(
+    async (generation: number) => {
+      setError(null);
+      setStoppedReason(null);
+      const lease = await acquire('device-test');
       if (generation !== generationRef.current) {
-        for (const track of next.getTracks()) track.stop();
+        // Stopped while main answered. A successor that is starting adopts the
+        // claim (its stop releases it); otherwise nothing owns it.
+        if (lease.status === 'granted') {
+          if (pendingRef.current || streamRef.current) leaseHeldRef.current = true;
+          else void release('device-test');
+        }
         return;
       }
-      streamRef.current = next;
-      setStream(next);
-      setIsTesting(true);
-    } catch (err) {
-      if (generation !== generationRef.current) return;
-      const msg =
-        err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Camera access denied'
-          : 'Failed to access camera';
-      setError(msg);
-      setIsTesting(false);
-    } finally {
-      if (generation === generationRef.current) pendingRef.current = false;
-    }
-  }, []);
+      if (lease.status !== 'granted') {
+        pendingRef.current = false;
+        if (lease.status === 'held') setStoppedReason('held');
+        else setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
+        return;
+      }
+      leaseHeldRef.current = true;
+      try {
+        const deviceId = useVoiceStore.getState().videoDeviceId;
+        const next = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        });
+        if (generation !== generationRef.current) {
+          for (const track of next.getTracks()) track.stop();
+          return;
+        }
+        streamRef.current = next;
+        setStream(next);
+        setIsTesting(true);
+      } catch (err) {
+        if (generation !== generationRef.current) return;
+        releaseLease();
+        const msg =
+          err instanceof DOMException && err.name === 'NotAllowedError'
+            ? 'Camera access denied'
+            : 'Failed to access camera';
+        setError(msg);
+        setIsTesting(false);
+      } finally {
+        if (generation === generationRef.current) pendingRef.current = false;
+      }
+    },
+    [releaseLease]
+  );
 
   const toggleTest = useCallback(async () => {
     if (streamRef.current || pendingRef.current) {
@@ -83,11 +127,19 @@ export function useCameraTest(): UseCameraTestReturn {
         !isInVoiceCall(prev.connectionState) && isInVoiceCall(state.connectionState);
       if (state.videoDeviceId !== prev.videoDeviceId || callStarted) stopTest();
     });
+    const onCaptureRevoked = (event: Event) => {
+      if (!streamRef.current && !pendingRef.current) return;
+      const reason: unknown = event instanceof CustomEvent ? event.detail : undefined;
+      stopTest();
+      if (reason === 'backgrounded') setStoppedReason('backgrounded');
+    };
+    captureRevokedEvents.addEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
     return () => {
       unsubscribe();
+      captureRevokedEvents.removeEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
       stopTest();
     };
   }, [stopTest]);
 
-  return { isTesting, error, stream, toggleTest, stopTest };
+  return { isTesting, error, stoppedReason, stream, toggleTest, stopTest };
 }

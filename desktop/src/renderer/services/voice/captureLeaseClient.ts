@@ -120,7 +120,9 @@ export async function acquire(
   try {
     const result: unknown = await invoke({ intent });
     // The invoke reply is not guarded by the preload; fail closed on any other shape.
-    return isCaptureAcquireResult(result) ? result : IPC_ERROR;
+    if (!isCaptureAcquireResult(result)) return IPC_ERROR;
+    if (intent === 'device-test' && result.status === 'granted') deviceTestHolds += 1;
+    return result;
   } catch {
     return IPC_ERROR;
   } finally {
@@ -128,10 +130,22 @@ export async function acquire(
   }
 }
 
+/**
+ * Main keeps one `device-test` claim, but a mic test, a camera test and the webcam probe
+ * can overlap on one page. The claim is released only when the last of them lets go,
+ * otherwise a finished probe would free the lease under a running mic test.
+ */
+let deviceTestHolds = 0;
+
 /** Never rejects, so cleanup paths can fire it with `void`. */
 export async function release(intent: CaptureIntent): Promise<boolean> {
   const invoke = bridge()?.release;
   if (typeof invoke !== 'function') return false;
+  if (intent === 'device-test' && deviceTestHolds > 1) {
+    deviceTestHolds -= 1;
+    return true;
+  }
+  if (intent === 'device-test') deviceTestHolds = 0;
   try {
     return (await invoke({ intent })) === true;
   } catch {
@@ -164,6 +178,8 @@ export function subscribeLeaseRevoked(cb: (r: CaptureLeaseRevoked) => void): () 
 export const captureRevokedEvents: EventTarget = new EventTarget();
 
 export function dispatchCaptureRevoked(reason: CaptureRevokedReason): void {
+  // Main has already ended the claim; the stopping tests' own releases must not be held back.
+  deviceTestHolds = 0;
   captureRevokedEvents.dispatchEvent(
     new CustomEvent<CaptureRevokedReason>(CAPTURE_REVOKED_EVENT, { detail: reason })
   );

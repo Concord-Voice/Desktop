@@ -19,13 +19,15 @@ import { useEntitlement } from '../../hooks/ui/useEntitlement';
 import { useGateActivation } from '../../hooks/ui/useGateActivation';
 import PremiumChip from '../common/PremiumChip';
 import DeviceSelector from '../Voice/DeviceSelector';
-import { useMicTest } from '../../hooks/device/useMicTest';
+import { useMicTest, type DeviceTestStoppedReason } from '../../hooks/device/useMicTest';
+import { CAPTURE_LEASE_COPY, type CaptureLeaseView } from '../../services/voice/captureLeaseClient';
 import { useGateCalibration } from '../../hooks/device/useGateCalibration';
 import { NoiseGateCalibration } from './NoiseGateCalibration';
 import { useOutputTest } from '../../hooks/device/useOutputTest';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 import AudioOpusSection from './AudioOpusSection';
+import './AudioConfigSection.css';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -149,9 +151,39 @@ const QualityTierLabels: React.FC<QualityTierLabelsProps> = ({
   </div>
 );
 
+/** The device-test lease line (#87 §3.8), or null when a test may run. */
+export function deviceTestLeaseMessage(
+  stoppedReason: DeviceTestStoppedReason | undefined,
+  captureLease: CaptureLeaseView
+): string | null {
+  if (stoppedReason === 'backgrounded') return CAPTURE_LEASE_COPY.deviceTestBackgrounded;
+  if (stoppedReason === 'held' || captureLease === 'other')
+    return CAPTURE_LEASE_COPY.deviceTestHeld;
+  return null;
+}
+
+interface DeviceTestLeaseRowProps {
+  id: string;
+  message: string | null;
+}
+
+/**
+ * #87 §3.8: says why a device test cannot run here (another connection's call holds
+ * the capture lease) or why it stopped. Visible text under Test, before any click,
+ * and the Test button's `aria-describedby` target — never a tooltip. Mounted only
+ * while there is something to say, so the button never points at an empty node.
+ */
+export const DeviceTestLeaseRow: React.FC<DeviceTestLeaseRowProps> = ({ id, message }) =>
+  message ? (
+    <div id={id} role="status" className="settings-device-test-lease">
+      {message}
+    </div>
+  ) : null;
+
 interface AudioDeviceSettingsProps {
   localIsTesting: boolean;
   micTest: ReturnType<typeof useMicTest>;
+  micTestLeaseMessage: string | null;
   outputTest: ReturnType<typeof useOutputTest>;
   outputVolume: number;
   calibrationActive: boolean;
@@ -161,6 +193,7 @@ interface AudioDeviceSettingsProps {
 const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({
   localIsTesting,
   micTest,
+  micTestLeaseMessage,
   outputTest,
   outputVolume,
   calibrationActive,
@@ -178,11 +211,13 @@ const AudioDeviceSettings: React.FC<AudioDeviceSettingsProps> = ({
           onClick={micTest.isTesting ? micTest.stopTest : micTest.startTest}
           disabled={localIsTesting && !micTest.isTesting}
           title={localIsTesting && !micTest.isTesting ? 'Another audio test is running' : undefined}
+          aria-describedby={micTestLeaseMessage ? 'settings-mic-test-lease' : undefined}
         >
           {micTest.isTesting ? 'Stop Testing' : 'Test'}
         </button>
         {micTest.error && <span className="settings-mic-test-error">{micTest.error}</span>}
       </div>
+      <DeviceTestLeaseRow id="settings-mic-test-lease" message={micTestLeaseMessage} />
       <p className="settings-row-hint">
         Microphone Test uses applied settings until you select Apply. Its meter shows sample peaks
         before the noise gate, so it still responds while the gate is closed.
@@ -529,7 +564,9 @@ const AudioConfigSection: React.FC = () => {
   const inputVolume = useDraftAudioSetting('inputVolume');
   const outputVolume = useDraftAudioSetting('outputVolume');
   const localIsTesting = useVoiceStore((s) => s.localIsTesting);
+  const captureLease = useVoiceStore((s) => s.captureLease);
   const micTest = useMicTest();
+  const micTestLeaseMessage = deviceTestLeaseMessage(micTest.stoppedReason, captureLease);
   const calibration = useGateCalibration(micTest);
   const fixedGate = noiseGateMode === 'autoCalibrate' || noiseGateMode === 'manualCalibrate';
   const outputTest = useOutputTest();
@@ -573,6 +610,7 @@ const AudioConfigSection: React.FC = () => {
       <AudioDeviceSettings
         localIsTesting={localIsTesting}
         micTest={micTest}
+        micTestLeaseMessage={micTestLeaseMessage}
         outputTest={{ ...outputTest, playTestTone: startOutputTest }}
         outputVolume={outputVolume}
         calibrationActive={fixedGate}

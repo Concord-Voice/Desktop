@@ -3,6 +3,7 @@ import {
   acquire,
   captureLeaseMessage,
   CaptureLeaseError,
+  dispatchCaptureRevoked,
   isAcquirePending,
   leaseViewOf,
   release,
@@ -149,5 +150,45 @@ describe('captureLeaseMessage (spec §3.8 copy, verbatim)', () => {
     expect(err).toBeInstanceOf(Error);
     expect(err.reason).toBe('busy');
     expect(err.message).toBe(captureLeaseMessage('busy'));
+  });
+});
+
+describe('captureLeaseClient — overlapping device tests share one claim', () => {
+  function bridgeWith(release: ReturnType<typeof vi.fn>): void {
+    setBridge({
+      acquire: vi.fn().mockResolvedValue({ status: 'granted' }),
+      release,
+    });
+  }
+
+  it('sends the release only when the last device test lets go', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    bridgeWith(releaseFn);
+    await acquire('device-test');
+    await acquire('device-test');
+    await expect(release('device-test')).resolves.toBe(true);
+    expect(releaseFn).not.toHaveBeenCalled();
+    await expect(release('device-test')).resolves.toBe(true);
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a revocation clears the count so the stopping tests still release', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    bridgeWith(releaseFn);
+    await acquire('device-test');
+    await acquire('device-test');
+    dispatchCaptureRevoked('backgrounded');
+    await release('device-test');
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused acquire holds nothing and voice-join is never counted', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    setBridge({ acquire: vi.fn().mockResolvedValue({ status: 'held' }), release: releaseFn });
+    await acquire('device-test');
+    await release('device-test');
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+    await release('voice-join');
+    expect(releaseFn).toHaveBeenCalledTimes(2);
   });
 });
