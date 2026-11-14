@@ -616,6 +616,16 @@ describe('handoff: ack-or-crash (§3.4)', () => {
     expect(d.setTrayOwner).toHaveBeenLastCalledWith(null);
   });
 
+  it("a B that went to the background during the handoff is refused 'not-foreground' when A acks, and the lease ends free", async () => {
+    const { a, b, pending } = await handoffFromAToB();
+    front(a);
+    expect(rel(a)).toBe(true);
+    await expect(pending).resolves.toEqual(rejected('not-foreground'));
+    expect(isHolder(ref(b))).toBe(false);
+    expect(isFree()).toBe(true);
+    expect(d.setTrayOwner).toHaveBeenLastCalledWith(null);
+  });
+
   it("B's advance mid-handoff still crashes an A that never acks", async () => {
     const { a, b, pending } = await handoffFromAToB();
     advanceGeneration(b.record.connectionId, 'credential-end');

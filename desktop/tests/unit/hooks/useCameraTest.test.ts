@@ -318,7 +318,7 @@ describe('useCameraTest capture lease (#87)', () => {
       await result.current.toggleTest();
     });
     expect(release).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
   });
 
   it('granted: unmount releases device-test and removes the revoke listener', async () => {
@@ -328,7 +328,7 @@ describe('useCameraTest capture lease (#87)', () => {
       await result.current.toggleTest();
     });
     unmount();
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
     expect(removeSpy).toHaveBeenCalledWith(CAPTURE_REVOKED_EVENT, expect.any(Function));
   });
 
@@ -342,7 +342,7 @@ describe('useCameraTest capture lease (#87)', () => {
     expect(result.current.isTesting).toBe(false);
     expect(result.current.stream).toBeNull();
     expect(result.current.stoppedReason).toBe('backgrounded');
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
   });
 
   it('the next start clears stoppedReason', async () => {

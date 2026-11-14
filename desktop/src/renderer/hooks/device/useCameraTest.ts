@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import {
   acquire,
+  currentDeviceTestEpoch,
   release,
   captureLeaseMessage,
   captureRevokedEvents,
@@ -42,11 +43,13 @@ export function useCameraTest(): UseCameraTestReturn {
   const generationRef = useRef(0);
   const pendingRef = useRef(false);
   const leaseHeldRef = useRef(false);
+  // The revocation epoch read just before the held claim was asked for (see release()).
+  const leaseEpochRef = useRef(0);
 
   const releaseLease = useCallback(() => {
     if (!leaseHeldRef.current) return;
     leaseHeldRef.current = false;
-    void release('device-test');
+    void release('device-test', leaseEpochRef.current);
   }, []);
 
   const stopTest = useCallback(() => {
@@ -66,11 +69,12 @@ export function useCameraTest(): UseCameraTestReturn {
     async (generation: number) => {
       setError(null);
       setStoppedReason(null);
+      const leaseEpoch = currentDeviceTestEpoch();
       const lease = await acquire('device-test');
       if (generation !== generationRef.current) {
         // Stopped while main answered. This grant owns nothing: give its count back. A
         // successor's own acquire is already counted, so the claim survives for it.
-        if (lease.status === 'granted') void release('device-test');
+        if (lease.status === 'granted') void release('device-test', leaseEpoch);
         return;
       }
       if (lease.status !== 'granted') {
@@ -80,6 +84,7 @@ export function useCameraTest(): UseCameraTestReturn {
         return;
       }
       leaseHeldRef.current = true;
+      leaseEpochRef.current = leaseEpoch;
       try {
         const deviceId = useVoiceStore.getState().videoDeviceId;
         const next = await navigator.mediaDevices.getUserMedia({

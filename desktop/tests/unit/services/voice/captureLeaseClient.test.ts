@@ -3,6 +3,7 @@ import {
   acquire,
   captureLeaseMessage,
   CaptureLeaseError,
+  currentDeviceTestEpoch,
   dispatchCaptureRevoked,
   isAcquirePending,
   leaseViewOf,
@@ -208,6 +209,20 @@ describe('captureLeaseClient — overlapping device tests share one claim', () =
     expect(releaseFn).not.toHaveBeenCalled();
     grant({ status: 'granted' });
     await pending;
+  });
+
+  it('drops a release from before a revocation, so a stale probe cannot end a successor claim', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    bridgeWith(releaseFn);
+    const probeEpoch = currentDeviceTestEpoch();
+    await acquire('device-test'); // the probe
+    dispatchCaptureRevoked('backgrounded'); // main ends the claim; the probe is still pending
+    const testEpoch = currentDeviceTestEpoch();
+    await acquire('device-test'); // the user starts a new test
+    await expect(release('device-test', probeEpoch)).resolves.toBe(false); // the stale probe ends
+    expect(releaseFn).not.toHaveBeenCalled();
+    await expect(release('device-test', testEpoch)).resolves.toBe(true); // the new test ends
+    expect(releaseFn).toHaveBeenCalledTimes(1);
   });
 
   it('a revocation clears the count so the stopping tests still release', async () => {

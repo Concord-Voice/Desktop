@@ -155,11 +155,24 @@ export function withholdReleases(on: boolean): void {
   releasesWithheld = on;
 }
 
+/**
+ * Bumped by every revocation. A device-test holder reads it BEFORE it acquires and passes it
+ * back to `release`: main already ended a revoked claim, so a release from before the
+ * revocation is dropped instead of ending a successor's claim (a probe that outlives the
+ * revoke, finishing after the user started another test).
+ */
+let deviceTestEpoch = 0;
+
+export function currentDeviceTestEpoch(): number {
+  return deviceTestEpoch;
+}
+
 /** Never rejects, so cleanup paths can fire it with `void`. */
-export async function release(intent: CaptureIntent): Promise<boolean> {
+export async function release(intent: CaptureIntent, epoch?: number): Promise<boolean> {
   const invoke = bridge()?.release;
   if (typeof invoke !== 'function') return false;
   if (releasesWithheld) return false;
+  if (intent === 'device-test' && epoch !== undefined && epoch !== deviceTestEpoch) return false;
   if (intent === 'device-test' && deviceTestHolds > 1) {
     deviceTestHolds -= 1;
     return true;
@@ -199,6 +212,7 @@ export const captureRevokedEvents: EventTarget = new EventTarget();
 export function dispatchCaptureRevoked(reason: CaptureRevokedReason): void {
   // Main has already ended the claim; the stopping tests' own releases must not be held back.
   deviceTestHolds = 0;
+  deviceTestEpoch += 1;
   captureRevokedEvents.dispatchEvent(
     new CustomEvent<CaptureRevokedReason>(CAPTURE_REVOKED_EVENT, { detail: reason })
   );

@@ -69,7 +69,7 @@ describe('enumerateWebcamCapabilities capture lease (#87)', () => {
   it('releases even when every probe fails', async () => {
     getUserMedia.mockRejectedValue(new DOMException('no', 'OverconstrainedError'));
     await expect(enumerateWebcamCapabilities(nextDevice())).resolves.toEqual([]);
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
   });
 
   it('a capture-revoked event stops the remaining probes and skips the cache', async () => {
@@ -80,7 +80,7 @@ describe('enumerateWebcamCapabilities capture lease (#87)', () => {
     });
     await enumerateWebcamCapabilities(id);
     expect(getUserMedia).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
     getUserMedia.mockClear();
     await enumerateWebcamCapabilities(id);
     expect(getUserMedia.mock.calls.length).toBeGreaterThan(1);

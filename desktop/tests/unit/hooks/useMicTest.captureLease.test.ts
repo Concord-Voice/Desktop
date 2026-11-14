@@ -154,7 +154,7 @@ describe('useMicTest capture lease (#87)', () => {
     expect(release).not.toHaveBeenCalled();
     act(() => result.current.stopTest());
     expect(release).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
   });
 
   it('granted: unmount releases device-test and removes the revoke listener', async () => {
@@ -164,7 +164,7 @@ describe('useMicTest capture lease (#87)', () => {
       await result.current.startTest();
     });
     unmount();
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
     expect(removeSpy).toHaveBeenCalledWith(CAPTURE_REVOKED_EVENT, expect.any(Function));
   });
 
@@ -177,7 +177,7 @@ describe('useMicTest capture lease (#87)', () => {
     expect(trackStop).toHaveBeenCalled();
     expect(result.current.isTesting).toBe(false);
     expect(result.current.stoppedReason).toBe('backgrounded');
-    expect(release).toHaveBeenCalledWith('device-test');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
   });
 
   it('capture-revoked while idle changes nothing', () => {

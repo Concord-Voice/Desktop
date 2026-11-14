@@ -8,6 +8,7 @@
 import { h264ProfileClass, type H264ProfileClass } from './voiceCodecSelection';
 import {
   acquire,
+  currentDeviceTestEpoch,
   release,
   captureRevokedEvents,
   CAPTURE_REVOKED_EVENT,
@@ -302,6 +303,7 @@ export async function enumerateWebcamCapabilities(deviceId: string): Promise<Web
   // #87: the probe opens the camera, so it holds the `device-test` capture claim.
   // A non-grant answers no capabilities and is not cached; a revoked lease ends
   // the probe early and its partial answer is not cached either.
+  const leaseEpoch = currentDeviceTestEpoch();
   const lease = await acquire('device-test');
   if (lease.status !== 'granted') return [];
   let revoked = false;
@@ -315,7 +317,7 @@ export async function enumerateWebcamCapabilities(deviceId: string): Promise<Web
     return capabilities;
   } finally {
     captureRevokedEvents.removeEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
-    void release('device-test');
+    void release('device-test', leaseEpoch);
   }
 }
 

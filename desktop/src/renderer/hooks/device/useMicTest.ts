@@ -8,6 +8,7 @@ import { ensureOsPermission } from '../../stores/voice/osPermissionStore';
 import { voiceService } from '../../services/voice/voiceService';
 import {
   acquire,
+  currentDeviceTestEpoch,
   release,
   captureLeaseMessage,
   captureRevokedEvents,
@@ -181,6 +182,8 @@ export function useMicTest(): UseMicTestReturn {
   const startTestRef = useRef<() => Promise<void>>(async () => {});
   // True while this hook holds the `device-test` capture claim (#87).
   const leaseHeldRef = useRef(false);
+  // The revocation epoch read just before the held claim was asked for (see release()).
+  const leaseEpochRef = useRef(0);
 
   const releaseCallTestSuspension = useCallback(() => {
     if (!callSuspensionRef.current) return;
@@ -241,7 +244,7 @@ export function useMicTest(): UseMicTestReturn {
       }
       if (leaseHeldRef.current) {
         leaseHeldRef.current = false;
-        void release('device-test');
+        void release('device-test', leaseEpochRef.current);
       }
 
       setIsTesting(false);
@@ -577,11 +580,12 @@ export function useMicTest(): UseMicTestReturn {
 
       try {
         // #87: the capture lease is asked for before any OS prompt or getUserMedia.
+        const leaseEpoch = currentDeviceTestEpoch();
         const lease = await acquire('device-test');
         if (generation !== generationRef.current) {
           // Stopped while main answered. This grant owns nothing: give its count back. A
           // successor's own acquire is already counted, so the claim survives for it.
-          if (lease.status === 'granted') void release('device-test');
+          if (lease.status === 'granted') void release('device-test', leaseEpoch);
           return null;
         }
         if (lease.status !== 'granted') {
@@ -592,6 +596,7 @@ export function useMicTest(): UseMicTestReturn {
           return null;
         }
         leaseHeldRef.current = true;
+        leaseEpochRef.current = leaseEpoch;
         // JIT permission check (#197): request mic access on macOS before getUserMedia.
         if (!(await ensureMicPermission(generation))) {
           if (generation === generationRef.current) {

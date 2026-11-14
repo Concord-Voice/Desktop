@@ -213,14 +213,17 @@ function completeHandoff(d: CaptureLeaseDeps, h: Handoff, excludeId: ConnectionI
   if (h.timer !== null) clearTimeout(h.timer);
   h.timer = null;
   const to = h.to;
-  if (to !== null && h.settle !== null && isRefCurrent(d, to)) {
+  const live = to !== null && h.settle !== null && isRefCurrent(d, to);
+  // The grantee may have gone to the background while `from` tore down (the switch is not
+  // blocked during a handoff): a fresh acquisition is foreground-only, so it is re-checked.
+  if (to !== null && live && isForeground(d, to)) {
     grant(d, to, 'voice-join', false, excludeId);
     settleOnce(h, granted());
     return;
   }
   effect(() => d.setTrayOwner(null));
   publish(d, null, excludeId);
-  if (to !== null) settleOnce(h, rejected('superseded'));
+  if (to !== null) settleOnce(h, rejected(live ? 'not-foreground' : 'superseded'));
 }
 
 function onHandoffTimeout(h: Handoff): void {
