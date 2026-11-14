@@ -497,13 +497,15 @@ vi.mock('../../../src/main/spaLoader', () => ({
   },
 }));
 
+import type * as TrayModule from '../../../src/main/tray';
+
 // #86 B1: capture the sender main.ts hands the tray, so a test can fire a tray action
 // without a real tray. Everything else in the module stays real.
 const { trayActionSenderHolder } = vi.hoisted(() => ({
   trayActionSenderHolder: { send: null as null | ((action: unknown) => void) },
 }));
 vi.mock('../../../src/main/tray', async (importActual) => {
-  const actual = await importActual<typeof import('../../../src/main/tray')>();
+  const actual = await importActual<typeof TrayModule>();
   return {
     ...actual,
     setTrayActionSender: (send: (action: never) => void) => {
@@ -8335,7 +8337,7 @@ describe('#86 review rows: connection-scoped auth and window lifecycle in main',
         status: 'opened-in-connection',
         serviceId: serviceIdForApiBase(origin),
       });
-      expect(refreshCalls.length).toBe(before + 1);
+      expect(refreshCalls).toHaveLength(before + 1);
       const refreshB = refreshCalls[before][0] as RefreshCb;
 
       mockWebContents.send.mockClear();
