@@ -65,6 +65,10 @@ server is listed, and CVNet is listed after it when the root `token-meta.json` h
 a Remember Me sign-in. Otherwise only CVNet is listed. Those older files are only
 read. Nothing is moved, rewritten or deleted.
 
+CVNet's view is always open, whether or not the file lists it. When CVNet is brought
+to the front and has no entry, an entry is added for it then, so the next launch can
+show it first. That entry decides only which view is shown first.
+
 A new self-hosted connection starts with the default device-level UI settings. Its
 settings are not copied from CVNet. Per-server settings are tracked in
 [Self-Hosted#113](https://github.com/Concord-Voice/Self-Hosted/issues/113).

@@ -770,6 +770,38 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
   });
 
+  // Codex C4: migration writes `[X]` alone when the root holds no Remember-Me saas
+  // sign-in, so the always-open saas view had no entry and its foreground was never
+  // recorded: every relaunch showed X again, even when the user last used saas.
+  it('a saas foreground with no saas entry adds one, and the next launch shows saas', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(a, at(3))],
+      (origin) => register(origin) as never
+    );
+    expect(foreground()?.serviceId).toBe(a.serviceId);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, saas.serviceId]);
+    const saasEntry = written.find((e) => e.serviceId === saas.serviceId);
+    expect(saasEntry?.origin).toBe(SAAS_ORIGIN);
+    expect(saasEntry?.lastForegroundAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(saasEntry?.addedAt).toBe(saasEntry?.lastForegroundAt);
+
+    // The next launch, from what was written.
+    (shellWindow() as unknown as Any).emit('closed');
+    _resetPersistedConnectionsForTesting();
+    createShellWindow(deps as never);
+    await mustOpen(saas.serviceId);
+    await restorePersistedConnections('/user-data', written as never, (o) => register(o) as never);
+    expect(foreground()?.serviceId).toBe(saas.serviceId);
+  });
+
   // #86 PR 206 review row 5: macOS keeps the app alive with no window, and the dock
   // re-creates it. The restore must not fall back to the startup snapshot.
   it('a re-created window restores a connection added after startup and keeps it in the file', async () => {

@@ -303,14 +303,27 @@ export async function openConnectionView(
 /** The restored `connections.json` entries, kept so a foreground change can be recorded. */
 let persisted: { root: string; entries: ConnectionsFileEntry[] } | null = null;
 
-/** Layout only: stamps `lastForegroundAt` on the entry, never adds or admits one. */
+/**
+ * Layout only: stamps `lastForegroundAt` on the entry. It adds one only for `saas`, whose
+ * view is always open but which migration leaves out when the root holds no Remember-Me
+ * sign-in (`[X]` alone); without it a saas foreground was never recorded and every launch
+ * showed X. A saas entry admits nothing: restore skips it and the file admits saas without
+ * an approval. No other service is ever added here.
+ */
 function recordForeground(serviceId: ServiceId): void {
   const state = persisted;
   if (!state) return;
+  const now = new Date().toISOString();
   const index = state.entries.findIndex((e) => e.serviceId === serviceId);
-  if (index < 0) return;
-  const entries = [...state.entries];
-  entries[index] = { ...entries[index], lastForegroundAt: new Date().toISOString() };
+  let entries: ConnectionsFileEntry[];
+  if (index >= 0) {
+    entries = [...state.entries];
+    entries[index] = { ...entries[index], lastForegroundAt: now };
+  } else {
+    const origin = serviceId === SAAS_SERVICE_ID ? getService(serviceId)?.origin : undefined;
+    if (origin === undefined) return;
+    entries = [...state.entries, { serviceId, origin, addedAt: now, lastForegroundAt: now }];
+  }
   state.entries = entries;
   writeConnectionsFile(state.root, entries).catch(() => {
     console.warn('[shellWindow] connections.json was not updated');
