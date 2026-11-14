@@ -2027,6 +2027,15 @@ In every run, `SIGKILL` of the capture utility process gave exactly one interrup
 `child-crash`, the host generation read 0, writes had stopped within 1 s of the kill (none between
 1 s and 2 s after it), and no capture process existed 2 s later.
 
+### Where the standing passes run
+
+Passes 1 to 5 (start, isolation, steady, slow consumer, kill) are a developer-machine run. A step
+running them on the hosted macOS arm64 leg of `native-audiocap.yml` was tried and removed on
+2026-11-14. On its first run (Electron 45.2.3), the steady pass checked 172 quanta in 3 s against
+a floor of 250. Every other pass held and every quantum was bit-exact. The hosted runner keeps
+only about 57% of the synthetic source's pace, so the floor cannot hold there. The design
+planned for this outcome; the project lead chose removal at the merge gate.
+
 ### Record corrections
 
 **The watchdog functions did not return.** The first as-built addendum (utilityProcess host and

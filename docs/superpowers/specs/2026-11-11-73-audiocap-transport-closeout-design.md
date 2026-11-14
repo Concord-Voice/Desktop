@@ -243,7 +243,7 @@ real-kill pass then only has to show that a real kill surfaces exactly one crash
 | What | Where | Standing or one-time |
 |---|---|---|
 | `oracle.mjs` unit tests | every runner (vitest) | standing |
-| Passes 1 to 5 | macOS arm64 leg of `.github/workflows/native-audiocap.yml`, after both binaries exist; also the nightly run of that workflow | standing |
+| Passes 1 to 5 | a developer macOS machine (the planned macOS arm64 CI step was removed; see the outcome below) | standing, run locally |
 | Passes 6 and 7 | a developer macOS machine | one-time; re-run when Electron moves |
 
 The CI step is `npm run build:main && npm run build:preload`, then the probe. A failing step fails
@@ -251,8 +251,14 @@ the job. A visible window on a hosted macOS runner has no precedent in this repo
 run is the proof, and if the runner cannot show a window the step is removed and the standing run
 stays local, recorded as such.
 
-The `native` path filter in `.github/ci/scan-relevance.yml` gains the probe directory and the
-transport sources, so the workflow runs when they change.
+**Outcome, 2026-11-14.** The runner showed the window, but on the first run the steady pass checked
+172 quanta in 3 s against its floor of 250; the other passes held. The step and its path-filter
+entries were removed, and passes 1 to 5 stay a local run (ADR-0043 addendum, "Where the standing
+passes run").
+
+The `native` path filter in `.github/ci/scan-relevance.yml` was to gain the probe directory and
+the transport sources, so the workflow runs when they change; those entries were removed with the
+step.
 
 ## 9. Docs that ship in the same pull request
 
@@ -291,9 +297,10 @@ committed anywhere; the probe handles a deterministic test waveform only.
 
 **Ruled 2026-11-14 at the pull request's merge gate.** Item 1 was approved before the build. On
 items 2 to 5: the criterion 1 wording in the ADR-0043 addendum, stating both sets of runs, is
-approved, with the 20 ms limit judged on the gap the transport adds; criterion 2 is accepted with the synthetic
-source; the CI step was pushed; and the spawn-listener timeout is issue 213. The ADR-0043
-addendum is the record of the wording and the figures.
+approved, with the 20 ms limit judged on the gap the transport adds; criterion 2 is accepted with
+the synthetic source; the CI step was pushed, failed its first hosted run, and was removed (section
+8); and the spawn-listener timeout is issue 213. The ADR-0043 addendum is the record of the wording
+and the figures.
 
 ## 12. Risks
 
