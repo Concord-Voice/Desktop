@@ -409,10 +409,38 @@ export function onGenerationAdvanced(listener: GenerationListener): () => void {
   };
 }
 
+const foregroundListeners = new Set<() => void>();
+
+/**
+ * Called after every foreground change: `setForeground` to another id, and the clear in
+ * `disposeConnection`. The tray (#86 B1) re-renders for the new foreground from here,
+ * so no caller of `setForeground` can leave it showing another connection. Returns an
+ * unsubscribe.
+ */
+export function onForegroundChanged(listener: () => void): () => void {
+  foregroundListeners.add(listener);
+  return () => {
+    foregroundListeners.delete(listener);
+  };
+}
+
+function announceForeground(): void {
+  for (const listener of [...foregroundListeners]) {
+    try {
+      listener();
+    } catch {
+      // Not rethrown: the foreground already moved, and the other listeners must run.
+      console.warn('[connectionRegistry] a foreground listener threw');
+    }
+  }
+}
+
 /** Throws for an id that is not live; `null` clears. */
 export function setForeground(id: ConnectionId | null): void {
   if (id !== null && !connections.has(id)) throw new Error('setForeground: unknown connection');
+  if (foregroundId === id) return;
   foregroundId = id;
+  announceForeground();
 }
 
 export function foreground(): ConnectionRecord | null {
@@ -422,7 +450,8 @@ export function foreground(): ConnectionRecord | null {
 
 /**
  * advanceGeneration('disposed') → state 'disposed' → clear foreground if it was this
- * one → drop its bindings and the record. Idempotent: an unknown id is a no-op, and
+ * one → drop its bindings and the record → announce the cleared foreground, once the
+ * record is gone. Idempotent: an unknown id is a no-op, and
  * so is a call made from a listener while this connection is already being
  * disposed, so `'disposed'` is announced once. The caller still owns destroying
  * the PiPs (`record.pips` is left intact for it), removing the view and closing
@@ -435,13 +464,15 @@ export function disposeConnection(id: ConnectionId): void {
   advanceGeneration(id, 'disposed');
   const { record } = entry;
   record.state = 'disposed';
-  if (foregroundId === id) foregroundId = null;
+  const wasForeground = foregroundId === id;
+  if (wasForeground) foregroundId = null;
   bindings.delete(record.webContents);
   for (const pip of record.pips) {
     bindings.delete(pip);
     pipSpaOrigins.delete(pip);
   }
   connections.delete(id);
+  if (wasForeground) announceForeground();
 }
 
 export function liveConnections(): ConnectionRecord[] {
@@ -464,6 +495,7 @@ export function _resetConnectionRegistryForTesting(): void {
   bindings = new WeakMap<WebContents, SenderBinding>();
   pipSpaOrigins = new WeakMap<WebContents, string>();
   foregroundId = null;
+  foregroundListeners.clear();
   listeners.clear();
   pendingNotifications.length = 0;
   delivering = false;

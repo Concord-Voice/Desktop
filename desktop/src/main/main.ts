@@ -25,7 +25,7 @@ import {
   setTrayActionSender,
   setTrayWindowFocused,
 } from './tray';
-import { attachTrayResetHooks, registerTrayStatusIpc } from './ipc/trayStatus';
+import { attachTrayResetHooks, registerTrayStatusIpc, trayActionTarget } from './ipc/trayStatus';
 import { TRAY_ACTION } from '../shared/trayStatus';
 import {
   audiocapMachineCapability,
@@ -1819,8 +1819,9 @@ app.whenReady().then(async () => {
   registerAudiocapIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
   registerBillingIpc(shellWindow);
-  // Status-aware tray (tray-status spec §4): the binding-admitted primary main frame of
-  // trayOwner() or, with none, the foreground connection + 20/s bucket + exact shape.
+  // Status-aware tray (tray-status spec §4): any binding-admitted primary main frame + a
+  // 20/s bucket per connection + exact shape; each connection's snapshot is kept, and the
+  // tray shows trayOwner()'s or, with none, the foreground connection's (#86 B1).
   registerTrayStatusIpc();
   // NO TLS certificate pinning on api.concordvoice.chat — deliberate, do not
   // re-add (#658 reverted). Cloudflare serves that host from a MANAGED edge
@@ -1934,9 +1935,10 @@ app.whenReady().then(async () => {
   // handler has a window to reveal. Init failure is non-fatal — the app runs
   // trayless and window-all-closed keeps its quit (see handler below).
   // Open/Quit and the two update rows are main-direct (spec §4); everything that
-  // changes client state goes to the renderer as a closed-enum `tray:action`.
+  // changes client state goes to the renderer as a closed-enum `tray:action`, and only
+  // to the connection whose snapshot the tray shows (#86 B1: `trayActionTarget`).
   setTrayActionSender((action) => {
-    const contents = foregroundWebContents();
+    const contents = trayActionTarget();
     if (!contents) return;
     contents.send(TRAY_ACTION, action);
   });

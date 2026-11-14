@@ -1,5 +1,6 @@
 /**
- * The `tray:setStatus` invoke (tray-status spec §4, IPC contract 33).
+ * The `tray:setStatus` invoke (tray-status spec §4, IPC contract 33), and which
+ * connection the shared tray shows (#86).
  *
  * Fences, in this order; nothing here throws. The result is `false` only when the
  * rate limit dropped the snapshot (the renderer resends it); every other outcome,
@@ -7,33 +8,50 @@
  *   1. Admission (since IPC contract v34, #86): `registerIpc` as `connection-bound`
  *      admits a bound PRIMARY main frame whose URL is permitted for its connection's
  *      kind (a PiP shares the origin and is refused there).
- *   2. `isTrayOwner` (R5): the tray's owner only, the bound owner's current primary
- *      when `setTrayOwner` has named one, else the foreground connection's primary.
- *   3. A 20/s token bucket.
- *   4. `firstInvalidField` — the exact-key, closed-enum guard. A malformed payload is
+ *   2. A 20/s token bucket per connection, so one connection cannot spend another's.
+ *   3. `firstInvalidField` — the exact-key, closed-enum guard. A malformed payload is
  *      logged once per session with the field NAME only (a fixed-table token, never a
  *      value or a caller-chosen key).
- * Only then is the snapshot handed to `applyTraySnapshot`, which stores it while the
- * tray is inactive and renders it otherwise.
+ * The snapshot is then kept as its own connection's latest, and the tray renders it
+ * (through `applyTraySnapshot`, which stores it while the tray is inactive) only while
+ * that connection is the tray's SOURCE (R5): the bound owner, at the generation
+ * `setTrayOwner` named, when one is set, else the foreground connection.
  *
- * `attachTrayResetHooks` covers R17: when the renderer reloads, crashes or hangs, the
- * tray drops back to the neutral icon and the Open/Quit menu rather than keeping live
- * voice controls for a session that may no longer exist. A hang is the one reset that
- * can end with the same session alive, so `responsive` re-applies the last accepted
- * snapshot: the renderer only sends on change and would otherwise leave the tray
- * neutral until some field moved.
+ * INVARIANT (#86 B1, B2). The tray shows the source's kept snapshot, or neutral when
+ * the source has none, is hung, or is a stale owner; and a `tray:action` reaches only
+ * the connection the tray shows (`trayActionTarget`). `refreshTray` recomputes it after
+ * every input changes: an accepted snapshot, a reset hook, `setTrayOwner`, and the
+ * foreground changes and generation advances the registry announces. A background
+ * connection's snapshot is kept, not refused, because its renderer sends only on
+ * change: refused, it is never resent, so a switch to that connection would leave the
+ * previous connection's voice controls on the tray while its actions went elsewhere.
+ * What breaks the invariant: an input changing without `refreshTray`, a render keyed
+ * on anything but the source, or a reset hook clearing another connection's snapshot.
+ *
+ * `attachTrayResetHooks` covers R17 for one connection: when its renderer reloads,
+ * crashes or is destroyed, its snapshot is forgotten, so the tray drops back to the
+ * neutral icon and the Open/Quit menu if it was showing that connection, rather than
+ * keeping live voice controls for a session that may no longer exist. Another
+ * connection's tray is left alone. A hang is the one reset that can end with the same
+ * session alive, so it only hides the snapshot until `responsive`: the renderer sends
+ * only on change and would otherwise leave the tray neutral until some field moved.
  */
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, WebContents } from 'electron';
 
 import {
   firstInvalidField,
   TRAY_SET_STATUS,
   type TrayStatusSnapshot,
 } from '../../shared/trayStatus';
-import type { ConnectionRef } from '../../shared/connectionIdentity';
+import type {
+  ConnectionId,
+  ConnectionRef,
+  Generation,
+  GenerationReason,
+} from '../../shared/connectionIdentity';
 import { applyTraySnapshot } from '../tray';
-import { foreground } from '../connectionRegistry';
-import { bindOwner, requireOwner, type OwnerBinding } from '../connectionCapability';
+import { foreground, onForegroundChanged, onGenerationAdvanced } from '../connectionRegistry';
+import { bindOwner, isOwnerCurrent, type OwnerBinding } from '../connectionCapability';
 
 import { CHANNEL_CLASSES } from './channelClassification';
 import type { ConnectionSender } from './connectionSender';
@@ -41,9 +59,23 @@ import { registerIpc } from './registry';
 
 const TRAY_STATUS_RATE_PER_SEC = 20;
 
-// The last snapshot the handler accepted from the live main renderer; null once that
-// renderer navigates, crashes or is destroyed.
-let lastAccepted: TrayStatusSnapshot | null = null;
+interface KeptSnapshot {
+  readonly snapshot: TrayStatusSnapshot;
+  /** The sender's generation when it was accepted: an owner shows only its own. */
+  readonly generation: Generation;
+}
+
+/** Each live connection's last accepted snapshot; dropped on a reload, crash or dispose. */
+const kept = new Map<ConnectionId, KeptSnapshot>();
+/** Connections whose renderer is unresponsive: their snapshot is hidden, not forgotten. */
+const hung = new Set<ConnectionId>();
+const buckets = new Map<ConnectionId, () => boolean>();
+/** What the tray was last given, and whose it is; null while it is neutral. */
+let displayed: {
+  readonly connectionId: ConnectionId;
+  readonly snapshot: TrayStatusSnapshot;
+} | null = null;
+let unsubscribers: Array<() => void> = [];
 
 /**
  * Continuous-refill token bucket: capacity `ratePerSec`, starts full, refills at
@@ -67,7 +99,7 @@ export function createTokenBucket(ratePerSec: number, now: () => number): () => 
  * The tray's owner (#86 Task 7B, spec §3.7). `null` means the foreground primary; a
  * ref names the one connection #87's capture lease redirects the tray to. Held as an
  * `OwnerBinding`, so a ref whose connection has since advanced its generation (a new
- * document, renderer loss, a credential change, dispose) admits NOBODY until main
+ * document, renderer loss, a credential change, dispose) shows NOBODY until main
  * names a new owner or clears it: a stale owner fails closed rather than falling back.
  */
 let trayOwnerBinding: OwnerBinding | null = null;
@@ -80,37 +112,107 @@ export function trayOwner(): ConnectionRef | null {
 /** Main-only (#87 redirects to the lease holder). Throws on a malformed ref. */
 export function setTrayOwner(ref: ConnectionRef | null): void {
   trayOwnerBinding = ref === null ? null : bindOwner('tray', ref);
+  refreshTray();
 }
 
 /**
- * FENCE 1 (#86 Task 7B). The registry already admitted a bound PRIMARY main frame whose
- * URL is permitted for its connection's kind, read in the event's own tick (a PiP shares
- * the origin and is refused there, as are subframes, detached and destroyed frames).
- * This narrows it to the tray's owner: the named owner's current primary when one is
- * set, else the foreground connection's primary. What breaks it: admitting on the
- * payload, on a renderer-held id, or on window identity instead of the binding.
+ * The source's snapshot, or null for neutral. The source is the owner while one is
+ * named (nobody once it is stale, and only a snapshot its primary sent at the named
+ * generation), else the foreground connection.
  */
-function isTrayOwner(sender: ConnectionSender, event: IpcMainInvokeEvent): boolean {
+function sourceSnapshot(): { connectionId: ConnectionId; snapshot: TrayStatusSnapshot } | null {
   const owner = trayOwnerBinding;
-  if (owner !== null) return requireOwner(event, owner) === sender.record;
-  return foreground() === sender.record;
+  let connectionId: ConnectionId;
+  if (owner === null) {
+    const fg = foreground();
+    if (fg === null) return null;
+    connectionId = fg.connectionId;
+  } else {
+    if (!isOwnerCurrent(owner)) return null;
+    connectionId = owner.ref.connectionId;
+  }
+  const entry = kept.get(connectionId);
+  if (!entry || hung.has(connectionId)) return null;
+  if (owner !== null && entry.generation !== owner.ref.generation) return null;
+  return { connectionId, snapshot: entry.snapshot };
+}
+
+/** Re-render when the source's snapshot changed; a no-op otherwise (see the INVARIANT). */
+function refreshTray(): void {
+  const next = sourceSnapshot();
+  if ((next?.snapshot ?? null) === (displayed?.snapshot ?? null)) return;
+  displayed = next;
+  try {
+    applyTraySnapshot(next === null ? null : { ...next.snapshot });
+  } catch {
+    // Contract: a tray render never fails its caller (an IPC reply, a registry listener).
+  }
+}
+
+function forget(connectionId: ConnectionId): void {
+  kept.delete(connectionId);
+  hung.delete(connectionId);
+}
+
+function onGeneration(
+  connectionId: ConnectionId,
+  _from: Generation,
+  _to: Generation,
+  reason: GenerationReason
+): void {
+  if (reason === 'disposed') {
+    forget(connectionId);
+    buckets.delete(connectionId);
+  }
+  // An owner whose connection advanced is stale from here, so it shows nobody.
+  refreshTray();
+}
+
+function bucketFor(connectionId: ConnectionId): () => boolean {
+  let allow = buckets.get(connectionId);
+  if (!allow) {
+    allow = createTokenBucket(TRAY_STATUS_RATE_PER_SEC, () => Date.now());
+    buckets.set(connectionId, allow);
+  }
+  return allow;
 }
 
 /**
- * `tray:setStatus` (#86 Task 7B: `registerIpc`, `connection-bound` plus the owner check
- * above). Every refusal still resolves `true` (the contract: a tray update never fails
- * the renderer's invoke); only a rate-limit drop resolves `false`.
+ * Where a `tray:action` goes (#86 B1): the foreground primary, and only while the tray
+ * shows that connection's snapshot. Null while the tray is neutral (its Open/Quit menu
+ * offers no client action) or shows an owner other than the foreground, so an action
+ * never reaches a connection the tray is not showing (B3: #87 routes those to the
+ * owner). What breaks it: sending to the foreground without this check.
+ */
+export function trayActionTarget(): WebContents | null {
+  const shown = displayed;
+  const fg = foreground();
+  if (shown === null || fg === null || fg.connectionId !== shown.connectionId) return null;
+  if (fg.state === 'disposed' || fg.webContents.isDestroyed()) return null;
+  return fg.webContents;
+}
+
+/**
+ * `tray:setStatus` (#86 Task 7B: `registerIpc`, `connection-bound`). Every refusal
+ * still resolves `true` (the contract: a tray update never fails the renderer's
+ * invoke); only a rate-limit drop resolves `false`. Also subscribes the tray to the
+ * registry's foreground and generation announcements.
  */
 export function registerTrayStatusIpc(): void {
-  const allow = createTokenBucket(TRAY_STATUS_RATE_PER_SEC, () => Date.now());
+  for (const unsubscribe of unsubscribers) unsubscribe();
+  kept.clear();
+  hung.clear();
+  buckets.clear();
+  displayed = null;
+  unsubscribers = [onForegroundChanged(refreshTray), onGenerationAdvanced(onGeneration)];
   let loggedMalformed = false;
   registerIpc(
     TRAY_SET_STATUS,
     CHANNEL_CLASSES[TRAY_SET_STATUS],
-    (sender: ConnectionSender, event: IpcMainInvokeEvent, payload: unknown): boolean => {
+    (sender: ConnectionSender, _event: IpcMainInvokeEvent, payload: unknown): boolean => {
       try {
-        if (!isTrayOwner(sender, event)) return true;
-        if (!allow()) return false;
+        const { record } = sender;
+        if (!bucketFor(record.connectionId)()) return false;
         const invalid = firstInvalidField(payload);
         if (invalid !== null) {
           if (!loggedMalformed) {
@@ -119,8 +221,14 @@ export function registerTrayStatusIpc(): void {
           }
           return true;
         }
-        lastAccepted = { ...(payload as TrayStatusSnapshot) };
-        applyTraySnapshot({ ...lastAccepted });
+        // Kept for its own connection whether or not it is the source (see the INVARIANT).
+        kept.set(record.connectionId, {
+          snapshot: { ...(payload as TrayStatusSnapshot) },
+          generation: record.generation,
+        });
+        // A renderer that sends is running.
+        hung.delete(record.connectionId);
+        refreshTray();
       } catch {
         // Contract: a tray update can never fail the renderer's invoke.
       }
@@ -135,11 +243,18 @@ interface ResettableContents {
   on(event: string, listener: (...args: never[]) => void): unknown;
 }
 
-/** Reset the tray to neutral when the main renderer reloads, crashes, hangs or goes away (R17). */
-export function attachTrayResetHooks(contents: ResettableContents): void {
+/**
+ * R17 for `connectionId`'s view (#86 B2: every view has these, the tray is shared).
+ * Each hook changes only that connection's snapshot, so it moves the tray only while
+ * the tray shows that connection.
+ */
+export function attachTrayResetHooks(
+  contents: ResettableContents,
+  connectionId: ConnectionId
+): void {
   const reset = (): void => {
-    lastAccepted = null;
-    applyTraySnapshot(null);
+    forget(connectionId);
+    refreshTray();
   };
   // `did-navigate`, not `did-start-navigation`: the latter fires before main.ts's
   // `will-navigate` gate, so a navigation that gate cancels would clear the tray of a
@@ -161,9 +276,16 @@ export function attachTrayResetHooks(contents: ResettableContents): void {
     }
   );
   contents.on('render-process-gone', reset);
-  contents.on('unresponsive', () => applyTraySnapshot(null));
-  contents.on('responsive', () => {
-    if (lastAccepted) applyTraySnapshot({ ...lastAccepted });
+  contents.on('unresponsive', () => {
+    hung.add(connectionId);
+    refreshTray();
   });
-  contents.on('destroyed', reset);
+  contents.on('responsive', () => {
+    hung.delete(connectionId);
+    refreshTray();
+  });
+  contents.on('destroyed', () => {
+    reset();
+    buckets.delete(connectionId);
+  });
 }

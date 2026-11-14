@@ -132,7 +132,8 @@ export interface ShellDeps {
   contentProtectionEnabled: boolean;
   applyContentProtectionAtCreation(win: BaseWindow, enabled: boolean, label: string): void;
   wireAudiocapRendererLoss(webContents: WebContents): void;
-  attachTrayResetHooks(webContents: WebContents): void;
+  /** Per view; the hooks move the shared tray only while it shows `connectionId` (#86 B2). */
+  attachTrayResetHooks(webContents: WebContents, connectionId: ConnectionId): void;
   resetDeepLinkDelivery(): void;
   /** `configureConnectionSession` for the service; may throw (Review Focus 2). */
   prepareSession(service: ServiceRecord): void;
@@ -278,7 +279,7 @@ export async function openConnectionView(
   }
 
   d.wireAudiocapRendererLoss(contents);
-  d.attachTrayResetHooks(contents);
+  d.attachTrayResetHooks(contents, record.connectionId);
   // Deep links are saas-only (§3.7): another view's load must not clear the saas
   // renderer's readiness, or links queue until the saas view itself reloads.
   if (service.kind === 'saas') contents.on('did-start-loading', () => d.resetDeepLinkDelivery());

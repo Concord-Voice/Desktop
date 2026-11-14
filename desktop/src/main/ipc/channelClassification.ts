@@ -85,8 +85,8 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:appleSignIn': 'app-global-mutate',
   'sso:googleSignIn': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
-  // handler then narrows to trayOwner() when #87 names one, else the foreground
-  // primary. With no owner set the effective admission is the foreground primary.
+  // handler keeps each connection's snapshot as its own and renders only the tray source's:
+  // trayOwner() when #87 names one, else the foreground primary (#86 B1).
   'tray:setStatus': 'connection-bound',
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
