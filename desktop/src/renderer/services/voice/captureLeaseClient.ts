@@ -233,6 +233,41 @@ export function hasPendingDeviceCaptures(): boolean {
   return pendingDeviceCaptures.size > 0;
 }
 
+/**
+ * Counts the grants of the `voice-join` claim. A release deferred behind a pending capture
+ * belongs to the claim it was made for: if a newer join took the lease meanwhile, releasing
+ * would end that call's claim.
+ */
+let voiceJoinClaim = 0;
+
+export function beginVoiceJoinClaim(): void {
+  voiceJoinClaim += 1;
+}
+
+/**
+ * Gives the `voice-join` claim back (#87 §3.8), but not while a call-owned capture request is
+ * still unresolved: its late stream is stopped only when it settles, so freeing the lease
+ * first would let another connection capture beside it, past the revocation barrier. Every
+ * call-end release goes through here (leave, emergency cleanup, failed join, abandoned
+ * rejoin). A capture that never settles keeps the claim until the document ends, which is the
+ * safe side.
+ */
+export function releaseVoiceJoinWhenCapturesSettle(): void {
+  if (!hasPendingDeviceCaptures()) {
+    void release('voice-join');
+    return;
+  }
+  const claim = voiceJoinClaim;
+  void (async () => {
+    while (claim === voiceJoinClaim) {
+      if (await settleDeviceCaptures(1500)) {
+        if (claim === voiceJoinClaim) await release('voice-join');
+        return;
+      }
+    }
+  })();
+}
+
 /** Never rejects, so cleanup paths can fire it with `void`. */
 export async function release(intent: CaptureIntent, epoch?: number): Promise<boolean> {
   const invoke = bridge()?.release;

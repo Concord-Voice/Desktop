@@ -9,7 +9,7 @@ import { useCallback } from 'react';
 import { ConnectionState, getWebSocketService } from '../../services/messaging/websocketService';
 import { e2eeService } from '../../services/e2ee/e2eeService';
 import { getVoiceActionGeneration } from '../../services/voice/voiceActionGeneration';
-import { release } from '../../services/voice/captureLeaseClient';
+import { releaseVoiceJoinWhenCapturesSettle } from '../../services/voice/captureLeaseClient';
 import { useConnectionStore, type VoiceRejoinState } from '../../stores/ui/connectionStore';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useAuthStore } from '../../stores/auth/authStore';
@@ -38,7 +38,7 @@ let voiceRecoveryGeneration = 0;
 function releaseAbandonedRejoinLease(): void {
   const voice = useVoiceStore.getState();
   if (voice.connectionState !== 'disconnected' || voice.activeChannelId) return;
-  void release('voice-join');
+  releaseVoiceJoinWhenCapturesSettle();
 }
 
 /** Run preflight diagnostics after grace period expires and route to the appropriate recovery path. */

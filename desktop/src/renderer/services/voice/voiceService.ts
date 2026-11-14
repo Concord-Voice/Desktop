@@ -23,9 +23,8 @@ import {
   acquire,
   captureLeaseMessage,
   CaptureLeaseError,
-  hasPendingDeviceCaptures,
-  release,
-  settleDeviceCaptures,
+  beginVoiceJoinClaim,
+  releaseVoiceJoinWhenCapturesSettle,
   trackDeviceCapture,
 } from './captureLeaseClient';
 import { useUserStore } from '../../stores/auth/userStore';
@@ -4213,10 +4212,12 @@ class VoiceService {
    * the DM `joining` state for this conversation is handed back, as a failed join's reset would.
    */
   private async acquireVoiceJoinLease(dmChannelId: string | undefined): Promise<boolean> {
+    // Bumped BEFORE the request: a release deferred under the previous claim must not reach
+    // main after (and so delete) the claim this acquire is about to be granted.
+    beginVoiceJoinClaim();
     const result = await acquire('voice-join');
     const store = useVoiceStore.getState();
     if (result.status === 'granted') {
-      this.voiceLeaseClaim += 1;
       store.setCaptureMovedNotice(false);
       return true;
     }
@@ -4524,7 +4525,7 @@ class VoiceService {
     // The failed join's media is gone, so its capture lease goes too (#87 §3.8). A cleanup
     // that threw may have skipped the track teardown, so then the lease stays held until the
     // document ends; releasing would let another connection capture beside live tracks.
-    if (mediaTornDown) this.releaseVoiceLease();
+    if (mediaTornDown) releaseVoiceJoinWhenCapturesSettle();
     // store.setActiveChannel runs early in joinChannel (before mic / media-
     // plane handshake), so a late-stage failure leaves activeChannelId
     // pointing at the channel we never actually joined. Reset clears that
@@ -4544,35 +4545,6 @@ class VoiceService {
     // interrupt does not depend on that preservation to survive this path.
     const cooldown = this.mediaPolicyCooldownFrom(err);
     if (cooldown) store.setMediaPolicyInterrupt(cooldown);
-  }
-
-  /**
-   * Counts the grants of the `voice-join` claim. A release deferred behind a pending capture
-   * (below) belongs to the claim it was made for: if a newer join took the lease meanwhile,
-   * releasing would end that call's claim.
-   */
-  private voiceLeaseClaim = 0;
-
-  /**
-   * Gives the `voice-join` claim back (#87 §3.8), but not while a call-owned capture request
-   * is still unresolved: its late stream is stopped only when it settles, so freeing the lease
-   * first would let another connection capture beside it, past the revocation barrier. A
-   * capture that never settles keeps the claim until the document ends, which is the safe side.
-   */
-  private releaseVoiceLease(): void {
-    if (!hasPendingDeviceCaptures()) {
-      void release('voice-join');
-      return;
-    }
-    const claim = this.voiceLeaseClaim;
-    void (async () => {
-      while (claim === this.voiceLeaseClaim) {
-        if (await settleDeviceCaptures(1500)) {
-          if (claim === this.voiceLeaseClaim) await release('voice-join');
-          return;
-        }
-      }
-    })();
   }
 
   /** Leave the current voice channel */
@@ -4599,7 +4571,7 @@ class VoiceService {
     await this.cleanup(opts?.internalRebuild === true);
     // #87 §3.8: the tracks are stopped, so the lease can go. A rebuild re-joins at once
     // and keeps it. Fire-and-forget: release never rejects.
-    if (!opts?.internalRebuild && !opts?.keepCaptureLease) this.releaseVoiceLease();
+    if (!opts?.internalRebuild && !opts?.keepCaptureLease) releaseVoiceJoinWhenCapturesSettle();
 
     notificationSoundService.stopAllLoops();
     // Silent during the legacy-fallback rebuild — the user is not leaving.
@@ -4661,7 +4633,7 @@ class VoiceService {
     useVoiceStore.getState().clearAvailableScreenShares();
     useVoiceStore.getState().reset();
 
-    if (!opts?.keepCaptureLease) this.releaseVoiceLease();
+    if (!opts?.keepCaptureLease) releaseVoiceJoinWhenCapturesSettle();
   }
 
   /**
@@ -6223,8 +6195,21 @@ class VoiceService {
     }
   }
 
-  /** Produce screen share — single-layer, codec-floor compatible publishing for opt-in viewing. */
-  async produceScreen(
+  /**
+   * Produce screen share — single-layer, codec-floor compatible publishing for opt-in viewing.
+   * The whole operation is in the revocation settlement barrier: the stream is unadopted (and
+   * so unreachable by teardown) from capture, through the per-process audio start, until the
+   * publication adopts it.
+   */
+  produceScreen(
+    sourceId?: string,
+    options?: ScreenShareOptions,
+    preAcquired?: ScreenCaptureResult | null
+  ): Promise<void> {
+    return trackDeviceCapture(this.produceScreenOperation(sourceId, options, preAcquired));
+  }
+
+  private async produceScreenOperation(
     sourceId?: string,
     options?: ScreenShareOptions,
     /**
@@ -7458,7 +7443,16 @@ class VoiceService {
     );
   }
 
-  private async switchScreenSourceQueued(
+  /** Tracked end to end for the same reason as `produceScreen` (capture is unadopted until replaced). */
+  private switchScreenSourceQueued(
+    sourceId: string,
+    token: VideoReproduceToken,
+    options?: ScreenShareOptions
+  ): Promise<void> {
+    return trackDeviceCapture(this.switchScreenSourceOperation(sourceId, token, options));
+  }
+
+  private async switchScreenSourceOperation(
     sourceId: string,
     token: VideoReproduceToken,
     options?: ScreenShareOptions

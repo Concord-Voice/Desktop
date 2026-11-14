@@ -17,6 +17,7 @@ import { getVoiceActionGeneration } from '@/renderer/services/voice/voiceActionG
 import {
   acquire,
   release,
+  releaseVoiceJoinWhenCapturesSettle,
   captureLeaseMessage,
   CaptureLeaseError,
   type CaptureFailureReason,
@@ -27,6 +28,7 @@ vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) =
   ...(await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>()),
   acquire: vi.fn(),
   release: vi.fn().mockResolvedValue(true),
+  releaseVoiceJoinWhenCapturesSettle: vi.fn(),
 }));
 
 interface JoinInternals {
@@ -73,6 +75,11 @@ beforeEach(() => {
   mockRelease.mockImplementation(async (intent) => {
     calls.push(`release:${intent}`);
     return true;
+  });
+  // With nothing pending the deferred release is the plain one (callCaptureBarrier.test.ts
+  // covers the deferral), so the stand-in forwards straight to the release spy.
+  vi.mocked(releaseVoiceJoinWhenCapturesSettle).mockImplementation(() => {
+    void release('voice-join');
   });
   getUserMedia = vi.fn(async () => {
     calls.push('getUserMedia');

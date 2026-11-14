@@ -12,13 +12,15 @@ import { voiceService } from '@/renderer/services/voice/voiceService';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
-import { release } from '@/renderer/services/voice/captureLeaseClient';
+import { releaseVoiceJoinWhenCapturesSettle } from '@/renderer/services/voice/captureLeaseClient';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>()),
   acquire: vi.fn().mockResolvedValue({ status: 'granted' }),
-  release: vi.fn().mockResolvedValue(true),
+  // Every call-end site asks the client to release the claim (deferred behind in-flight
+  // captures, which callCaptureBarrier.test.ts covers); this suite classifies the sites.
+  releaseVoiceJoinWhenCapturesSettle: vi.fn(),
 }));
 
 type Handler = (...args: unknown[]) => void;
@@ -49,7 +51,7 @@ interface ReleaseInternals {
 }
 
 const internals = voiceService as unknown as ReleaseInternals;
-const mockRelease = vi.mocked(release);
+const mockRelease = vi.mocked(releaseVoiceJoinWhenCapturesSettle);
 
 function fakeSocket(): FakeSocket {
   const handlers = new Map<string, Handler>();
@@ -178,7 +180,7 @@ describe('voice-join release classification (#87 §3.8)', () => {
     await flush();
 
     expect(mockRelease).toHaveBeenCalledTimes(1);
-    expect(mockRelease).toHaveBeenCalledWith('voice-join');
+    expect(mockRelease).toHaveBeenCalledWith();
   });
 
   const keepSites: Array<[string, () => Promise<void> | void]> = [
@@ -215,8 +217,6 @@ describe('voice-join release classification (#87 §3.8)', () => {
     let socketGoneAtRelease = false;
     mockRelease.mockImplementationOnce(() => {
       socketGoneAtRelease = internals.socket === null;
-      // Never settles: cleanup must not wait on the IPC.
-      return new Promise<boolean>(() => undefined);
     });
 
     const result: unknown = voiceService.emergencyCleanup();

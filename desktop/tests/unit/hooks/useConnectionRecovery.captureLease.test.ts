@@ -73,17 +73,19 @@ vi.mock('@/renderer/services/voice/voiceService', () => ({
 }));
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', () => ({
-  release: vi.fn().mockResolvedValue(true),
+  // The hook defers the release behind in-flight captures; the deferral itself is covered in
+  // callCaptureBarrier.test.ts, so this suite only asserts that the hook asks for it.
+  releaseVoiceJoinWhenCapturesSettle: vi.fn(),
 }));
 
 import { useConnectionRecovery } from '@/renderer/hooks/voice/useConnectionRecovery';
 import { voiceService } from '@/renderer/services/voice/voiceService';
-import { release } from '@/renderer/services/voice/captureLeaseClient';
+import { releaseVoiceJoinWhenCapturesSettle } from '@/renderer/services/voice/captureLeaseClient';
 
 const emergencyCleanup = vi.mocked(voiceService.emergencyCleanup);
 const joinChannel = vi.mocked(voiceService.joinChannel);
 const getVoiceActionGeneration = vi.mocked(voiceService.getVoiceActionGeneration);
-const mockRelease = vi.mocked(release);
+const mockRelease = vi.mocked(releaseVoiceJoinWhenCapturesSettle);
 
 function inCall(channelId = 'voice-1'): void {
   useVoiceStore.setState({ activeChannelId: channelId, connectionState: 'connected' });
@@ -205,7 +207,7 @@ describe('useConnectionRecovery — capture lease across a sustained outage (#87
     await vi.waitFor(() => expect(ticket()).toBeNull());
     expect(joinChannel).not.toHaveBeenCalled();
     expect(mockRelease).toHaveBeenCalledTimes(1);
-    expect(mockRelease).toHaveBeenCalledWith('voice-join');
+    expect(mockRelease).toHaveBeenCalledWith();
   });
 
   it("a user's own join that superseded the rejoin keeps its lease", async () => {

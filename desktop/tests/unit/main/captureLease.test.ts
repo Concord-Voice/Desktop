@@ -719,6 +719,62 @@ describe('navigation hold (Codex Security: a cancelled navigation keeps the old 
   });
 });
 
+describe('navigation events decide, not who holds now (sweep F1)', () => {
+  it('a commit is a commit even for a connection that took the lease mid-navigation', async () => {
+    const a = connect(ORIGIN_A);
+    front(a);
+    advanceGeneration(a.record.connectionId, 'document'); // started while holding nothing
+    await expect(acq(a)).resolves.toEqual(GRANTED); // the old document is still live
+    expect(isHolder(ref(a))).toBe(true);
+    commit(a); // the document that took it is gone
+    expect(isFree()).toBe(true);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+    expect(isFree()).toBe(true);
+  });
+
+  it('a release that ends the hold does not make the later commit look like a start', async () => {
+    const a = connect(ORIGIN_A);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(rel(a)).toBe(true);
+    await expect(acq(a)).resolves.toEqual(GRANTED); // reacquired before the commit
+    commit(a);
+    expect(isFree()).toBe(true);
+  });
+});
+
+describe('a revocation ack survives the holder starting a navigation (sweep F2)', () => {
+  it('the document acks under its advanced generation: no crash, the grantee is admitted', async () => {
+    const { a, pending } = await handoffFromAToB();
+    advanceGeneration(a.record.connectionId, 'document'); // a started navigating after the push
+    expect(rel(a)).toBe(true);
+    await expect(pending).resolves.toEqual(GRANTED);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+  });
+});
+
+describe('a navigation hold still reads as held (sweep F4)', () => {
+  it('a connection coming to the front during the hold is told the lease is held', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    front(a);
+    advanceGeneration(a.record.connectionId, 'document');
+    clearSpies();
+    front(b);
+    expect(pushes(b, CAPTURE_LEASE_PUSH)).toEqual([{ held: true, mine: false }]);
+  });
+
+  it('a hidden document that releases during the hold is told the lease is gone', async () => {
+    const { a } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    clearSpies();
+    expect(rel(a)).toBe(true);
+    expect(pushes(a, CAPTURE_LEASE_PUSH)).toEqual([{ held: false, mine: false }]);
+  });
+});
+
 describe('releasing the call from a background connection (Codex P2)', () => {
   it('leaves only a device-test claim on a hidden holder: it is revoked as backgrounded', async () => {
     const a = connect(ORIGIN_A);

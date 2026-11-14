@@ -85,10 +85,20 @@ user to move capture there. There is no simultaneous publication and no cloned c
     (nothing loading, the old document alive) restores the holder to the same document under its
     new generation, with its claims, tray owner and lease-aware mark, and republishes the state;
     #86 emits the same `document` reason at a navigation's start and at its commit, so the hold
-    ends only on an actual commit: while held, the lease prepends its own `did-navigate` /
-    non-ERR_ABORTED `did-fail-load` listeners on the holder's webContents (they run before the
-    shell window's, so the flag is set when the commit's advance arrives), and an advance
-    without that flag is another START and changes nothing. A still-loading document re-arms the
+    ends only on an actual commit: on EVERY connection's first `document` advance, held or not,
+    the lease prepends its own `did-navigate` / non-ERR_ABORTED `did-fail-load` listeners on
+    that webContents (they run before the shell window's, so the flag is set when the commit's
+    advance arrives). An advance is classified by those events, never by who holds the lease
+    now: a connection that held nothing at a navigation's start may have acquired by its commit,
+    and reading that commit as a start would hold a lease for a document that never captured.
+    A flagged advance is the commit and ends the document; an unflagged one is a START and
+    changes nothing for a held connection. A START on a connection with a pending revocation
+    (not a hold) re-keys that handoff's `from` to the advanced generation, so the document's ack
+    is recognised under the generation it now speaks. The navigation bookkeeping belongs to the
+    navigation, not the handoff: ending a hold by release does not forget it. While a hold
+    stands the lease reads as held to every other connection (pushes carry `held: true`), and a
+    hold ended by release tells its non-foreground former document the lease is gone. A
+    still-loading document re-arms the
     timer at most `NAV_HOLD_MAX_REARMS` times, then the renderer is crashed. A restore applies
     R12: a device-test-only holder that went to the background during the hold is revoked with
     `backgrounded` instead of being reinstated;

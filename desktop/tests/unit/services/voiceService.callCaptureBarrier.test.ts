@@ -3,19 +3,19 @@
  * barrier. Without it, `releaseAll()` acknowledges while the call's capture is still
  * unresolved, and the stale stream it later resolves with outlives the lease.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { voiceService } from '@/renderer/services/voice/voiceService';
 import {
   settleDeviceCaptures,
   trackDeviceCapture,
-  release,
+  beginVoiceJoinClaim,
+  releaseVoiceJoinWhenCapturesSettle,
   _resetDeviceCapturesForTesting,
 } from '@/renderer/services/voice/captureLeaseClient';
 
-vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>()),
-  release: vi.fn().mockResolvedValue(true),
-}));
+// The real client runs; only the main-process bridge is faked, so the release the deferral
+// finally sends is observable.
+const release = vi.fn().mockResolvedValue(true);
 
 interface Internals {
   sendTransport: unknown;
@@ -24,14 +24,22 @@ interface Internals {
   awaitMicrophonePermission: (...args: unknown[]) => Promise<void>;
   acquireCurrentMicrophone: (...args: unknown[]) => Promise<unknown>;
   produceAudioCapture: (...args: unknown[]) => Promise<boolean>;
-  releaseVoiceLease: () => void;
-  voiceLeaseClaim: number;
   requireCurrentMicCapture: (...args: unknown[]) => void;
   microphoneSettingsChanged: (...args: unknown[]) => boolean;
+  produceScreen: (...args: unknown[]) => Promise<unknown>;
+  produceScreenOperation: (...args: unknown[]) => Promise<unknown>;
+  switchScreenSourceQueued: (...args: unknown[]) => Promise<unknown>;
+  switchScreenSourceOperation: (...args: unknown[]) => Promise<unknown>;
 }
 const internals = voiceService as unknown as Internals;
 
+beforeEach(() => {
+  release.mockClear();
+  (globalThis.electron as unknown as Record<string, unknown>).capture = { release };
+});
+
 afterEach(() => {
+  delete (globalThis.electron as unknown as Record<string, unknown>).capture;
   _resetDeviceCapturesForTesting();
   vi.restoreAllMocks();
 });
@@ -62,41 +70,38 @@ describe('call-owned capture joins the settlement barrier', () => {
     await expect(settleDeviceCaptures(20)).resolves.toBe(true);
   });
 
-  it('releaseVoiceLease waits for a pending call capture before giving the claim back (Codex P2)', async () => {
-    vi.mocked(release).mockClear();
+  it('the call-end release waits for a pending call capture before giving the claim back (Codex P2)', async () => {
     let settle: () => void = () => undefined;
     void trackDeviceCapture(
       new Promise<void>((resolve) => {
         settle = resolve;
       })
     );
-    internals.releaseVoiceLease();
+    releaseVoiceJoinWhenCapturesSettle();
     await Promise.resolve();
     expect(release).not.toHaveBeenCalled();
     settle();
-    await vi.waitFor(() => expect(release).toHaveBeenCalledWith('voice-join'));
+    await vi.waitFor(() => expect(release).toHaveBeenCalledWith({ intent: 'voice-join' }));
     expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('a newer join claim cancels the deferred release (it would end the new call)', async () => {
-    vi.mocked(release).mockClear();
     let settle: () => void = () => undefined;
     void trackDeviceCapture(
       new Promise<void>((resolve) => {
         settle = resolve;
       })
     );
-    internals.releaseVoiceLease();
-    internals.voiceLeaseClaim += 1; // a new join was granted meanwhile
+    releaseVoiceJoinWhenCapturesSettle();
+    beginVoiceJoinClaim(); // a new join was granted meanwhile
     settle();
     await new Promise((r) => setTimeout(r, 20));
     expect(release).not.toHaveBeenCalled();
   });
 
   it('with nothing pending it releases at once', () => {
-    vi.mocked(release).mockClear();
-    internals.releaseVoiceLease();
-    expect(release).toHaveBeenCalledWith('voice-join');
+    releaseVoiceJoinWhenCapturesSettle();
+    expect(release).toHaveBeenCalledWith({ intent: 'voice-join' });
   });
 
   it('the barrier covers graph build and publication after the capture resolved (Codex P2)', async () => {
@@ -123,5 +128,35 @@ describe('call-owned capture joins the settlement barrier', () => {
       internals.sendTransport = null;
       internals.device = null;
     }
+  });
+
+  it('a screen capture not yet adopted by a producer keeps the barrier unsettled (Codex P2)', async () => {
+    let finish: () => void = () => undefined;
+    vi.spyOn(internals, 'produceScreenOperation').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const done = internals.produceScreen('screen:1:0');
+    await expect(settleDeviceCaptures(20)).resolves.toBe(false);
+    finish();
+    await done;
+    await expect(settleDeviceCaptures(20)).resolves.toBe(true);
+  });
+
+  it('a screen source switch is tracked the same way', async () => {
+    let finish: () => void = () => undefined;
+    vi.spyOn(internals, 'switchScreenSourceOperation').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const done = internals.switchScreenSourceQueued('screen:2:0', 1, {});
+    await expect(settleDeviceCaptures(20)).resolves.toBe(false);
+    finish();
+    await done;
+    await expect(settleDeviceCaptures(20)).resolves.toBe(true);
   });
 });

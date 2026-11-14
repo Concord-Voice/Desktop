@@ -178,6 +178,11 @@ function leaseState(held: boolean, mine: boolean): CaptureLeaseState {
   return { held, mine };
 }
 
+/** Reserved for someone: a holder, or a holder whose document is mid-navigation (the hold). */
+function isHeld(): boolean {
+  return holder !== null || handoff?.navHeld !== undefined;
+}
+
 /**
  * R6 push targets, one push each: the holder; the foreground when it is not the
  * holder; and `formerId`, a connection whose own lease just ended, when it is
@@ -197,7 +202,7 @@ function publish(
   }
   if (holder !== null) push(d, holder.ref, CAPTURE_LEASE_PUSH, leaseState(true, true));
   if (fg !== null && fgId !== null && fgId !== holderId && fgId !== excludeId) {
-    push(d, refOf(fg), CAPTURE_LEASE_PUSH, leaseState(holder !== null, false));
+    push(d, refOf(fg), CAPTURE_LEASE_PUSH, leaseState(isHeld(), false));
   }
 }
 
@@ -232,10 +237,14 @@ function supersedeGrantee(h: Handoff): void {
 }
 
 /** `from` has acked, been replaced or is gone: grant `to` if it is still current. */
-function completeHandoff(d: CaptureLeaseDeps, h: Handoff, excludeId: ConnectionId | null): void {
+function completeHandoff(
+  d: CaptureLeaseDeps,
+  h: Handoff,
+  excludeId: ConnectionId | null,
+  formerId: ConnectionId | null = null
+): void {
   if (handoff !== h) return;
   handoff = null;
-  clearNav(h.from.connectionId);
   if (h.timer !== null) clearTimeout(h.timer);
   h.timer = null;
   const to = h.to;
@@ -248,7 +257,7 @@ function completeHandoff(d: CaptureLeaseDeps, h: Handoff, excludeId: ConnectionI
     return;
   }
   effect(() => d.setTrayOwner(null));
-  publish(d, null, excludeId);
+  publish(d, formerId, excludeId);
   if (to !== null) settleOnce(h, rejected(live ? 'not-foreground' : 'superseded'));
 }
 
@@ -438,7 +447,8 @@ export function release(
     if (!held.claims.delete(input.intent)) return false;
     if (held.claims.size === 0) {
       effect(() => d.revokeAudiocapShare());
-      completeHandoff(d, h, null);
+      // The document is not the foreground necessarily: it is told its lease is gone.
+      completeHandoff(d, h, null, h.from.connectionId);
     }
     return true;
   }
@@ -603,17 +613,40 @@ function onAdvance(
   const d = deps;
   if (d === null) return;
   switch (reason) {
-    case 'document':
+    case 'document': {
+      // Classified by EVENTS, never by who holds now: a connection that held nothing at the start
+      // of a navigation may hold by its commit (the old document was still live and could
+      // acquire), and reading that commit as a start would hold a lease for a document that
+      // never captured anything. The listeners are attached on every start, before the commit.
+      if (!navWatch.has(id)) navWatch.set(id, watchForCommit(d, id));
+      if (committed.has(id)) {
+        endNavigation(d, id);
+        return;
+      }
+      const h = handoff;
+      if (h !== null && h.navHeld === undefined && h.from.connectionId === id) {
+        // A revocation is waiting on this document's ack and it started navigating: the
+        // document is still the live one and answers under its new generation, so the ack
+        // must be recognised under that generation or the 5 s crash would fire on a document
+        // that did exactly what it was asked.
+        const next = freezeRef({ connectionId: id, generation: to });
+        h.from = next;
+        h.fromBinding = bindOwner('capture-lease', next);
+        navigating.add(id);
+        return;
+      }
       if (holdsCapture(id) && !navigating.has(id)) {
         navigating.add(id);
-        navWatch.set(id, watchForCommit(d, id));
         holdThroughNavigation(d);
         return;
       }
-      // Held: only a real commit ends it. Another start leaves the old document in place.
-      if (navigating.has(id) && !committed.has(id)) return;
-      endNavigation(d, id);
+      // Held already, or another start of the same navigation: the old document is in place.
+      if (navigating.has(id)) return;
+      // A connection holding nothing: the start still ends what a document left behind
+      // (ceremony, grantee, lease awareness).
+      endConnection(d, id, false);
       return;
+    }
     case 'renderer-gone':
     case 'disposed':
       clearNav(id);
@@ -647,7 +680,7 @@ function onForeground(prev: ConnectionRecord | null, next: ConnectionRecord | nu
   if (next === null || next.state === 'disposed') return;
   const nextRef = refOf(next);
   const mine = holder !== null && sameRef(holder.ref, nextRef);
-  push(d, nextRef, CAPTURE_LEASE_PUSH, leaseState(holder !== null, mine));
+  push(d, nextRef, CAPTURE_LEASE_PUSH, leaseState(isHeld(), mine));
 }
 
 /** Subscribes to generation and foreground changes; returns an unsubscribe. */
