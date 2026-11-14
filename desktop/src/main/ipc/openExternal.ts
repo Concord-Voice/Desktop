@@ -1,10 +1,11 @@
 import { shell } from 'electron';
-import { CHANNEL_CLASSES } from './channelClassification';
 import { registerIpc } from './registry';
 
 /**
  * open-external IPC handler — routes renderer link clicks to `shell.openExternal`
- * after enforcing BOTH sender-frame validation AND protocol allowlisting.
+ * after enforcing BOTH sender admission AND protocol allowlisting. Admission is
+ * `app-global-mutate` (#86): only the foreground connection's bound primary main
+ * frame, at a permitted frame URL, may launch the OS browser.
  *
  * This is defense-in-depth layer 3 for the Markdown pipeline:
  *   1. rehype-sanitize rejects unsafe hrefs at the hast level.
@@ -42,11 +43,15 @@ export interface OpenExternalResult {
  * undefined in unit tests that only exercise the bundled/localhost frame paths.
  */
 export function registerOpenExternalHandler(): void {
-  // #86 Task 7B: `connection-bound` through registerIpc; a refused sender gets the
-  // existing `untrusted-sender` result.
+  // #86 (C6): `app-global-mutate`. The OS browser opens over every connection, so a
+  // background connection must not launch it while another one is visible. Written here
+  // as well as in CHANNEL_CLASSES so registerIpc throws if the table is widened alone.
+  // Admission is synchronous and nothing below awaits before shell.openExternal, so the
+  // foreground cannot change between the check and the launch. Every refusal,
+  // `not-foreground` included, gets the existing `untrusted-sender` result.
   registerIpc(
     'open-external',
-    CHANNEL_CLASSES['open-external'],
+    'app-global-mutate',
     async (_sender, _event, url: unknown): Promise<OpenExternalResult> => {
       if (typeof url !== 'string') {
         return { ok: false, reason: 'invalid-url' };

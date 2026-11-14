@@ -115,7 +115,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:appleCancel': 'connection-bound',
   'sso:googleCancel': 'connection-bound',
   'audiocap:stop': 'connection-bound',
-  'open-external': 'connection-bound',
+  // #86 (C6, accepted security finding): the OS browser opens over every connection, so a
+  // hidden view must not launch one behind the visible connection; the foreground primary
+  // only, like image:saveAs. A PiP stays refused, as it was under connection-bound.
+  'open-external': 'app-global-mutate',
   'image:saveAs': 'app-global-mutate',
   'app:setBadgeCount': 'connection-bound',
   'app:flashFrame': 'connection-bound',

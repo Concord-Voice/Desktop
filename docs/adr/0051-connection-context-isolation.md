@@ -544,6 +544,7 @@ Each row is a security decision taken in review. The table of record is
 | `app:focusWindow` | `app-global-mutate` | RT6 |
 | `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
 | `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
+| `open-external` | `app-global-mutate` | the OS browser opens over every connection, so a hidden view must not launch phishing pages behind the visible one (C6); a PiP stays refused, as under `connection-bound` |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`; the handler keeps each connection's snapshot as its own and renders only the tray owner's, else the foreground primary's | a background snapshot is kept, not refused, because the renderer sends only on change; #87 only calls `setTrayOwner` |
