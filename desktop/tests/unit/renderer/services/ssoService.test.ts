@@ -306,6 +306,28 @@ describe('completeSSORegistration', () => {
 });
 
 describe('completeSSOLink', () => {
+  it('maps an MFA challenge without treating it as a completed session', async () => {
+    electron.sso.completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'link-mfa-token',
+      methods: ['totp'],
+      recoveryOnlyMethods: ['backup_code'],
+      credentialOwner: 44,
+    });
+    const result = await completeSSOLink(
+      { provider: 'google', ssoToken: 'link-tok', password: 'CorrectPW!' }, // pragma: allowlist secret
+      { apiBase: API_BASE, epoch: 0 }
+    );
+    expect(result).toEqual({
+      kind: 'mfa_required',
+      mfaChallengeToken: 'link-mfa-token',
+      methods: ['totp'],
+      recoveryOnlyMethods: ['backup_code'],
+      credentialOwner: 44,
+    });
+    expect(result).not.toHaveProperty('refreshToken');
+  });
+
   it('returns only the main-custodied credential reference', async () => {
     const params = {
       provider: 'google' as const,

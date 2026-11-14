@@ -5,23 +5,24 @@ import { abandonSSOReservation } from '@/renderer/services/system/ssoService';
 import { useSSOStore } from '@/renderer/stores/auth/ssoStore';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
+import { useMFAChallengeStore } from '@/renderer/stores/auth/mfaChallengeStore';
 import {
   resetRuntimeServerBase,
   setRuntimeServerBase,
 } from '@/renderer/services/system/runtimeServerBase';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
-vi.mock('@/renderer/services/system/apiClient', async (orig) => ({
-  ...(await orig<typeof import('@/renderer/services/system/apiClient')>()),
-  revokeAbortedSession: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('@/renderer/services/system/apiClient', async (orig) => {
+  const actual = (await orig()) as typeof import('@/renderer/services/system/apiClient');
+  return { ...actual, revokeAbortedSession: vi.fn().mockResolvedValue(undefined) };
+});
 
 // #2394: replace only abandonSSOReservation. completeSSOLink stays real so the
 // existing tests keep asserting against the electron sso.completeLink bridge.
-vi.mock('@/renderer/services/system/ssoService', async (orig) => ({
-  ...(await orig<typeof import('@/renderer/services/system/ssoService')>()),
-  abandonSSOReservation: vi.fn().mockResolvedValue(true),
-}));
+vi.mock('@/renderer/services/system/ssoService', async (orig) => {
+  const actual = (await orig()) as typeof import('@/renderer/services/system/ssoService');
+  return { ...actual, abandonSSOReservation: vi.fn().mockResolvedValue(true) };
+});
 
 const storeRefreshToken = vi.fn().mockResolvedValue(41);
 const clearTokensIfOwner = vi.fn().mockResolvedValue(true);
@@ -108,6 +109,119 @@ describe('SSOAccountLinkConfirm', () => {
     expect(useSSOStore.getState().state.phase).toBe('idle');
   });
 
+  it('routes a complete-link challenge through the SSO MFA modal before admission', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    let gateWasArmedAtAdmission = false;
+    const unsubscribe = useAuthStore.subscribe((auth) => {
+      if (auth.accessToken === 'linked-after-mfa') {
+        gateWasArmedAtAdmission =
+          useE2EEStore.getState().ssoCredentialOwner === 41 &&
+          useE2EEStore.getState().needsSSOUnlock;
+      }
+    });
+
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+
+    await waitFor(() =>
+      expect(useMFAChallengeStore.getState().challengeToken).toBe('link-challenge')
+    );
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useMFAChallengeStore.getState()).toMatchObject({
+      purpose: 'sso_login',
+      ssoContext: { provider: 'google', credentialOwner: 41 },
+    });
+    useMFAChallengeStore.getState().completeChallenge(
+      {
+        verified: true,
+        ssoCompletion: {
+          accessToken: 'linked-after-mfa',
+          sessionId: 'session-after-mfa',
+          credentialOwner: 41,
+        },
+      },
+      'link-challenge'
+    );
+
+    await waitFor(() => expect(useAuthStore.getState().accessToken).toBe('linked-after-mfa'));
+    unsubscribe();
+    expect(gateWasArmedAtAdmission).toBe(true);
+    expect(useSSOStore.getState().state.phase).toBe('idle');
+    expect(storeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('abandons the reservation when complete-link MFA is cancelled', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'cancel-link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+    await waitFor(() =>
+      expect(useMFAChallengeStore.getState().challengeToken).toBe('cancel-link-challenge')
+    );
+
+    useMFAChallengeStore.getState().clearChallenge();
+    await waitFor(() => expect(abandonSSOReservation).toHaveBeenCalledTimes(1));
+    expect(useSSOStore.getState().state.phase).toBe('idle');
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it('discards a verified link MFA session after the server selection changes', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'stale-link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+    await waitFor(() =>
+      expect(useMFAChallengeStore.getState().challengeToken).toBe('stale-link-challenge')
+    );
+
+    setRuntimeServerBase('https://server-b.example');
+    setRuntimeServerBase('http://localhost:8080');
+    useMFAChallengeStore.getState().completeChallenge(
+      {
+        verified: true,
+        ssoCompletion: {
+          accessToken: 'stale-mfa-access',
+          sessionId: 'stale-mfa-session',
+          credentialOwner: 41,
+        },
+      },
+      'stale-link-challenge'
+    );
+
+    const { revokeAbortedSession } = await import('@/renderer/services/system/apiClient');
+    await waitFor(() =>
+      expect(revokeAbortedSession).toHaveBeenCalledWith({
+        accessToken: 'stale-mfa-access',
+        sessionId: 'stale-mfa-session',
+        apiBase: 'http://localhost:8080',
+      })
+    );
+    expect(clearTokensIfOwner).toHaveBeenCalledWith(41);
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
   it('rejects an in-flight response after an A → B → A server switch', async () => {
     let resolveResponse: (response: typeof linkedSessionResponse) => void = () => {};
     completeLink.mockReturnValueOnce(
@@ -136,6 +250,38 @@ describe('SSOAccountLinkConfirm', () => {
     });
     expect(clearTokensIfOwner).toHaveBeenCalledWith(41);
     expect(storeRefreshToken).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useSSOStore.getState().state.phase).toBe('link_required');
+  });
+
+  it('clears only the stale challenge owner after an A → B → A server switch', async () => {
+    const challenge = {
+      kind: 'mfa_challenge' as const,
+      mfaChallengeToken: 'late-link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    };
+    let resolveResponse: (response: typeof challenge) => void = () => {};
+    completeLink.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveResponse = resolve;
+      })
+    );
+
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+    await waitFor(() => expect(completeLink).toHaveBeenCalledTimes(1));
+
+    setRuntimeServerBase('https://server-b.example');
+    setRuntimeServerBase('http://localhost:8080');
+    resolveResponse(challenge);
+
+    await waitFor(() => expect(clearTokensIfOwner).toHaveBeenCalledWith(41));
+    expect(useMFAChallengeStore.getState().challengeToken).toBeNull();
+    expect(abandonSSOReservation).not.toHaveBeenCalled();
     expect(useAuthStore.getState().accessToken).toBeNull();
     expect(useSSOStore.getState().state.phase).toBe('link_required');
   });

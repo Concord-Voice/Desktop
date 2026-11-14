@@ -68,6 +68,7 @@ export interface AppleFlowDeps {
 interface ActiveFlow {
   abort: AbortController;
   loopback: LoopbackHandle | null;
+  binding: string;
 }
 
 let activeFlow: ActiveFlow | null = null;
@@ -81,6 +82,7 @@ export function cancelActiveAppleFlow(): void {
   if (!activeFlow) return;
   const flow = activeFlow;
   activeFlow = null;
+  flow.binding = '';
   flow.loopback?.close(); // rejects the loopback promise with oauth_cancelled
   flow.abort.abort(); // aborts any in-flight fetch
 }
@@ -95,6 +97,7 @@ async function initiate(
   deps: AppleFlowDeps,
   redirectURI: string,
   codeChallenge: string,
+  binding: string,
   signal: AbortSignal
 ): Promise<InitiateResponse> {
   const requestSignal = authRequestSignal(signal);
@@ -102,6 +105,7 @@ async function initiate(
   try {
     const qs = new URLSearchParams({ redirect_uri: redirectURI, code_challenge: codeChallenge });
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/apple?${qs.toString()}`, {
+      headers: { 'X-Concord-SSO-Client-Binding': binding },
       signal: requestSignal,
     });
   } catch {
@@ -138,6 +142,7 @@ function parseAuthUrl(authUrl: string): { clientId: string; redirectUri: string;
 async function postSession(
   deps: AppleFlowDeps,
   args: { idToken: string; state: string; appleUserData?: string },
+  binding: string,
   signal: AbortSignal
 ): Promise<Record<string, unknown>> {
   const payload: Record<string, string> = { id_token: args.idToken, state: args.state };
@@ -147,7 +152,7 @@ async function postSession(
   try {
     res = await deps.controlPlaneFetch(`${deps.apiBase}/api/v1/auth/sso/apple/session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Concord-SSO-Client-Binding': binding },
       body: JSON.stringify(payload),
       signal: requestSignal,
     });
@@ -198,7 +203,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
   cancelActiveAppleFlow();
 
   const abort = new AbortController();
-  const flow: ActiveFlow = { abort, loopback: null };
+  const flow: ActiveFlow = { abort, loopback: null, binding: '' };
   activeFlow = flow;
 
   const timeoutMs = deps.flowTimeoutMs ?? APPLE_FLOW_TIMEOUT_MS;
@@ -207,6 +212,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
   }, timeoutMs);
 
   try {
+    flow.binding = generateCodeVerifier(); // Independent 32-byte base64url secret for this SSO attempt.
     const verifier = generateCodeVerifier();
     const challenge = codeChallengeS256(verifier);
 
@@ -226,7 +232,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
       throw new AppleFlowError('sso_cancelled', 'loopback');
     }
 
-    const init = await initiate(deps, loopback.redirectURI, challenge, abort.signal);
+    const init = await initiate(deps, loopback.redirectURI, challenge, flow.binding, abort.signal);
     if (!init.state) throw new AppleFlowError('sso_initiate_failed', 'initiate');
     expectedState.value = init.state;
     const { clientId, redirectUri, url } = parseAuthUrl(init.auth_url);
@@ -274,6 +280,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     const sessionBody = await postSession(
       deps,
       { idToken, state: init.state, appleUserData: cb.appleUserData },
+      flow.binding,
       abort.signal
     );
     return mapSessionResponse(sessionBody);
@@ -281,6 +288,7 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
     return { kind: 'error', code: toErrorCode(err) };
   } finally {
     clearTimeout(deadline);
+    flow.binding = '';
     flow.abort.abort();
     if (activeFlow === flow) {
       activeFlow = null;
