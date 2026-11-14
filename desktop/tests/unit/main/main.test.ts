@@ -497,6 +497,21 @@ vi.mock('../../../src/main/spaLoader', () => ({
   },
 }));
 
+// #86 B1: capture the sender main.ts hands the tray, so a test can fire a tray action
+// without a real tray. Everything else in the module stays real.
+const { trayActionSenderHolder } = vi.hoisted(() => ({
+  trayActionSenderHolder: { send: null as null | ((action: unknown) => void) },
+}));
+vi.mock('../../../src/main/tray', async (importActual) => {
+  const actual = await importActual<typeof import('../../../src/main/tray')>();
+  return {
+    ...actual,
+    setTrayActionSender: (send: (action: never) => void) => {
+      trayActionSenderHolder.send = send as (action: unknown) => void;
+      actual.setTrayActionSender(send);
+    },
+  };
+});
 vi.mock('../../../src/main/ipcContract', () => ({
   IPC_CONTRACT_VERSION: '1.0',
 }));
@@ -3051,6 +3066,73 @@ describe('main.ts', () => {
       await expect(
         Promise.resolve(handlers.get('tray:setStatus')!(foreignIpcEvent, {}))
       ).resolves.toBe(true);
+    });
+
+    // #86 B1: a tray action reaches only the connection whose snapshot the tray shows.
+    describe('tray action target (#86 B1)', () => {
+      const TRAY_SNAPSHOT = {
+        v: 1,
+        auth: 'signed-in',
+        presence: 'online',
+        conn: 'ok',
+        voice: 'channel',
+        speaking: false,
+        muted: false,
+        deafened: false,
+        sharing: false,
+        micLocked: false,
+        deafenLocked: false,
+        unread: 0,
+        mention: false,
+        reducedMotion: false,
+        iconStyle: 'auto',
+      };
+      const ACTION = { kind: 'set-muted', value: true };
+
+      function saasRef() {
+        const binding = connectionRegistry.bindingFor(mockWebContents as never);
+        const record = binding ? connectionRegistry.recordFor(binding.connectionId) : undefined;
+        if (!binding || !record) throw new Error('saas connection missing');
+        return { id: binding.connectionId, ref: connectionRegistry.refOf(record) };
+      }
+
+      it('sends the action to the foreground when the tray shows its snapshot', async () => {
+        const saas = saasRef();
+        connectionRegistry.setForeground(saas.id);
+        await handlers.get('tray:setStatus')!(saasAppFrameEvent, TRAY_SNAPSHOT);
+        mockWebContents.send.mockClear();
+        trayActionSenderHolder.send!(ACTION);
+        expect(mockWebContents.send).toHaveBeenCalledWith('tray:action', ACTION);
+      });
+
+      it('sends to the owner the tray shows, not to a different foreground connection', async () => {
+        const saas = saasRef();
+        const other = bindSelfHostedPrimary('https://tray-target.example');
+        try {
+          connectionRegistry.setForeground(saas.id);
+          await handlers.get('tray:setStatus')!(saasAppFrameEvent, TRAY_SNAPSHOT);
+          // The tray belongs to saas (owner, #87 RC-2), but another connection is foreground.
+          const { setTrayOwner } = await import('../../../src/main/ipc/trayStatus');
+          setTrayOwner(saas.ref);
+          other.makeForeground();
+          mockWebContents.send.mockClear();
+          (other.event.sender.send as Mock).mockClear();
+          trayActionSenderHolder.send!(ACTION);
+          expect(other.event.sender.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).toHaveBeenCalledWith('tray:action', ACTION);
+          mockWebContents.send.mockClear();
+          // Neutral tray (no owner, the new foreground has sent nothing): still nowhere.
+          setTrayOwner(null);
+          trayActionSenderHolder.send!(ACTION);
+          expect(other.event.sender.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+        } finally {
+          const { setTrayOwner } = await import('../../../src/main/ipc/trayStatus');
+          setTrayOwner(null);
+          other.dispose();
+          connectionRegistry.setForeground(saas.id);
+        }
+      });
     });
   });
 
@@ -7306,7 +7388,7 @@ describe('main.ts', () => {
       }
     });
 
-    it('routes tray:action to sendToConnection(trayActionTarget()), never the foreground contents', async () => {
+    it('routes tray:action to the webContents of trayActionTarget(), never the foreground contents', async () => {
       vi.resetModules();
       const trayModule = await import('../../../src/main/tray');
       const trayStatusModule = await import('../../../src/main/ipc/trayStatus');
@@ -7318,24 +7400,23 @@ describe('main.ts', () => {
         const send = senderSpy.mock.calls[0]?.[0];
         if (send === undefined) throw new Error('main never set a tray action sender');
 
-        const target = { connectionId: 'conn-tray', generation: 4 } as never;
+        const target = { send: vi.fn() };
         const targetSpy = vi
           .spyOn(trayStatusModule, 'trayActionTarget')
-          .mockReturnValueOnce(target)
+          .mockReturnValueOnce(target as never)
           .mockReturnValueOnce(null);
-        const sendSpy = vi.spyOn(shellModule, 'sendToConnection').mockReturnValue(true);
+        const sendSpy = target.send;
         const fgSpy = vi.spyOn(shellModule, 'foregroundWebContents');
         const action = { kind: 'leave-voice' } as const;
 
         send(action);
-        expect(sendSpy).toHaveBeenCalledWith(target, 'tray:action', action);
+        expect(sendSpy).toHaveBeenCalledWith('tray:action', action);
         // A null target (a stale tray owner) sends nothing.
         send(action);
         expect(targetSpy).toHaveBeenCalledTimes(2);
         expect(sendSpy).toHaveBeenCalledOnce();
         expect(fgSpy).not.toHaveBeenCalled();
         targetSpy.mockRestore();
-        sendSpy.mockRestore();
         fgSpy.mockRestore();
       } finally {
         senderSpy.mockRestore();

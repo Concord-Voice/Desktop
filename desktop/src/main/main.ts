@@ -1881,8 +1881,9 @@ app.whenReady().then(async () => {
   registerCaptureIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
   registerBillingIpc(shellWindow);
-  // Status-aware tray (tray-status spec §4): the binding-admitted primary main frame of
-  // trayOwner() or, with none, the foreground connection + 20/s bucket + exact shape.
+  // Status-aware tray (tray-status spec §4): any binding-admitted primary main frame + a
+  // 20/s bucket per connection + exact shape; each connection's snapshot is kept, and the
+  // tray shows trayOwner()'s or, with none, the foreground connection's (#86 B1).
   registerTrayStatusIpc();
   // NO TLS certificate pinning on api.concordvoice.chat — deliberate, do not
   // re-add (#658 reverted). Cloudflare serves that host from a MANAGED edge
@@ -1997,13 +1998,13 @@ app.whenReady().then(async () => {
   // handler has a window to reveal. Init failure is non-fatal — the app runs
   // trayless and window-all-closed keeps its quit (see handler below).
   // Open/Quit and the two update rows are main-direct (spec §4); everything that
-  // changes client state goes to the renderer as a closed-enum `tray:action`.
-  // #87 RC-2: it goes to the connection whose controls the tray shows (the lease holder,
-  // or the foreground with none), never just the foreground; a stale owner sends nothing.
+  // changes client state goes to the renderer as a closed-enum `tray:action`, and only
+  // to the connection whose snapshot the tray shows (#86 B1; #87 RC-2: the lease holder
+  // while it owns the tray, else the foreground). A stale owner sends nothing.
   setTrayActionSender((action) => {
-    const target = trayActionTarget();
-    if (target === null) return;
-    sendToConnection(target, TRAY_ACTION, action);
+    const contents = trayActionTarget();
+    if (!contents) return;
+    contents.send(TRAY_ACTION, action);
   });
   initTray({
     getMainWindow: shellWindow,

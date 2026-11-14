@@ -1063,25 +1063,37 @@ keeps its static Open/Quit tray. Capability, not demand.
   The handler (`src/main/ipc/trayStatus.ts`) refuses in this order, each refusal resolving
   `true`, except a rate-limit drop, which resolves `false` so `traySync` resends that
   snapshot after 100 ms: the sender check; a 20/s token
-  bucket; `firstInvalidField`, the exact-key guard (plain object, own keys exactly the expected
+  bucket (one per connection since #86); `firstInvalidField`, the exact-key guard (plain object, own keys exactly the expected
   set, data properties only, closed enums). A malformed snapshot is logged once per session
   with the field NAME only. Through v33 the sender check was `requireTrustedSender` AND the
   main window's `webContents` AND its main frame. **Since v34 (#86)** `tray:setStatus` is
   `connection-bound`, so the registry admits only a bound primary main frame (a PiP is refused
-  there), and `isTrayOwner` then admits only the tray's owner: the bound owner's current primary
-  when `setTrayOwner` has named one, else the foreground connection's primary record. Nothing in
-  `src/main` names an owner yet (#87), so today it is the foreground primary.
+  there). The handler keeps each connection's last accepted snapshot as that connection's own,
+  and the tray renders only its SOURCE's: the bound owner's, sent at the generation
+  `setTrayOwner` named, when one is named (nobody once that owner is stale), else the
+  foreground connection's. A background connection's snapshot is kept, not refused: `traySync`
+  sends only on change, so a refused one is never resent, and a switch to that connection would
+  leave the previous connection's voice controls on the tray while its actions went to the new
+  one. `refreshTray` re-renders after every input changes (an accepted snapshot, a reset hook,
+  `setTrayOwner`, and the registry's `onForegroundChanged` / `onGenerationAdvanced`). Nothing in
+  `src/main` names an owner yet (#87), so today the source is the foreground connection.
 - **One main → renderer push, `tray:action`.** A closed-enum `TrayAction` (`set-muted`,
   `set-deafened`, `leave-voice`, `stop-share`, `set-presence`, `open-unread`); the preload
   re-validates it with the shared guard before the renderer sees it. Intents carry the target
   value, not a toggle. Open, Quit and the update actions stay in main and never cross the
-  channel. The renderer side is `services/system/traySync.ts` (snapshot builder) and
-  `trayActionDispatcher.ts`.
-- **Reset on a dead renderer.** `attachTrayResetHooks` drops the tray to the neutral icon and
-  the Open/Quit menu on a committed main-frame navigation (`did-navigate`, or a non-aborted
-  main-frame `did-fail-load`), `render-process-gone`, `unresponsive` and `destroyed`, so voice controls never outlive their session. A hang can end with the same
-  session alive, so `responsive` re-applies the last accepted snapshot; the other three
-  forget it.
+  channel. Since #86 an action goes to `trayActionTarget()`: the foreground primary, and only
+  while the tray shows that connection's snapshot (none while it is neutral, or shows an owner
+  other than the foreground — #87 routes those). The renderer side is
+  `services/system/traySync.ts` (snapshot builder) and `trayActionDispatcher.ts`.
+- **Reset on a dead renderer.** `attachTrayResetHooks(contents, connectionId)` runs on every
+  view and drops the tray to the neutral icon and the Open/Quit menu on a committed main-frame
+  navigation (`did-navigate`, or a non-aborted main-frame `did-fail-load`),
+  `render-process-gone`, `unresponsive` and `destroyed`, so voice controls never outlive their
+  session. Since #86 each hook changes only its own connection's kept snapshot, so it moves the
+  tray only while the tray shows that connection: a background view reloading, crashing,
+  hanging or closing leaves the foreground connection's tray alone. A hang can end with the
+  same session alive, so it only hides the snapshot and `responsive` shows it again; the other
+  hooks forget it.
 - **Sprites, not runtime compositing.** `main/trayVisual.ts` resolves a snapshot to one of 53
   frame keys plus a menu model; `main/trayScheduler.ts` owns the animation timers (none on
   Linux). The sprites are committed under `assets/tray/<mode>/` (`template`, `white`, `black`,

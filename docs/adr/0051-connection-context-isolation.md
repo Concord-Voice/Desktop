@@ -181,6 +181,10 @@ and throws `service-id-collision` when a cached id is bound to a different origi
 - **KLIPY header injection** is registered per session, for
   `<service.origin>/api/v1/klipy/media*` only.
 - **The tray** belongs to `trayOwner()` if #87 has set one, else to the foreground primary.
+  Main keeps each connection's last tray snapshot and renders the owner's, so a foreground
+  switch shows the new connection's state at once, and a `tray:action` reaches only the
+  connection the tray shows. A view's reset hooks (reload, crash, hang, close) forget its own
+  snapshot and blank the tray only while the tray shows that connection.
 - **The OS badge** is the sum of the per-connection counts, clamped to 9999.
 
 ### D5 — The renderer's server base is fixed at boot
@@ -537,7 +541,7 @@ Each row is a security decision taken in review. The table of record is
 | `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
-| `tray:setStatus` | `connection-bound`, narrowed in the handler to the tray owner, else the foreground primary | effective admission with no owner is unchanged; #87 only calls `setTrayOwner` |
+| `tray:setStatus` | `connection-bound`; the handler keeps each connection's snapshot as its own and renders only the tray owner's, else the foreground primary's | a background snapshot is kept, not refused, because the renderer sends only on change; #87 only calls `setTrayOwner` |
 | `attestation:get-token`, `attestation:clear-token` | `connection-bound`, narrowed in the handler to `saas` | the token cache is minted for the `saas` control plane; a non-`saas` connection neither reads nor clears it |
 | `permission:changed` (push) | sent to the requesting connection only | a status change is not broadcast to other connections |
 | `window:getVersionString` | `app-global-read` | primaries only |

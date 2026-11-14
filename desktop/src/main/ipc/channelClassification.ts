@@ -85,10 +85,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // stay connection-bound and owner-only, so a hidden owner may still cancel its own.
   'sso:appleSignIn': 'app-global-mutate',
   'sso:googleSignIn': 'app-global-mutate',
-  // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary.
-  // #87 (RC-2): the handler stores every bound primary's validated snapshot per connection
-  // and applies only the displayed connection's: trayOwner() when the capture lease names
-  // one (a stale owner shows a neutral tray), else the foreground primary.
+  // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
+  // handler keeps each connection's snapshot as its own and renders only the tray source's:
+  // trayOwner() when the #87 capture lease names one (a stale owner shows a neutral tray), else
+  // the foreground primary (#86 B1).
   'tray:setStatus': 'connection-bound',
   // #87 (contract v35): the capture lease. Connection-bound so a background primary can
   // release, and a holder re-acquire, from where it is; a FRESH acquire and the consent

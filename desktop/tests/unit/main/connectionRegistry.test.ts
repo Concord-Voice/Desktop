@@ -233,6 +233,52 @@ describe('disposeConnection', () => {
   });
 });
 
+// #86 B1: the tray re-renders for the new foreground from this announcement.
+describe('onForegroundChanged', () => {
+  it('announces each change of foreground once, and not a repeat of the same one', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const b = mustOpen(mustRegister(B).serviceId, wcObj(2));
+    const seen: Array<string | null> = [];
+    const off = onForegroundChanged(() => seen.push(foreground()?.connectionId ?? null));
+    setForeground(a.connectionId);
+    setForeground(a.connectionId);
+    setForeground(b.connectionId);
+    setForeground(null);
+    expect(seen).toEqual([a.connectionId, b.connectionId, null]);
+    off();
+    setForeground(a.connectionId);
+    expect(seen).toHaveLength(3);
+  });
+
+  it('announces the cleared foreground of a disposal after the record is gone', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const b = mustOpen(mustRegister(B).serviceId, wcObj(2));
+    setForeground(a.connectionId);
+    const seen: Array<{ fg: unknown; live: boolean }> = [];
+    onForegroundChanged(() =>
+      seen.push({ fg: foreground(), live: recordFor(a.connectionId) !== undefined })
+    );
+    disposeConnection(b.connectionId);
+    expect(seen).toEqual([]);
+    disposeConnection(a.connectionId);
+    expect(seen).toEqual([{ fg: null, live: false }]);
+  });
+
+  it('runs the other listeners when one throws', () => {
+    const a = mustOpen(mustRegister(A).serviceId);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const after = vi.fn();
+    onForegroundChanged(() => {
+      throw new Error('boom');
+    });
+    onForegroundChanged(after);
+    setForeground(a.connectionId);
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
 describe('hardening (guards added beyond the plan matrix)', () => {
   it('generation cannot be assigned or redefined from outside the registry', () => {
     const rec = mustOpen(mustRegister(A).serviceId);
