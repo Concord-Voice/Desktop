@@ -269,6 +269,38 @@ function parseCompletionTokens(value: unknown): MainCompletionTokens | null {
   };
 }
 
+function parseLinkChallenge(
+  value: unknown
+): Omit<Extract<SSOCompletionResult, { kind: 'mfa_challenge' }>, 'credentialOwner'> | null {
+  if (
+    !isRecord(value) ||
+    !isBoundedString(value.mfa_challenge_token, 8192) ||
+    !Array.isArray(value.methods) ||
+    value.methods.length === 0 ||
+    value.methods.length > 8 ||
+    !value.methods.every((method: unknown) => isBoundedString(method, 32)) ||
+    (value.recovery_only_methods !== undefined &&
+      (!Array.isArray(value.recovery_only_methods) ||
+        value.recovery_only_methods.length > 8 ||
+        !value.recovery_only_methods.every((method: unknown) => isBoundedString(method, 32)))) ||
+    (value.default_method !== undefined && !isBoundedString(value.default_method, 32)) ||
+    value.access_token !== undefined ||
+    value.refresh_token !== undefined ||
+    value.session_id !== undefined
+  )
+    return null;
+  return {
+    kind: 'mfa_challenge',
+    mfaChallengeToken: value.mfa_challenge_token,
+    methods: value.methods,
+    ...(value.recovery_only_methods !== undefined
+      ? { recoveryOnlyMethods: value.recovery_only_methods }
+      : {}),
+    ...(value.webauthn_options !== undefined ? { webauthnOptions: value.webauthn_options } : {}),
+    ...(value.default_method !== undefined ? { defaultMethod: value.default_method } : {}),
+  };
+}
+
 function sanitizeCompletionErrorBody(value: unknown): SSOCompletionErrorBody | undefined {
   if (!isRecord(value)) return undefined;
   const body: SSOCompletionErrorBody = {};
@@ -491,6 +523,35 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
         code: safeBody?.error_code ?? `sso_${endpoint}_failed`,
         ...(safeBody ? { body: safeBody } : {}),
       };
+    }
+
+    if (endpoint === 'complete-link' && isRecord(body) && 'mfa_challenge_token' in body) {
+      const challenge = parseLinkChallenge(body);
+      if (
+        !challenge ||
+        response.headers.has(SESSION_ID_HEADER) ||
+        response.headers.has('set-cookie')
+      ) {
+        await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
+        discardPendingCompletion(completion);
+        clearTokensIfOwner(completion.credentialOwner);
+        return { kind: 'error', status: 502, code: 'sso_session_rejected' };
+      }
+      if (
+        !credentialOwnerIsCurrent(completion.credentialOwner) ||
+        pendingCompletion !== completion
+      ) {
+        discardPendingCompletion(completion);
+        return { kind: 'error', status: 409, code: 'sso_cancelled' };
+      }
+      pendingMFA = {
+        apiBase: completion.apiBase,
+        credentialOwner: completion.credentialOwner,
+        provider: completion.provider,
+        mfaChallengeToken: challenge.mfaChallengeToken,
+      };
+      discardPendingCompletion(completion);
+      return { ...challenge, credentialOwner: completion.credentialOwner };
     }
 
     const tokens = parseCompletionTokens(body);

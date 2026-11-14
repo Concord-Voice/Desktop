@@ -57,6 +57,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Security
 
 - **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange.
+- **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface.
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
