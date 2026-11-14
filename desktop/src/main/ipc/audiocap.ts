@@ -213,7 +213,8 @@ export async function handleAudiocapStart(
   shareOwner = owner;
   // A reload or renderer crash during the await below finds no session to kill, so the
   // start must notice it here instead, or it forks a tap for a document that is gone.
-  const lossEpoch = audiocapRendererLossEpoch();
+  // The owner's connection's count only: another connection's loss is not this start's.
+  const lossEpoch = audiocapRendererLossEpoch(owner.ref.connectionId);
 
   // FENCE 4. A well-formed id for a window that has since closed is STALE, and
   // "a stale id must never silently widen a capture" (D4a). Thumbnail-free, so
@@ -223,7 +224,10 @@ export async function handleAudiocapStart(
     thumbnailSize: { width: 0, height: 0 },
     fetchWindowIcons: false,
   });
-  if (operationEpoch !== shareOperationEpoch || lossEpoch !== audiocapRendererLossEpoch()) {
+  if (
+    operationEpoch !== shareOperationEpoch ||
+    lossEpoch !== audiocapRendererLossEpoch(owner.ref.connectionId)
+  ) {
     return { ok: false, reason: 'target-unresolved' };
   }
   // FENCE 1 again, the WHOLE fence and not only its origin half, because the await above

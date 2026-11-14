@@ -117,6 +117,7 @@ import {
   type AudiocapStart,
   type ScreenAudioInterruptReason,
 } from '../shared/audiocapProtocol';
+import type { ConnectionId } from '../shared/connectionIdentity';
 import { NATIVE_ADDON_ENV, resolveNativeAddonPath } from './nativeAddonPath';
 import type { OwnerBinding } from './connectionCapability';
 
@@ -501,27 +502,38 @@ export function killAudiocapHost(): void {
  * reader that looks only at `faulted` (spec §4.1's fault watch) forfeits nothing here.
  *
  * PUBLISHES NOTHING (I7): this is a voluntary end, and `killAudiocapHost` never calls `retire`.
+ *
+ * ONLY THE OWNER'S LOSS (#86). Every connection's view is wired, so `connectionId` names the
+ * connection whose renderer went away. A capture another connection owns is not that loss's
+ * to end: before this check, connection B's reload killed connection A's live share, and A
+ * was told nothing. A capture with no owner (a host-level start) has nothing to compare, so
+ * any connection's loss ends it, which fails closed. What breaks it: comparing anything but
+ * the owner binding's connection id, or skipping the kill for an unowned capture.
  */
-export function killAudiocapCapture(): void {
+export function killAudiocapCapture(connectionId: ConnectionId): void {
   const live = session;
   if (live?.windowHandle == null) return;
+  if (live.owner != null && live.owner.ref.connectionId !== connectionId) return;
   killAudiocapHost();
 }
 
 /**
- * Counts renderer losses, so an `audiocap:start` still awaiting its window enumeration can
- * see one that landed during the await. Without it the loss finds no session to kill, the
- * start forks anyway, and the new document inherits a tap nobody reaps (red-team VULN-A).
+ * Counts renderer losses PER CONNECTION, so an `audiocap:start` still awaiting its window
+ * enumeration can see one of its own connection's that landed during the await. Without it
+ * the loss finds no session to kill, the start forks anyway, and the new document inherits
+ * a tap nobody reaps (red-team VULN-A). Per connection (#86): another connection's reload
+ * is not this start's loss and must not refuse it. One number per connection opened in
+ * this process; ids are never reused, so a stale entry is never read for a new connection.
  */
-let rendererLossEpoch = 0;
+const rendererLossEpochs = new Map<ConnectionId, number>();
 
-export function audiocapRendererLossEpoch(): number {
-  return rendererLossEpoch;
+export function audiocapRendererLossEpoch(connectionId: ConnectionId): number {
+  return rendererLossEpochs.get(connectionId) ?? 0;
 }
 
-function noteRendererLoss(): void {
-  rendererLossEpoch += 1;
-  killAudiocapCapture();
+function noteRendererLoss(connectionId: ConnectionId): void {
+  rendererLossEpochs.set(connectionId, audiocapRendererLossEpoch(connectionId) + 1);
+  killAudiocapCapture(connectionId);
 }
 
 /**
@@ -529,21 +541,25 @@ function noteRendererLoss(): void {
  * here — `src/main/**` is outside coverage, and a wire nobody reaches is the failure mode
  * this epic keeps meeting.
  */
-export function wireAudiocapRendererLoss(contents: Pick<Electron.WebContents, 'on'>): void {
-  contents.on('render-process-gone', noteRendererLoss);
+export function wireAudiocapRendererLoss(
+  contents: Pick<Electron.WebContents, 'on'>,
+  connectionId: ConnectionId
+): void {
+  const lost = (): void => noteRendererLoss(connectionId);
+  contents.on('render-process-gone', lost);
   // `did-navigate`, NOT `did-start-navigation`. Electron fires `did-start-navigation`
   // BEFORE `will-navigate`, so keying on it would end the capture for a link click that
   // main.ts's `will-navigate` gate then cancels, silently dropping app audio from a live
   // share. `did-navigate` fires only for the main frame and only once a cross-document
   // navigation COMMITS; in-page navigations fire `did-navigate-in-page` instead. The
   // cost is that on a real reload the tap outlives the old document until commit.
-  contents.on('did-navigate', noteRendererLoss);
+  contents.on('did-navigate', lost);
   // A main-frame navigation that FAILS commits an error page and fires no `did-navigate`,
   // yet the document that owned the capture is gone (measured on Electron 44, red-team
   // VULN-B). ERR_ABORTED (-3) is excluded, as in the self-heal filter: a cancelled
   // navigation leaves the document in place.
   contents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
-    if (isMainFrame && errorCode !== -3) noteRendererLoss();
+    if (isMainFrame && errorCode !== -3) lost();
   });
 }
 

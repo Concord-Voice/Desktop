@@ -300,7 +300,7 @@ describe('openConnectionView', () => {
   it('wires audiocap loss and tray hooks before loadURL, with the view bound as primary', async () => {
     const saas = register(SAAS_ORIGIN);
     const rec = await mustOpen(saas.serviceId);
-    expect(deps.wireAudiocapRendererLoss).toHaveBeenCalledWith(rec.webContents);
+    expect(deps.wireAudiocapRendererLoss).toHaveBeenCalledWith(rec.webContents, rec.connectionId);
     // #86 B2: the hooks act only for the connection the tray belongs to.
     expect(deps.attachTrayResetHooks).toHaveBeenCalledWith(rec.webContents, rec.connectionId);
     expect(calls.indexOf('wire')).toBeLessThan(calls.indexOf('loadURL'));

@@ -1368,6 +1368,50 @@ describe('renderer loss kills the capture, never the probe (#3394 PR 1, spec C15
     expect(child.kill).not.toHaveBeenCalled();
   });
 
+  // #86 Codex C2: every connection's view is wired, so a loss belongs to ONE connection.
+  // Before the scoping, connection B's reload, failed load or crash killed connection A's
+  // live capture and moved the process-wide epoch, with no interrupt published to A.
+  describe("a renderer loss ends only the owning connection's capture (#86 C2)", () => {
+    const owner = { kind: 'audiocap', ref: { connectionId: 'conn-A', generation: 1 } };
+
+    async function ownedCapture() {
+      const host = await loadHost();
+      const child = makeChild();
+      fork.mockReturnValue(child);
+      host.setAudiocapPortSink(vi.fn());
+      const started = host.startAudiocapHost(1, 42, owner as never);
+      child.handlers.message(validHello());
+      child.handlers.message(STARTED);
+      await started;
+      child.kill.mockClear();
+      const viewA = fakeContents();
+      const viewB = fakeContents();
+      host.wireAudiocapRendererLoss(viewA as never, 'conn-A' as never);
+      host.wireAudiocapRendererLoss(viewB as never, 'conn-B' as never);
+      return { host, child, viewA, viewB };
+    }
+
+    it("another connection's reload, failed load or crash leaves the owner's capture and epoch alone", async () => {
+      const { host, child, viewB } = await ownedCapture();
+      const ownerBefore = host.audiocapRendererLossEpoch('conn-A' as never);
+      const otherBefore = host.audiocapRendererLossEpoch('conn-B' as never);
+      viewB.handlers['did-navigate']!({}, 'app://concord/index.html', 200, 'OK');
+      viewB.handlers['did-fail-load']!({}, -6, 'ERR_FILE_NOT_FOUND', 'app://x/', true, 1, 1);
+      viewB.handlers['render-process-gone']!({}, { reason: 'crashed', exitCode: 1 });
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(host.audiocapRendererLossEpoch('conn-A' as never)).toBe(ownerBefore);
+      expect(host.audiocapRendererLossEpoch('conn-B' as never)).toBe(otherBefore + 3);
+    });
+
+    it("control: the owner's own reload still kills the capture and moves the owner's epoch", async () => {
+      const { host, child, viewA } = await ownedCapture();
+      const ownerBefore = host.audiocapRendererLossEpoch('conn-A' as never);
+      viewA.handlers['did-navigate']!({}, 'app://concord/index.html', 200, 'OK');
+      expect(child.kill).toHaveBeenCalled();
+      expect(host.audiocapRendererLossEpoch('conn-A' as never)).toBe(ownerBefore + 1);
+    });
+  });
+
   it('registers all three renderer-loss handlers (did-navigate, render-process-gone, did-fail-load)', async () => {
     const host = await loadHost();
     const contents = fakeContents();
@@ -1579,7 +1623,8 @@ describe('audiocapRendererLossEpoch always bumps on a recognized loss event, liv
         contents.handlers[event] = cb;
       }
     );
-    host.wireAudiocapRendererLoss(contents as never);
+    // The view is the requester's own connection's (#86 C2: a loss counts per connection).
+    host.wireAudiocapRendererLoss(contents as never, sender.ref.connectionId);
 
     const pendingStart = handleAudiocapStart(sender, trusted, { sourceId: 'window:42:0' });
     expect(contents.handlers['did-navigate']).toBeTypeOf('function');

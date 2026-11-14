@@ -959,6 +959,12 @@ Capability, not demand (#2967).
   `audiocap:stop` spares the windowless probe for the same reason the kill does: reaping it
   before its `hello` memoizes `child-crash` and leaves the capability snapshot `null` for the
   session, and nothing but a per-process share could ever re-set it.
+  **Since v34 (#86) every connection's view is wired, so a loss is scoped to its connection.**
+  `openConnectionView` calls `wireAudiocapRendererLoss(contents, connectionId)`, and
+  `killAudiocapCapture(connectionId)` ends the live capture only when the session's owner
+  binding names that connection; an unowned capture (a host-level start) is ended by any loss,
+  which fails closed. Before the scoping, connection B's reload, failed load or crash killed
+  connection A's live share and published no interrupt, so A still looked as if it was sharing.
 - **`audiocap:start` and `audiocap:stop` admit only the main window's main frame (#3394 PR 1).**
   An origin check alone admitted any trusted-origin frame, including a PiP window, which loads the
   same SPA with the same preload — wider than the renderer-loss watch, which covers only the main
@@ -976,8 +982,10 @@ Capability, not demand (#2967).
   `desktopCapturer.getSources` IS the fourth fence — it runs after the first three and before a
   session exists — so a
   reload or crash inside it used to let the start fork a tap for a document that was gone. Every
-  renderer-loss hook bumps `audiocapRendererLossEpoch()`; the handler refuses `target-unresolved`
-  if it moved (beside `shareOperationEpoch`) and then re-runs the admission fence, since
+  renderer-loss hook bumps `audiocapRendererLossEpoch(connectionId)` for its own view's connection
+  (one count per connection since v34, #86), and the handler reads the OWNER's count: it refuses
+  `target-unresolved` if that moved (beside `shareOperationEpoch`), so another connection's reload
+  during the enumeration does not refuse the start. It then re-runs the admission fence, since
   `senderFrame` is `null` once the requesting document has navigated. Since v34 that re-run is
   `isOwnerPrimaryFrame` and then `isOwnerForeground`, so a start whose connection went to the
   background during the enumeration is refused `protocol-fault`.

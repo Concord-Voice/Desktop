@@ -58,7 +58,7 @@
 // | :879 `deeplink:friend-code` send               | saas-only push    | `sendToConnection(ref of saas primary)`       |
 // | :882 `invite:received` send                    | saas-only push    | `sendToConnection(ref of saas primary)`       |
 // | :1347 `did-start-loading` → deep-link reset    | view wiring       | `openConnectionView`, saas view only          |
-// | :1358 `wireAudiocapRendererLoss`               | view wiring       | `openConnectionView`, every view              |
+// | :1358 `wireAudiocapRendererLoss`               | view wiring       | `openConnectionView`, every view; owner only  |
 // | :1424 dev `openDevTools()`                     | view wiring       | saas view, `{ mode: 'detach' }`               |
 // | :1430/:1431 developer-mode `openDevTools`      | view wiring       | saas view, `{ mode: 'detach' }`               |
 // | :1436/:1442/:1443/:1445 DevTools key toggle    | view wiring       | per view (`wireView`), toggles that view      |
@@ -131,7 +131,8 @@ export interface ShellDeps {
   viewBackgroundColor?: string;
   contentProtectionEnabled: boolean;
   applyContentProtectionAtCreation(win: BaseWindow, enabled: boolean, label: string): void;
-  wireAudiocapRendererLoss(webContents: WebContents): void;
+  /** Per view; a loss ends a capture only when `connectionId` owns it (#86 C2). */
+  wireAudiocapRendererLoss(webContents: WebContents, connectionId: ConnectionId): void;
   /** Per view; the hooks move the shared tray only while it shows `connectionId` (#86 B2). */
   attachTrayResetHooks(webContents: WebContents, connectionId: ConnectionId): void;
   resetDeepLinkDelivery(): void;
@@ -278,7 +279,7 @@ export async function openConnectionView(
     return { ok: false, reason: 'session-unavailable' };
   }
 
-  d.wireAudiocapRendererLoss(contents);
+  d.wireAudiocapRendererLoss(contents, record.connectionId);
   d.attachTrayResetHooks(contents, record.connectionId);
   // Deep links are saas-only (§3.7): another view's load must not clear the saas
   // renderer's readiness, or links queue until the saas view itself reloads.

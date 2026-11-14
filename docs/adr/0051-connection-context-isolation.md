@@ -366,6 +366,11 @@ Fix, in `desktop/src/main/ipc/audiocap.ts`:
   Nothing is superseded. The owner restarting its own share is still allowed.
 - `audiocap:stop` is `connection-bound` and owner-only through `requireOwner`: a stop from any
   other connection, from a PiP, or from a document whose generation has advanced is refused.
+- The renderer-loss watch is per connection (`wireAudiocapRendererLoss(contents, connectionId)`
+  in `desktop/src/main/audiocapHost.ts`). A reload, failed load or crash of one connection's
+  view ends a capture only that connection owns, and moves only that connection's loss count,
+  which is the count a pending `audiocap:start` reads. Before this, every view's loss killed the
+  process's one capture whoever owned it, with no interrupt to the owner.
 
 #87's capture lease later replaces the refusal with a consent handoff.
 
@@ -610,7 +615,8 @@ Unit and integration tests (Vitest), by file under `desktop/tests/`:
   `unit/main/quitLifecycle.deadlock.test.ts`, `unit/main/main.test.ts`
 - **Custody per instance and across instances:** `unit/services/tokenManager.test.ts`,
   `unit/services/tokenManager.crossInstance.test.ts`
-- **Audiocap ownership (S-1):** `unit/main/audiocapIpc.test.ts`
+- **Audiocap ownership (S-1):** `unit/main/audiocapIpc.test.ts`, and the per-connection
+  renderer-loss watch in `unit/main/audiocapHost.test.ts`
 - **Tray and attestation narrowing:** `unit/main/ipc/trayStatusIpc.test.ts`,
   `unit/main/ipc/attestation.test.ts`
 - **Persistence and migration:** `unit/main/connectionsFile.test.ts`,

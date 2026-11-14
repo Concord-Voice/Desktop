@@ -7046,7 +7046,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as
@@ -7062,7 +7068,7 @@ describe('main.ts', () => {
         'no did-navigate listener was registered before the initial load resolved'
       ).toBeTypeOf('function');
       didNavigateHandler!({}, 'https://example.invalid/', 200, 'OK');
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
 
       // Release the held load so this import does not leave a permanently-pending
       // promise hanging off the shared mock past this test.
@@ -7078,7 +7084,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as (
@@ -7088,7 +7100,7 @@ describe('main.ts', () => {
       didNavigateHandler({}, 'https://example.invalid/', 200, 'OK');
       // Proves the harness itself can observe an epoch bump when the wire IS registered --
       // so the RED case above is a genuine finding, not a broken assertion.
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
     });
   });
 });
