@@ -186,6 +186,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** #86 advances a navigating connection twice: at its start, then when it commits. */
+function navigateAway(c: Conn): void {
+  advanceGeneration(c.record.connectionId, 'document');
+  advanceGeneration(c.record.connectionId, 'document');
+}
+
 /** A holds `voice-join` and has left the foreground to B. */
 async function heldByAWithBInFront(): Promise<{ a: Conn; b: Conn }> {
   const a = connect(ORIGIN_A);
@@ -508,7 +514,7 @@ describe('acquire: the ceremony', () => {
   it.each([
     // A release ends any share itself; a reload leaves that to the audiocap listener (RC-4).
     ['leaves voice', (a: Conn) => expect(rel(a)).toBe(true), 1],
-    ['reloads', (a: Conn) => advanceGeneration(a.record.connectionId, 'document'), 0],
+    ['reloads', (a: Conn) => navigateAway(a), 0],
   ])(
     "the named holder that %s during the dialog: 'join' grants with no handoff (Review Focus 3)",
     async (_label, end, revokes) => {
@@ -592,6 +598,7 @@ describe('handoff: ack-or-crash (§3.4)', () => {
     async (reason) => {
       const { a, b, pending } = await handoffFromAToB();
       if (reason === 'disposed') disposeConnection(a.record.connectionId);
+      else if (reason === 'document') navigateAway(a);
       else advanceGeneration(a.record.connectionId, reason);
       await expect(pending).resolves.toEqual(GRANTED);
       expect(isHolder(ref(b))).toBe(true);
@@ -668,12 +675,44 @@ describe('handoff: ack-or-crash (§3.4)', () => {
   });
 });
 
+describe('navigation hold (Codex Security: a cancelled navigation keeps the old document)', () => {
+  it('the START of a holder navigation does not free the lease; another connection gets busy', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(isFree()).toBe(false);
+    expect(holderRef()).toBeNull();
+    await expect(acq(b)).resolves.toEqual(rejected('busy'));
+    expect(d.runCeremony).not.toHaveBeenCalled();
+  });
+
+  it('a navigation that never commits is crashed and reloaded after 5 s, then the lease frees', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document'); // cancelled: no second advance
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(d.crashAndReload).toHaveBeenCalledWith(a.record);
+    expect(isFree()).toBe(false);
+    advanceGeneration(a.record.connectionId, 'renderer-gone');
+    expect(isFree()).toBe(true);
+    await expect(acq(b)).resolves.toEqual(GRANTED);
+  });
+
+  it('the commit frees the lease at once and cancels the crash', async () => {
+    const { a } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(isFree()).toBe(true);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+  });
+});
+
 describe('generation listener: document-replacing reasons end the holder', () => {
   it.each<GenerationReason>(['document', 'renderer-gone', 'disposed'])(
     "'%s' on the holder clears the lease, the tray owner and tells the foreground",
     async (reason) => {
       const { a, b } = await heldByAWithBInFront();
       if (reason === 'disposed') disposeConnection(a.record.connectionId);
+      else if (reason === 'document') navigateAway(a);
       else advanceGeneration(a.record.connectionId, reason);
       expect(isFree()).toBe(true);
       expect(holderRef()).toBeNull();
@@ -879,7 +918,7 @@ describe('legacyAcquire (§5.2)', () => {
     expect(legacyAcquire(ref(a))).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith('[capture] legacy implicit lease');
-    advanceGeneration(a.record.connectionId, 'document');
+    navigateAway(a);
     expect(isFree()).toBe(true);
     expect(legacyAcquire(ref(a))).toBe(true);
     expect(warn).toHaveBeenCalledTimes(2);

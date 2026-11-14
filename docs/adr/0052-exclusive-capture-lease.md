@@ -75,7 +75,12 @@ user to move capture there. There is no simultaneous publication and no cloned c
   admitted it), and publishes the new state.
 - **Generation listener.** A `switch (reason)` with no default branch that ends the holder (an
   unclassified reason is a compile error through `never`):
-  - `document`, `renderer-gone`, `disposed` **end** the holder;
+  - `renderer-gone`, `disposed` **end** the holder at once. `document` ends it only on its
+    SECOND advance: #86 advances at a navigation's start and again when it commits, and a
+    cancelled navigation (ERR_ABORTED) leaves the old document, with live tracks, after the
+    first only. The first advance therefore keeps the lease reserved behind a grantee-less
+    handoff on the same 5 s ack-or-crash timer, so a navigation that never commits is crashed
+    and reloaded (then `renderer-gone` ends the holder) instead of freeing capture;
   - `credential-start`, `credential-end` **re-key** it in place to the new generation: new
     `ConnectionRef`, new `bindOwner('capture-lease', …)`, claims and `legacy` kept,
     `setTrayOwner(newRef)`, no push, no audiocap call. The same re-key applies to `handoff.from`

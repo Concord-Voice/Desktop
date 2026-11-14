@@ -105,6 +105,14 @@ let ceremony: Ceremony | null = null;
 let quitShutdown = false;
 /** A document that has made any capture:* call, keyed to its generation (the legacy gate). */
 const leaseAware = new Map<ConnectionId, Generation>();
+/**
+ * Connections whose holder is mid-navigation. #86 advances the generation twice per
+ * cross-document navigation: at its START (the outgoing document is still live) and when it
+ * COMMITS or fails for real. A cancelled navigation (ERR_ABORTED) leaves the old document, with
+ * its capture tracks, in place after the first advance only. So the first `document` advance of
+ * a holder holds the lease behind the ack-or-crash timer, and only the second ends it.
+ */
+const navigating = new Set<ConnectionId>();
 
 const granted = (): CaptureAcquireResult => ({ status: 'granted' });
 const declined = (): CaptureAcquireResult => ({ status: 'declined' });
@@ -438,6 +446,46 @@ function rekeyConnection(
   }
 }
 
+function holdsCapture(id: ConnectionId): boolean {
+  return holder?.ref.connectionId === id || handoff?.from.connectionId === id;
+}
+
+/**
+ * The holder's document started navigating away. Its tracks may outlive a cancelled
+ * navigation, so the lease is not freed yet: it stays reserved behind a handoff with no
+ * grantee. The commit (a second `document` advance) or the renderer ending completes it; a
+ * navigation that never commits reaches the 5 s timeout, which crashes the renderer.
+ */
+function holdThroughNavigation(d: CaptureLeaseDeps): void {
+  if (handoff !== null) return; // a handoff already holds it behind its own timer
+  const entry = holder;
+  if (entry === null) return;
+  const h: Handoff = {
+    from: entry.ref,
+    fromBinding: entry.binding,
+    to: null,
+    settle: null,
+    timer: null,
+  };
+  holder = null;
+  handoff = h;
+  // The audiocap share is stopped by #86's own generation listener (RC-4), so no revoke here.
+  if (quitShutdown || d.isQuitting()) return;
+  h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
+}
+
+/** The second `document` advance (or a first one for a connection that held nothing). */
+function endNavigation(d: CaptureLeaseDeps, id: ConnectionId): void {
+  const wasHolding = navigating.delete(id);
+  endConnection(d, id, false);
+  // The held lease ended with no `publish` naming this connection, so tell its new document
+  // (unless the foreground push above already did).
+  if (!wasHolding || holder?.ref.connectionId === id) return;
+  if (d.foreground()?.connectionId === id) return;
+  const former = liveRecord(d, id);
+  if (former) push(d, refOf(former), CAPTURE_LEASE_PUSH, leaseState(false, false));
+}
+
 function onAdvance(
   id: ConnectionId,
   from: Generation,
@@ -448,8 +496,16 @@ function onAdvance(
   if (d === null) return;
   switch (reason) {
     case 'document':
+      if (holdsCapture(id) && !navigating.has(id)) {
+        navigating.add(id);
+        holdThroughNavigation(d);
+        return;
+      }
+      endNavigation(d, id);
+      return;
     case 'renderer-gone':
     case 'disposed':
+      navigating.delete(id);
       endConnection(d, id, reason === 'disposed');
       return;
     case 'credential-start':
@@ -596,4 +652,5 @@ export function _resetCaptureLeaseForTesting(): void {
   ceremony = null;
   quitShutdown = false;
   leaseAware.clear();
+  navigating.clear();
 }
