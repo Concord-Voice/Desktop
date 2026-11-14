@@ -96,13 +96,22 @@ for f in "$@"; do
       done <<<"$bad"
       ;;
     *.npmrc)
-      while IFS= read -r raw; do
+      # Parse keys the way npm's ini reader does: the key is everything before
+      # the first `=`, trimmed, with surrounding quotes removed. Any other key
+      # that mentions "registry" fails closed; `//host/:…` lines are per-host
+      # auth settings and cannot move a fetch.
+      while IFS= read -r raw || [ -n "$raw" ]; do
         line="${raw%%$'\r'}"
-        [[ "$line" =~ ^[[:space:]]*([^=[:space:]]+)[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]] || continue
+        [[ "$line" =~ ^[[:space:]]*[\#\;] ]] && continue
+        [[ "$line" =~ ^[[:space:]]*([^=]*[^=[:space:]])[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]] || continue
         key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]:-}"
-        val="${val#\"}"; val="${val%\"}"; val="${val#\'}"; val="${val%\'}"
+        for q in '"' "'"; do
+          [[ "$key" == "$q"*"$q" ]] && key="${key:1:${#key}-2}"
+          [[ "$val" == "$q"*"$q" ]] && val="${val:1:${#val}-2}"
+        done
         case "$key" in
-          registry|*:registry)
+          //*) ;;
+          registry|@*:registry)
             why="$(url_problem "${val%/}/")"
             if [ -n "$why" ]; then
               echo "::error file=$f,title=off-registry npmrc::$f: $key=$val points npm at $why. Approved hosts: $approved_list — see .github/approved-registries.txt."
@@ -111,6 +120,11 @@ for f in "$@"; do
           replace-registry-host)
             if [ "$val" != npmjs ] && [ "$val" != never ]; then
               echo "::error file=$f,title=off-registry npmrc::$f: replace-registry-host=$val lets npm rewrite lockfile URLs to another host. Use npmjs (the default) or never."
+              status=1
+            fi ;;
+          *)
+            if [[ "${key,,}" == *registry* ]]; then
+              echo "::error file=$f,title=off-registry npmrc::$f: unrecognised registry setting '$key'. Use registry= or @scope:registry= with an approved host."
               status=1
             fi ;;
         esac
