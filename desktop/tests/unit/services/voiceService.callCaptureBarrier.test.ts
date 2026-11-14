@@ -26,6 +26,11 @@ interface Internals {
   produceAudioCapture: (...args: unknown[]) => Promise<boolean>;
   requireCurrentMicCapture: (...args: unknown[]) => void;
   microphoneSettingsChanged: (...args: unknown[]) => boolean;
+  videoReproduceSessionActive: boolean;
+  produceVideo: (deviceId?: string) => Promise<void>;
+  produceVideoQueued: (...args: unknown[]) => Promise<void>;
+  liveReproduceCamera: () => Promise<void>;
+  liveReproduceCameraQueued: (...args: unknown[]) => Promise<void>;
   produceScreen: (...args: unknown[]) => Promise<unknown>;
   produceScreenOperation: (...args: unknown[]) => Promise<unknown>;
   switchScreenSourceQueued: (...args: unknown[]) => Promise<unknown>;
@@ -159,4 +164,27 @@ describe('call-owned capture joins the settlement barrier', () => {
     await done;
     await expect(settleDeviceCaptures(20)).resolves.toBe(true);
   });
+
+  it.each([
+    ['publishing the camera', 'produceVideo', 'produceVideoQueued'],
+    ['replacing the camera (live re-produce)', 'liveReproduceCamera', 'liveReproduceCameraQueued'],
+  ] as const)(
+    'a camera operation %s holds the barrier through adoption (Codex Security P2)',
+    async (_name, entry, queued) => {
+      internals.videoReproduceSessionActive = true;
+      let finish: () => void = () => undefined;
+      vi.spyOn(internals, queued).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          })
+      );
+      const done = internals[entry]();
+      await vi.waitFor(() => expect(internals[queued]).toHaveBeenCalled());
+      await expect(settleDeviceCaptures(20)).resolves.toBe(false);
+      finish();
+      await done;
+      await expect(settleDeviceCaptures(20)).resolves.toBe(true);
+    }
+  );
 });

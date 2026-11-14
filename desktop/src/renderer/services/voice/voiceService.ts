@@ -3514,7 +3514,10 @@ class VoiceService {
       .catch(() => undefined)
       .then(async () => {
         if (!this.isCurrentVideoReproduceToken(token)) return;
-        await operation(token);
+        // Every camera/screen publish, replacement and re-produce is a capture the revocation
+        // barrier must wait for through ADOPTION (the stream is not in localCameraStream /
+        // localScreenStream until its produce round trip returns), not only through getUserMedia.
+        await trackDeviceCapture(operation(token));
       });
     // Keep the tail fulfilled so a detached caller's rejection cannot become a
     // latent unhandled rejection. Return the original promise so awaited callers
