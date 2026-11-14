@@ -12,17 +12,17 @@ import {
 } from '@/renderer/services/system/runtimeServerBase';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
-vi.mock('@/renderer/services/system/apiClient', async (orig) => ({
-  ...(await orig<typeof import('@/renderer/services/system/apiClient')>()),
-  revokeAbortedSession: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('@/renderer/services/system/apiClient', async (orig) => {
+  const actual = (await orig()) as typeof import('@/renderer/services/system/apiClient');
+  return { ...actual, revokeAbortedSession: vi.fn().mockResolvedValue(undefined) };
+});
 
 // #2394: replace only abandonSSOReservation. completeSSOLink stays real so the
 // existing tests keep asserting against the electron sso.completeLink bridge.
-vi.mock('@/renderer/services/system/ssoService', async (orig) => ({
-  ...(await orig<typeof import('@/renderer/services/system/ssoService')>()),
-  abandonSSOReservation: vi.fn().mockResolvedValue(true),
-}));
+vi.mock('@/renderer/services/system/ssoService', async (orig) => {
+  const actual = (await orig()) as typeof import('@/renderer/services/system/ssoService');
+  return { ...actual, abandonSSOReservation: vi.fn().mockResolvedValue(true) };
+});
 
 const storeRefreshToken = vi.fn().mockResolvedValue(41);
 const clearTokensIfOwner = vi.fn().mockResolvedValue(true);
