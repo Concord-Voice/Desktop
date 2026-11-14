@@ -24,6 +24,7 @@ import {
 import { apiFetch } from '../../services/system/apiClient';
 import {
   apiRequestContextIsCurrent,
+  captureApiRequestContext,
   type ApiRequestContext,
 } from '../../services/system/requestContext';
 import {
@@ -389,6 +390,7 @@ const ActionModal: React.FC<ActionModalProps> = ({
   // they cannot disagree. The lock clears only when the modal is reopened
   // (handoff §1.1 / §5).
   const [result, setResult] = useState<MfaStepUpResult | null>(null);
+  const [openedContext] = useState(captureApiRequestContext);
   const passwordRef = useRef<HTMLInputElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
 
@@ -419,7 +421,9 @@ const ActionModal: React.FC<ActionModalProps> = ({
     return toStepUpSubmitOutcome(answer);
   };
 
-  const { ariaDisabled, activate } = stepUpActivation(factor, password, submit);
+  const { ariaDisabled, activate } = stepUpActivation(factor, password, submit, {
+    capture: openedContext,
+  });
   const onPrimary = () => {
     if (locked || submitting) return;
     activate();

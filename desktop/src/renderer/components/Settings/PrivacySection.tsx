@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useServerStore } from '../../stores/chat/serverStore';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
@@ -29,11 +29,23 @@ const PURGE_AUTH_LABEL_ID = 'requireAuthBeforePurge-label';
 const CONTENT_PROTECTION_LABEL_ID = 'contentProtection-label';
 const CONTENT_PROTECTION_HINT_ID = 'contentProtection-hint';
 
-interface PrivacySectionProps {
-  onActivityHistoryAvailabilityChange?: (available: boolean) => void;
+export interface AccountErasureConfirmation {
+  requestId: string;
+  token: string;
+  expiresAt: number;
 }
 
-const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvailabilityChange }) => {
+interface PrivacySectionProps {
+  onActivityHistoryAvailabilityChange?: (available: boolean) => void;
+  accountErasureConfirmation?: AccountErasureConfirmation | null;
+  onClearAccountErasureConfirmation?: () => void;
+}
+
+const PrivacySection: React.FC<PrivacySectionProps> = ({
+  onActivityHistoryAvailabilityChange,
+  accountErasureConfirmation = null,
+  onClearAccountErasureConfirmation,
+}) => {
   const userId = useUserStore((s) => s.user?.id ?? null);
   const logout = useUserStore((s) => s.logout);
   const servers = useServerStore((s) => s.servers);
@@ -97,6 +109,7 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
     expiresAt: number;
   } | null>(null);
   const [erasureNotice, setErasureNotice] = useState<string | null>(null);
+  const erasureUserIdRef = useRef(userId);
   const protectedOwnedServers = useMemo(
     () => servers.filter((server) => server.owner_id === userId && server.member_count > 1),
     [servers, userId]
@@ -107,29 +120,25 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
   );
 
   useEffect(() => {
-    const unsubscribe = globalThis.electron?.onAccountErasureConfirmation?.((confirmation) => {
-      setEmailConfirmation({
-        requestId: confirmation.requestId,
-        token: confirmation.token,
-        expiresAt: Date.now() + 15 * 60_000,
-      });
-      setErasureNotice('Email confirmed. Review your acknowledgements and erase your account.');
-    });
-    globalThis.electron?.accountErasureRendererReady?.();
-    return () => unsubscribe?.();
-  }, []);
+    if (accountErasureConfirmation === null) return;
+    /* eslint-disable @eslint-react/set-state-in-effect -- transient bearer handoff from the authenticated host */
+    setEmailConfirmation(accountErasureConfirmation);
+    setErasureNotice('Email confirmed. Review your acknowledgements and erase your account.');
+    /* eslint-enable @eslint-react/set-state-in-effect -- transient bearer handoff from the authenticated host */
+  }, [accountErasureConfirmation]);
 
   useEffect(() => {
     if (emailConfirmation === null) return;
     const timeout = window.setTimeout(
       () => {
         setEmailConfirmation(null);
+        onClearAccountErasureConfirmation?.();
         setErasureNotice('The email confirmation expired. Start over to request another link.');
       },
       Math.max(0, emailConfirmation.expiresAt - Date.now())
     );
     return () => window.clearTimeout(timeout);
-  }, [emailConfirmation]);
+  }, [emailConfirmation, onClearAccountErasureConfirmation]);
 
   useEffect(() => {
     // Account changes, logout and renderer resets must not retain a bearer link.
@@ -137,7 +146,9 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
     setEmailConfirmation(null);
     setAcknowledgedServerIds(new Set());
     /* eslint-enable @eslint-react/set-state-in-effect -- transient bearer-secret hygiene */
-  }, [userId]);
+    if (erasureUserIdRef.current !== userId) onClearAccountErasureConfirmation?.();
+    erasureUserIdRef.current = userId;
+  }, [userId, onClearAccountErasureConfirmation]);
 
   const setRequireAuthBeforePurge = useCallback(
     async (next: boolean) => {
@@ -164,22 +175,25 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
       setErasureDialogOpen(false);
       if (result.kind === 'email_confirmation_required') {
         setEmailConfirmation(null);
+        onClearAccountErasureConfirmation?.();
         setErasureNotice('Check your email for a confirmation link.');
         return;
       }
       setEmailConfirmation(null);
+      onClearAccountErasureConfirmation?.();
       const forgetDeepLinks = globalThis.electron?.forgetDeepLinks;
       if (forgetDeepLinks) void forgetDeepLinks().catch(() => undefined);
       await logout();
     },
-    [logout]
+    [logout, onClearAccountErasureConfirmation]
   );
 
   const handleStaleOwnedServers = useCallback(() => {
     setAcknowledgedServerIds(new Set());
     setEmailConfirmation(null);
+    onClearAccountErasureConfirmation?.();
     void fetchServers();
-  }, [fetchServers]);
+  }, [fetchServers, onClearAccountErasureConfirmation]);
 
   useEffect(() => {
     void fetchPrivacy();

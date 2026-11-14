@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within, act } from '../../../test-utils';
+import { render, screen, fireEvent, within, act, waitFor } from '../../../test-utils';
 import { useSettingsStore } from '@/renderer/stores/ui/settingsStore';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
@@ -169,6 +169,25 @@ describe('SettingsPage', () => {
     expect(colorSchemeEls.length).toBeGreaterThanOrEqual(1);
     const themeEls = screen.getAllByText('Theme');
     expect(themeEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('opens Privacy and carries an account-erasure confirmation from the authenticated host', async () => {
+    render(
+      <SettingsPage
+        accountErasureConfirmation={{
+          requestId: 'request-1',
+          token: 'confirmation-token',
+          expiresAt: Date.now() + 15 * 60_000,
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Danger Zone')).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('Email confirmed. Review your acknowledgements and erase your account.')
+    ).toBeInTheDocument();
   });
 
   it('renders theme options', () => {

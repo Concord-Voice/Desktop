@@ -8,6 +8,7 @@ import { ModalPortalHostContext } from '../ui/ModalContext';
 import './SettingsOverlayHost.css';
 import { keyTargetsForeignModal } from '../../utils/ui/keyTargetsForeignModal';
 import { focusTargetIn } from '../ui/focusTarget';
+import type { AccountErasureConfirmation } from './PrivacySection';
 
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const ServerSettingsPage = lazy(() => import('../Servers/ServerSettingsPage'));
@@ -57,10 +58,43 @@ const SettingsOverlayHost: React.FC = () => {
   const close = useSettingsOverlayStore((s) => s.close);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [portalHost, setPortalHost] = useState<HTMLDialogElement | null>(null);
+  const [accountErasureConfirmation, setAccountErasureConfirmation] =
+    useState<AccountErasureConfirmation | null>(null);
+  const clearAccountErasureConfirmation = useCallback(
+    () => setAccountErasureConfirmation(null),
+    []
+  );
   const setDialogRef = useCallback((dialog: HTMLDialogElement | null) => {
     dialogRef.current = dialog;
     setPortalHost(dialog);
   }, []);
+
+  // This host stays mounted for the authenticated session even while Settings
+  // is closed. Receiving the bearer link here prevents a normal launch from
+  // waiting forever for PrivacySection to mount.
+  useEffect(() => {
+    const subscribe = globalThis.electron?.onAccountErasureConfirmation;
+    if (typeof subscribe !== 'function') return undefined;
+    const unsubscribe = subscribe((confirmation) => {
+      setAccountErasureConfirmation({
+        requestId: confirmation.requestId,
+        token: confirmation.token,
+        expiresAt: Date.now() + 15 * 60_000,
+      });
+      useSettingsOverlayStore.getState().openSettings('app');
+    });
+    globalThis.electron?.accountErasureRendererReady?.();
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (accountErasureConfirmation === null) return undefined;
+    const timeout = window.setTimeout(
+      clearAccountErasureConfirmation,
+      Math.max(0, accountErasureConfirmation.expiresAt - Date.now())
+    );
+    return () => window.clearTimeout(timeout);
+  }, [accountErasureConfirmation, clearAccountErasureConfirmation]);
 
   // Drive the native <dialog> open state from the store
   useEffect(() => {
@@ -150,7 +184,12 @@ const SettingsOverlayHost: React.FC = () => {
 
   let content: React.ReactNode = null;
   if (open === 'app') {
-    content = <SettingsPage />;
+    content = (
+      <SettingsPage
+        accountErasureConfirmation={accountErasureConfirmation}
+        onClearAccountErasureConfirmation={clearAccountErasureConfirmation}
+      />
+    );
   } else if (open === 'server' && payload?.serverId) {
     content = <ServerSettingsPage serverId={payload.serverId} />;
   }

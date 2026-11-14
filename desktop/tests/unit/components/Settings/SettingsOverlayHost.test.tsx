@@ -10,12 +10,21 @@ vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
   const { default: PresenceExceptionModal } =
     await import('@/renderer/components/Settings/PresenceExceptionModal');
 
-  function SettingsPageHarness() {
+  function SettingsPageHarness({
+    accountErasureConfirmation,
+  }: {
+    accountErasureConfirmation?: { requestId: string; token: string; expiresAt: number } | null;
+  }) {
     const [childOpen, setChildOpen] = ReactModule.useState(false);
     const triggerRef = ReactModule.useRef<HTMLButtonElement>(null);
     return (
       <div data-testid="mock-settings-page">
         SettingsPage
+        {accountErasureConfirmation && (
+          <output data-testid="account-erasure-confirmation">
+            {accountErasureConfirmation.requestId}:{accountErasureConfirmation.token}
+          </output>
+        )}
         <button ref={triggerRef} type="button" onClick={() => setChildOpen(true)}>
           Open exception editor
         </button>
@@ -86,6 +95,10 @@ describe('SettingsOverlayHost', () => {
   beforeEach(() => {
     resetAllStores();
     useDraftSettingsStore.setState({ contentProtectionApplying: false });
+    Object.assign(globalThis.electron ?? {}, {
+      onAccountErasureConfirmation: undefined,
+      accountErasureRendererReady: undefined,
+    });
     document.body.style.overflow = '';
     showModalOrder.length = 0;
   });
@@ -182,6 +195,32 @@ describe('SettingsOverlayHost', () => {
     expect(await screen.findByTestId('mock-settings-page')).toBeInTheDocument();
     expect(getDialog().hasAttribute('open')).toBe(true);
     expect(getDialog()).toHaveAttribute('data-modal-portal-host', 'true');
+  });
+
+  it('opens Privacy settings for an account-erasure link received while Settings is closed', async () => {
+    let confirmationHandler: ((value: { requestId: string; token: string }) => void) | undefined;
+    const rendererReady = vi.fn();
+    Object.assign(globalThis.electron ?? {}, {
+      onAccountErasureConfirmation: vi.fn(
+        (handler: (value: { requestId: string; token: string }) => void) => {
+          confirmationHandler = handler;
+          return vi.fn();
+        }
+      ),
+      accountErasureRendererReady: rendererReady,
+    });
+
+    render(<SettingsOverlayHost />);
+    expect(useSettingsOverlayStore.getState().open).toBeNull();
+    expect(rendererReady).toHaveBeenCalledTimes(1);
+
+    act(() => confirmationHandler?.({ requestId: 'request-1', token: 'confirmation-token' }));
+
+    expect(useSettingsOverlayStore.getState().open).toBe('app');
+    expect(await screen.findByTestId('mock-settings-page')).toBeInTheDocument();
+    expect(screen.getByTestId('account-erasure-confirmation')).toHaveTextContent(
+      'request-1:confirmation-token'
+    );
   });
 
   it('renders ServerSettingsPage with serverId when open === "server"', async () => {
