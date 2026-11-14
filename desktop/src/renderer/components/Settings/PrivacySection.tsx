@@ -129,7 +129,7 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
 
   useEffect(() => {
     if (emailConfirmation === null) return;
-    const timeout = window.setTimeout(
+    const timeout = globalThis.setTimeout(
       () => {
         setEmailConfirmation(null);
         onClearAccountErasureConfirmation?.();
@@ -137,16 +137,16 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
       },
       Math.max(0, emailConfirmation.expiresAt - Date.now())
     );
-    return () => window.clearTimeout(timeout);
+    return () => globalThis.clearTimeout(timeout);
   }, [emailConfirmation, onClearAccountErasureConfirmation]);
 
   useEffect(() => {
     // Account changes, logout and renderer resets must not retain a bearer link.
-    /* eslint-disable @eslint-react/set-state-in-effect -- transient bearer-secret hygiene */
-    setEmailConfirmation(null);
-    setAcknowledgedServerIds(new Set());
-    /* eslint-enable @eslint-react/set-state-in-effect -- transient bearer-secret hygiene */
-    if (erasureUserIdRef.current !== userId) onClearAccountErasureConfirmation?.();
+    if (erasureUserIdRef.current !== userId) {
+      setEmailConfirmation(null);
+      setAcknowledgedServerIds(new Set());
+      onClearAccountErasureConfirmation?.();
+    }
     erasureUserIdRef.current = userId;
   }, [userId, onClearAccountErasureConfirmation]);
 
