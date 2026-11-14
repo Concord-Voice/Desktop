@@ -1,9 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
-- Desktop security: require fresh, purpose-bound step-up proof for WebAuthn-key removal, SSO unlinking, and enabling SSO trust; add a reviewed account-erasure flow with transient email confirmation links.
-
 All notable changes to the Concord Voice desktop app are recorded in this file.
 `desktop/package.json` holds the current desktop version. The server and the
 mobile app have their own versions and changelogs in the
@@ -33,7 +29,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-This release adds groundwork for verifying account keys and protects remembered sessions from being redirected to another server. Existing remembered sessions require signing in again.
+This release adds groundwork for verifying account keys, protects remembered sessions from being redirected to another server, and asks for fresh proof before sensitive account changes. Existing remembered sessions require signing in again.
 
 ### Added
 
@@ -60,6 +56,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Security
 
+- **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure also asks you to confirm any owned servers that have other members ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
