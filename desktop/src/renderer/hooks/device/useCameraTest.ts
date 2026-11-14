@@ -26,6 +26,20 @@ interface UseCameraTestReturn {
   stopTest: () => void;
 }
 
+interface LeaseAttempt {
+  /** The revocation epoch read right after the claim was granted (see release()). */
+  epoch: number;
+  released: boolean;
+  capturing: boolean;
+  cancelled: boolean;
+}
+
+function releaseAttempt(attempt: LeaseAttempt): void {
+  if (attempt.released) return;
+  attempt.released = true;
+  void release('device-test', attempt.epoch);
+}
+
 /**
  * Toggles a live camera preview for the Settings device panel. Acquires a
  * MediaStream from the currently-selected video input via getUserMedia and
@@ -43,15 +57,9 @@ export function useCameraTest(): UseCameraTestReturn {
   const streamRef = useRef<MediaStream | null>(null);
   const generationRef = useRef(0);
   const pendingRef = useRef(false);
-  const leaseHeldRef = useRef(false);
-  // The revocation epoch read just before the held claim was asked for (see release()).
-  const leaseEpochRef = useRef(0);
-
-  const releaseLease = useCallback(() => {
-    if (!leaseHeldRef.current) return;
-    leaseHeldRef.current = false;
-    void release('device-test', leaseEpochRef.current);
-  }, []);
+  // The live claim attempt. A stop while its getUserMedia is still pending cannot release yet:
+  // the late stream is stopped by the continuation, and only then may the claim go.
+  const attemptRef = useRef<LeaseAttempt | null>(null);
 
   const stopTest = useCallback(() => {
     generationRef.current++;
@@ -60,11 +68,16 @@ export function useCameraTest(): UseCameraTestReturn {
       for (const t of streamRef.current.getTracks()) t.stop();
       streamRef.current = null;
     }
-    releaseLease();
+    const attempt = attemptRef.current;
+    attemptRef.current = null;
+    if (attempt) {
+      attempt.cancelled = true;
+      if (!attempt.capturing) releaseAttempt(attempt);
+    }
     setStream(null);
     setIsTesting(false);
     setStoppedReason(null);
-  }, [releaseLease]);
+  }, []);
 
   const startTest = useCallback(
     async (generation: number) => {
@@ -85,8 +98,13 @@ export function useCameraTest(): UseCameraTestReturn {
         else setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
         return;
       }
-      leaseHeldRef.current = true;
-      leaseEpochRef.current = leaseEpoch;
+      const attempt: LeaseAttempt = {
+        epoch: leaseEpoch,
+        released: false,
+        capturing: true,
+        cancelled: false,
+      };
+      attemptRef.current = attempt;
       try {
         const deviceId = useVoiceStore.getState().videoDeviceId;
         const next = await trackDeviceCapture(
@@ -95,6 +113,7 @@ export function useCameraTest(): UseCameraTestReturn {
           })
         );
         if (generation !== generationRef.current) {
+          attempt.cancelled = true;
           for (const track of next.getTracks()) track.stop();
           return;
         }
@@ -102,8 +121,12 @@ export function useCameraTest(): UseCameraTestReturn {
         setStream(next);
         setIsTesting(true);
       } catch (err) {
-        if (generation !== generationRef.current) return;
-        releaseLease();
+        if (generation !== generationRef.current) {
+          attempt.cancelled = true;
+          return;
+        }
+        attemptRef.current = null;
+        releaseAttempt(attempt);
         const msg =
           err instanceof DOMException && err.name === 'NotAllowedError'
             ? 'Camera access denied'
@@ -111,10 +134,13 @@ export function useCameraTest(): UseCameraTestReturn {
         setError(msg);
         setIsTesting(false);
       } finally {
+        attempt.capturing = false;
+        // Cancelled while the capture was pending: its stream is stopped now, so release.
+        if (attempt.cancelled) releaseAttempt(attempt);
         if (generation === generationRef.current) pendingRef.current = false;
       }
     },
-    [releaseLease]
+    []
   );
 
   const toggleTest = useCallback(async () => {

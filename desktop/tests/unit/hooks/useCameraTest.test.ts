@@ -137,6 +137,34 @@ describe('useCameraTest', () => {
     expect(result.current.isTesting).toBe(false);
   });
 
+  it('#87 a cancelled camera test keeps its claim until the late stream is stopped (Codex P2)', async () => {
+    let resolveCapture!: (stream: MediaStream) => void;
+    const pending = new Promise<MediaStream>((resolve) => {
+      resolveCapture = resolve;
+    });
+    const order: string[] = [];
+    const stop = vi.fn(() => order.push('stop-track'));
+    vi.mocked(release).mockImplementation(async () => {
+      order.push('release');
+      return true;
+    });
+    mockGetUserMedia.mockReturnValueOnce(pending);
+    const { result } = renderHook(() => useCameraTest());
+    let start!: Promise<void>;
+    await act(async () => {
+      start = result.current.toggleTest();
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
+    });
+    act(() => result.current.stopTest());
+    expect(release, 'no release while the capture request is outstanding').not.toHaveBeenCalled();
+    await act(async () => {
+      resolveCapture({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+      await start;
+    });
+    expect(order).toEqual(['stop-track', 'release']);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it('#3635 stops a camera stream resolved after unmount', async () => {
     let resolveCapture!: (stream: MediaStream) => void;
     const pending = new Promise<MediaStream>((resolve) => {

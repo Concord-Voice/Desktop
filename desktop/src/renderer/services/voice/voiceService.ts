@@ -19,7 +19,13 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { advanceVoiceActionGeneration, getVoiceActionGeneration } from './voiceActionGeneration';
-import { acquire, captureLeaseMessage, CaptureLeaseError, release } from './captureLeaseClient';
+import {
+  acquire,
+  captureLeaseMessage,
+  CaptureLeaseError,
+  release,
+  trackDeviceCapture,
+} from './captureLeaseClient';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useUpdateStatusStore } from '../../stores/ui/updateStatusStore';
 import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
@@ -844,6 +850,18 @@ const VOICE_JOINS_PAUSED_ERROR =
   'Voice is briefly paused for maintenance. Try again in a few minutes.';
 
 type VoiceJoinOwner = { authGeneration: number; voiceActionGeneration: number };
+
+/**
+ * The call's own capture requests, registered with the lease client's settlement barrier: a
+ * moved revocation must not acknowledge while one is still pending, or the stale stream it
+ * eventually resolves with would outlive the lease. Same promise, same behaviour.
+ */
+const callCapture = {
+  getUserMedia: (constraints?: MediaStreamConstraints): Promise<MediaStream> =>
+    trackDeviceCapture(navigator.mediaDevices.getUserMedia(constraints)),
+  getDisplayMedia: (options?: DisplayMediaStreamOptions): Promise<MediaStream> =>
+    trackDeviceCapture(navigator.mediaDevices.getDisplayMedia(options)),
+};
 
 class VoiceService {
   /** Explicit joins and leaves supersede any queued outage rejoin. */
@@ -2527,7 +2545,7 @@ class VoiceService {
   ): Promise<MicGraph | null> {
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(
+      stream = await callCapture.getUserMedia(
         this.microphoneCaptureConstraints(adv, selectedDeviceId)
       );
     } catch (err) {
@@ -2766,7 +2784,7 @@ class VoiceService {
     allowFallback: boolean
   ): Promise<MediaStream | null> {
     try {
-      return await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+      return await callCapture.getUserMedia({ video: videoConstraints });
     } catch (err) {
       const shouldFallback =
         err instanceof DOMException && err.name === 'OverconstrainedError' && allowFallback;
@@ -2774,7 +2792,7 @@ class VoiceService {
       if (!this.isCurrentVideoProducer(token, 'camera', producer)) return null;
 
       console.warn('Camera overconstrained during track replace, falling back:', errorMessage(err));
-      return navigator.mediaDevices.getUserMedia({ video: true });
+      return callCapture.getUserMedia({ video: true });
     }
   }
 
@@ -5154,7 +5172,7 @@ class VoiceService {
         explicitDeviceId ?? useVoiceStore.getState().audioInputDeviceId ?? undefined;
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia(
+        stream = await callCapture.getUserMedia(
           this.microphoneCaptureConstraints(adv, selectedDeviceId)
         );
       } catch (err) {
@@ -5400,7 +5418,7 @@ class VoiceService {
     for (const constraints of fallbackChain) {
       if (!shouldContinue()) return null;
       try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
+        return await callCapture.getUserMedia(constraints);
       } catch (err) {
         if (
           err instanceof DOMException &&
@@ -5773,7 +5791,7 @@ class VoiceService {
     // loopback, so this is not the #2161 leak path.
     // `wantAudio`, not `true`: this path is OS-mediated consent rather than the #2161
     // whole-desktop loopback, but the user's in-app opt-out still governs what we ASK for.
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    const stream = await callCapture.getDisplayMedia({
       video: {
         width: { ideal: screenRes.w },
         height: { ideal: screenRes.h },
@@ -5832,7 +5850,7 @@ class VoiceService {
     // must be able to carry it. `wantAudio` alone would reintroduce #2161 on a window;
     // the prefix check alone would ignore an explicit opt-out.
     const videoOnly = () =>
-      navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+      callCapture.getUserMedia({ audio: false, video: videoConstraints });
 
     // `canCarryScreenAudio`, not a bare prefix test. The prefix half alone left the
     // platform gate in `produceScreen`'s caller-side computation, which
@@ -5867,7 +5885,7 @@ class VoiceService {
         return { stream: await videoOnly(), sourceId: chosenId, ownsScreenAudioOutcome: false };
       case 'system-loopback':
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
+          const stream = await callCapture.getUserMedia({
             audio: {
               mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: chosenId },
             } as unknown as MediaTrackConstraints,

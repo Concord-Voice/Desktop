@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 import type { IpcMainInvokeEvent } from 'electron';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/concord-test-userdata' } }));
@@ -28,6 +29,7 @@ import {
 import type { ConnectionRef, GenerationReason } from '../../../src/shared/connectionIdentity';
 import {
   HANDOFF_ACK_TIMEOUT_MS,
+  NAV_HOLD_MAX_REARMS,
   _holderForTesting,
   _resetCaptureLeaseForTesting,
   acquire,
@@ -75,7 +77,11 @@ function connect(origin: string): Conn {
   });
   if (!r.ok) throw new Error(r.reason);
   const id = nextWcId++;
-  const wc = { id, mainFrame: { frameTreeNodeId: id }, isDestroyed: () => false };
+  const wc = Object.assign(new EventEmitter(), {
+    id,
+    mainFrame: { frameTreeNodeId: id },
+    isDestroyed: () => false,
+  });
   const o = openConnection(r.service.serviceId, wc as never, null);
   if (!o.ok) throw new Error(o.reason);
   bindSender(wc as never, o.record.connectionId, 'primary');
@@ -189,6 +195,12 @@ afterEach(() => {
 /** #86 advances a navigating connection twice: at its start, then when it commits. */
 function navigateAway(c: Conn): void {
   advanceGeneration(c.record.connectionId, 'document');
+  commit(c);
+}
+
+/** The commit: `did-navigate` fires (the lease's prepended listener first), then #86 advances. */
+function commit(c: Conn): void {
+  (c.wc as EventEmitter).emit('did-navigate');
   advanceGeneration(c.record.connectionId, 'document');
 }
 
@@ -700,7 +712,7 @@ describe('navigation hold (Codex Security: a cancelled navigation keeps the old 
   it('the commit frees the lease at once and cancels the crash', async () => {
     const { a } = await heldByAWithBInFront();
     advanceGeneration(a.record.connectionId, 'document');
-    advanceGeneration(a.record.connectionId, 'document');
+    commit(a);
     expect(isFree()).toBe(true);
     vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
     expect(d.crashAndReload).not.toHaveBeenCalled();
@@ -730,8 +742,52 @@ describe('navigation hold: a cancelled navigation restores the lease (Gitar)', (
     vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
     advanceGeneration(a.record.connectionId, 'document');
     expect(isFree()).toBe(false); // held again, not ended by the stale flag
+    commit(a);
+    expect(isFree()).toBe(true);
+  });
+
+  it('a second navigation START (a cancelled or superseded one) does not free the lease (Codex P1)', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    advanceGeneration(a.record.connectionId, 'document'); // nav 2 starts, nothing committed
+    expect(isFree()).toBe(false);
+    void acq(b);
+    await flush();
+    expect(d.runCeremony).not.toHaveBeenCalled(); // still reserved: busy, no second capture
+    expect(holderRef()).toBeNull();
+    commit(a);
+    expect(isFree()).toBe(true);
+  });
+
+  it('a main-frame load failure other than ERR_ABORTED counts as the end of the document', async () => {
+    const { a } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    (a.wc as EventEmitter).emit('did-fail-load', {}, -3, '', '', true); // aborted: no commit
+    expect(isFree()).toBe(false);
+    (a.wc as EventEmitter).emit('did-fail-load', {}, -105, '', '', true);
     advanceGeneration(a.record.connectionId, 'document');
     expect(isFree()).toBe(true);
+  });
+
+  it('a document that stays loading is crashed after the bounded re-arms', async () => {
+    const { a } = await heldByAWithBInFront();
+    (a.wc as { isLoading?: () => boolean }).isLoading = () => true;
+    advanceGeneration(a.record.connectionId, 'document');
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * (NAV_HOLD_MAX_REARMS + 1));
+    expect(d.crashAndReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a device-test holder that went to the background during the hold is revoked on restore', async () => {
+    const a = connect(ORIGIN_A);
+    const b = connect(ORIGIN_B);
+    front(a);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document');
+    front(b); // R12 found no holder to revoke
+    clearSpies();
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([{ reason: 'backgrounded' }]);
+    expect(holderRef()).toBeNull();
   });
 
   it('a load still in progress at the deadline re-arms the timer instead of restoring', async () => {

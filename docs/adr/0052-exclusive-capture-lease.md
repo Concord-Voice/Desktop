@@ -84,10 +84,14 @@ user to move capture there. There is no simultaneous publication and no cloned c
     progress (`webContents.isLoading()`) re-arms the timer, and a navigation that was cancelled
     (nothing loading, the old document alive) restores the holder to the same document under its
     new generation, with its claims, tray owner and lease-aware mark, and republishes the state;
-    Known limit: the two advances share one reason, so a holder that cancels two navigations in a
-    row has its second START read as a commit. That needs a hostile holder, which can already keep
-    capturing through the accepted fake-ack gap; a distinct commit reason in #86's generation
-    contract would close it;
+    #86 emits the same `document` reason at a navigation's start and at its commit, so the hold
+    ends only on an actual commit: while held, the lease prepends its own `did-navigate` /
+    non-ERR_ABORTED `did-fail-load` listeners on the holder's webContents (they run before the
+    shell window's, so the flag is set when the commit's advance arrives), and an advance
+    without that flag is another START and changes nothing. A still-loading document re-arms the
+    timer at most `NAV_HOLD_MAX_REARMS` times, then the renderer is crashed. A restore applies
+    R12: a device-test-only holder that went to the background during the hold is revoked with
+    `backgrounded` instead of being reinstated;
   - `credential-start`, `credential-end` **re-key** it in place to the new generation: new
     `ConnectionRef`, new `bindOwner('capture-lease', …)`, claims and `legacy` kept,
     `setTrayOwner(newRef)`, no push, no audiocap call. The same re-key applies to `handoff.from`

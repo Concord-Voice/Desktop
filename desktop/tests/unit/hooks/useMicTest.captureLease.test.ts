@@ -201,6 +201,42 @@ describe('useMicTest capture lease (#87)', () => {
     expect(result.current.isTesting).toBe(true);
   });
 
+  it('a Stop while getUserMedia is pending keeps the claim until the late stream is stopped (Codex P2)', async () => {
+    let resolveCapture: (s: unknown) => void = () => undefined;
+    const order: string[] = [];
+    getUserMedia.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCapture = resolve;
+        })
+    );
+    vi.mocked(release).mockImplementation(async () => {
+      order.push('release');
+      return true;
+    });
+    const { result } = renderHook(() => useMicTest());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.startTest();
+    });
+    await vi.waitFor(() => expect(getUserMedia).toHaveBeenCalled());
+    act(() => result.current.stopTest());
+    expect(release, 'no release while the capture request is outstanding').not.toHaveBeenCalled();
+    await act(async () => {
+      resolveCapture({
+        getTracks: () => [
+          {
+            stop: () => order.push('stop-track'),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+          },
+        ],
+      });
+      await pending;
+    });
+    expect(order).toEqual(['stop-track', 'release']);
+  });
+
   it('a grant that lands after Stop is released without capturing', async () => {
     let resolveAcquire: (v: { status: 'granted' }) => void = () => undefined;
     vi.mocked(acquire).mockImplementation(

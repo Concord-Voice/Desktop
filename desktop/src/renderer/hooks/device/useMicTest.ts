@@ -144,6 +144,27 @@ function shouldRestartForDevices(state: MicTestVoiceState, prev: MicTestVoiceSta
   );
 }
 
+interface LeaseAttempt {
+  /** The revocation epoch read right after the claim was granted (see release()). */
+  epoch: number;
+  released: boolean;
+  capturing: boolean;
+  cancelled: boolean;
+}
+
+function releaseAttempt(attempt: LeaseAttempt): void {
+  if (attempt.released) return;
+  attempt.released = true;
+  void release('device-test', attempt.epoch);
+}
+
+/** The pending capture settled (its stream, if any, is handled): a cancelled claim goes now. */
+function settleCapture(attempt: LeaseAttempt | null): void {
+  if (!attempt) return;
+  attempt.capturing = false;
+  if (attempt.cancelled) releaseAttempt(attempt);
+}
+
 /**
  * Microphone test hook — captures mic, runs it through the same processing chain
  * as a real voice call (browser processing, one microphone level, peak protection,
@@ -181,10 +202,10 @@ export function useMicTest(): UseMicTestReturn {
   const pendingRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startTestRef = useRef<() => Promise<void>>(async () => {});
-  // True while this hook holds the `device-test` capture claim (#87).
-  const leaseHeldRef = useRef(false);
-  // The revocation epoch read just before the held claim was asked for (see release()).
-  const leaseEpochRef = useRef(0);
+  // The live `device-test` claim attempt (#87). A stop while its getUserMedia is pending
+  // cannot release yet: the late stream is stopped by the continuation, and only then may the
+  // claim go (otherwise another connection could capture while this request is outstanding).
+  const attemptRef = useRef<LeaseAttempt | null>(null);
 
   const releaseCallTestSuspension = useCallback(() => {
     if (!callSuspensionRef.current) return;
@@ -243,9 +264,11 @@ export function useMicTest(): UseMicTestReturn {
         stopStreamTracks(micStreamRef.current);
         micStreamRef.current = null;
       }
-      if (leaseHeldRef.current) {
-        leaseHeldRef.current = false;
-        void release('device-test', leaseEpochRef.current);
+      const attempt = attemptRef.current;
+      attemptRef.current = null;
+      if (attempt) {
+        attempt.cancelled = true;
+        if (!attempt.capturing) releaseAttempt(attempt);
       }
 
       setIsTesting(false);
@@ -453,15 +476,25 @@ export function useMicTest(): UseMicTestReturn {
       useProcessing: boolean,
       generation: number
     ): Promise<boolean> => {
-      const stream = await trackDeviceCapture(
-        navigator.mediaDevices.getUserMedia({
-          audio: buildMicConstraints(adv, voiceState, useProcessing),
-        })
-      );
+      const attempt = attemptRef.current;
+      if (attempt) attempt.capturing = true;
+      let stream: MediaStream;
+      try {
+        stream = await trackDeviceCapture(
+          navigator.mediaDevices.getUserMedia({
+            audio: buildMicConstraints(adv, voiceState, useProcessing),
+          })
+        );
+      } catch (err) {
+        settleCapture(attempt);
+        throw err;
+      }
       if (generation !== generationRef.current) {
         stopStreamTracks(stream);
+        settleCapture(attempt);
         return false;
       }
+      settleCapture(attempt);
       micStreamRef.current = stream;
       observeCaptureLoss(stream, generation);
 
@@ -599,8 +632,12 @@ export function useMicTest(): UseMicTestReturn {
             setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
           return null;
         }
-        leaseHeldRef.current = true;
-        leaseEpochRef.current = leaseEpoch;
+        attemptRef.current = {
+          epoch: leaseEpoch,
+          released: false,
+          capturing: false,
+          cancelled: false,
+        };
         // JIT permission check (#197): request mic access on macOS before getUserMedia.
         if (!(await ensureMicPermission(generation))) {
           if (generation === generationRef.current) {

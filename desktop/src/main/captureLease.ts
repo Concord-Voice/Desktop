@@ -52,6 +52,8 @@ import type { ConnectionSender } from './ipc/connectionSender';
 
 /** Q4: how long a moved holder has to ack before its renderer is crashed. */
 export const HANDOFF_ACK_TIMEOUT_MS = 5000;
+/** A navigation hold waits out a slow load this many extra deadlines, then crashes. */
+export const NAV_HOLD_MAX_REARMS = 6;
 
 export interface CaptureLeaseDeps {
   foreground(): ConnectionRecord | null;
@@ -92,6 +94,8 @@ interface Handoff {
   timer: ReturnType<typeof setTimeout> | null;
   /** Set only for a navigation hold: the holder to restore if the navigation never commits. */
   navHeld?: HolderEntry;
+  /** Navigation hold only: how often a still-loading document has re-armed the deadline. */
+  rearms?: number;
 }
 
 interface Ceremony {
@@ -115,6 +119,17 @@ const leaseAware = new Map<ConnectionId, Generation>();
  * a holder holds the lease behind the ack-or-crash timer, and only the second ends it.
  */
 const navigating = new Set<ConnectionId>();
+/** A held connection whose navigation has actually committed (or failed for real). */
+const committed = new Set<ConnectionId>();
+const navWatch = new Map<ConnectionId, () => void>();
+
+/** A holder's navigation is over (committed, restored, or its renderer is gone). */
+function clearNav(id: ConnectionId): boolean {
+  committed.delete(id);
+  navWatch.get(id)?.();
+  navWatch.delete(id);
+  return navigating.delete(id);
+}
 
 const granted = (): CaptureAcquireResult => ({ status: 'granted' });
 const declined = (): CaptureAcquireResult => ({ status: 'declined' });
@@ -220,7 +235,7 @@ function supersedeGrantee(h: Handoff): void {
 function completeHandoff(d: CaptureLeaseDeps, h: Handoff, excludeId: ConnectionId | null): void {
   if (handoff !== h) return;
   handoff = null;
-  navigating.delete(h.from.connectionId);
+  clearNav(h.from.connectionId);
   if (h.timer !== null) clearTimeout(h.timer);
   h.timer = null;
   const to = h.to;
@@ -252,12 +267,19 @@ function onHandoffTimeout(h: Handoff): void {
     // in progress may yet commit (which ends the hold); one that is not was cancelled, and the
     // old document is alive and well, so the lease goes back to it instead of a crash.
     const contents = record.webContents;
+    const rearms = h.rearms ?? 0;
     if (!contents.isDestroyed() && contents.isLoading?.() === true) {
-      h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
+      if (rearms < NAV_HOLD_MAX_REARMS) {
+        // Bounded: a document that stays "loading" forever must not hold capture forever.
+        h.rearms = rearms + 1;
+        h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
+        return;
+      }
+      // Out of patience: fall through to the crash below.
+    } else {
+      restoreAfterCancelledNavigation(d, h.navHeld, record);
       return;
     }
-    restoreAfterCancelledNavigation(d, h.navHeld, record);
-    return;
   }
   // Settled by the `renderer-gone` (or `document`) advance this causes, not here.
   const crash = d.crashAndReload ?? crashAndReloadRenderer;
@@ -490,6 +512,29 @@ function holdThroughNavigation(d: CaptureLeaseDeps): void {
   h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
 }
 
+/**
+ * #86 emits the same `document` reason when a navigation STARTS and when it commits, and a
+ * second start (a cancelled or superseded navigation) is indistinguishable by reason alone.
+ * The hold therefore ends only on an actual commit: these listeners run BEFORE the shell
+ * window's own (prepended), so the flag is set by the time the commit's advance arrives.
+ */
+function watchForCommit(d: CaptureLeaseDeps, id: ConnectionId): () => void {
+  const contents = liveRecord(d, id)?.webContents;
+  if (!contents || typeof contents.prependListener !== 'function') return () => undefined;
+  const onCommit = (): void => {
+    committed.add(id);
+  };
+  const onFail = (_e: unknown, errorCode: number, _d: string, _u: string, isMain: boolean): void => {
+    if (isMain && errorCode !== -3) committed.add(id);
+  };
+  contents.prependListener('did-navigate', onCommit);
+  contents.prependListener('did-fail-load', onFail);
+  return () => {
+    contents.removeListener('did-navigate', onCommit);
+    contents.removeListener('did-fail-load', onFail);
+  };
+}
+
 /** The navigation was cancelled: the same document keeps its tracks, under its new generation. */
 function restoreAfterCancelledNavigation(
   d: CaptureLeaseDeps,
@@ -497,19 +542,25 @@ function restoreAfterCancelledNavigation(
   record: ConnectionRecord
 ): void {
   handoff = null;
-  navigating.delete(record.connectionId);
+  clearNav(record.connectionId);
   const next = freezeRef(refOf(record));
   entry.ref = next;
   entry.binding = bindOwner('capture-lease', next);
   holder = entry;
   leaseAware.set(record.connectionId, next.generation);
   effect(() => d.setTrayOwner(next));
+  // The connection may have gone to the background during the hold, when `onForeground` had
+  // no holder to revoke: a device-test claim does not survive that (R12), so apply it now.
+  if (!isForeground(d, next) && entry.claims.size === 1 && entry.claims.has('device-test')) {
+    beginHandoff(d, entry, null, 'backgrounded', null);
+    return;
+  }
   publish(d, null, null);
 }
 
 /** The second `document` advance (or a first one for a connection that held nothing). */
 function endNavigation(d: CaptureLeaseDeps, id: ConnectionId): void {
-  const wasHolding = navigating.delete(id);
+  const wasHolding = clearNav(id);
   endConnection(d, id, false);
   // The held lease ended with no `publish` naming this connection, so tell its new document
   // (unless the foreground push above already did).
@@ -531,14 +582,17 @@ function onAdvance(
     case 'document':
       if (holdsCapture(id) && !navigating.has(id)) {
         navigating.add(id);
+        navWatch.set(id, watchForCommit(d, id));
         holdThroughNavigation(d);
         return;
       }
+      // Held: only a real commit ends it. Another start leaves the old document in place.
+      if (navigating.has(id) && !committed.has(id)) return;
       endNavigation(d, id);
       return;
     case 'renderer-gone':
     case 'disposed':
-      navigating.delete(id);
+      clearNav(id);
       endConnection(d, id, reason === 'disposed');
       return;
     case 'credential-start':
@@ -685,5 +739,8 @@ export function _resetCaptureLeaseForTesting(): void {
   ceremony = null;
   quitShutdown = false;
   leaseAware.clear();
+  for (const stop of navWatch.values()) stop();
+  navWatch.clear();
   navigating.clear();
+  committed.clear();
 }
