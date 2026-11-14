@@ -162,13 +162,21 @@ function forget(connectionId: ConnectionId): void {
 function onGeneration(
   connectionId: ConnectionId,
   _from: Generation,
-  _to: Generation,
+  to: Generation,
   reason: GenerationReason
 ): void {
-  // A new document or a lost renderer ends the session the snapshot described, so it goes
-  // now rather than waiting for the matching webContents hook (#87 RC-2).
-  if (reason === 'disposed' || reason === 'document' || reason === 'renderer-gone') {
-    forget(connectionId);
+  // A lost renderer ends the session the snapshot described, so it goes now rather than
+  // waiting for the matching webContents hook (#87 RC-2).
+  if (reason === 'disposed' || reason === 'renderer-gone') forget(connectionId);
+  // `document` advances at a navigation's START, which main may still cancel, leaving the
+  // same document and call alive (#86 shellWindow). The snapshot therefore survives under
+  // the new generation; the commit or real load failure forgets it through
+  // `attachTrayResetHooks`, which runs before the generation hooks on the same event.
+  // Forgetting here left the tray neutral after a cancelled navigation, because the
+  // renderer sends only on change and never resent the unchanged snapshot (Codex P2).
+  if (reason === 'document') {
+    const entry = kept.get(connectionId);
+    if (entry) kept.set(connectionId, { snapshot: entry.snapshot, generation: to });
   }
   if (reason === 'disposed') buckets.delete(connectionId);
   // An owner whose connection advanced is stale from here, so it shows nobody.

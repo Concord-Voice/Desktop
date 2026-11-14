@@ -23,7 +23,9 @@ import {
   acquire,
   captureLeaseMessage,
   CaptureLeaseError,
+  hasPendingDeviceCaptures,
   release,
+  settleDeviceCaptures,
   trackDeviceCapture,
 } from './captureLeaseClient';
 import { useUserStore } from '../../stores/auth/userStore';
@@ -4211,6 +4213,7 @@ class VoiceService {
     const result = await acquire('voice-join');
     const store = useVoiceStore.getState();
     if (result.status === 'granted') {
+      this.voiceLeaseClaim += 1;
       store.setCaptureMovedNotice(false);
       return true;
     }
@@ -4518,7 +4521,7 @@ class VoiceService {
     // The failed join's media is gone, so its capture lease goes too (#87 §3.8). A cleanup
     // that threw may have skipped the track teardown, so then the lease stays held until the
     // document ends; releasing would let another connection capture beside live tracks.
-    if (mediaTornDown) void release('voice-join');
+    if (mediaTornDown) this.releaseVoiceLease();
     // store.setActiveChannel runs early in joinChannel (before mic / media-
     // plane handshake), so a late-stage failure leaves activeChannelId
     // pointing at the channel we never actually joined. Reset clears that
@@ -4538,6 +4541,35 @@ class VoiceService {
     // interrupt does not depend on that preservation to survive this path.
     const cooldown = this.mediaPolicyCooldownFrom(err);
     if (cooldown) store.setMediaPolicyInterrupt(cooldown);
+  }
+
+  /**
+   * Counts the grants of the `voice-join` claim. A release deferred behind a pending capture
+   * (below) belongs to the claim it was made for: if a newer join took the lease meanwhile,
+   * releasing would end that call's claim.
+   */
+  private voiceLeaseClaim = 0;
+
+  /**
+   * Gives the `voice-join` claim back (#87 §3.8), but not while a call-owned capture request
+   * is still unresolved: its late stream is stopped only when it settles, so freeing the lease
+   * first would let another connection capture beside it, past the revocation barrier. A
+   * capture that never settles keeps the claim until the document ends, which is the safe side.
+   */
+  private releaseVoiceLease(): void {
+    if (!hasPendingDeviceCaptures()) {
+      void release('voice-join');
+      return;
+    }
+    const claim = this.voiceLeaseClaim;
+    void (async () => {
+      while (claim === this.voiceLeaseClaim) {
+        if (await settleDeviceCaptures(1500)) {
+          if (claim === this.voiceLeaseClaim) await release('voice-join');
+          return;
+        }
+      }
+    })();
   }
 
   /** Leave the current voice channel */
@@ -4564,7 +4596,7 @@ class VoiceService {
     await this.cleanup(opts?.internalRebuild === true);
     // #87 §3.8: the tracks are stopped, so the lease can go. A rebuild re-joins at once
     // and keeps it. Fire-and-forget: release never rejects.
-    if (!opts?.internalRebuild && !opts?.keepCaptureLease) void release('voice-join');
+    if (!opts?.internalRebuild && !opts?.keepCaptureLease) this.releaseVoiceLease();
 
     notificationSoundService.stopAllLoops();
     // Silent during the legacy-fallback rebuild — the user is not leaving.
@@ -4626,7 +4658,7 @@ class VoiceService {
     useVoiceStore.getState().clearAvailableScreenShares();
     useVoiceStore.getState().reset();
 
-    if (!opts?.keepCaptureLease) void release('voice-join');
+    if (!opts?.keepCaptureLease) this.releaseVoiceLease();
   }
 
   /**

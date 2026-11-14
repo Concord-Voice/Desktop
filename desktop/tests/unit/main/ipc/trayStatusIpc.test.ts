@@ -499,6 +499,26 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
     expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
   });
 
+  it('a navigation START keeps the snapshot (cancelled navigations); the commit forgets it (Codex P2)', async () => {
+    const { handler, A } = boot();
+    await handler(ev(A), SNAPSHOT);
+    const fire = hooksOn(A.wc, A.record.connectionId);
+    mockApplyTraySnapshot.mockClear();
+    // Start of a navigation that main cancels: the same document and call stay alive.
+    advanceGeneration(A.record.connectionId, 'document');
+    expect(traySnapshotFor(A.record.connectionId)).toEqual(SNAPSHOT);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    // The surviving document owns the tray again once the lease restores it, and its kept
+    // snapshot matches the new generation, so it is shown without a resend.
+    setTrayOwner(refOf(A.record));
+    expect(displayedTrayConnection()).toBe(A.record.connectionId);
+    expect(trayActionTarget()).toBe(A.wc);
+    // A real commit: the tray hook (which runs before the generation hooks) forgets it.
+    fire('did-navigate');
+    expect(traySnapshotFor(A.record.connectionId)).toBeNull();
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+  });
+
   it("a reset hook resets only its own connection: B's did-navigate leaves displayed A untouched", async () => {
     const { handler, A, B } = boot();
     await handler(ev(A), SNAPSHOT);
@@ -535,7 +555,7 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
     }
   );
 
-  it.each(['document', 'renderer-gone', 'disposed'] as const)(
+  it.each(['renderer-gone', 'disposed'] as const)(
     'a %s advance drops that connection’s snapshot and neutralises it while displayed',
     async (reason) => {
       const { handler, A, B } = boot();
@@ -678,6 +698,11 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
       const reg = await import('../../../../src/main/connectionRegistry');
       // B sends at generation N while A is foreground: kept, not shown.
       await handler(ev(B), IDLE);
+      // A real replacement: the commit's tray hook runs before the generation hooks. (A
+      // navigation START alone keeps the snapshot for a cancelled navigation: see the
+      // 'navigation START' case.)
+      const fireB = hooksOn(B.wc, B.record.connectionId);
+      fireB('did-navigate');
       reg.advanceGeneration(B.record.connectionId, 'document');
       const live = reg.recordFor(B.record.connectionId)!;
       expect(live.generation).not.toBe(B.ref.generation);

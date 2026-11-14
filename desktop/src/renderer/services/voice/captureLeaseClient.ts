@@ -228,6 +228,11 @@ export async function settleDeviceCaptures(maxMs: number): Promise<boolean> {
   return settled;
 }
 
+/** True while any tracked capture request is still unresolved. */
+export function hasPendingDeviceCaptures(): boolean {
+  return pendingDeviceCaptures.size > 0;
+}
+
 /** Never rejects, so cleanup paths can fire it with `void`. */
 export async function release(intent: CaptureIntent, epoch?: number): Promise<boolean> {
   const invoke = bridge()?.release;
