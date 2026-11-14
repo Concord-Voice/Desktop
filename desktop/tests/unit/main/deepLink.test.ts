@@ -38,8 +38,12 @@ describe('normalizeAccountErasureDeepLink', () => {
   const token = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO12';
 
   it('accepts only the canonical erasure confirmation shape', () => {
-    expect(normalizeAccountErasureDeepLink(`concord://account-erasure/confirm/${requestId}/${token}`)).toEqual({
-      ok: true, requestId, token,
+    expect(
+      normalizeAccountErasureDeepLink(`concord://account-erasure/confirm/${requestId}/${token}`)
+    ).toEqual({
+      ok: true,
+      requestId,
+      token,
     });
   });
 

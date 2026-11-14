@@ -72,7 +72,9 @@ describe('eraseAccount', () => {
       )
     );
     await expect(eraseAccount(request)).resolves.toEqual({
-      kind: 'email_confirmation_required', requestId: 'request-id', expiresIn: 900,
+      kind: 'email_confirmation_required',
+      requestId: 'request-id',
+      expiresIn: 900,
     });
   });
 
@@ -80,13 +82,18 @@ describe('eraseAccount', () => {
     server.use(
       http.post(`${API_BASE}/api/v1/privacy/erase-account`, () =>
         HttpResponse.json(
-          { error_code: 'owned_server_confirmation_stale', required_owned_server_ids: ['server-id'] },
+          {
+            error_code: 'owned_server_confirmation_stale',
+            required_owned_server_ids: ['server-id'],
+          },
           { status: 409 }
         )
       )
     );
     await expect(eraseAccount(request)).rejects.toMatchObject({
-      status: 409, code: 'owned_server_confirmation_stale', requiredOwnedServerIds: ['server-id'],
+      status: 409,
+      code: 'owned_server_confirmation_stale',
+      requiredOwnedServerIds: ['server-id'],
     });
   });
 });

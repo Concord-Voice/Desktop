@@ -1138,7 +1138,10 @@ function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, sour
   }
 }
 
-function handleProtocolDeepLinksFromArgv(argv: readonly string[] | undefined, source: string): void {
+function handleProtocolDeepLinksFromArgv(
+  argv: readonly string[] | undefined,
+  source: string
+): void {
   if (!Array.isArray(argv)) return;
   for (const arg of argv) {
     if (arg.startsWith('concord://account-erasure/')) {

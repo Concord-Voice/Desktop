@@ -1,13 +1,13 @@
 import React, { useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import StepUpCredentials, { stepUpActivation } from '../Auth/StepUpCredentials';
-import { useStepUpFactor, type StepUpSubmit, type StepUpSubmitOutcome } from '../../hooks/auth/useStepUpFactor';
-import { apiRequestContextIsCurrent } from '../../services/system/requestContext';
 import {
-  eraseAccount,
-  PrivacyApiError,
-  type AccountErasureResult,
-} from '../../api/privacy';
+  useStepUpFactor,
+  type StepUpSubmit,
+  type StepUpSubmitOutcome,
+} from '../../hooks/auth/useStepUpFactor';
+import { apiRequestContextIsCurrent } from '../../services/system/requestContext';
+import { eraseAccount, PrivacyApiError, type AccountErasureResult } from '../../api/privacy';
 
 interface AccountErasureStepUpDialogProps {
   confirmedOwnedServerIds: string[];
@@ -92,7 +92,9 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
         focusOnReady
       />
       <div className="purge-modal__actions">
-        <button type="button" className="purge-modal__cancel" onClick={onClose}>Cancel</button>
+        <button type="button" className="purge-modal__cancel" onClick={onClose}>
+          Cancel
+        </button>
         <button
           ref={primaryRef}
           type="button"

@@ -297,7 +297,9 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Account-erasure confirmations carry a bearer secret. This dedicated,
   // field-copied event is intentionally separate from invite/friend routing.
-  onAccountErasureConfirmation: (callback: (data: { requestId: string; token: string }) => void) => {
+  onAccountErasureConfirmation: (
+    callback: (data: { requestId: string; token: string }) => void
+  ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       data: { requestId: string; token: string }

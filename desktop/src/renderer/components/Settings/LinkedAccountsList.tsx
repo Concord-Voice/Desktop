@@ -115,7 +115,9 @@ const LinkedAccountsList: React.FC = () => {
                 <button
                   type="button"
                   className="linked-accounts__unlink-btn"
-                  onClick={() => setStepUpAction({ kind: 'ssoUnlink', provider: identity.provider })}
+                  onClick={() =>
+                    setStepUpAction({ kind: 'ssoUnlink', provider: identity.provider })
+                  }
                   disabled={stepUpAction?.kind === 'ssoUnlink'}
                 >
                   {stepUpAction?.kind === 'ssoUnlink' ? 'Unlinking...' : 'Unlink'}

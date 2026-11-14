@@ -89,7 +89,7 @@ export async function eraseAccount(
     }
   }
   const body: unknown = await response.json().catch(() => null);
-  const record = typeof body === 'object' && body !== null ? body as Record<string, unknown> : {};
+  const record = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
   const errorCode = typeof record.error_code === 'string' ? record.error_code : 'unknown';
   const code: PrivacyApiErrorCode =
     errorCode === 'owned_server_confirmation_stale' ||

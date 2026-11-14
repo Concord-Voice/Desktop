@@ -196,9 +196,10 @@ describe('LinkedAccountsList', () => {
 
     expect(await screen.findByRole('dialog', { name: 'Unlink SSO account' })).toBeInTheDocument();
     expect(
-      mockFetch.mock.calls.some(([url, init]) =>
-        String(url).includes('/api/v1/users/me/sso-identities/google') &&
-        (init as RequestInit | undefined)?.method === 'DELETE'
+      mockFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes('/api/v1/users/me/sso-identities/google') &&
+          (init as RequestInit | undefined)?.method === 'DELETE'
       )
     ).toBe(false);
   });
