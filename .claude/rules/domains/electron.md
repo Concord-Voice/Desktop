@@ -1259,7 +1259,12 @@ gets no paid controls; there is no OS-browser fallback (spec R41). Capability, n
   `load_failed` or `busy`. The handler (`src/main/ipc/billing.ts`) checks the sender first (since
   v34, #86: `billing:open` is `saas-only`, so only the `saas` connection's bound primary main
   frame is admitted, by `requireSaasPrimary`, and a refused sender rejects the invoke; through
-  v33 it was `requireTrustedSender`), then `validateBillingUrl`: https, no userinfo, no port, and a host
+  v33 it was `requireTrustedSender`), then that the saas connection is the FOREGROUND one (#86
+  C10: the sheet is a modal child over the shared shell, so a hidden saas view behind a
+  self-hosted connection must not raise payment UI over the one on screen; the check runs in the
+  admission tick, `openBillingWindow` builds its window synchronously, and no `await` may come
+  between them; a refusal rejects with the same `untrusted sender` error, and a PiP stays
+  refused), then `validateBillingUrl`: https, no userinfo, no port, and a host
   that is EXACTLY the account's Stripe custom domain `pay.concordvoice.com`, which serves both
   Checkout and the Portal. The `stripe.com` hosts are refused (Mark, 2026-10-23), so removing the
   custom domain in Stripe needs a launcher change and a shell release first. There is no path

@@ -14,6 +14,7 @@ vi.mock('@/main/billing/billingWindow', async (importActual) => {
 
 import { ipcMain } from 'electron';
 import { openBillingWindow } from '@/main/billing/billingWindow';
+import { bindSender, setForeground } from '@/main/connectionRegistry';
 import { registerBillingIpc } from '@/main/ipc/billing';
 import { bindTestSender, type BoundSenderFixture } from './boundSenderFixture';
 
@@ -59,6 +60,54 @@ describe('billing:open IPC handler', () => {
     const selfHosted = bindTestSender({ origin: 'https://voice.example', id: 9, reset: false });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(handler(selfHosted.event(), { kind: 'checkout', url: CHECKOUT })).rejects.toThrow(
+      'billing:open rejected: untrusted sender'
+    );
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
+  // #86 C10: the sheet is a modal child over the shared shell, so a hidden saas view must
+  // not raise trusted-looking payment UI over the connection the user is looking at.
+  it.each([
+    ['a self-hosted connection is in front', 'self-hosted'],
+    ['no connection is in front', 'none'],
+  ])('refuses the saas primary while %s, and opens nothing', async (_label, front) => {
+    if (front === 'self-hosted') {
+      bindTestSender({ origin: 'https://voice.example', id: 9, reset: false });
+    } else {
+      setForeground(null);
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(handler(trusted(), { kind: 'checkout', url: CHECKOUT })).rejects.toThrow(
+      'billing:open rejected: untrusted sender'
+    );
+    expect(mockOpen).not.toHaveBeenCalled();
+    expect(warn.mock.calls.flat().join(' ')).not.toContain('pay.concordvoice.com');
+    warn.mockRestore();
+  });
+
+  it('opens for the saas primary once it is back in front of a self-hosted connection', async () => {
+    bindTestSender({ origin: 'https://voice.example', id: 9, reset: false });
+    setForeground(fx.connectionId);
+    await expect(handler(trusted(), { kind: 'checkout', url: CHECKOUT })).resolves.toEqual({
+      result: 'success',
+    });
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses the saas connection's PiP even while saas is in front", async () => {
+    const pipWc = { id: 11, mainFrame: { frameTreeNodeId: 11 } } as never;
+    bindSender(pipWc, fx.connectionId, 'pip');
+    const pipEvent = {
+      sender: pipWc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: 11,
+        detached: false,
+      },
+    } as never;
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(handler(pipEvent, { kind: 'checkout', url: CHECKOUT })).rejects.toThrow(
       'billing:open rejected: untrusted sender'
     );
     expect(mockOpen).not.toHaveBeenCalled();

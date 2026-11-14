@@ -140,5 +140,8 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'invite:renderer-ready': 'saas-only',
   'spa:reloadLatest': 'saas-only',
   'spa:checkForUpdate': 'saas-only',
+  // #86 (C10, accepted security finding): the billing sheet is a modal child over the
+  // shared shell, so ipc/billing.ts also narrows this row to the FOREGROUND connection; a
+  // hidden saas view behind a self-hosted one is refused. A PiP stays refused (primary only).
   'billing:open': 'saas-only',
 });

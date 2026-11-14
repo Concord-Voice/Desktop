@@ -561,7 +561,8 @@ Each row is a security decision taken in review. The table of record is
 | `permission:changed` (push) | sent to the requesting connection only | a status change is not broadcast to other connections |
 | `window:getVersionString` | `app-global-read` | primaries only |
 | `app:getVersion` | `pip-scoped` | PiP documents are admitted as well as primaries |
-| `billing:open`, `spa:reloadLatest`, `spa:checkForUpdate`, `deeplink:*`, `invite:renderer-ready` | `saas-only` | first-party surfaces |
+| `spa:reloadLatest`, `spa:checkForUpdate`, `deeplink:*`, `invite:renderer-ready` | `saas-only` | first-party surfaces; none of them opens a window over the shell |
+| `billing:open` | `saas-only`, narrowed in the handler to the foreground connection; a refusal keeps the existing `untrusted sender` rejection | a first-party surface, and the billing sheet is a modal child over the shared shell window, so a hidden saas view behind a self-hosted one must not raise trusted-looking payment UI over the connection on screen (C10); a PiP stays refused (primary only) |
 | `connection:create`, `connection:activate` | `app-global-mutate` | only the foreground may open or switch a connection |
 
 ## Known gaps on this branch
