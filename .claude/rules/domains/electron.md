@@ -1179,6 +1179,23 @@ shared value followed whichever connection wrote last, so [X] could quit the app
 visible connection said close to tray. Each renderer pushes its stored value on rehydrate,
 which also closes the gap where a restart used the default until the setting was touched.
 
+**An OS deep link shows the saas connection (#86 C8).** Deep links are delivered to the saas
+primary only (§3.7), and `layoutViews` hides every view but the foreground, so a link opened
+while a self-hosted connection was in front reached a hidden view and seemed to do nothing.
+`handleInviteDeepLink` (`open-url`) and `handleInviteDeepLinksFromArgv` (`second-instance`
+and the startup `process.argv`) therefore call `showSaasForDeepLink` (`shellWindow.ts`) after
+`queueDeepLink`, only for a link that parsed: the saas view becomes the foreground through
+`activateConnection`, so the switch is recorded in `connections.json` like any other.
+`open-url` focuses the window only for such a link; `second-instance` focuses it for any
+relaunch, as before. Until the current window's `restorePersistedConnections` has chosen its
+first view, the request is also kept for it, so a cold-start link (or one that arrived with no
+window) makes restore show and record saas instead of the persisted foreground; restore
+consumes it, and a later `activateConnection` of another connection retires it. With no live
+saas connection nothing is shown and the link waits in the queue as before. Shell state
+holds only that boolean, never a code, so `shellWindow.ts` imports no deep-link state. A
+self-hosted view still never receives a link. Pinned by `tests/unit/main/shellWindow.test.ts`
+(`showSaasForDeepLink (#86 C8)`) and `tests/unit/main/main.test.ts`.
+
 **SSO sign-in starts are foreground-only and never supersede another connection (#86 RT1/RT2).**
 `sso:appleSignIn` and `sso:googleSignIn` are `app-global-mutate`: a start opens the system
 browser and redeems with the embedded client secret, so a hidden view must not reach it. The

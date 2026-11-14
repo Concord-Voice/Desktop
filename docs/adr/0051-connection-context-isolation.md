@@ -80,6 +80,13 @@ Main is the trusted shell and the only authority. `desktop/src/main/shellWindow.
 - **Foreground.** Exactly one view is the foreground. `layoutViews` gives it the content area
   and calls `setVisible(false)` on every other view, after every geometry and foreground
   change.
+- **Deep links show the saas view (C8).** OS deep links (`concord://invite/…`,
+  `concord://friend/…`) are delivered to the saas primary only, so a valid one also makes the
+  saas connection the foreground through `activateConnection` (recorded in `connections.json`)
+  and `open-url` focuses the window. A rejected or empty link changes nothing. A link that
+  arrives before the window's startup restore has chosen a view makes that restore show saas
+  instead of the persisted foreground, unless another connection is activated first. Without
+  this, a link opened in front of a self-hosted connection opened its modal in a hidden view.
 - **PiP windows** are `BrowserWindow`s built on their opener's session, never on a session the
   caller names. Only the foreground connection's bound primary may open one (`pip:open` is `app-global-mutate`), so a hidden view cannot raise an always-on-top window.
   Each connection has its own PiP id namespace and open budget (RT4, RT5 below).

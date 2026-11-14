@@ -7452,6 +7452,60 @@ describe('#86 connection-isolated main semantics', () => {
   });
 
   describe('deep links are delivered to the saas connection only', () => {
+    // #86 C8: delivery goes to the saas view alone, so a valid OS link must also put
+    // that view on screen and bring the window forward; a rejected link changes nothing.
+    // The gate is reset on both sides: a delivered link holds the next one for
+    // DEEP_LINK_EMIT_WINDOW_MS, which would starve the tests after this one.
+    it.each(['open-url', 'second-instance'] as const)(
+      'a valid %s link brings the saas view in front of a self-hosted foreground; a rejected one changes nothing',
+      async (entry) => {
+        const { ipcMain } = await import('electron');
+        const readyCall = (ipcMain.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'invite:renderer-ready'
+        );
+        expect(readyCall, "ipcMain.on('invite:renderer-ready') was never registered").toBeDefined();
+        const reset = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const S = openFakeSelfHosted(`https://deeplink-fg-${entry}.lan`);
+        const deliver = (url: string): void => {
+          if (entry === 'open-url')
+            appOnCallbacks.get('open-url')!({ preventDefault: vi.fn() }, url);
+          else appOnCallbacks.get('second-instance')!({}, ['/app', url]);
+        };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          reset();
+          (readyCall![1] as CallbackFn)(saasEvent());
+          connectionRegistry.setForeground(S.record.connectionId);
+          mockView.setVisible.mockClear();
+          mockMainWindow.focus.mockClear();
+          mockWebContents.send.mockClear();
+
+          deliver('concord://invite/!!bad!!');
+          expect(connectionRegistry.foreground()?.connectionId).toBe(S.record.connectionId);
+          expect(mockView.setVisible).not.toHaveBeenCalled();
+          // second-instance focuses for any relaunch, link or not; open-url only for a link.
+          if (entry === 'open-url') expect(mockMainWindow.focus).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+
+          deliver('concord://invite/MnPqRsTu');
+          expect(connectionRegistry.foreground()?.serviceId).toBe(saasServiceId);
+          expect(mockView.setVisible).toHaveBeenLastCalledWith(true);
+          expect(mockMainWindow.focus).toHaveBeenCalled();
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', {
+            code: 'MnPqRsTu',
+          });
+          expect(S.wc.send).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
+
     it('a self-hosted primary signalling ready neither receives nor drains a deep link', async () => {
       const { ipcMain } = await import('electron');
       const S = openFakeSelfHosted('https://deeplink-self.lan');
