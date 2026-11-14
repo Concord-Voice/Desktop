@@ -58,6 +58,9 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
       if (apiRequestContextIsCurrent(context)) onResult(result);
       return { kind: 'success' };
     } catch (err) {
+      // The request belongs to the context captured by the factor hook. A late
+      // refusal must not clear or refetch state for whoever signed in since.
+      if (!apiRequestContextIsCurrent(context)) return { kind: 'answered' };
       if (err instanceof PrivacyApiError) {
         if (err.status === 403) return { kind: 'answered' };
         if (err.code === 'owned_server_confirmation_stale') onStaleOwnedServers();
