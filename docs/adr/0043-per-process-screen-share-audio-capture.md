@@ -1971,8 +1971,8 @@ the transport added stayed under 20 ms. Run 2's and the `32a280f5` run's raw gap
 22.1 ms mostly because the source itself woke 17.9 and 20.1 ms apart; the transport added about 2.2
 and 2.0 ms at those points. That is the case the ruling below addresses.
 
-**Criterion wording, restated per the project lead's ruling of 2026-11-14** (both sets of runs,
-with the two-clock tolerance; the exact text goes to the project lead at the merge gate).
+**Criterion wording, approved by the project lead on 2026-11-14** (both sets of runs, with the
+two-clock tolerance).
 
 > In steady state the renderer hot path allocates only a bounded set of short-lived control
 > objects per quantum (measured: 1363 bytes in the recorded runs, 1354 bytes under heavy host

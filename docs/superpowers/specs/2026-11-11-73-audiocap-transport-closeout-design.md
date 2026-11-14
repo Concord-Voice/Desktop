@@ -257,7 +257,7 @@ transport sources, so the workflow runs when they change.
 ## 9. Docs that ship in the same pull request
 
 - **ADR-0043**, a new addendum at the end: the latency table against S1 with its caveat; the
-  criterion 1 figures and the wording restated per the project lead's ruling; the
+  criterion 1 figures and the wording the project lead approved; the
   slow-consumer result; one sentence stating
   that a crashed capture child is never respawned (in code as invariant I6, in no document
   today); and two record corrections: the watchdog functions the first addendum said would return
@@ -290,9 +290,8 @@ committed anywhere; the probe handles a deterministic test waveform only.
 5. File the spawn-listener timeout as a follow-up issue, or not.
 
 **Ruled 2026-11-14 at the pull request's merge gate.** Item 1 was approved before the build. On
-items 2 to 5: the criterion 1 wording is restated in the ADR-0043 addendum to state both sets of
-runs (its exact text goes to the project lead at the merge gate), with the 20 ms limit judged on
-the gap the transport adds; criterion 2 is accepted with the synthetic
+items 2 to 5: the criterion 1 wording in the ADR-0043 addendum, stating both sets of runs, is
+approved, with the 20 ms limit judged on the gap the transport adds; criterion 2 is accepted with the synthetic
 source; the CI step was pushed; and the spawn-listener timeout is issue 213. The ADR-0043
 addendum is the record of the wording and the figures.
 
