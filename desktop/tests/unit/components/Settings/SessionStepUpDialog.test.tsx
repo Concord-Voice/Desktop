@@ -21,17 +21,13 @@ import {
 // "Mutant:" comments name the production change each case exists to turn red.
 
 const mockApiFetch = vi.fn();
-vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
-}));
+vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
+});
 
 const mockClassify = vi.hoisted(() => vi.fn());
-vi.mock('@/renderer/services/system/stepUpRefusal', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/stepUpRefusal')>();
-  mockClassify.mockImplementation(actual.classifyStepUpRefusal);
-  return { ...actual, classifyStepUpRefusal: mockClassify };
-});
+vi.mock('@/renderer/services/system/stepUpRefusal', () => ({ classifyStepUpRefusal: mockClassify }));
 
 import SessionStepUpDialog, {
   sessionStepUpKey,
@@ -269,6 +265,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -315,6 +312,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -338,6 +336,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -418,6 +417,7 @@ describe('a sent code is never offered again', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     expect(primary(MODE)).not.toHaveAttribute('aria-disabled');
     await userEvent.click(primary(MODE));
@@ -492,16 +492,17 @@ describe('the primary and Cancel', () => {
 describe('focus once the read has landed (focusOnReady)', () => {
   // Mutant: dropping `focusOnReady`: focus stays on the dialog, and a keyboard user
   // tabs past a field the read has only just put up.
-  it('an authenticator account lands on the code input', async () => {
+  it('an authenticator account lands on the password input and renders the code input', async () => {
     installStepUpApi(mockApiFetch, {
       read: () => readOffers(['totp']),
       route: () => jsonResponse(200),
     });
     renderDialog(REVOKE_ALL);
 
-    const code = await codeField();
+    expect(await codeField()).toBeInTheDocument();
+    const password = await passwordField();
 
-    await waitFor(() => expect(code).toHaveFocus());
+    await waitFor(() => expect(password).toHaveFocus());
   });
 
   it('a password-only account lands on the password field', async () => {
