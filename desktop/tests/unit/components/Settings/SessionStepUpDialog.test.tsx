@@ -27,7 +27,9 @@ vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
 });
 
 const mockClassify = vi.hoisted(() => vi.fn());
-vi.mock('@/renderer/services/system/stepUpRefusal', () => ({ classifyStepUpRefusal: mockClassify }));
+vi.mock('@/renderer/services/system/stepUpRefusal', () => ({
+  classifyStepUpRefusal: mockClassify,
+}));
 
 import SessionStepUpDialog, {
   sessionStepUpKey,
@@ -211,7 +213,6 @@ describe('the read decides the factor, never mfaMethods (C2)', () => {
       { mode: 'simple', password: FIXTURE_PW, mfa_code: FIXTURE_BACKUP },
     ]);
   });
-
 });
 
 describe('a refusal-triggered single revoke (seed)', () => {
