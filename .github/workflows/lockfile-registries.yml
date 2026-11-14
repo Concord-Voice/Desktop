@@ -1,0 +1,40 @@
+name: Lockfile Registries
+
+# Fails a PR whose lockfile resolves a package outside the approved registries,
+# or whose go.mod adds a replace directive (#216). Approved hosts live in
+# .github/approved-registries.txt. No install, no secrets, read-only.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**/package-lock.json'
+      - '**/go.mod'
+      - '**/go.work'
+      - '.github/approved-registries.txt'
+      - '.github/scripts/check-lockfile-registries.sh'
+      - '.github/scripts/tests/check-lockfile-registries.test.sh'
+      - '.github/scripts/tests/fixtures/lockfile-registries/**'
+      - '.github/workflows/lockfile-registries.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockfile-registries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile-registries:
+    name: Lockfile registries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Self-test — the off-registry fixture must fail
+        run: bash .github/scripts/tests/check-lockfile-registries.test.sh
+
+      - name: Check every tracked lockfile and go.mod
+        run: bash .github/scripts/check-lockfile-registries.sh
