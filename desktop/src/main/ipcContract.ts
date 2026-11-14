@@ -324,8 +324,13 @@
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.traySetStatus === 'function'`, and a shell
  *        below 33 keeps its static Open/Quit tray. Capability, not demand.
+ * - v34: Account-erasure confirmation deep link (#158): dedicated
+ *        `deeplink:account-erasure-confirmation` main-to-renderer event plus
+ *        `deeplink:account-erasure-ready` readiness signal. The payload carries
+ *        only `{ requestId, token }`, is sender/session fenced in main, and never
+ *        passes through invite/friend routing or persistent storage.
  */
-export const IPC_CONTRACT_VERSION = 33;
+export const IPC_CONTRACT_VERSION = 34;
 
 /**
  * The oldest shell this repository's RENDERER actually runs on.

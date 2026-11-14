@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractInviteDeepLinkFromArgv, normalizeInviteDeepLink } from '@/main/deepLink';
+import {
+  extractInviteDeepLinkFromArgv,
+  normalizeAccountErasureDeepLink,
+  normalizeInviteDeepLink,
+} from '@/main/deepLink';
 
 describe('normalizeInviteDeepLink', () => {
   it('accepts concord://invite/{exact-8-code}', () => {
@@ -26,6 +30,29 @@ describe('normalizeInviteDeepLink', () => {
     ['not a url', 'invalid-url'],
   ] as const)('rejects %s with %s', (raw, reason) => {
     expect(normalizeInviteDeepLink(raw)).toEqual({ ok: false, reason });
+  });
+});
+
+describe('normalizeAccountErasureDeepLink', () => {
+  const requestId = '123e4567-e89b-42d3-a456-426614174000';
+  const token = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO12';
+
+  it('accepts only the canonical erasure confirmation shape', () => {
+    expect(normalizeAccountErasureDeepLink(`concord://account-erasure/confirm/${requestId}/${token}`)).toEqual({
+      ok: true, requestId, token,
+    });
+  });
+
+  it.each([
+    `concord://account-erasure/confirm/${requestId.toUpperCase()}/${token}`,
+    `concord://account-erasure/confirm/${requestId}/${token}?x=1`,
+    `concord://account-erasure/confirm/${requestId}/${token}#x`,
+    `concord://account-erasure/confirm/${requestId}/${token}/extra`,
+    `concord://account-erasure/confirm/${requestId}/${token.slice(1)}`,
+    `concord://account-erasure/confirm/${requestId}/${token.slice(0, 42)}+`,
+    `concord://erase/confirm/${requestId}/${token}`,
+  ])('rejects non-canonical confirmation link %s', (raw) => {
+    expect(normalizeAccountErasureDeepLink(raw)).toEqual({ ok: false, reason: 'invalid_shape' });
   });
 });
 

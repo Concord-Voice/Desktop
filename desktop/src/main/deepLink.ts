@@ -10,6 +10,47 @@ const INVITE_CODE_RE = /^[A-HJ-NP-Za-hj-km-np-z2-9]{8}$/;
 
 export type DeepLinkKind = 'invite' | 'friend';
 
+const CANONICAL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const BASE64URL_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
+
+export type AccountErasureDeepLinkResult =
+  | { ok: true; requestId: string; token: string }
+  | { ok: false; reason: 'empty' | 'invalid_url' | 'invalid_shape' };
+
+/**
+ * Parses the erasure confirmation link as a closed capability transport. The
+ * token must never enter a generic invite/friend handler or a log line.
+ */
+export function normalizeAccountErasureDeepLink(
+  raw: string | undefined
+): AccountErasureDeepLinkResult {
+  if (!raw) return { ok: false, reason: 'empty' };
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { ok: false, reason: 'invalid_url' };
+  }
+  if (
+    parsed.protocol !== 'concord:' ||
+    parsed.host !== 'account-erasure' ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    return { ok: false, reason: 'invalid_shape' };
+  }
+  const parts = parsed.pathname.split('/').filter(Boolean);
+  if (
+    parts.length !== 3 ||
+    parts[0] !== 'confirm' ||
+    !CANONICAL_UUID_RE.test(parts[1] ?? '') ||
+    !BASE64URL_SECRET_RE.test(parts[2] ?? '')
+  ) {
+    return { ok: false, reason: 'invalid_shape' };
+  }
+  return { ok: true, requestId: parts[1] as string, token: parts[2] as string };
+}
+
 export type InviteDeepLinkResult =
   | { ok: true; kind: DeepLinkKind; code: string }
   | {

@@ -826,6 +826,12 @@ const SecuritySection: React.FC = () => {
       case 'modeChange':
         setRevocationMode(action.mode);
         break;
+      case 'ssoTrustEnable':
+        setTrustSSOSecurity(true);
+        break;
+      case 'ssoUnlink':
+        // This action is mounted by LinkedAccountsList, never this surface.
+        break;
     }
   };
 
@@ -838,6 +844,10 @@ const SecuritySection: React.FC = () => {
     field: 'trust_sso_security' | 'password_login_disabled',
     desired: boolean
   ): void => {
+    if (field === 'trust_sso_security' && desired) {
+      openStepUp({ kind: 'ssoTrustEnable' });
+      return;
+    }
     setSsoConfirmField(field);
     setSsoConfirmDesiredValue(desired);
     setSsoConfirmPassphrase('');
@@ -905,15 +915,15 @@ const SecuritySection: React.FC = () => {
   const handleRevokeWebAuthnKey: MfaSeamHandler<[credentialId: string]> = async (
     credentialId,
     password,
-    _mfaCode,
+    mfaCode,
     context
   ) => {
-    // The route verifies the password alone; no code is sent.
+    // The exact-purpose code may be a typed factor or a WebAuthn inline token.
     const result = await submitMfaStepUp(
       `/api/v1/mfa/webauthn/credentials/${credentialId}`,
       'DELETE',
       {},
-      { password, mfaCode: undefined },
+      { password, mfaCode },
       { context }
     );
     if (result.kind === 'accepted' && apiRequestContextIsCurrent(context)) {

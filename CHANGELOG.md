@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Desktop security: require fresh, purpose-bound step-up proof for WebAuthn-key removal, SSO unlinking, and enabling SSO trust; add a reviewed account-erasure flow with transient email confirmation links.
+
 All notable changes to the Concord Voice desktop app are recorded in this file.
 `desktop/package.json` holds the current desktop version. The server and the
 mobile app have their own versions and changelogs in the

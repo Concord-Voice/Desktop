@@ -6,6 +6,7 @@ import PrivacySection from '@/renderer/components/Settings/PrivacySection';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
+import { useServerStore } from '@/renderer/stores/chat/serverStore';
 
 const API_BASE = 'http://localhost:8080/api/v1';
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
@@ -49,4 +50,46 @@ it('groups privacy choices, Rich Presence and Activity History without credentia
   expect(document.getElementById('section-mfa')).toBeNull();
   expect(document.getElementById('section-active-sessions')).toBeNull();
   expect(document.getElementById('section-system-permissions')).toBeNull();
+});
+
+it('requires explicit acknowledgements for known multi-member owned servers before erasure', async () => {
+  useServerStore.setState({
+    servers: [
+      {
+        id: '00000000-0000-4000-8000-000000000002',
+        name: 'Second server',
+        owner_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        role: 'owner',
+        member_count: 2,
+        online_count: 0,
+        allow_embedded_content: false,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        name: 'First server',
+        owner_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        role: 'owner',
+        member_count: 3,
+        online_count: 0,
+        allow_embedded_content: false,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ],
+  });
+  render(<PrivacySection />);
+  const danger = document.getElementById('section-account-erasure') as HTMLDetailsElement;
+  await userEvent.setup().click(within(danger).getByText('Danger Zone'));
+  const erase = within(danger).getByRole('button', { name: 'Erase account' });
+  expect(erase).toBeDisabled();
+  const acknowledgements = within(danger).getAllByRole('checkbox');
+  expect(acknowledgements).toHaveLength(2);
+  expect(acknowledgements[0]).not.toBeChecked();
+  await userEvent.setup().click(acknowledgements[0]);
+  expect(erase).toBeDisabled();
+  await userEvent.setup().click(acknowledgements[1]);
+  expect(erase).toBeEnabled();
+  expect(within(danger).getByText(/direct-message conversations/i)).toBeInTheDocument();
 });
