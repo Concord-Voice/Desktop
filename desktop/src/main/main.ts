@@ -667,6 +667,8 @@ function resetDeepLinkDelivery(): void {
   // reload: the renderer's in-memory account binding is deliberately lost.
   erasureRendererReady = false;
   pendingErasureConfirmations.length = 0;
+  // A reload drops the in-memory capability, so the same link may be delivered again.
+  lastErasureConfirmationKey = null;
   // Read ONCE for the whole reset, not per kind. NOT cleared here (RED-TEAM
   // F2): the arming belongs to whichever applySpaDecisionCarryingDeepLink call
   // took it out and is released by that call's `finally`. Clearing it on the
