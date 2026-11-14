@@ -68,3 +68,21 @@ describe('App layout — Titlebar position relative to .app', () => {
     expect(src).not.toMatch(/\{!isPipWindow && <Titlebar \/>\}\s*<div className="app"/);
   });
 });
+
+describe('App layout — capture-moved banner placement (#87)', () => {
+  const { readFileSync } = require('node:fs');
+  const { resolve } = require('node:path');
+  const src: string = readFileSync(resolve(__dirname, '../../../src/renderer/App.tsx'), 'utf-8');
+
+  it('mounts CaptureMovedBanner as the next sibling of UpdateBanner, outside the PiP window', () => {
+    expect(src).toMatch(/<UpdateBanner \/>\s*\{!isPipWindow && <CaptureMovedBanner \/>\}/);
+  });
+
+  it('mounts CaptureMovedBanner exactly once, and only behind the PiP guard', () => {
+    expect(src.match(/<CaptureMovedBanner \/>/g)).toHaveLength(1);
+  });
+
+  it('mounts CaptureLeaseAnnouncer beside the banner', () => {
+    expect(src).toMatch(/\{!isPipWindow && <CaptureMovedBanner \/>\}\s*<CaptureLeaseAnnouncer \/>/);
+  });
+});

@@ -36,11 +36,27 @@ const handle = vi.fn();
  */
 const audiocapRendererLossEpoch = vi.fn();
 /**
- * The host's LIVE generation (`session?.generation ?? 0`). 0 by default: nothing is live,
- * so the busy fence (#86 Task 7B pass 2) never fires in a case that does not ask for it.
- * A case that needs "A's share is live" returns the generation A's start handed the host.
+ * `killAudiocapCapture` (#87 RC-4): the immediate renderer-capture kill `revokeAudiocapShare`
+ * reaches. The real one spares the windowless probe; that half is `audiocapHost.test.ts`'s.
  */
-const currentAudiocapGeneration = vi.fn(() => 0);
+const killAudiocapCapture = vi.fn();
+/**
+ * THE HOLDER FIXTURE (#87 RC-3, RC-15). `handleAudiocapStart` refuses a sender that does not
+ * hold the capture lease, so every case that starts a share needs a holder. The default is
+ * "the sender is the holder" (any ref), which is what every pre-#87 row below assumed when it
+ * started a share with no lease: the direct `handleAudiocapStart` suites and the owner-binding
+ * rows `start from the saas primary`, `start from a self-hosted primary`, `stop from another
+ * connection`, `a start superseded by advanceGeneration`, `stop refuses a detached sender`,
+ * `a start whose connection stops being foreground`, and `the owner restarting its own live
+ * share`. The cross-connection rows narrow it per connection with `holderIs(ref)`.
+ */
+const isHolder = vi.fn((_ref: unknown) => true);
+function holderIs(ref: { connectionId: unknown } | null): void {
+  isHolder.mockImplementation(
+    (r: unknown) =>
+      ref !== null && (r as { connectionId: unknown }).connectionId === ref.connectionId
+  );
+}
 
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/concord-test-userdata' },
@@ -52,8 +68,12 @@ vi.mock('../../../src/main/audiocapHost', () => ({
   startAudiocapHost: (...a: unknown[]) => startAudiocapHost(...a),
   stopAudiocapHost: (...a: unknown[]) => stopAudiocapHost(...a),
   killAudiocapHost: (...a: unknown[]) => killAudiocapHost(...a),
-  currentAudiocapGeneration: () => currentAudiocapGeneration(),
+  killAudiocapCapture: (...a: unknown[]) => killAudiocapCapture(...a),
   audiocapRendererLossEpoch: (...a: unknown[]) => audiocapRendererLossEpoch(...a),
+}));
+
+vi.mock('../../../src/main/captureLease', () => ({
+  isHolder: (ref: unknown) => isHolder(ref),
 }));
 
 /**
@@ -160,8 +180,8 @@ beforeEach(() => {
   startAudiocapHost.mockResolvedValue({ ok: true, generation: 1, perProcessAudio: true });
   audiocapRendererLossEpoch.mockReset();
   audiocapRendererLossEpoch.mockReturnValue(0);
-  currentAudiocapGeneration.mockReset();
-  currentAudiocapGeneration.mockReturnValue(0);
+  isHolder.mockReset();
+  isHolder.mockImplementation(() => true);
 });
 
 describe('audiocap:start — fence 1, the sender frame (A4, spec test 4)', () => {
@@ -1081,42 +1101,79 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
     expect(startAudiocapHost).not.toHaveBeenCalled();
   });
 
-  // ACCEPTED SECURITY FINDING, second half: no silent replace of another connection's share.
-  it('start is refused while ANOTHER connection owns a live share, and that share is not replaced', async () => {
+  // #87 RC-3: the holder gate REPLACES #86's refuse-while-owned rule. With exclusive capture
+  // the lease holder is the only connection that may start; a foreground non-holder is
+  // refused before its enumeration, so the holder's live share is never superseded.
+  it("a foreground non-holder start is refused and the holder's live share is not replaced", async () => {
     const { reg, ipc, A, B, call } = await boot();
+    holderIs(A.ref);
     expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
-    currentAudiocapGeneration.mockReturnValue(startAudiocapHost.mock.calls[0][0] as number);
     reg.setForeground(B.record.connectionId);
     const r = await call('audiocap:start')(evOf(B), REQ);
     expect(r).toEqual({ ok: false, reason: 'protocol-fault' });
     expect(getSources).toHaveBeenCalledTimes(1);
     expect(startAudiocapHost).toHaveBeenCalledTimes(1);
     expect(stopAudiocapHost).not.toHaveBeenCalled();
+    expect(killAudiocapCapture).not.toHaveBeenCalled();
     expect(ipc.audiocapShareOwner()?.ref).toEqual(A.ref);
+  });
+
+  it('a start whose sender stops being the holder during the enumeration is refused', async () => {
+    const { A, call } = await boot();
+    holderIs(A.ref);
+    let release!: (v: unknown) => void;
+    getSources.mockReturnValueOnce(new Promise((res) => (release = res)));
+    const pending = call('audiocap:start')(evOf(A), REQ) as Promise<unknown>;
+    // A is still foreground and its binding is still current: only the lease moved.
+    holderIs(null);
+    release([{ id: 'window:42:0', name: 'Some App' }]);
+    expect(await pending).toEqual({ ok: false, reason: 'protocol-fault' });
+    expect(startAudiocapHost).not.toHaveBeenCalled();
   });
 
   it("the owner restarting its own live share keeps today's behaviour (the new start supersedes)", async () => {
     const { ipc, A, call } = await boot();
     expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
-    currentAudiocapGeneration.mockReturnValue(startAudiocapHost.mock.calls[0][0] as number);
     expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
     expect(startAudiocapHost).toHaveBeenCalledTimes(2);
     expect((startAudiocapHost.mock.calls[1][2] as { ref: unknown }).ref).toEqual(A.ref);
     expect(ipc.audiocapShareOwner()?.ref).toEqual(A.ref);
   });
 
-  it("once the other connection's share is no longer live, the foreground connection may start", async () => {
+  // #87 RC-4: the handoff's audiocap dependency. It forgets the owner, supersedes a pending
+  // start through the epoch and kills the live capture; then the new holder may start.
+  it('after revokeAudiocapShare the new holder may start', async () => {
     const { reg, ipc, A, B, call } = await boot();
+    holderIs(A.ref);
     expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
-    // The host retired A's session on its own (an interrupt or a crash): nothing is live.
-    currentAudiocapGeneration.mockReturnValue(0);
+    let release!: (v: unknown) => void;
+    getSources.mockReturnValueOnce(new Promise((res) => (release = res)));
+    const pendingA = call('audiocap:start')(evOf(A), REQ) as Promise<unknown>;
+
+    ipc.revokeAudiocapShare();
+    expect(ipc.audiocapShareOwner()).toBeNull();
+    // Scoped to the share's owner (#86): a kill in another connection's name would be a no-op.
+    expect(killAudiocapCapture).toHaveBeenCalledTimes(1);
+    expect(killAudiocapCapture).toHaveBeenCalledWith(A.record.connectionId);
+    expect(stopAudiocapHost).not.toHaveBeenCalled();
+    expect(killAudiocapHost).not.toHaveBeenCalled();
+
+    // A is still holder, foreground and current: only the epoch fence refuses it.
+    release([{ id: 'window:42:0', name: 'Some App' }]);
+    expect(await pendingA).toEqual({ ok: false, reason: 'target-unresolved' });
+    expect(startAudiocapHost).toHaveBeenCalledTimes(1);
+
+    holderIs(B.ref);
     reg.setForeground(B.record.connectionId);
     expect(await call('audiocap:start')(evOf(B), REQ)).toMatchObject({ ok: true });
+    expect(startAudiocapHost).toHaveBeenCalledTimes(2);
+    expect((startAudiocapHost.mock.calls[1][2] as { ref: unknown }).ref).toEqual(B.ref);
     expect(ipc.audiocapShareOwner()?.ref).toEqual(B.ref);
   });
 
   it("stop from the FOREGROUND connection B cannot end A's share; A may still end it while hidden", async () => {
     const { reg, ipc, A, B, call } = await boot();
+    holderIs(A.ref);
     expect(await call('audiocap:start')(evOf(A), REQ)).toMatchObject({ ok: true });
     reg.setForeground(B.record.connectionId);
     await call('audiocap:stop')(evOf(B));

@@ -51,6 +51,7 @@ import CustomSelect from '../ui/CustomSelect';
 import CodecProfilesModal from './CodecProfilesModal';
 import DeviceSelector from '../Voice/DeviceSelector';
 import { useCameraTest } from '../../hooks/device/useCameraTest';
+import { DeviceTestLeaseRow, deviceTestLeaseMessage } from './AudioConfigSection';
 
 // ─── GPU Vendor Icon ────────────────────────────────────────────────────────
 
@@ -749,19 +750,24 @@ const CameraTestRow: React.FC<{
   isTesting: boolean;
   inVoiceCall: boolean;
   error: string | null;
+  leaseMessage: string | null;
   onToggle: () => void;
-}> = ({ isTesting, inVoiceCall, error, onToggle }) => (
-  <div className="settings-camera-test-row">
-    <button
-      className={`settings-camera-test-btn${isTesting ? ' testing' : ''}`}
-      onClick={onToggle}
-      disabled={inVoiceCall}
-      title={inVoiceCall ? 'Unavailable during a voice call' : undefined}
-    >
-      {isTesting ? 'Stop Preview' : 'Test'}
-    </button>
-    {error && <span className="settings-camera-test-error">{error}</span>}
-  </div>
+}> = ({ isTesting, inVoiceCall, error, leaseMessage, onToggle }) => (
+  <>
+    <div className="settings-camera-test-row">
+      <button
+        className={`settings-camera-test-btn${isTesting ? ' testing' : ''}`}
+        onClick={onToggle}
+        disabled={inVoiceCall}
+        title={inVoiceCall ? 'Unavailable during a voice call' : undefined}
+        aria-describedby={leaseMessage ? 'settings-camera-test-lease' : undefined}
+      >
+        {isTesting ? 'Stop Preview' : 'Test'}
+      </button>
+      {error && <span className="settings-camera-test-error">{error}</span>}
+    </div>
+    <DeviceTestLeaseRow id="settings-camera-test-lease" message={leaseMessage} />
+  </>
 );
 
 const VideoConfigSection: React.FC = () => {
@@ -770,9 +776,11 @@ const VideoConfigSection: React.FC = () => {
   const codecFloor = useVoiceStore((s) => s.codecFloor);
   const connectionState = useVoiceStore((s) => s.connectionState);
   const inVoiceCall = VOICE_CALL_STATES.has(connectionState);
+  const captureLease = useVoiceStore((s) => s.captureLease);
   const {
     isTesting,
     error: cameraTestError,
+    stoppedReason: cameraTestStoppedReason,
     stream: cameraStream,
     toggleTest,
     stopTest,
@@ -1116,6 +1124,7 @@ const VideoConfigSection: React.FC = () => {
         isTesting={isTesting}
         inVoiceCall={inVoiceCall}
         error={cameraTestError}
+        leaseMessage={deviceTestLeaseMessage(cameraTestStoppedReason, captureLease)}
         onToggle={toggleTest}
       />
       {isTesting && (

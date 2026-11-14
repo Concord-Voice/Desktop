@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * Electron e2e configuration (#86 Task 10): the connection-isolation spec only.
+ * Electron e2e configuration (#86 Task 10, #87 Task 8): the connection-isolation and
+ * capture-arbitration specs only.
  *
  * Unlike playwright.config.ts (renderer-only, Vite dev server, live backend), this
  * launches the BUILT Electron shell from dist/ against in-process stub planes, so it
@@ -12,7 +13,7 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /connectionIsolation\.spec\.ts/,
+  testMatch: /(connectionIsolation|captureArbitration)\.spec\.ts/,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

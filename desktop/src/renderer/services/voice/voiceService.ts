@@ -19,6 +19,14 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { advanceVoiceActionGeneration, getVoiceActionGeneration } from './voiceActionGeneration';
+import {
+  acquire,
+  captureLeaseMessage,
+  CaptureLeaseError,
+  beginVoiceJoinClaim,
+  releaseVoiceJoinWhenCapturesSettle,
+  trackDeviceCapture,
+} from './captureLeaseClient';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useUpdateStatusStore } from '../../stores/ui/updateStatusStore';
 import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
@@ -843,6 +851,18 @@ const VOICE_JOINS_PAUSED_ERROR =
   'Voice is briefly paused for maintenance. Try again in a few minutes.';
 
 type VoiceJoinOwner = { authGeneration: number; voiceActionGeneration: number };
+
+/**
+ * The call's own capture requests, registered with the lease client's settlement barrier: a
+ * moved revocation must not acknowledge while one is still pending, or the stale stream it
+ * eventually resolves with would outlive the lease. Same promise, same behaviour.
+ */
+const callCapture = {
+  getUserMedia: (constraints?: MediaStreamConstraints): Promise<MediaStream> =>
+    trackDeviceCapture(navigator.mediaDevices.getUserMedia(constraints)),
+  getDisplayMedia: (options?: DisplayMediaStreamOptions): Promise<MediaStream> =>
+    trackDeviceCapture(navigator.mediaDevices.getDisplayMedia(options)),
+};
 
 class VoiceService {
   /** Explicit joins and leaves supersede any queued outage rejoin. */
@@ -2483,7 +2503,10 @@ class VoiceService {
     useVoiceStore.getState().setDynamicGateStatus(null);
     const replacement = this.micReplaceTrackQueue
       .catch(() => {})
-      .then(() => this.liveReplaceAudioTrackQueued(replaceSeq));
+      // The whole replacement is in the settlement barrier, not just its getUserMedia: the new
+      // stream is local to this operation (graph init, replaceTrack) until it is adopted, so
+      // teardown cannot stop it and a revocation must not acknowledge before it is done.
+      .then(() => trackDeviceCapture(this.liveReplaceAudioTrackQueued(replaceSeq)));
     this.micReplaceTrackQueue = replacement.catch(() => {});
     return replacement;
   }
@@ -2526,7 +2549,7 @@ class VoiceService {
   ): Promise<MicGraph | null> {
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(
+      stream = await callCapture.getUserMedia(
         this.microphoneCaptureConstraints(adv, selectedDeviceId)
       );
     } catch (err) {
@@ -2765,7 +2788,7 @@ class VoiceService {
     allowFallback: boolean
   ): Promise<MediaStream | null> {
     try {
-      return await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+      return await callCapture.getUserMedia({ video: videoConstraints });
     } catch (err) {
       const shouldFallback =
         err instanceof DOMException && err.name === 'OverconstrainedError' && allowFallback;
@@ -2773,7 +2796,7 @@ class VoiceService {
       if (!this.isCurrentVideoProducer(token, 'camera', producer)) return null;
 
       console.warn('Camera overconstrained during track replace, falling back:', errorMessage(err));
-      return navigator.mediaDevices.getUserMedia({ video: true });
+      return callCapture.getUserMedia({ video: true });
     }
   }
 
@@ -3491,7 +3514,10 @@ class VoiceService {
       .catch(() => undefined)
       .then(async () => {
         if (!this.isCurrentVideoReproduceToken(token)) return;
-        await operation(token);
+        // Every camera/screen publish, replacement and re-produce is a capture the revocation
+        // barrier must wait for through ADOPTION (the stream is not in localCameraStream /
+        // localScreenStream until its produce round trip returns), not only through getUserMedia.
+        await trackDeviceCapture(operation(token));
       });
     // Keep the tail fulfilled so a detached caller's rejection cannot become a
     // latent unhandled rejection. Return the original promise so awaited callers
@@ -4042,7 +4068,8 @@ class VoiceService {
     callStateToPreserve: Extract<CallState, { kind: 'joining' }> | undefined
   ): Promise<void> {
     if (!store.activeChannelId) return;
-    await this.leaveChannel();
+    // The join was granted the capture lease before this leave; keep it for the new call.
+    await this.leaveChannel({ keepCaptureLease: true });
     if (!callStateToPreserve || useVoiceStore.getState().callState.kind !== 'idle') return;
     useVoiceStore.getState().setCallState(callStateToPreserve);
   }
@@ -4103,9 +4130,13 @@ class VoiceService {
     try {
       const store = useVoiceStore.getState();
       const directDMJoiningState = this.claimDMJoinOwnership(channelId, joinType, store);
-      shouldRecoverJoinFailure = true;
       const callStateToPreserve = this.dmJoiningStateToPreserve(channelId, joinType);
       const ringId = joinType === 'dm' ? this.currentDMRingID(channelId) : undefined;
+      // #87 §3.8: the first await. The capture lease comes before authorization, E2EE
+      // init and any getUserMedia. A Stay (declined) ends the join silently; a non-grant
+      // tears nothing down, because this document may still hold a live call.
+      if (!(await this.acquireVoiceJoinLease(joinType === 'dm' ? channelId : undefined))) return;
+      shouldRecoverJoinFailure = true;
       await this.leaveActiveChannelBeforeJoin(store, callStateToPreserve);
       this.requireJoinOwnership(recoveryOwner, cleanupGeneration);
 
@@ -4175,6 +4206,42 @@ class VoiceService {
     } finally {
       this.joinInFlight = false;
     }
+  }
+
+  /**
+   * Ask main for the capture lease (#87 §3.8). `true` on a grant; `false` when the user
+   * chose Stay in main's dialog, which shows no error. Any other answer shows its copy
+   * and throws `CaptureLeaseError`. Nothing was granted on those paths, so none releases;
+   * the DM `joining` state for this conversation is handed back, as a failed join's reset would.
+   */
+  private async acquireVoiceJoinLease(dmChannelId: string | undefined): Promise<boolean> {
+    // Bumped BEFORE the request: a release deferred under the previous claim must not reach
+    // main after (and so delete) the claim this acquire is about to be granted.
+    beginVoiceJoinClaim();
+    const result = await acquire('voice-join');
+    const store = useVoiceStore.getState();
+    if (result.status === 'granted') {
+      store.setCaptureMovedNotice(false);
+      return true;
+    }
+    // The DM `joining` state is released whether this join claimed it or a ring did (the
+    // ring's accept path sets it before calling in), so a Stay or a refusal cannot leave a
+    // `joining` state that its caller would promote to `in-call` with no media session.
+    const callState = store.callState;
+    if (
+      dmChannelId !== undefined &&
+      callState.kind === 'joining' &&
+      callState.conversationId === dmChannelId
+    ) {
+      store.setCallState({ kind: 'idle' });
+    }
+    if (result.status === 'declined') {
+      store.bumpCaptureDeclined();
+      return false;
+    }
+    const reason = result.status === 'held' ? 'held' : result.reason;
+    store.setJoinError(captureLeaseMessage(reason));
+    throw new CaptureLeaseError(reason);
   }
 
   /** Mark a join connected: restore privacy intent, sounds and the DM call state. */
@@ -4448,14 +4515,20 @@ class VoiceService {
     // transition below MUST still run — otherwise the ghost-state bug this
     // catch block fixes regresses on a different failure mode. Log the
     // cleanup failure separately so it isn't silently lost.
+    let mediaTornDown = true;
     try {
       await this.cleanup();
     } catch (cleanupErr) {
+      mediaTornDown = false;
       console.error(
         'Cleanup failed during join-error recovery:',
         this.sanitizeErrForLog(cleanupErr)
       );
     }
+    // The failed join's media is gone, so its capture lease goes too (#87 §3.8). A cleanup
+    // that threw may have skipped the track teardown, so then the lease stays held until the
+    // document ends; releasing would let another connection capture beside live tracks.
+    if (mediaTornDown) releaseVoiceJoinWhenCapturesSettle();
     // store.setActiveChannel runs early in joinChannel (before mic / media-
     // plane handshake), so a late-stage failure leaves activeChannelId
     // pointing at the channel we never actually joined. Reset clears that
@@ -4478,7 +4551,11 @@ class VoiceService {
   }
 
   /** Leave the current voice channel */
-  async leaveChannel(opts?: { internalRebuild?: boolean }): Promise<void> {
+  async leaveChannel(opts?: {
+    internalRebuild?: boolean;
+    /** Only a join's leave-before-join: that join already holds the lease. */
+    keepCaptureLease?: boolean;
+  }): Promise<void> {
     // Any user-initiated leave cancels a pending legacy-fallback rebuild —
     // rejoining a call the user explicitly left is never acceptable
     // (CodeRabbit, PR #2866). The rebuild's own leave passes internalRebuild.
@@ -4495,6 +4572,9 @@ class VoiceService {
       this.socket.emit('leave-room');
     }
     await this.cleanup(opts?.internalRebuild === true);
+    // #87 §3.8: the tracks are stopped, so the lease can go. A rebuild re-joins at once
+    // and keeps it. Fire-and-forget: release never rejects.
+    if (!opts?.internalRebuild && !opts?.keepCaptureLease) releaseVoiceJoinWhenCapturesSettle();
 
     notificationSoundService.stopAllLoops();
     // Silent during the legacy-fallback rebuild — the user is not leaving.
@@ -4526,8 +4606,12 @@ class VoiceService {
    * Used for forced logout, token revocation, connection loss, and app close
    * where we can't wait for network round-trips.
    * All operations are idempotent — safe to call multiple times.
+   *
+   * Releases the `voice-join` capture lease at the end (#87 §3.8), never awaiting main.
+   * `keepCaptureLease` is for the sustained-outage teardown alone, whose rejoin ticket
+   * re-acquires as the holder; every other caller ends the call and releases.
    */
-  emergencyCleanup(): void {
+  emergencyCleanup(opts?: { keepCaptureLease?: boolean }): void {
     this.emergencyCleanupGeneration += 1;
     this.clearAuthRenewalRetry();
     this.mediaHandshake = null;
@@ -4551,6 +4635,8 @@ class VoiceService {
     // Reset store
     useVoiceStore.getState().clearAvailableScreenShares();
     useVoiceStore.getState().reset();
+
+    if (!opts?.keepCaptureLease) releaseVoiceJoinWhenCapturesSettle();
   }
 
   /**
@@ -5096,7 +5182,7 @@ class VoiceService {
         explicitDeviceId ?? useVoiceStore.getState().audioInputDeviceId ?? undefined;
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia(
+        stream = await callCapture.getUserMedia(
           this.microphoneCaptureConstraints(adv, selectedDeviceId)
         );
       } catch (err) {
@@ -5164,14 +5250,22 @@ class VoiceService {
 
     await this.awaitMicrophonePermission(captureGeneration, sendTransport);
     for (;;) {
-      const capture = await this.acquireCurrentMicrophone(
-        captureGeneration,
-        sendTransport,
-        deviceId
+      // Capture AND publication form one tracked operation (see liveReplaceAudioTrack): the
+      // resolved stream is unadopted, and so invisible to teardown, until the graph is built.
+      const published = await trackDeviceCapture(
+        this.acquireAndProduceMicrophone(captureGeneration, sendTransport, deviceId)
       );
-      if (await this.produceAudioCapture(capture, captureGeneration, sendTransport, deviceId))
-        return;
+      if (published) return;
     }
+  }
+
+  private async acquireAndProduceMicrophone(
+    captureGeneration: number,
+    sendTransport: mediasoupTypes.Transport,
+    deviceId?: string
+  ): Promise<boolean> {
+    const capture = await this.acquireCurrentMicrophone(captureGeneration, sendTransport, deviceId);
+    return this.produceAudioCapture(capture, captureGeneration, sendTransport, deviceId);
   }
 
   private async produceAudioCapture(
@@ -5342,7 +5436,7 @@ class VoiceService {
     for (const constraints of fallbackChain) {
       if (!shouldContinue()) return null;
       try {
-        return await navigator.mediaDevices.getUserMedia(constraints);
+        return await callCapture.getUserMedia(constraints);
       } catch (err) {
         if (
           err instanceof DOMException &&
@@ -5715,7 +5809,7 @@ class VoiceService {
     // loopback, so this is not the #2161 leak path.
     // `wantAudio`, not `true`: this path is OS-mediated consent rather than the #2161
     // whole-desktop loopback, but the user's in-app opt-out still governs what we ASK for.
-    const stream = await navigator.mediaDevices.getDisplayMedia({
+    const stream = await callCapture.getDisplayMedia({
       video: {
         width: { ideal: screenRes.w },
         height: { ideal: screenRes.h },
@@ -5774,7 +5868,7 @@ class VoiceService {
     // must be able to carry it. `wantAudio` alone would reintroduce #2161 on a window;
     // the prefix check alone would ignore an explicit opt-out.
     const videoOnly = () =>
-      navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+      callCapture.getUserMedia({ audio: false, video: videoConstraints });
 
     // `canCarryScreenAudio`, not a bare prefix test. The prefix half alone left the
     // platform gate in `produceScreen`'s caller-side computation, which
@@ -5809,7 +5903,7 @@ class VoiceService {
         return { stream: await videoOnly(), sourceId: chosenId, ownsScreenAudioOutcome: false };
       case 'system-loopback':
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
+          const stream = await callCapture.getUserMedia({
             audio: {
               mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: chosenId },
             } as unknown as MediaTrackConstraints,
@@ -6104,8 +6198,21 @@ class VoiceService {
     }
   }
 
-  /** Produce screen share — single-layer, codec-floor compatible publishing for opt-in viewing. */
-  async produceScreen(
+  /**
+   * Produce screen share — single-layer, codec-floor compatible publishing for opt-in viewing.
+   * The whole operation is in the revocation settlement barrier: the stream is unadopted (and
+   * so unreachable by teardown) from capture, through the per-process audio start, until the
+   * publication adopts it.
+   */
+  produceScreen(
+    sourceId?: string,
+    options?: ScreenShareOptions,
+    preAcquired?: ScreenCaptureResult | null
+  ): Promise<void> {
+    return trackDeviceCapture(this.produceScreenOperation(sourceId, options, preAcquired));
+  }
+
+  private async produceScreenOperation(
     sourceId?: string,
     options?: ScreenShareOptions,
     /**
@@ -7339,7 +7446,16 @@ class VoiceService {
     );
   }
 
-  private async switchScreenSourceQueued(
+  /** Tracked end to end for the same reason as `produceScreen` (capture is unadopted until replaced). */
+  private switchScreenSourceQueued(
+    sourceId: string,
+    token: VideoReproduceToken,
+    options?: ScreenShareOptions
+  ): Promise<void> {
+    return trackDeviceCapture(this.switchScreenSourceOperation(sourceId, token, options));
+  }
+
+  private async switchScreenSourceOperation(
     sourceId: string,
     token: VideoReproduceToken,
     options?: ScreenShareOptions

@@ -1,0 +1,98 @@
+<!doctype html>
+<!--
+  Capture-gate probe page (Desktop #87, Task 0). Loaded by main.mjs into each
+  WebContentsView with ?view=A|B. Main drives it through executeJavaScript; the
+  page never talks to main on its own. No preload, no IPC, no network.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'" />
+    <title>capture-gate probe</title>
+    <style>
+      html, body { margin: 0; height: 100%; font: 14px system-ui; background: #1e1f22; color: #dbdee1; }
+      body { display: flex; align-items: center; justify-content: center; }
+    </style>
+  </head>
+  <body>
+    <div id="label">capture-gate probe</div>
+    <script>
+      (() => {
+        const view = new URLSearchParams(location.search).get('view') ?? '?';
+        // Changes on every document load, so main can tell a vetoed reload (same
+        // nonce) from a replaced document (new nonce).
+        const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        document.getElementById('label').textContent = `capture-gate probe, view ${view}`;
+
+        const tracks = [];
+        let clicks = 0;
+        const visLog = [];
+        document.addEventListener('mousedown', () => {
+          clicks += 1;
+        });
+        document.addEventListener('visibilitychange', () => visLog.push(document.visibilityState));
+
+        // Error name and message only; never a stack, never a device label.
+        const failure = (e) => ({ ok: false, name: e?.name ?? null, message: String(e?.message ?? e) });
+        const success = (stream) => {
+          for (const t of stream.getTracks()) tracks.push(t);
+          return { ok: true, kinds: stream.getTracks().map((t) => t.kind) };
+        };
+
+        window.probe = {
+          view,
+          nonce,
+          async gum(constraints) {
+            try {
+              return success(await navigator.mediaDevices.getUserMedia(constraints));
+            } catch (e) {
+              return failure(e);
+            }
+          },
+          async gdm(constraints) {
+            try {
+              return success(await navigator.mediaDevices.getDisplayMedia(constraints));
+            } catch (e) {
+              return failure(e);
+            }
+          },
+          // A beforeunload veto. Chromium honours it only when the frame has sticky
+          // user activation, so main installs it inside a userGesture executeJavaScript
+          // unless the run asks for the no-activation arm.
+          vetoUnload() {
+            window.addEventListener('beforeunload', (e) => {
+              e.preventDefault();
+              e.returnValue = '';
+              return '';
+            });
+            return { installed: true, hasBeenActive: navigator.userActivation?.hasBeenActive ?? null };
+          },
+          trackStates() {
+            return tracks.map((t) => ({ kind: t.kind, readyState: t.readyState }));
+          },
+          stopAll() {
+            for (const t of tracks) t.stop();
+            return tracks.length;
+          },
+          async devices() {
+            const list = await navigator.mediaDevices.enumerateDevices();
+            return {
+              total: list.length,
+              labelled: list.filter((d) => d.label !== '').length,
+              withDeviceId: list.filter((d) => d.deviceId !== '').length,
+            };
+          },
+          async permState(name) {
+            try {
+              return (await navigator.permissions.query({ name })).state;
+            } catch (e) {
+              return `error:${e?.name ?? 'unknown'}`;
+            }
+          },
+          clicks: () => clicks,
+          vis: () => ({ state: document.visibilityState, hidden: document.hidden, changes: visLog.slice() }),
+        };
+      })();
+    </script>
+  </body>
+</html>

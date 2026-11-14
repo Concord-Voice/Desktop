@@ -13,6 +13,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
+import CaptureMovedBanner from './components/Voice/CaptureMovedBanner';
+import CaptureLeaseAnnouncer from './components/Voice/CaptureLeaseAnnouncer';
 import { UpdateSecurityBanner } from './components/Updates/UpdateSecurityBanner';
 import MediaPolicyDialog from './components/Voice/MediaPolicyDialog';
 import VoiceJoinErrorNotice from './components/Voice/VoiceJoinErrorNotice';
@@ -57,6 +59,7 @@ import { useVoiceStore } from './stores/voice/voiceStore';
 import { startBadgeSync } from './services/system/badgeSync';
 import { startTraySync } from './services/system/traySync';
 import { startTrayActionDispatcher } from './services/system/trayActionDispatcher';
+import { installCaptureRevocationHandler } from './services/voice/captureRevocation';
 import { usePendingRegistrationStore } from './stores/auth/pendingRegistrationStore';
 // resetService is eagerly registered by main.tsx; local dynamic imports resolve
 // from that loaded module while avoiding direct feature-module cycles.
@@ -483,6 +486,13 @@ function App() {
     };
   }, [isPipWindow]);
 
+  // #87: mirror capture-lease pushes into voiceStore and act on revocations. The PiP
+  // window never holds the lease.
+  useEffect(() => {
+    if (isPipWindow) return undefined;
+    return installCaptureRevocationHandler();
+  }, [isPipWindow]);
+
   useEffect(() => {
     if (deepLinkInviteCode && deepLinkSessionReady) {
       // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: opens queued invite modal after auth state becomes eligible; not a render loop
@@ -677,6 +687,8 @@ function App() {
           <MediaPolicyDialog />
           {!isPipWindow && <VoiceJoinErrorNotice />}
           <UpdateBanner />
+          {!isPipWindow && <CaptureMovedBanner />}
+          <CaptureLeaseAnnouncer />
           {/* DM voice call ring UI (#1209). IncomingCallBanner: corner banner
               for callee. OutgoingCallModal: bottom-right non-modal prompt for
               caller. Both render nothing when voiceStore.callState.kind is idle. */}

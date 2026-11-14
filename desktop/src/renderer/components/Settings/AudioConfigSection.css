@@ -1,0 +1,21 @@
+/* ─── Device-test capture lease row (#87 §3.8) ─────────────────────────────── */
+
+/* Why a microphone or camera test cannot run here, or why it stopped. Shared by
+   the Audio and Video Configuration test rows. Existing tokens only. */
+.settings-device-test-lease {
+  margin: 0 0 8px;
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: calc(13px * var(--font-scale, 1));
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.settings-mic-test-btn:focus-visible,
+.settings-camera-test-btn:focus-visible {
+  outline: 2px solid var(--state-focused);
+  outline-offset: 2px;
+}

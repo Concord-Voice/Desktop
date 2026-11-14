@@ -68,9 +68,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'media:getDesktopSources': 'app-global-mutate',
   // #86 Task 7B pass 2 (accepted security finding): a hidden connection must not start
   // system-audio capture, so a start is admitted from the foreground primary only. The
-  // handler re-checks foreground after its await and refuses while ANOTHER connection
-  // owns a live share. audiocap:stop stays connection-bound: a hidden owner may still
-  // end its own share, and the handler admits the owner alone.
+  // handler re-checks foreground after its await, and (#87) admits only the capture-lease
+  // holder, before the await and again after it; another connection's share ends early
+  // only through the lease's consent handoff. audiocap:stop stays connection-bound: a
+  // hidden owner may still end its own share, and the handler admits the owner alone.
   'audiocap:start': 'app-global-mutate',
   // #195 (merged from main): only the foreground primary may probe a self-hosted
   // server: the native approval ceremony and the DNS work it starts are process-wide,
@@ -86,8 +87,14 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:googleSignIn': 'app-global-mutate',
   // #86 Task 7B (tray:setStatus): connection-bound so the registry admits any bound primary; the
   // handler keeps each connection's snapshot as its own and renders only the tray source's:
-  // trayOwner() when #87 names one, else the foreground primary (#86 B1).
+  // trayOwner() when the #87 capture lease names one (a stale owner shows a neutral tray), else
+  // the foreground primary (#86 B1).
   'tray:setStatus': 'connection-bound',
+  // #87 (contract v35): the capture lease. Connection-bound so a background primary can
+  // release, and a holder re-acquire, from where it is; a FRESH acquire and the consent
+  // ceremony are foreground-only inside captureLease.ts. A PiP is refused at admission.
+  'capture:acquire': 'connection-bound',
+  'capture:release': 'connection-bound',
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
   'window:setTitleBarOverlayColor': 'exempt-low-stakes',

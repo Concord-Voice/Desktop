@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo, useId, useSyncExternalStore } from 'react';
 import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
 import { createResizeKeyHandler } from '../../utils/ui/resizeKeyboard';
 import { useVoiceStore, MAX_TUNED_SCREEN_SHARES } from '../../stores/voice/voiceStore';
@@ -12,6 +12,8 @@ import StreamBar from './StreamBar';
 import VoiceControls from './VoiceControls';
 import VoiceTextChat from './VoiceTextChat';
 import VoiceViewSwitch from './VoiceViewSwitch';
+import { CaptureLeaseHint } from './CaptureLeaseAnnouncer';
+import { isAcquirePending, subscribeAcquirePending } from '../../services/voice/captureLeaseClient';
 import './VoiceView.css';
 
 interface VoiceViewProps {
@@ -67,20 +69,39 @@ const JoinPrompt: React.FC<JoinPromptProps> = ({
   isConnecting,
   memberCount,
   onJoin,
-}) => (
-  <div className="voice-view">
-    <div className="voice-view__join">
-      <div className="voice-view__join-icon">
-        <Users size={48} />
+}) => {
+  // #87: from the click until main answers the capture prompt, the control is busy but
+  // stays focusable (aria-disabled + a guarded click, never native `disabled`), so focus
+  // is still here when the user chooses Stay.
+  const joinPending = useSyncExternalStore(subscribeAcquirePending, isAcquirePending);
+  const leaseHeldElsewhere = useVoiceStore((s) => s.captureLease === 'other');
+  const hintId = useId();
+  const showConnecting = isConnecting || joinPending;
+  return (
+    <div className="voice-view">
+      <div className="voice-view__join">
+        <div className="voice-view__join-icon">
+          <Users size={48} />
+        </div>
+        <h2 className="voice-view__join-title">{channelName}</h2>
+        <p className="voice-view__join-subtitle">{getJoinSubtitle(showConnecting, memberCount)}</p>
+        <button
+          className="voice-view__join-btn"
+          onClick={() => {
+            if (!joinPending) onJoin();
+          }}
+          disabled={isConnecting && !joinPending}
+          aria-disabled={joinPending || undefined}
+          aria-busy={joinPending || undefined}
+          aria-describedby={leaseHeldElsewhere ? hintId : undefined}
+        >
+          {showConnecting ? 'Connecting...' : 'Join Voice'}
+        </button>
+        {leaseHeldElsewhere && <CaptureLeaseHint id={hintId} />}
       </div>
-      <h2 className="voice-view__join-title">{channelName}</h2>
-      <p className="voice-view__join-subtitle">{getJoinSubtitle(isConnecting, memberCount)}</p>
-      <button className="voice-view__join-btn" onClick={onJoin} disabled={isConnecting}>
-        {isConnecting ? 'Connecting...' : 'Join Voice'}
-      </button>
     </div>
-  </div>
-);
+  );
+};
 
 interface HeaderBadgesProps {
   participantCount: number;
@@ -262,7 +283,12 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       const { voiceService } = await import('../../services/voice/voiceService');
       await voiceService.joinChannel(channelId);
     } catch {
-      hasJoinedRef.current = false;
+      // joinChannel surfaces its own user-facing error.
+    } finally {
+      // A declined capture prompt (#87) resolves without joining; re-arm the control.
+      const voice = useVoiceStore.getState();
+      hasJoinedRef.current =
+        voice.activeChannelId === channelId && voice.connectionState === 'connected';
     }
   };
 

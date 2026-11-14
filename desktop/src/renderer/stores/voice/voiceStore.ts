@@ -10,6 +10,7 @@ import type { ScreenAudioInterruptReason } from '../../../shared/audiocapProtoco
 import type { ScreenAudioVerdict } from '../../utils/policy/screenAudioCapability';
 import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from './audioQualityTiers';
 import type { MediaPolicySource } from '../../services/voice/mediaPolicyEvents';
+import type { CaptureLeaseView } from '../../services/voice/captureLeaseClient';
 
 // ---------------------------------------------------------------------------
 // Persisted device settings (per-machine via localStorage)
@@ -612,6 +613,17 @@ interface VoiceState {
    *  resetService on an account change. */
   clearMediaPolicyInterrupt: () => void;
 
+  /** #87 capture lease as main last pushed it. PRESERVED by reset(); cleared by resetService. */
+  captureLease: CaptureLeaseView;
+  /** #87 "call ended because the microphone moved" banner. PRESERVED by reset(); cleared by
+   *  resetService, the banner's Dismiss and a granted join. */
+  captureMovedNotice: boolean;
+  /** #87 bumped on each declined join so the announcer speaks once per decline. Transient. */
+  captureDeclinedSeq: number;
+  setCaptureLease: (v: CaptureLeaseView) => void;
+  setCaptureMovedNotice: (v: boolean) => void;
+  bumpCaptureDeclined: () => void;
+
   // Full reset (on disconnect)
   reset: () => void;
 }
@@ -639,6 +651,9 @@ const initialState = {
   screenShareMuted: {} as Record<string, boolean>,
   mediaPolicyPaused: {} as Partial<Record<MediaPolicySource, string>>,
   mediaPolicyInterrupt: null as MediaPolicyInterrupt | null,
+  captureLease: 'none' as CaptureLeaseView,
+  captureMovedNotice: false,
+  captureDeclinedSeq: 0,
   activeSpeakerId: null as string | null,
   audioInputDeviceId: persisted.audioInputDeviceId ?? null,
   audioOutputDeviceId: persisted.audioOutputDeviceId ?? null,
@@ -933,6 +948,9 @@ export const useVoiceStore = createStore<VoiceState>()((set) => ({
     }),
   setMediaPolicyInterrupt: (mediaPolicyInterrupt) => set({ mediaPolicyInterrupt }),
   clearMediaPolicyInterrupt: () => set({ mediaPolicyInterrupt: null }),
+  setCaptureLease: (captureLease) => set({ captureLease }),
+  setCaptureMovedNotice: (captureMovedNotice) => set({ captureMovedNotice }),
+  bumpCaptureDeclined: () => set((s) => ({ captureDeclinedSeq: s.captureDeclinedSeq + 1 })),
 
   // Channel voice members (sidebar)
   setChannelVoiceMembers: (channelId, members) =>
@@ -1209,6 +1227,11 @@ export const useVoiceStore = createStore<VoiceState>()((set) => ({
       // tear down the one explanation the user gets. resetService clears it on account
       // change instead, and the dialog clears it on dismiss.
       mediaPolicyInterrupt: state.mediaPolicyInterrupt,
+      // Preserve the #87 capture lease view and the moved notice: a `moved` revocation
+      // sets the notice and then runs emergencyCleanup() → reset(), and the lease is
+      // main's fact about this connection, not call state. resetService clears both.
+      captureLease: state.captureLease,
+      captureMovedNotice: state.captureMovedNotice,
       // Preserve device settings across join/leave (they're persisted to localStorage)
       audioInputDeviceId: state.audioInputDeviceId,
       audioOutputDeviceId: state.audioOutputDeviceId,

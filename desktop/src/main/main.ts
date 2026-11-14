@@ -14,8 +14,9 @@ import {
 } from './ipc/connection';
 import { registerIpc, setRemoteSpaOriginSource } from './ipc/registry';
 import { crossCheckApiBase, type ConnectionSender } from './ipc/connectionSender';
-import { registerAudiocapIpc } from './ipc/audiocap';
+import { registerAudiocapIpc, revokeAudiocapShare } from './ipc/audiocap';
 import { registerBillingIpc } from './ipc/billing';
+import { registerCaptureIpc } from './ipc/capture';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import {
   initTray,
@@ -25,7 +26,12 @@ import {
   setTrayActionSender,
   setTrayWindowFocused,
 } from './tray';
-import { attachTrayResetHooks, registerTrayStatusIpc, trayActionTarget } from './ipc/trayStatus';
+import {
+  attachTrayResetHooks,
+  registerTrayStatusIpc,
+  setTrayOwner,
+  trayActionTarget,
+} from './ipc/trayStatus';
 import { TRAY_ACTION } from '../shared/trayStatus';
 import {
   audiocapMachineCapability,
@@ -67,6 +73,7 @@ import fs from 'node:fs';
 import { makeServiceCustody } from './serviceCustody';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
+import { tryAcquireModal } from './modalMutex';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
 import {
   approvalTierForApiBase,
@@ -150,6 +157,7 @@ import {
   recordFor,
   refOf,
   registerService,
+  serviceMediaCapability,
   type RegisterServiceDeps,
   type ServiceRecord,
 } from './connectionRegistry';
@@ -191,6 +199,16 @@ import {
   type SelfHostedProbeResult,
 } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
+import {
+  holderRef,
+  initCaptureLease,
+  isHolder,
+  legacyAcquire,
+  shutdownCaptureLeaseForQuit,
+} from './captureLease';
+import { installCaptureLeaseArbiter } from './capturePolicy';
+import { runCaptureCeremony, type CeremonyAnswer } from './captureCeremony';
+import { consumeCaptureCeremonyToken } from './captureCeremonyBudget';
 import { migrateUserData } from './userDataMigration';
 import { showSplash, closeSplash, updateSplashError } from './splashWindow';
 import { maybePromptMove } from './applicationsFolderGate';
@@ -1709,6 +1727,32 @@ const createWindow = async (): Promise<void> => {
 // Track rollback result so we can notify the renderer after window creation
 let rollbackResult: SentinelResult | null = null;
 
+/** The service a connection belongs to, or undefined once either is gone. */
+function serviceOfConnection(ref: ConnectionRef): ServiceRecord | undefined {
+  const record = recordFor(ref.connectionId);
+  return record === undefined ? undefined : getService(record.serviceId);
+}
+
+/**
+ * #87 §3.4: the capture-move dialog. The shell window is read HERE, at ceremony time,
+ * not when the lease is initialised: 'activate' re-creates the window. With no window,
+ * or a connection or service the registry no longer knows, there is nothing to parent
+ * or label the dialog with, so the answer is 'stay' and the holder keeps capture.
+ */
+function runCaptureLeaseCeremony(
+  from: ConnectionRef,
+  to: ConnectionRef,
+  signal: AbortSignal
+): Promise<CeremonyAnswer> {
+  const win = shellWindow();
+  const fromService = serviceOfConnection(from);
+  const toService = serviceOfConnection(to);
+  if (win === null || fromService === undefined || toService === undefined) {
+    return Promise.resolve('stay');
+  }
+  return runCaptureCeremony(win, fromService, toService, signal);
+}
+
 // App lifecycle handlers
 app.whenReady().then(async () => {
   if (maybePromptMove()) return;
@@ -1828,6 +1872,24 @@ app.whenReady().then(async () => {
   // the `closed` handler nulls the variable. #86 Task 4: "the main window" is the saas
   // view until Task 7B binds the share's owner connection.
   registerAudiocapIpc();
+  // #87: the capture lease and its permission arbiter, ONCE, here: after the audiocap
+  // handler it gates and before the first connection view opens, and never in
+  // createWindow, which the dock 'activate' path re-runs. A crashed-renderer reload is
+  // left to the lease's default (it reloads on `render-process-gone`).
+  initCaptureLease({
+    foreground,
+    recordFor,
+    sendToConnection,
+    setTrayOwner,
+    revokeAudiocapShare,
+    serviceMediaCapability,
+    isQuitting: () => isQuitting,
+    runCeremony: runCaptureLeaseCeremony,
+    tryAcquireModal: () => tryAcquireModal('capture'),
+    consumeCeremonyToken: consumeCaptureCeremonyToken,
+  });
+  installCaptureLeaseArbiter();
+  registerCaptureIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
   registerBillingIpc(shellWindow);
   // Status-aware tray (tray-status spec §4): any binding-admitted primary main frame + a
@@ -1854,7 +1916,8 @@ app.whenReady().then(async () => {
 
   // OS permission management (#197) — JIT prompting replaces proactive startup requests.
   // Camera/mic/screen/notifications are requested when the feature is first used.
-  registerPermissionHandlers(sendToConnection);
+  // #87: a `permission:changed` push reaches the capture-lease holder, read per change.
+  registerPermissionHandlers(sendToConnection, () => holderRef());
 
   // ─── Update safety: startup validation (#384) ─────────────────────
   // Must run before createWindow() so we can stash rollback info,
@@ -1947,7 +2010,8 @@ app.whenReady().then(async () => {
   // trayless and window-all-closed keeps its quit (see handler below).
   // Open/Quit and the two update rows are main-direct (spec §4); everything that
   // changes client state goes to the renderer as a closed-enum `tray:action`, and only
-  // to the connection whose snapshot the tray shows (#86 B1: `trayActionTarget`).
+  // to the connection whose snapshot the tray shows (#86 B1; #87 RC-2: the lease holder
+  // while it owns the tray, else the foreground). A stale owner sends nothing.
   setTrayActionSender((action) => {
     const contents = trayActionTarget();
     if (!contents) return;
@@ -2047,6 +2111,9 @@ app.on('window-all-closed', () => {
 electronAutoUpdater.on('before-quit-for-update', () => {
   isQuitting = true;
   destroyPipWindowsForQuit();
+  // #87: abort an open capture-move dialog and disarm the handoff crash timer, so no
+  // renderer is crashed during shutdown. Synchronous, like everything on this path.
+  shutdownCaptureLeaseForQuit();
   // Reap the concord-audiocap capture child (#3195). Synchronous and
   // fire-and-forget: utilityProcess.kill() takes no handshake, and an await
   // anywhere on a quit path re-enters the #1383 veto window.
@@ -2059,6 +2126,8 @@ app.on('before-quit', () => {
   // the quit can complete — without this, app.quit() deadlocks (#1383).
   isQuitting = true;
   destroyPipWindowsForQuit();
+  // #87: same as the update hook above.
+  shutdownCaptureLeaseForQuit();
   // Reap the concord-audiocap capture child (#3195), on the same no-await terms
   // as the update hook above.
   killAudiocapHost();
@@ -2123,7 +2192,13 @@ registerIpc('app:getBuildTag', 'app-global-read', () => getBuildTag(), {
 registerIpc(
   'media:getDesktopSources',
   'app-global-mutate',
-  async () => {
+  async (sender) => {
+    // #87 RC-8: the foreground alone is not enough; only the capture-lease holder may
+    // enumerate every screen and window. Same refusal value as the admission's. A pre-35
+    // SPA never calls `capture:acquire`, so its first capture-adjacent call can be this one
+    // (a listen-only join, then Share Screen): it gets the same implicit lease its
+    // permission request would, and only while the lease is free and it is the foreground.
+    if (!isHolder(sender.ref) && !legacyAcquire(sender.ref)) return [];
     const sources = await desktopCapturer.getSources({
       types: ['window', 'screen'],
       thumbnailSize: { width: 320, height: 180 },
@@ -2796,23 +2871,35 @@ async function probeWithApprovalCeremony(
   // The dialog speaks for the view the user is looking at: a hidden connection's
   // view never raises it (#86).
   if (!isForegroundSender(sender)) return probeRejected();
-  // Rations the DIALOG, not the probe: an approved origin never reaches this
-  // branch, so re-probing it stays unthrottled. The token is taken before the
-  // modal opens because a declined ceremony cost the user the same interruption
-  // an approved one did.
-  if (!consumeCeremonyToken()) {
-    console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
-    return { status: 'error', code: 'too_many_prompts', message: '' };
+  // One main-owned modal at a time (#87 R13): while the capture-move dialog is open
+  // this refuses before a token is spent. The handler has no 'busy' shape.
+  const releaseModal = tryAcquireModal('self-hosted-approval');
+  if (!releaseModal) {
+    console.warn('[selfHosted:probeServer] refused — another ceremony is open');
+    return probeRejected();
   }
-  // The shell window is read HERE, at ceremony time — not at handler registration,
-  // when the auth window does not yet exist.
-  const approved = await requestSelfHostedApproval(shellWindow(), {
-    host,
-    // Every resolved address, not just the representative: the user consents to the
-    // whole set the name answers with, so the whole set is what the dialog states.
-    address: resolved.addresses.join(', '),
-    decision: resolved.decision,
-  });
+  let approved: boolean;
+  try {
+    // Rations the DIALOG, not the probe: an approved origin never reaches this
+    // branch, so re-probing it stays unthrottled. The token is taken before the
+    // modal opens because a declined ceremony cost the user the same interruption
+    // an approved one did.
+    if (!consumeCeremonyToken()) {
+      console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
+      return { status: 'error', code: 'too_many_prompts', message: '' };
+    }
+    // The shell window is read HERE, at ceremony time — not at handler registration,
+    // when the auth window does not yet exist.
+    approved = await requestSelfHostedApproval(shellWindow(), {
+      host,
+      // Every resolved address, not just the representative: the user consents to the
+      // whole set the name answers with, so the whole set is what the dialog states.
+      address: resolved.addresses.join(', '),
+      decision: resolved.decision,
+    });
+  } finally {
+    releaseModal();
+  }
   // After every await: the view that asked must still be the one that is live.
   if (!isSenderCurrent(sender)) return probeRejected();
   if (!approved) {

@@ -235,6 +235,20 @@ lists TWO lines for that one file because an asar listing carries the `concord-a
 DIRECTORY entry alongside it, and both are required — the two numbers describe different units,
 not a disagreement. This feature must never be the reason either moves.
 
+## Who may start a capture, and who ends one (#87 capture lease)
+
+- **`audiocap:start` requires the capture lease.** The handler in `desktop/src/main/ipc/audiocap.ts`
+  admits only the connection `isHolder()` names. That holder gate replaces #86's rule, which
+  refused a start while another connection owned a share. A non-holder is refused before
+  anything reaches the capture child.
+- **A lease handoff calls `revokeAudiocapShare()`.** It ends the outgoing holder's share through
+  `killAudiocapCapture()`, which kills the capture child and spares the windowless app-start
+  probe (ADR-0043 A9), so the machine-capability snapshot survives a handoff.
+- **A generation advance is not the lease's to handle.** When the owning document reloads,
+  navigates or crashes, the generation listener in `ipc/audiocap.ts` ends the share with the
+  graceful `stopAudiocapHost()`, which still reads the addon's `status()`. The lease never
+  tears down a share on an advance; it only calls `revokeAudiocapShare()` on a handoff.
+
 ## Non-negotiable, independent of JSF++
 
 - **The ring buffer is fuzzed.** It is the one component reachable across a trust boundary.

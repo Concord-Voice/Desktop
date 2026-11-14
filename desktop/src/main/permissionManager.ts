@@ -241,10 +241,17 @@ function requireKnownType(type: string): OsPermissionType {
  * #86 Task 7B: every channel goes through `registerIpc`. The two reads are
  * `app-global-read`, the request and the settings deep link `app-global-mutate`
  * (foreground primary only, so a hidden view cannot raise an OS prompt). A refused
- * sender resolves `undefined`, as before. `permission:changed` goes only to the
- * requesting connection, and only while its generation is still current.
+ * sender resolves `undefined`, as before. `permission:changed` goes to the requesting
+ * connection and, when `holder()` names a DIFFERENT connection, to the capture-lease
+ * holder too (#87: a background holder is still capturing and must learn the OS
+ * state); never to a third connection, and only while each generation is current
+ * (`push` drops a stale ref). The holder gets the push only: its own request and
+ * settings calls stay `app-global-mutate`, refused from the background (R14).
  */
-export function registerIpcHandlers(push: ConnectionPush): void {
+export function registerIpcHandlers(
+  push: ConnectionPush,
+  holder?: () => ConnectionRef | null
+): void {
   const refused = () => undefined;
   registerIpc(
     'permission:checkAll',
@@ -266,7 +273,12 @@ export function registerIpcHandlers(push: ConnectionPush): void {
     async (sender, _event, type: string): Promise<OsPermissionStatus | undefined> => {
       const known = requireKnownType(type);
       const status = await requestPermission(known);
-      push(sender.ref, 'permission:changed', { type: known, status });
+      const changed = { type: known, status };
+      push(sender.ref, 'permission:changed', changed);
+      const holderRef = holder?.() ?? null;
+      if (holderRef !== null && holderRef.connectionId !== sender.ref.connectionId) {
+        push(holderRef, 'permission:changed', changed);
+      }
       return status;
     },
     { refusal: (): Promise<OsPermissionStatus | undefined> => Promise.resolve(undefined) }

@@ -280,7 +280,7 @@
 
 /* Lift rather than fade: the fill and label are tuned to hold 4.5:1, and an
    opacity or brightness change on hover would take several schemes below it. */
-.voice-view__join-btn:hover:not(:disabled) {
+.voice-view__join-btn:hover:not(:disabled, [aria-disabled='true']) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(250, 112, 154, 0.3);
 }
@@ -288,6 +288,12 @@
 .voice-view__join-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* #87: waiting on the capture prompt. Focusable (aria-disabled), so no native :disabled. */
+.voice-view__join-btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: progress;
 }
 
 /* ─── Text chat panel (horizontal: below voice, vertical: right side) ── */

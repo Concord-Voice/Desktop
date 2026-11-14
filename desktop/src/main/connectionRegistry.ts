@@ -37,7 +37,9 @@
 //    advances a generation (a credential-end that disposes, say) has its write land
 //    immediately — revocation is never deferred — but its notification is queued
 //    behind the one being delivered, so no listener observes `(2→3)` after `(3→4)`.
-//    One listener throwing does not starve the rest.
+//    Foreground changes (#87) ride the same queue, so a foreground listener never
+//    sees a disposal before every `'disposed'` generation listener has run. One
+//    listener throwing does not starve the rest.
 
 import { randomBytes } from 'node:crypto';
 import type { Session, WebContents, WebContentsView } from 'electron';
@@ -73,6 +75,11 @@ export interface ServiceRecord {
   readonly dirKey: string;
   readonly session: Session;
   readonly custody: ProfileCustody;
+  /**
+   * What the service says it supports (#87 §3.7). Self-Hosted#112 owns the producer;
+   * nothing sets it yet. Only an explicit `media: false` refuses capture.
+   */
+  readonly capabilities?: { readonly media?: boolean };
 }
 
 export type ConnectionState = 'loading' | 'ready' | 'disposed';
@@ -118,12 +125,24 @@ interface ConnectionEntry {
   disposing: boolean;
 }
 
-interface PendingNotification {
-  readonly id: ConnectionId;
-  readonly from: Generation;
-  readonly to: Generation;
-  readonly reason: GenerationReason;
-}
+export type ForegroundListener = (
+  prev: ConnectionRecord | null,
+  next: ConnectionRecord | null
+) => void;
+
+type PendingNotification =
+  | {
+      readonly kind: 'generation';
+      readonly id: ConnectionId;
+      readonly from: Generation;
+      readonly to: Generation;
+      readonly reason: GenerationReason;
+    }
+  | {
+      readonly kind: 'foreground';
+      readonly prev: ConnectionRecord | null;
+      readonly next: ConnectionRecord | null;
+    };
 
 const FIRST_GENERATION = 1 as Generation;
 
@@ -135,6 +154,7 @@ let bindings = new WeakMap<WebContents, SenderBinding>();
 let pipSpaOrigins = new WeakMap<WebContents, string>();
 let foregroundId: ConnectionId | null = null;
 const listeners = new Set<GenerationListener>();
+const foregroundListeners = new Set<ForegroundListener>();
 const pendingNotifications: PendingNotification[] = [];
 let delivering = false;
 
@@ -211,6 +231,13 @@ export function unregisterService(id: ServiceId): boolean {
 
 export function getService(id: ServiceId): ServiceRecord | undefined {
   return services.get(id);
+}
+
+/** `capabilities.media` of the live connection's service; `undefined` when not stated. */
+export function serviceMediaCapability(id: ConnectionId): boolean | undefined {
+  const record = connections.get(id)?.record;
+  if (!record) return undefined;
+  return services.get(record.serviceId)?.capabilities?.media;
 }
 
 /** Every registered service, live or not (the dev Connections menu). Grants nothing. */
@@ -364,21 +391,35 @@ export function refOf(record: ConnectionRecord): ConnectionRef {
   return Object.freeze({ connectionId: record.connectionId, generation: record.generation });
 }
 
+function notify(notification: PendingNotification): void {
+  if (notification.kind === 'foreground') {
+    for (const listener of [...foregroundListeners]) {
+      try {
+        listener(notification.prev, notification.next);
+      } catch {
+        console.warn('[connectionRegistry] a foreground listener threw');
+      }
+    }
+    return;
+  }
+  for (const listener of [...listeners]) {
+    try {
+      listener(notification.id, notification.from, notification.to, notification.reason);
+    } catch {
+      // Not rethrown: revocation already landed, the remaining listeners must
+      // still run, and a throw here reaches main.ts's uncaughtException exit.
+      console.warn(`[connectionRegistry] a generation listener threw (${notification.reason})`);
+    }
+  }
+}
+
 function deliver(notification: PendingNotification): void {
   pendingNotifications.push(notification);
   if (delivering) return; // the outer delivery drains it, in order (invariant 4)
   delivering = true;
   try {
     for (let next = pendingNotifications.shift(); next; next = pendingNotifications.shift()) {
-      for (const listener of [...listeners]) {
-        try {
-          listener(next.id, next.from, next.to, next.reason);
-        } catch {
-          // Not rethrown: revocation already landed, the remaining listeners must
-          // still run, and a throw here reaches main.ts's uncaughtException exit.
-          console.warn(`[connectionRegistry] a generation listener threw (${next.reason})`);
-        }
-      }
+      notify(next);
     }
   } finally {
     delivering = false;
@@ -397,7 +438,7 @@ export function advanceGeneration(id: ConnectionId, reason: GenerationReason): G
   const entry = connections.get(id);
   if (!entry) throw new Error('advanceGeneration: unknown connection');
   const [from, to] = entry.advance();
-  deliver({ id, from, to, reason });
+  deliver({ kind: 'generation', id, from, to, reason });
   return to;
 }
 
@@ -409,39 +450,26 @@ export function onGenerationAdvanced(listener: GenerationListener): () => void {
   };
 }
 
-const foregroundListeners = new Set<() => void>();
-
 /**
- * Called after every foreground change: `setForeground` to another id, and the clear in
- * `disposeConnection`. The tray (#86 B1) re-renders for the new foreground from here,
- * so no caller of `setForeground` can leave it showing another connection. Returns an
- * unsubscribe.
+ * Fired after the foreground changes, from `setForeground` and from
+ * `disposeConnection`'s clear (then with `prev.state === 'disposed'` and `next ===
+ * null`). Never fired when nothing changed. Synchronous outside a delivery; inside
+ * one it is queued behind it (invariant 4). Returns an unsubscribe.
  */
-export function onForegroundChanged(listener: () => void): () => void {
+export function onForegroundChanged(listener: ForegroundListener): () => void {
   foregroundListeners.add(listener);
   return () => {
     foregroundListeners.delete(listener);
   };
 }
 
-function announceForeground(): void {
-  // Copied on purpose: a listener may subscribe or unsubscribe while this runs.
-  for (const listener of [...foregroundListeners]) {
-    try {
-      listener();
-    } catch {
-      // Not rethrown: the foreground already moved, and the other listeners must run.
-      console.warn('[connectionRegistry] a foreground listener threw');
-    }
-  }
-}
-
 /** Throws for an id that is not live; `null` clears. */
 export function setForeground(id: ConnectionId | null): void {
   if (id !== null && !connections.has(id)) throw new Error('setForeground: unknown connection');
-  if (foregroundId === id) return;
+  const prev = foreground();
   foregroundId = id;
-  announceForeground();
+  const next = foreground();
+  if (prev !== next) deliver({ kind: 'foreground', prev, next });
 }
 
 export function foreground(): ConnectionRecord | null {
@@ -451,12 +479,11 @@ export function foreground(): ConnectionRecord | null {
 
 /**
  * advanceGeneration('disposed') → state 'disposed' → clear foreground if it was this
- * one → drop its bindings and the record → announce the cleared foreground, once the
- * record is gone. Idempotent: an unknown id is a no-op, and
- * so is a call made from a listener while this connection is already being
- * disposed, so `'disposed'` is announced once. The caller still owns destroying
- * the PiPs (`record.pips` is left intact for it), removing the view and closing
- * the webContents (§3.9 dispose order).
+ * one → drop its bindings and the record → announce the foreground clear (#87).
+ * Idempotent: an unknown id is a no-op, and so is a call made from a listener while
+ * this connection is already being disposed, so `'disposed'` is announced once. The
+ * caller still owns destroying the PiPs (`record.pips` is left intact for it),
+ * removing the view and closing the webContents (§3.9 dispose order).
  */
 export function disposeConnection(id: ConnectionId): void {
   const entry = connections.get(id);
@@ -473,7 +500,8 @@ export function disposeConnection(id: ConnectionId): void {
     pipSpaOrigins.delete(pip);
   }
   connections.delete(id);
-  if (wasForeground) announceForeground();
+  // Announced once the record is gone, so a listener sees the settled registry.
+  if (wasForeground) deliver({ kind: 'foreground', prev: record, next: null });
 }
 
 export function liveConnections(): ConnectionRecord[] {
@@ -496,8 +524,18 @@ export function _resetConnectionRegistryForTesting(): void {
   bindings = new WeakMap<WebContents, SenderBinding>();
   pipSpaOrigins = new WeakMap<WebContents, string>();
   foregroundId = null;
-  foregroundListeners.clear();
   listeners.clear();
+  foregroundListeners.clear();
   pendingNotifications.length = 0;
   delivering = false;
+}
+
+/** Test-only stand-in for Self-Hosted#112's producer, which does not exist yet. */
+export function _setServiceCapabilitiesForTesting(
+  id: ServiceId,
+  capabilities: { media?: boolean }
+): void {
+  const service = services.get(id);
+  if (!service) throw new Error('_setServiceCapabilitiesForTesting: unknown service');
+  services.set(id, Object.freeze({ ...service, capabilities: Object.freeze({ ...capabilities }) }));
 }

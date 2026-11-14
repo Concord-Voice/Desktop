@@ -47,7 +47,7 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 | **inviteStore**                 | Server invites                                               | ❌                   | 1B    |
 | **draftSettingsStore**          | Unsaved settings drafts                                      | ❌                   | 1B    |
 | **ttsSettingsStore**            | Text-to-speech settings                                      | ✅                   | 1B    |
-| **voiceStore**                  | Voice state, participants, quality tiers                     | ✅ device settings   | 1C    |
+| **voiceStore**                  | Voice state, participants, quality tiers, capture lease      | ✅ device settings   | 1C    |
 | **audioSettingsStore**          | Audio input/output device prefs                              | ✅                   | 1C    |
 | **videoSettingsStore**          | Video device and codec prefs                                 | ✅                   | 1C    |
 | **dmStore**                     | DM conversations, participants                               | ❌                   | 1C    |
@@ -82,6 +82,14 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 The inventory above is an architectural overview. The canonical store set lives in `src/renderer/stores/`.
 
 The table inventories 42 of the 45 Zustand stores; `billingStore`, `settingsCollapsibleStore` and `totpAcceptedStore` are not yet listed. The structural module count (47, measured in `src/renderer/stores/` excluding tests, `index.ts` and `types.ts`) also includes two dependency-free support modules intentionally excluded from this table: `colorSyncSuppression.ts`, a mutable UI support module, and `voice/audioQualityTiers.ts`, pure tier data.
+
+**`voiceStore` and `reset()`.** `reset()` runs on every call teardown and keeps a preserve list
+(device ids, layout preferences, the #2153 `mediaPolicyInterrupt`). The #87 capture-lease fields
+follow the same rule. `captureLease` (`'none' | 'mine' | 'other'`, mirrored from main's
+`capture:lease` push) and `captureMovedNotice` (the "microphone moved" banner) are **preserved by
+`reset()`**, because a `moved` revocation sets the notice and then runs `emergencyCleanup()` →
+`reset()`. `gracefulReset()` clears both on an account change. `captureDeclinedSeq` is transient
+and `reset()` wipes it. These are fields on the existing store; the store count is unchanged.
 
 ---
 
@@ -657,6 +665,7 @@ Normal user-initiated logout should call `userStore.logout()`, which requests ma
 **2026-04-09:** Added the Phase 2B stores
 **2026-07-18:** Updated auth ownership and lifecycle semantics, replaced the point-in-time store total with the canonical Key Counts reference
 **2026-08-30:** Updated concern-grouped store paths and documented the non-Zustand support-module exclusion
+**2026-11-11:** Documented the #87 `voiceStore` capture-lease fields and their `reset()` preserve rule
 
 ---
 

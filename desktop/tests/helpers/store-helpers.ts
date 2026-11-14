@@ -89,14 +89,16 @@ export function resetAllStores(): void {
   useSavedGifsStore.setState({ gifs: [] });
   useChannelScrollStore.setState({ anchors: {} });
   useVoiceStore.getState().reset();
-  // reset() intentionally preserves layout prefs (incl. voiceViewMode) and the
-  // #2153 media-policy interrupt — pin both here so tests never order-depend on a
-  // prior toggle or a prior eviction.
+  // reset() intentionally preserves layout prefs (incl. voiceViewMode), the #2153
+  // media-policy interrupt and the #87 capture-lease fields — pin them here so tests
+  // never order-depend on a prior toggle, eviction or revocation.
   useVoiceStore.setState({
     channelVoiceMembers: {},
     serverVoiceCounts: {},
     voiceViewMode: 'front-center',
     mediaPolicyInterrupt: null,
+    captureLease: 'none',
+    captureMovedNotice: false,
   });
   useUpdateStatusStore.getState().reset();
   useSSOStore.getState().reset();

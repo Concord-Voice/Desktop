@@ -8,10 +8,11 @@
  *   1. sender frame   -- read on the FIRST statement (A4). Since IPC contract v34
  *                        (#86): `app-global-mutate` admission (the foreground
  *                        connection's primary), then `isOwnerPrimaryFrame` for the
- *                        connection the share is bound to, and a refusal while another
- *                        connection owns a live share. Re-run after the only await,
- *                        with a foreground re-check, because the requester can go away
- *                        or go to the background during it.
+ *                        connection the share is bound to, then the capture-lease holder
+ *                        gate (#87), which replaced #86's refusal while another
+ *                        connection owns a live share. Re-run after the only await, with
+ *                        a foreground and holder re-check, because the requester can go
+ *                        away or go to the background during it.
  *   2. payload shape  -- one known field; extras are dropped, never honoured
  *   3. prefix + shape -- re-parsed HERE, never trusted from the renderer (D4a)
  *   4. liveness       -- the id must still be in desktopCapturer's enumeration
@@ -24,11 +25,13 @@ import { desktopCapturer, type IpcMainInvokeEvent } from 'electron';
 
 import {
   audiocapRendererLossEpoch,
-  currentAudiocapGeneration,
+  killAudiocapCapture,
   startAudiocapHost,
   stopAudiocapHost,
   type AudiocapStartResult,
 } from '../audiocapHost';
+import { isHolder } from '../captureLease';
+import type { ConnectionId } from '../../shared/connectionIdentity';
 import { parseWindowSourceId } from '../../shared/parseWindowSourceId';
 import {
   bindOwner,
@@ -78,9 +81,12 @@ function isOwnerPrimaryFrame(event: IpcMainInvokeEvent, owner: OwnerBinding): bo
  * The connection that owns the live or pending share, or null. Set synchronously when a
  * well-formed start is admitted (before its await), so the owner's stop during the
  * enumeration wins and another connection's stop is refused. Cleared by the owner's
- * stop and by any generation advance of the owner's connection (below).
+ * stop, by any generation advance of the owner's connection (below) and by the capture
+ * lease's handoff (`revokeAudiocapShare`).
  */
 let shareOwner: OwnerBinding | null = null;
+/** Matches no live connection: used where a kill must reach only an ownerless capture. */
+const NO_CONNECTION = '' as ConnectionId;
 
 /** The owner of the live or pending share, for main's port and interrupt routing. */
 export function audiocapShareOwner(): OwnerBinding | null {
@@ -88,30 +94,18 @@ export function audiocapShareOwner(): OwnerBinding | null {
 }
 
 /**
- * The generation this module handed `startAudiocapHost` for `shareOwner`'s share, or 0
- * before one reached the host. Cleared with `shareOwner`.
+ * THE HOLDER GATE (#87 RC-3, spec §3.6). Only the capture-lease holder may start a share,
+ * so with exclusive capture no two connections can hold a tap. It REPLACES #86's
+ * refuse-while-another-connection-owns-a-live-share rule: that rule judged a share by the
+ * host's liveness, while the lease judges the connection, and the consent handoff
+ * (`revokeAudiocapShare`, then the ceremony's grant) is now the only way another
+ * connection's share ends early. Checked before the await and again after it, beside the
+ * foreground re-check, because the lease can move while the enumeration is pending. A
+ * refusal is `protocol-fault`, the one refusal member `AudiocapStartResult` has. What
+ * breaks it: reading the holder from the payload or the window, or checking it only once.
  */
-let ownedShareGeneration = 0;
-
-/**
- * NO SILENT REPLACE (#86 Task 7B pass 2, accepted security finding). True while a
- * connection other than `owner`'s owns a LIVE share: the host's live session is the one
- * this module started for `shareOwner`. A start that passed this check would supersede
- * that session inside `startAudiocapHost` and hand the tap to another connection.
- *
- * "Live" is the host's own answer (`currentAudiocapGeneration`, 0 when nothing is live),
- * so a share the host retired on its own (an interrupt, a crash) blocks nobody, while a
- * share still starting or capturing does. A pending start that has not reached the host
- * yet is not live: only the foreground primary can start, so a second start can only come
- * from a connection that became foreground since, and its epoch bump supersedes the first.
- * The owner restarting its own share is not refused (the pre-#86 behaviour). What breaks
- * it: comparing the window or the payload instead of the owner's connection, or reading
- * the module's own generation mint instead of the host's live one.
- */
-function anotherConnectionOwnsLiveShare(owner: OwnerBinding): boolean {
-  const current = shareOwner;
-  if (current === null || current.ref.connectionId === owner.ref.connectionId) return false;
-  return ownedShareGeneration !== 0 && currentAudiocapGeneration() === ownedShareGeneration;
+function ownerHoldsLease(owner: OwnerBinding): boolean {
+  return isHolder(owner.ref);
 }
 
 /** True while the owner's connection is still the foreground one (re-checked after the await). */
@@ -122,7 +116,6 @@ function isOwnerForeground(event: IpcMainInvokeEvent, owner: OwnerBinding): bool
 
 function forgetShareOwner(): void {
   shareOwner = null;
-  ownedShareGeneration = 0;
 }
 
 /**
@@ -145,8 +138,9 @@ function nextShareGeneration(): number {
 }
 
 /**
- * Exported for test. `registerIpc` registers it below behind the `connection-bound`
- * admission, so the tests exercise the same function production does rather than a copy.
+ * Exported for test. `registerIpc` registers it below behind the `app-global-mutate`
+ * admission (the foreground primary), so the tests exercise the same function production
+ * does rather than a copy.
  * `sender` is the main-held binding the registry admitted in the event's own tick.
  *
  * `request: unknown` IS THE POINT, and it is a deliberate divergence from the plan's
@@ -169,11 +163,11 @@ export async function handleAudiocapStart(
   if (sender.role !== 'primary') return { ok: false, reason: 'protocol-fault' };
   const owner = bindOwner('audiocap', sender.ref);
   if (!isOwnerPrimaryFrame(event, owner)) return { ok: false, reason: 'protocol-fault' };
-  // No silent replace: another connection's live share is refused, not superseded. The
-  // refusal reuses `protocol-fault`, the member this fence already answers with: the
-  // degrade union is closed and every member carries renderer copy, so a new reason is
-  // not additive.
-  if (anotherConnectionOwnsLiveShare(owner)) return { ok: false, reason: 'protocol-fault' };
+  // The holder gate (#87): a foreground non-holder is refused before any OS work, so the
+  // holder's share is never superseded. The refusal reuses `protocol-fault`, the member this
+  // fence already answers with: the degrade union is closed and every member carries
+  // renderer copy, so a new reason is not additive.
+  if (!ownerHoldsLease(owner)) return { ok: false, reason: 'protocol-fault' };
 
   // FENCE 2. Read exactly the one field. An extra `systemAudio: true` is not
   // rejected, because rejecting it would tell a hostile renderer which fields
@@ -207,9 +201,6 @@ export async function handleAudiocapStart(
   // cannot land after the check but before the native host is registered.
   shareOperationEpoch += 1;
   const operationEpoch = shareOperationEpoch;
-  // A different connection's start (admitted only because no share of the old owner is
-  // live) must not inherit the old owner's generation.
-  if (shareOwner?.ref.connectionId !== owner.ref.connectionId) ownedShareGeneration = 0;
   shareOwner = owner;
   // A reload or renderer crash during the await below finds no session to kill, so the
   // start must notice it here instead, or it forks a tap for a document that is gone.
@@ -244,12 +235,17 @@ export async function handleAudiocapStart(
   if (!isOwnerForeground(event, owner)) {
     return { ok: false, reason: 'protocol-fault' };
   }
+  // The holder gate again (#87): the lease can move during the enumeration (a handoff, a
+  // backgrounded revocation, the holder's release), and a start its connection no longer
+  // holds the lease for must not fork a tap.
+  if (!ownerHoldsLease(owner)) {
+    return { ok: false, reason: 'protocol-fault' };
+  }
   if (!live.some((s) => s.id === sourceId)) {
     return { ok: false, reason: 'target-unresolved' };
   }
 
   const generation = nextShareGeneration();
-  ownedShareGeneration = generation;
   return startAudiocapHost(generation, handle, owner);
 }
 
@@ -289,6 +285,30 @@ export function handleAudiocapStop(_sender: ConnectionSender, event: IpcMainInvo
   forgetShareOwner();
   shareOperationEpoch += 1;
   stopAudiocapHost();
+}
+
+/**
+ * End the share for the capture lease's consent handoff (#87 RC-4, spec §3.6): the lease
+ * moves to another connection, so the old holder's share must end before the grantee can
+ * start one. Forgets the owner (a bare `killAudiocapCapture()` would leave `shareOwner` set,
+ * so the old holder's stop and main's port routing would still name it), supersedes a start
+ * still awaiting its enumeration through the operation epoch, and kills the renderer capture
+ * at once. `killAudiocapCapture`, never `killAudiocapHost`: it spares the windowless
+ * app-start probe (ADR-0043 A9). The immediate kill rather than the graceful stop because
+ * the grantee is waiting on it.
+ *
+ * The lease calls this from its handoff only, never from its generation listener: the
+ * listener in `registerAudiocapIpc` below already stops the owner's share gracefully on
+ * every advance of its connection, and a kill there would race and cut that stop short.
+ */
+export function revokeAudiocapShare(): void {
+  // The kill is scoped to a connection (#86): read the owner BEFORE forgetting it, so the
+  // holder's own share is ended in its name. An ownerless capture (a host-level start) ends
+  // for any id, which the empty one is.
+  const owner = shareOwner;
+  forgetShareOwner();
+  shareOperationEpoch += 1;
+  killAudiocapCapture(owner?.ref.connectionId ?? NO_CONNECTION);
 }
 
 /**

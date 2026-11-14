@@ -29,15 +29,32 @@ vi.mock('@/renderer/stores/voice/voiceStore', () => {
   return { useVoiceStore };
 });
 
+vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>();
+  return { ...actual, acquire: vi.fn(), release: vi.fn() };
+});
+
 import { useCameraTest } from '@/renderer/hooks/device/useCameraTest';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
+import {
+  acquire,
+  release,
+  captureLeaseMessage,
+  captureRevokedEvents,
+  dispatchCaptureRevoked,
+  CAPTURE_REVOKED_EVENT,
+} from '@/renderer/services/voice/captureLeaseClient';
 
 const mockTrackStop = vi.fn();
 let mockGetUserMedia: ReturnType<typeof vi.fn>;
+let callOrder: string[] = [];
 
 beforeEach(() => {
   resetAllStores();
   vi.clearAllMocks();
+  vi.mocked(acquire).mockResolvedValue({ status: 'granted' });
+  vi.mocked(release).mockResolvedValue(true);
   (useVoiceStore as any).setState({ videoDeviceId: 'camera-1' });
   mockGetUserMedia = vi.fn().mockResolvedValue({
     getTracks: () => [{ stop: mockTrackStop }],
@@ -82,8 +99,10 @@ describe('useCameraTest', () => {
     mockGetUserMedia.mockReturnValueOnce(pending);
     const { result } = renderHook(() => useCameraTest());
     let start!: Promise<void>;
-    act(() => {
+    await act(async () => {
       start = result.current.toggleTest();
+      // #87: the capture lease is answered before getUserMedia starts.
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
     });
     await act(async () => {
       resolveCapture(stream);
@@ -103,8 +122,10 @@ describe('useCameraTest', () => {
     mockGetUserMedia.mockReturnValueOnce(pending);
     const { result } = renderHook(() => useCameraTest());
     let start!: Promise<void>;
-    act(() => {
+    await act(async () => {
       start = result.current.toggleTest();
+      // #87: the capture lease is answered before getUserMedia starts.
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
     });
     act(() => result.current.stopTest());
     await act(async () => {
@@ -114,6 +135,34 @@ describe('useCameraTest', () => {
     expect(stop, 'cancelled capture must release its late track').toHaveBeenCalledOnce();
     expect(result.current.stream).toBeNull();
     expect(result.current.isTesting).toBe(false);
+  });
+
+  it('#87 a cancelled camera test keeps its claim until the late stream is stopped (Codex P2)', async () => {
+    let resolveCapture!: (stream: MediaStream) => void;
+    const pending = new Promise<MediaStream>((resolve) => {
+      resolveCapture = resolve;
+    });
+    const order: string[] = [];
+    const stop = vi.fn(() => order.push('stop-track'));
+    vi.mocked(release).mockImplementation(async () => {
+      order.push('release');
+      return true;
+    });
+    mockGetUserMedia.mockReturnValueOnce(pending);
+    const { result } = renderHook(() => useCameraTest());
+    let start!: Promise<void>;
+    await act(async () => {
+      start = result.current.toggleTest();
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
+    });
+    act(() => result.current.stopTest());
+    expect(release, 'no release while the capture request is outstanding').not.toHaveBeenCalled();
+    await act(async () => {
+      resolveCapture({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+      await start;
+    });
+    expect(order).toEqual(['stop-track', 'release']);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('#3635 stops a camera stream resolved after unmount', async () => {
@@ -126,8 +175,10 @@ describe('useCameraTest', () => {
     mockGetUserMedia.mockReturnValueOnce(pending);
     const { result, unmount } = renderHook(() => useCameraTest());
     let start!: Promise<void>;
-    act(() => {
+    await act(async () => {
       start = result.current.toggleTest();
+      // #87: the capture lease is answered before getUserMedia starts.
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
     });
     unmount();
     await act(async () => {
@@ -193,8 +244,10 @@ describe('useCameraTest', () => {
     mockGetUserMedia.mockReturnValueOnce(pending);
     const { result } = renderHook(() => useCameraTest());
     let start!: Promise<void>;
-    act(() => {
+    await act(async () => {
       start = result.current.toggleTest();
+      // #87: the capture lease is answered before getUserMedia starts.
+      await vi.waitFor(() => expect(mockGetUserMedia).toHaveBeenCalled());
     });
     act(() => (useVoiceStore as any).setState({ connectionState: 'connected' }));
     await act(async () => {
@@ -232,5 +285,105 @@ describe('useCameraTest', () => {
     });
     unmount();
     expect(mockTrackStop).toHaveBeenCalled();
+  });
+});
+
+describe('useCameraTest capture lease (#87)', () => {
+  beforeEach(() => {
+    const order: string[] = [];
+    vi.mocked(acquire).mockImplementation(async (intent) => {
+      order.push(`acquire:${intent}`);
+      return { status: 'granted' };
+    });
+    vi.mocked(release).mockResolvedValue(true);
+    mockGetUserMedia.mockImplementation(async () => {
+      order.push('getUserMedia');
+      return { getTracks: () => [{ stop: mockTrackStop }] };
+    });
+    callOrder = order;
+  });
+
+  it('acquires device-test before getUserMedia', async () => {
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(callOrder).toEqual(['acquire:device-test', 'getUserMedia']);
+    expect(result.current.isTesting).toBe(true);
+    expect(result.current.stoppedReason).toBeNull();
+  });
+
+  it('held: does not capture and reports stoppedReason "held"', async () => {
+    vi.mocked(acquire).mockResolvedValue({ status: 'held' });
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(mockGetUserMedia).not.toHaveBeenCalled();
+    expect(result.current.isTesting).toBe(false);
+    expect(result.current.stoppedReason).toBe('held');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('other rejects: does not capture and shows the captureLeaseMessage copy', async () => {
+    vi.mocked(acquire).mockResolvedValue({ status: 'rejected', reason: 'not-foreground' });
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(mockGetUserMedia).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(captureLeaseMessage('not-foreground'));
+    expect(result.current.stoppedReason).toBeNull();
+  });
+
+  it('granted: toggling off releases device-test', async () => {
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(release).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
+  });
+
+  it('granted: unmount releases device-test and removes the revoke listener', async () => {
+    const removeSpy = vi.spyOn(captureRevokedEvents, 'removeEventListener');
+    const { result, unmount } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    unmount();
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
+    expect(removeSpy).toHaveBeenCalledWith(CAPTURE_REVOKED_EVENT, expect.any(Function));
+  });
+
+  it('capture-revoked "backgrounded" while testing stops tracks and reports it', async () => {
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    act(() => dispatchCaptureRevoked('backgrounded'));
+    expect(mockTrackStop).toHaveBeenCalled();
+    expect(result.current.isTesting).toBe(false);
+    expect(result.current.stream).toBeNull();
+    expect(result.current.stoppedReason).toBe('backgrounded');
+    expect(release).toHaveBeenCalledWith('device-test', expect.any(Number));
+  });
+
+  it('the next start clears stoppedReason', async () => {
+    vi.mocked(acquire).mockResolvedValueOnce({ status: 'held' });
+    const { result } = renderHook(() => useCameraTest());
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(result.current.stoppedReason).toBe('held');
+    await act(async () => {
+      await result.current.toggleTest();
+    });
+    expect(result.current.stoppedReason).toBeNull();
+    expect(result.current.isTesting).toBe(true);
   });
 });
