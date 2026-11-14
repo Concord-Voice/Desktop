@@ -9,6 +9,7 @@ import { voiceService } from '../../services/voice/voiceService';
 import {
   acquire,
   currentDeviceTestEpoch,
+  trackDeviceCapture,
   release,
   captureLeaseMessage,
   captureRevokedEvents,
@@ -452,9 +453,11 @@ export function useMicTest(): UseMicTestReturn {
       useProcessing: boolean,
       generation: number
     ): Promise<boolean> => {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: buildMicConstraints(adv, voiceState, useProcessing),
-      });
+      const stream = await trackDeviceCapture(
+        navigator.mediaDevices.getUserMedia({
+          audio: buildMicConstraints(adv, voiceState, useProcessing),
+        })
+      );
       if (generation !== generationRef.current) {
         stopStreamTracks(stream);
         return false;
@@ -580,8 +583,9 @@ export function useMicTest(): UseMicTestReturn {
 
       try {
         // #87: the capture lease is asked for before any OS prompt or getUserMedia.
-        const leaseEpoch = currentDeviceTestEpoch();
         const lease = await acquire('device-test');
+        // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
+        const leaseEpoch = currentDeviceTestEpoch();
         if (generation !== generationRef.current) {
           // Stopped while main answered. This grant owns nothing: give its count back. A
           // successor's own acquire is already counted, so the claim survives for it.

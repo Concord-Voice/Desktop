@@ -120,6 +120,7 @@ export async function acquire(
   // A device-test hold is counted BEFORE the invoke, so an overlapping release cannot see
   // a count that excludes an acquire still in flight; a non-grant gives the hold back.
   const counted = intent === 'device-test';
+  const countEpoch = deviceTestEpoch;
   if (counted) deviceTestHolds += 1;
   let granted = false;
   try {
@@ -131,7 +132,11 @@ export async function acquire(
   } catch {
     return IPC_ERROR;
   } finally {
-    if (counted && !granted) deviceTestHolds = Math.max(0, deviceTestHolds - 1);
+    // A revocation reset the count to 0 while this acquire was in flight, so there is nothing of
+    // ours left to give back: decrementing would take a successor test's hold.
+    if (counted && !granted && countEpoch === deviceTestEpoch) {
+      deviceTestHolds = Math.max(0, deviceTestHolds - 1);
+    }
     if (tracked) setPendingJoins(pendingJoins - 1);
   }
 }
@@ -147,7 +152,8 @@ let deviceTestHolds = 0;
  * While set, `release` sends nothing. Main reads ANY release from a revoked holder as the
  * handoff ack, so after a failed call teardown no release may leave this document (the
  * 5 s crash must run instead), whichever path fires it: the revocation handler's own or a
- * stopping device test's. Cleared by the next lease push, which also ends the handoff.
+ * stopping device test's. The revocation handler owns when it lifts (see captureRevocation):
+ * a lease push alone does not mean the handoff ended.
  */
 let releasesWithheld = false;
 
@@ -156,8 +162,9 @@ export function withholdReleases(on: boolean): void {
 }
 
 /**
- * Bumped by every revocation. A device-test holder reads it BEFORE it acquires and passes it
- * back to `release`: main already ended a revoked claim, so a release from before the
+ * Bumped by every revocation. A device-test holder reads it right AFTER its acquire resolves
+ * (the reply and a revoke push are ordered, so a grant main made after a revoke carries the
+ * new epoch) and passes it back to `release`: main already ended a revoked claim, so a release from before the
  * revocation is dropped instead of ending a successor's claim (a probe that outlives the
  * revoke, finishing after the user started another test).
  */
@@ -165,6 +172,34 @@ let deviceTestEpoch = 0;
 
 export function currentDeviceTestEpoch(): number {
   return deviceTestEpoch;
+}
+
+const pendingDeviceCaptures = new Set<Promise<unknown>>();
+
+/**
+ * Registers a device-test `getUserMedia` so a moved revocation can wait for it to settle
+ * before its acknowledgement leaves; returns the same promise. Register it BEFORE awaiting
+ * it, so the owner's own continuation (which stops a stale stream) runs first.
+ */
+export function trackDeviceCapture<T>(capture: Promise<T>): Promise<T> {
+  const tail = capture.then(
+    () => undefined,
+    () => undefined
+  );
+  pendingDeviceCaptures.add(tail);
+  void tail.then(() => pendingDeviceCaptures.delete(tail));
+  return capture;
+}
+
+/** Resolves once every tracked capture settled, or after `maxMs` (a permission prompt can hang). */
+export async function settleDeviceCaptures(maxMs: number): Promise<void> {
+  if (pendingDeviceCaptures.size === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, maxMs);
+  });
+  await Promise.race([Promise.allSettled([...pendingDeviceCaptures]), limit]);
+  clearTimeout(timer);
 }
 
 /** Never rejects, so cleanup paths can fire it with `void`. */

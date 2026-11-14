@@ -9,7 +9,9 @@ import {
   leaseViewOf,
   release,
   subscribeAcquirePending,
+  settleDeviceCaptures,
   subscribeLeaseState,
+  trackDeviceCapture,
 } from '@/renderer/services/voice/captureLeaseClient';
 import type { CaptureAcquireResult, CaptureLeaseState } from '@/shared/captureLease';
 
@@ -223,6 +225,44 @@ describe('captureLeaseClient — overlapping device tests share one claim', () =
     expect(releaseFn).not.toHaveBeenCalled();
     await expect(release('device-test', testEpoch)).resolves.toBe(true); // the new test ends
     expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused acquire that outlives a revocation does not take a successor test’s hold', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    let refuse: (r: { status: 'held' }) => void = () => undefined;
+    const acquireFn = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((res) => (refuse = res)))
+      .mockResolvedValue({ status: 'granted' });
+    setBridge({ acquire: acquireFn, release: releaseFn });
+    const refused = acquire('device-test'); // counted, still in flight
+    dispatchCaptureRevoked('backgrounded'); // main ended the claim; the count resets
+    await acquire('device-test'); // test B
+    await acquire('device-test'); // test C
+    refuse({ status: 'held' });
+    await refused; // must not give back B's hold
+    await release('device-test', currentDeviceTestEpoch()); // B stops
+    expect(releaseFn).not.toHaveBeenCalled(); // C still holds the claim
+    await release('device-test', currentDeviceTestEpoch()); // C stops
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('settleDeviceCaptures resolves when the tracked capture settles, or at its bound', async () => {
+    let finish: () => void = () => undefined;
+    void trackDeviceCapture(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
+    );
+    const done = vi.fn();
+    void settleDeviceCaptures(5000).then(done);
+    await Promise.resolve();
+    expect(done).not.toHaveBeenCalled();
+    finish();
+    await vi.waitFor(() => expect(done).toHaveBeenCalled());
+    const hung = trackDeviceCapture(new Promise<void>(() => undefined));
+    void hung;
+    await expect(settleDeviceCaptures(10)).resolves.toBeUndefined();
   });
 
   it('a revocation clears the count so the stopping tests still release', async () => {

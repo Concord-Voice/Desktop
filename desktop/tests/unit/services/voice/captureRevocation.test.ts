@@ -144,7 +144,7 @@ describe('installCaptureRevocationHandler', () => {
     await vi.waitFor(() => expect(log).toContain('release:voice-join'));
   });
 
-  it('a throwing emergencyCleanup withholds every release (any release is the ack), then a lease push lifts it', async () => {
+  it('a throwing emergencyCleanup withholds every release (any release is the ack) and no later lease push lifts it', async () => {
     vi.mocked(voiceService.emergencyCleanup).mockImplementationOnce(() => {
       throw new Error('cleanup failed');
     });
@@ -160,11 +160,30 @@ describe('installCaptureRevocationHandler', () => {
     for (const call of warn.mock.calls) {
       for (const arg of call) expect(arg).not.toBeInstanceOf(Error);
     }
-    // The handoff ended (a lease push arrived): releases are allowed again.
+    // The 5 s crash replaces this document, so a later push (the user switching back to this
+    // connection sends one) must not let a Leave or a recovery release pass as the ack.
+    pushLease({ held: true, mine: false });
     pushLease({ held: false, mine: false });
     log.length = 0;
     const { release } = await import('@/renderer/services/voice/captureLeaseClient');
     await release('voice-join');
-    expect(log).toContain('release:voice-join');
+    expect(log).not.toContain('release:voice-join');
+  });
+
+  it('waits for an in-flight device capture before the acknowledgement leaves', async () => {
+    const { trackDeviceCapture } = await import('@/renderer/services/voice/captureLeaseClient');
+    let finish: () => void = () => undefined;
+    void trackDeviceCapture(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
+    );
+    log.length = 0;
+    revoke({ reason: 'moved' });
+    await vi.waitFor(() => expect(log).toContain('capture-revoked:moved'));
+    await Promise.resolve();
+    expect(log).not.toContain('release:voice-join');
+    finish();
+    await vi.waitFor(() => expect(log).toContain('release:voice-join'));
   });
 });

@@ -13,12 +13,16 @@ import { advanceVoiceActionGeneration } from './voiceActionGeneration';
 import {
   dispatchCaptureRevoked,
   release,
+  settleDeviceCaptures,
   withholdReleases,
   subscribeLeaseRevoked,
   subscribeLeaseState,
 } from './captureLeaseClient';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { useConnectionStore } from '../../stores/ui/connectionStore';
+
+/** Well inside main's 5 s acknowledgement window. */
+const DEVICE_CAPTURE_SETTLE_MS = 1500;
 
 function releaseAll(): void {
   void release('voice-join');
@@ -28,6 +32,12 @@ function releaseAll(): void {
 
 /** True from the revocation until its call and device-test teardown have both finished. */
 let movedInFlight = false;
+/**
+ * Set when the call teardown failed. The 5 s crash then replaces this document, so nothing
+ * legitimate lifts the withhold: a later lease push (the user switching back to this
+ * connection pushes one) must not let a Leave or a recovery release pass as the ack.
+ */
+let holdUntilReload = false;
 
 async function handleMoved(): Promise<void> {
   // Any release from this document is the ack main reads, so none may leave before the call
@@ -50,10 +60,14 @@ async function handleMoved(): Promise<void> {
       voiceService.emergencyCleanup({ keepCaptureLease: true });
     } catch {
       tornDown = false;
+      holdUntilReload = true;
       // Message-only: an error object can carry ids or tokens.
       console.warn('[capture] call teardown after a moved revocation failed');
     }
     dispatchCaptureRevoked('moved');
+    // A webcam probe or test still opening the camera must settle (its own continuation stops
+    // the stream) before the acknowledgement lets main grant the next holder.
+    if (tornDown) await settleDeviceCaptures(DEVICE_CAPTURE_SETTLE_MS);
     // After a failed teardown the withhold stays, so the releases below go nowhere and the
     // 5 s crash ends this document.
     if (tornDown) withholdReleases(false);
@@ -70,9 +84,11 @@ function handleBackgrounded(): void {
 }
 
 export function installCaptureRevocationHandler(): () => void {
+  movedInFlight = false;
+  holdUntilReload = false;
   const stopLease = subscribeLeaseState((view) => {
     // The push that follows a moved revocation arrives while its teardown is still running.
-    if (!movedInFlight) withholdReleases(false);
+    if (!movedInFlight && !holdUntilReload) withholdReleases(false);
     useVoiceStore.getState().setCaptureLease(view);
   });
   const stopRevoked = subscribeLeaseRevoked(({ reason }) => {

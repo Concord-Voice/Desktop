@@ -3,6 +3,7 @@ import { useVoiceStore } from '../../stores/voice/voiceStore';
 import {
   acquire,
   currentDeviceTestEpoch,
+  trackDeviceCapture,
   release,
   captureLeaseMessage,
   captureRevokedEvents,
@@ -69,8 +70,9 @@ export function useCameraTest(): UseCameraTestReturn {
     async (generation: number) => {
       setError(null);
       setStoppedReason(null);
-      const leaseEpoch = currentDeviceTestEpoch();
       const lease = await acquire('device-test');
+      // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
+      const leaseEpoch = currentDeviceTestEpoch();
       if (generation !== generationRef.current) {
         // Stopped while main answered. This grant owns nothing: give its count back. A
         // successor's own acquire is already counted, so the claim survives for it.
@@ -87,9 +89,11 @@ export function useCameraTest(): UseCameraTestReturn {
       leaseEpochRef.current = leaseEpoch;
       try {
         const deviceId = useVoiceStore.getState().videoDeviceId;
-        const next = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId: { exact: deviceId } } : true,
-        });
+        const next = await trackDeviceCapture(
+          navigator.mediaDevices.getUserMedia({
+            video: deviceId ? { deviceId: { exact: deviceId } } : true,
+          })
+        );
         if (generation !== generationRef.current) {
           for (const track of next.getTracks()) track.stop();
           return;
