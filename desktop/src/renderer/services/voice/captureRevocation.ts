@@ -34,7 +34,9 @@ async function handleMoved(): Promise<void> {
   try {
     // Lazy, like the other voice consumers: the voice chunk stays out of the boot graph.
     const { voiceService } = await import('./voiceService');
-    voiceService.emergencyCleanup();
+    // Keep the lease: a camera test running beside the call is stopped by the dispatch below,
+    // and the release (main's ack) must follow that, not precede it.
+    voiceService.emergencyCleanup({ keepCaptureLease: true });
   } catch {
     tornDown = false;
     // Message-only: an error object can carry ids or tokens.

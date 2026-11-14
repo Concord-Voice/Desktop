@@ -99,6 +99,8 @@ describe('installCaptureRevocationHandler', () => {
     ]);
     expect(useVoiceStore.getState().captureMovedNotice).toBe(true);
     expect(voiceService.joinChannel).not.toHaveBeenCalled();
+    // The cleanup must not release by itself: the acknowledgement follows the device-test stop.
+    expect(voiceService.emergencyCleanup).toHaveBeenCalledWith({ keepCaptureLease: true });
   });
 
   it('backgrounded: no call teardown, revoke event, device-test release only, lease cleared', async () => {
