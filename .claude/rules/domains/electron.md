@@ -1167,6 +1167,14 @@ not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isola
 | `pip-scoped` | a bound PiP or its primary | `untrusted-sender` |
 | `exempt-low-stakes` | the foreground primary | silent `undefined`, no log |
 
+**The [X] and [-] choice follows the connection on screen (#86 C7).** Each view keeps its
+settings in its own session's storage, so `window:setClientBehavior` is `connection-bound`
+and `ipc/windowControls.ts` keeps one value per service; the close and minimize intercepts
+read the foreground service's, else the default, the same shape as `tray:setStatus`. One
+shared value followed whichever connection wrote last, so [X] could quit the app while the
+visible connection said close to tray. Each renderer pushes its stored value on rehydrate,
+which also closes the gap where a restart used the default until the setting was touched.
+
 **SSO sign-in starts are foreground-only and never supersede another connection (#86 RT1/RT2).**
 `sso:appleSignIn` and `sso:googleSignIn` are `app-global-mutate`: a start opens the system
 browser and redeems with the embedded client secret, so a hidden view must not reach it. The
@@ -1349,7 +1357,7 @@ The registry admits before any side effect and refuses a missing, untrusted, det
 
 **Current accepted-exception handlers** (added via #806):
 
-- `window:setClientBehavior` — writes a `ClientBehavior` shape to the in-memory cache consumed by the close/minimize intercepts. Worst case: graceful fall-through to `app.quit()` on unknown values (intentional fail-safe).
+- `window:setClientBehavior` — writes a `ClientBehavior` shape to the in-memory cache consumed by the close/minimize intercepts. Worst case: graceful fall-through to `app.quit()` on unknown values (intentional fail-safe). Since #86 C7 it is `connection-bound`, not `exempt-low-stakes`: main keeps one value per service, keyed from the sender's binding, and the intercepts read the foreground service's, else `DEFAULT_CLIENT_BEHAVIOR` (`getCachedClientBehavior` in `ipc/windowControls.ts`). Every view pushes its stored value when `settingsStore` rehydrates (`onRehydrateStorage`), so [X] follows the connection on screen from launch. A hidden view's write applies only while that view is in front, so it still cannot re-arm the visible connection's [X].
 - `window:setTitleBarOverlayColor` — passes a CSS color string to `BrowserWindow.setTitleBarOverlay`. Worst case: visual spoofing of titlebar chrome. CSS-color allowlist regex applied at the handler.
 - `window:getVersionString` + `spa:versionChanged` — reads app version + SPA hash. No mutation, no privilege.
 - `gpu:getInfo` — reads local GPU metadata via `app.getGPUInfo('complete')` and returns bounded `{vendor, device, encodeProfiles}` data. The untyped `videoEncodeAcceleratorSupportedProfiles` payload is shape-checked and maps Chromium `VideoCodecProfile` integer values by exact allowlist before reaching the renderer: H.264 `0-10`, VP8 `11`, VP9 `12-15`, HEVC `16-18` and `29-36`, AV1 `24-26`; Dolby Vision and Theora values are intentionally ignored. No filesystem, network, keychain, shell, auth/RBAC/E2EE, or OS-capture surface is touched.

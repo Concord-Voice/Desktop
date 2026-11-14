@@ -47,6 +47,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Fixed
 
 - **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
+- **Window:** Closing or minimizing the window now follows your setting from the moment the app starts, not only after you change it. With more than one server connection open, it follows the connection on screen.
 - **Chat:** Large or unknown-size images and videos now wait for a click before downloading.
 - **Privacy:** Profile and conversation images now stop downloading when they exceed a safety limit or take too long.
 - **Accessibility:** Reduce Animations and the system reduced-motion preference now stop animated server-bar scrolling and volume-slider thumb transitions.

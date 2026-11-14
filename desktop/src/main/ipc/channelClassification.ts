@@ -91,7 +91,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
   'window:setTitleBarOverlayColor': 'exempt-low-stakes',
-  'window:setClientBehavior': 'exempt-low-stakes',
+  // #86 C7: connection-bound so each primary can push its own stored value while hidden;
+  // the handler keeps one value per service and the [X]/[-] intercepts read only the
+  // foreground service's (as for tray:setStatus), so a hidden view still cannot re-arm them.
+  'window:setClientBehavior': 'connection-bound',
 
   // Per connection: custody, credentials and documents come from the binding.
   'auth:storeRefreshToken': 'connection-bound',

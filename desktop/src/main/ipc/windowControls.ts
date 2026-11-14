@@ -1,9 +1,19 @@
 import { app, type BaseWindow } from 'electron';
 import { DEFAULT_CLIENT_BEHAVIOR, type ClientBehavior } from '../../shared/clientBehavior';
+import type { ServiceId } from '../../shared/connectionIdentity';
+import { foreground } from '../connectionRegistry';
 import { CHANNEL_CLASSES } from './channelClassification';
 import { registerIpc } from './registry';
 
-let cachedClientBehavior: ClientBehavior = DEFAULT_CLIENT_BEHAVIOR;
+/**
+ * #86 C7: each service's view keeps its settings in its own session's storage, so the
+ * close/minimize choice is per service. The intercepts read the FOREGROUND service's
+ * value, else the default, so [X] does what the visible connection's settings say.
+ * Keyed by service, not connection: a reopened connection of the same service reads
+ * the same storage. What breaks it: one shared value, which follows whichever
+ * connection wrote last.
+ */
+const clientBehaviorByService = new Map<ServiceId, ClientBehavior>();
 
 const VALID_TO_TRAY = new Set(['close', 'minimize', 'none']);
 const VALID_TO_TOOLBAR = new Set(['minimize', 'close']);
@@ -23,22 +33,27 @@ function isValidClientBehavior(value: unknown): value is ClientBehavior {
   );
 }
 
+/** The foreground service's close/minimize choice, else the default. */
 export function getCachedClientBehavior(): ClientBehavior {
-  return cachedClientBehavior;
+  const fg = foreground();
+  return (fg && clientBehaviorByService.get(fg.serviceId)) ?? DEFAULT_CLIENT_BEHAVIOR;
 }
 
 /**
- * #86 Task 7B: every channel goes through `registerIpc`. The two chrome channels are
- * `exempt-low-stakes` (the foreground primary only; any other sender is a silent
- * `undefined` with no warn and no effect, so a background view cannot repaint or re-arm
- * the shared window's [X]/[-]); `window:quit` is `app-global-mutate`.
+ * #86 Task 7B: every channel goes through `registerIpc`. `window:setTitleBarOverlayColor`
+ * is `exempt-low-stakes` (the foreground primary only; any other sender is a silent
+ * `undefined` with no warn and no effect, so a background view cannot repaint the shared
+ * window). `window:setClientBehavior` is `connection-bound` (#86 C7): any bound primary
+ * writes its OWN service's value, which applies only while that service is in front, so a
+ * background view still cannot re-arm the visible connection's [X]/[-].
+ * `window:quit` is `app-global-mutate`.
  */
 export function registerWindowControlsIpc(getWindow: () => BaseWindow | null): void {
   const channel = (name: string) => CHANNEL_CLASSES[name];
   registerIpc(
     'window:setClientBehavior',
     channel('window:setClientBehavior'),
-    (_s, _e, value: unknown) => {
+    (sender, _e, value: unknown) => {
       // Runtime input validation at the IPC trust boundary. A compromised
       // renderer could send arbitrary shapes; reject silently and keep the
       // existing cache so [X]/[-] intercept fall-through remains sane.
@@ -46,7 +61,11 @@ export function registerWindowControlsIpc(getWindow: () => BaseWindow | null): v
         console.warn('[windowControls] setClientBehavior rejected: invalid shape from renderer');
         return;
       }
-      cachedClientBehavior = value;
+      // The service comes from the sender's binding, never from the payload.
+      clientBehaviorByService.set(sender.service.serviceId, {
+        toTray: value.toTray,
+        toToolbar: value.toToolbar,
+      });
     }
   );
 
@@ -82,4 +101,8 @@ export function registerWindowControlsIpc(getWindow: () => BaseWindow | null): v
       });
     }
   );
+}
+
+export function _resetWindowControlsForTesting(): void {
+  clientBehaviorByService.clear();
 }

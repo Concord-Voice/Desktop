@@ -549,6 +549,7 @@ Each row is a security decision taken in review. The table of record is
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`; the handler keeps each connection's snapshot as its own and renders only the tray owner's, else the foreground primary's | a background snapshot is kept, not refused, because the renderer sends only on change; #87 only calls `setTrayOwner` |
+| `window:setClientBehavior` | `connection-bound`; the handler keeps one value per service and the close/minimize intercepts read the foreground service's, else the default | each view has its own stored setting, and one shared value made [X] follow whichever connection wrote last (C7); a hidden view's value applies only while it is in front |
 | `attestation:get-token`, `attestation:clear-token` | `connection-bound`, narrowed in the handler to `saas` | the token cache is minted for the `saas` control plane; a non-`saas` connection neither reads nor clears it |
 | `permission:changed` (push) | sent to the requesting connection only | a status change is not broadcast to other connections |
 | `window:getVersionString` | `app-global-read` | primaries only |
