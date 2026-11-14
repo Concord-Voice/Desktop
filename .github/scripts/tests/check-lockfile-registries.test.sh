@@ -52,4 +52,39 @@ expect 1 "replace block fails" "$tmp/go.mod" "$tmp/go.mod:5" "a => b v1.0.0"
 printf 'module x\n\n// replace a => b\nrequire a v1.0.0\n' > "$tmp/go.mod"
 expect 0 "commented replace passes" "$tmp/go.mod"
 
+jq '{lockfileVersion: 1, dependencies: {x: {version: "git+https://evil.example/x.git#abc"}}}' \
+  -n > "$tmp/package-lock.json"
+expect 1 "v1 git version fails" "$tmp/package-lock.json" "has a URL or git spec" "evil.example"
+jq '.packages["node_modules/sneaky"] = {version: "https://evil.example/x.tgz"}' \
+  "$FIX/ok/package-lock.json" > "$tmp/package-lock.json"
+expect 1 "v3 URL version fails" "$tmp/package-lock.json" "node_modules/sneaky" "has a URL or git spec"
+jq '.packages["node_modules/share"] = {version: "1.0.0", resolved: "file://evil.example/share/x.tgz"}' \
+  "$FIX/ok/package-lock.json" > "$tmp/package-lock.json"
+expect 1 "file:// share fails" "$tmp/package-lock.json" "node_modules/share" "not an https URL"
+jq '.packages["node_modules/unc"] = {resolved: "\\\\evil.example\\share", link: true}' \
+  "$FIX/ok/package-lock.json" > "$tmp/package-lock.json"
+expect 1 "UNC link fails" "$tmp/package-lock.json" "node_modules/unc"
+jq '.packages["node_modules/sneaky"] = {version: "1.0.0"}' \
+  "$FIX/ok/package-lock.json" > "$tmp/package-lock.json"
+expect 1 "entry with no resolved fails" "$tmp/package-lock.json" "node_modules/sneaky" "no resolved URL"
+
+cp "$FIX/off-registry/package-lock.json" "$tmp/npm-shrinkwrap.json"
+expect 1 "npm-shrinkwrap.json is checked" "$tmp/npm-shrinkwrap.json" "registry.example.invalid"
+
+npmrc() { # <want-exit> <name> <contents> [<substring>...]
+  local want="$1" name="$2"; printf '%s\n' "$3" > "$tmp/.npmrc"; shift 3
+  expect "$want" "$name" "$tmp/.npmrc" "$@"
+}
+npmrc 0 "npmrc without a registry passes" $'install-links=true\nmin-release-age=7'
+npmrc 0 "npmrc with the approved registry passes" 'registry=https://registry.npmjs.org/'
+npmrc 1 "npmrc registry override fails" 'registry = "https://npm.evil.example/"' "npm.evil.example"
+npmrc 1 "npmrc scoped registry fails" '@acme:registry=https://npm.evil.example' "@acme:registry"
+# shellcheck disable=SC2016  # the literal ${NPM_REGISTRY} is the input under test
+npmrc 1 "npmrc env-substituted registry fails" 'registry=${NPM_REGISTRY}' "not an https URL"
+npmrc 1 "npmrc replace-registry-host fails" 'replace-registry-host=always' "replace-registry-host=always"
+npmrc 0 "npmrc commented registry passes" '# registry=https://npm.evil.example/'
+
+: > "$tmp/yarn.lock"
+expect 1 "yarn.lock is unsupported" "$tmp/yarn.lock" "npm lockfiles only"
+
 exit "$fail"

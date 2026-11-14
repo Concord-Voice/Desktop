@@ -14,11 +14,17 @@ it today. Fail such a PR.
   `https://` on an approved host. Name the file, the package and the host.
 - Fail on any `replace` directive in a tracked `go.mod` or `go.work`.
 - Keep the approved hosts in one small file: `.github/approved-registries.txt`.
+- Fail a tracked `.npmrc` whose `registry` or `@scope:registry` is not an
+  approved https host, or whose `replace-registry-host` is not `npmjs` or
+  `never`. npm rewrites lockfile npmjs URLs to the configured registry, so a
+  `.npmrc` alone can move every fetch (found in review).
+- Check `npm-shrinkwrap.json` like `package-lock.json`. Fail a tracked
+  `yarn.lock` or `pnpm-lock.yaml` as unsupported.
 
 ## Non-goals
 
-- No check of `.npmrc` registry overrides or of integrity hashes. `npm ci`
-  already verifies integrity against the lockfile.
+- No check of integrity hashes. `npm ci` already verifies them against the
+  lockfile.
 - No allowlist for Go `replace`: no tracked `go.mod` uses one today. Add one
   when a real need appears.
 
@@ -36,8 +42,11 @@ it today. Fail such a PR.
   every tracked lockfile, `go.mod` and `go.work` except the script-test
   fixtures. It walks every object with a string `resolved` at any depth, so
   lockfile v1 nested `dependencies` are covered. Allowed: an exact approved
-  host (a port, credentials or a lookalike suffix fail), and local `file:` or
-  `link: true` paths (the in-repo compat packages).
+  host (a port, credentials or a lookalike suffix fail), and relative local
+  `file:` or `link: true` paths (the in-repo compat packages). `file://` and
+  absolute or backslash paths fail: they can reach a network share. A `version`
+  holding a URL or git spec fails, and so does a v2/v3 entry with no
+  `resolved`. An empty file list fails closed.
 - `.github/scripts/tests/check-lockfile-registries.test.sh` — the off-registry
   fixture must fail; plus http, credentials, port, git+ssh, lookalike host, v1
   nesting, and `replace` line and block cases.

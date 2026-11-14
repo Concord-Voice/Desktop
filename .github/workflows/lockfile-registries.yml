@@ -1,13 +1,17 @@
 name: Lockfile Registries
 
-# Fails a PR whose lockfile resolves a package outside the approved registries,
-# or whose go.mod adds a replace directive (#216). Approved hosts live in
+# Fails a PR whose lockfile or .npmrc points npm outside the approved
+# registries, or whose go.mod adds a replace directive (#216). Approved hosts live in
 # .github/approved-registries.txt. No install, no secrets, read-only.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - '**/package-lock.json'
+      - '**/npm-shrinkwrap.json'
+      - '**/.npmrc'
+      - '**/yarn.lock'
+      - '**/pnpm-lock.yaml'
       - '**/go.mod'
       - '**/go.work'
       - '.github/approved-registries.txt'
@@ -36,5 +40,5 @@ jobs:
       - name: Self-test — the off-registry fixture must fail
         run: bash .github/scripts/tests/check-lockfile-registries.test.sh
 
-      - name: Check every tracked lockfile and go.mod
+      - name: Check every tracked lockfile, .npmrc and go.mod
         run: bash .github/scripts/check-lockfile-registries.sh
