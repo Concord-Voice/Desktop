@@ -15,9 +15,9 @@
 //   - the cell labelled C1 is the both-granted control;
 //   - a row carries `seconds`, the length of its run, or a revoke row cannot be judged
 //     and reads `other`;
-//   - every consent run measures one window, the rule's rows come from one OS build and
-//     one Electron version, and each row carries the runner's `runId`: two rows with one
-//     id are one run pasted twice, and a row with none stops the rule.
+//   - every consent and revoke run measures one window, the rule's rows come from one
+//     OS build and one Electron version, and each row carries the runner's `runId`: two
+//     rows with one id are one run pasted twice, and a row with none stops the rule.
 // --never-requested names the grants the app never prompts for. It defaults to both,
 // so a silent cell reading `not-determined` stops the rule unless the lead says
 // otherwise. `--never-requested ''` names none.
@@ -54,6 +54,16 @@ const RESET_CELL = 'C5';
 // evidence that a grant was turned off; a missing or `unknown` reading is not.
 const REVOKE_SECONDS = 60;
 const NOT_HELD = new Set(['denied', 'restricted', 'not-determined']);
+// Every value Electron's getMediaAccessStatus returns. The runner prints all four
+// readings, before and after, on every row, so a consent row without a known one
+// stops the rule.
+const GRANT_VALUES = new Set(['granted', 'unknown', ...NOT_HELD]);
+// A reason prints a grant pair only when both readings are values the runner can
+// print. Anything else came from somewhere else and is not echoed.
+const pairText = (screen, microphone) =>
+  GRANT_VALUES.has(screen) && GRANT_VALUES.has(microphone)
+    ? `${screen}, ${microphone}`
+    : 'an unrecognised pair';
 
 /**
  * @typedef {object} Counters
@@ -64,6 +74,7 @@ const NOT_HELD = new Set(['denied', 'restricted', 'not-determined']);
  * @property {number} destroyFailures
  * @property {boolean} silentSinceStart
  * @property {boolean} faulted
+ * @property {boolean} poisoned
  * @property {boolean} quiesceProved
  */
 
@@ -101,15 +112,23 @@ export function parseLiveness(stderrText) {
   counters.quiesceProved = fields.get('quiesceProved') === 'true';
   // Fail closed: only a printed `false` reads as not faulted.
   counters.faulted = fields.get('faulted') !== 'false';
+  // Fail closed: only a printed `false` reads as not poisoned (a teardown that could
+  // not show the tap stopped).
+  counters.poisoned = fields.get('poisoned') !== 'false';
   return counters;
 }
 
 // `fault` is the acceptable refusal with a reason (spec section 3), so only a fault
 // stage earns it. No counters, or counters that say faulted with no stage, is the OS
-// ending the process or an unexplained fault: `other`, which stops the rule.
+// ending the process or an unexplained fault: `other`, which stops the rule. A run
+// whose teardown latched `poisoned` or failed a destroy is not a clean run either.
 const hasStage = (faultStage) => faultStage !== null && faultStage !== undefined;
 const readable = (counters) =>
-  counters !== null && counters !== undefined && counters.faulted === false;
+  counters !== null &&
+  counters !== undefined &&
+  counters.faulted === false &&
+  counters.poisoned === false &&
+  counters.destroyFailures === 0;
 
 /** One consent run's class (spec section 3). */
 export function classifyConsent(counters, faultStage, controlRatio) {
@@ -189,7 +208,7 @@ export function incompleteCells(cells, revokeRuns) {
     const cell = cells.find((c) => c.id === id);
     if (cell && (cell.screen !== screen || cell.microphone !== microphone)) {
       reasons.push(
-        `${id} reads ${cell.screen}, ${cell.microphone}; expected ${screen}, ${microphone}`
+        `${id} reads ${pairText(cell.screen, cell.microphone)}; expected ${screen}, ${microphone}`
       );
     }
   }
@@ -208,7 +227,7 @@ export function incompleteCells(cells, revokeRuns) {
     const id = run.label ?? 'R1';
     if (run.screen !== 'granted' || run.microphone !== 'granted') {
       reasons.push(
-        `${id} starts reading ${run.screen}, ${run.microphone}; expected granted, granted`
+        `${id} starts reading ${pairText(run.screen, run.microphone)}; expected granted, granted`
       );
     }
     if (!(run.seconds >= REVOKE_SECONDS)) {
@@ -226,23 +245,45 @@ export function incompleteCells(cells, revokeRuns) {
 }
 
 /**
- * Rows the rule cannot pool: consent runs on more than one window, or consent and
- * revoke rows from more than one OS build or Electron version. Each is a Rule C reason.
+ * Rows the rule cannot pool: consent and revoke runs on more than one window, or from
+ * more than one OS build or Electron version, or a consent run whose grants read after
+ * it differ from those read before it (it measured two states, not its cell), or a
+ * consent run with a missing or unrecognised reading before or after it (it cannot show
+ * its grants held). Each is a Rule C reason.
  */
 function mixedRows(rows) {
-  const consent = rows.filter((r) => r.kind === 'consent');
   const ruled = rows.filter((r) => r.kind === 'consent' || r.kind === 'revoke');
   const distinct = (list, key) => new Set(list.map((r) => JSON.stringify(r[key] ?? null))).size;
   const reasons = [];
-  if (consent.some((r) => !Number.isInteger(r.windowId))) {
-    reasons.push('a consent run has no window id');
+  if (ruled.some((r) => !Number.isInteger(r.windowId))) {
+    reasons.push('a consent or revoke run has no window id');
   }
-  const windows = distinct(consent, 'windowId');
-  if (windows > 1) reasons.push(`the consent runs measured ${windows} different windows`);
+  const windows = distinct(ruled, 'windowId');
+  if (windows > 1) {
+    reasons.push(`the consent and revoke runs measured ${windows} different windows`);
+  }
   const builds = distinct(ruled, 'osBuild');
   if (builds > 1) reasons.push(`the rows span ${builds} OS builds`);
   const versions = distinct(ruled, 'electron');
   if (versions > 1) reasons.push(`the rows span ${versions} Electron versions`);
+  for (const r of ruled) {
+    if (r.kind !== 'consent') continue;
+    for (const grant of GRANTS) {
+      const before = r[grant];
+      const after = r[`${grant}After`];
+      // An unrecognised value is not echoed: it did not come from the runner.
+      if (!GRANT_VALUES.has(before)) {
+        reasons.push(`${r.label} has a run with no valid ${grant} reading before it`);
+      }
+      if (!GRANT_VALUES.has(after)) {
+        reasons.push(`${r.label} has a run with no valid ${grant} reading after it`);
+      } else if (GRANT_VALUES.has(before) && after !== before) {
+        reasons.push(
+          `${r.label} has a run that read ${grant} ${before} before it and ${after} after it`
+        );
+      }
+    }
+  }
   return reasons;
 }
 

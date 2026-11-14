@@ -21,6 +21,7 @@ type Counters = {
   destroyFailures: number;
   silentSinceStart: boolean;
   faulted: boolean;
+  poisoned: boolean;
   quiesceProved: boolean;
 };
 
@@ -37,6 +38,7 @@ function counters(
     destroyFailures: 0,
     silentSinceStart: signalTotal === 0,
     faulted: false,
+    poisoned: false,
     quiesceProved: true,
     ...over,
   };
@@ -69,6 +71,7 @@ const EXPECTED = {
   destroyFailures: 0,
   silentSinceStart: false,
   faulted: false,
+  poisoned: false,
   quiesceProved: true,
 };
 
@@ -95,6 +98,18 @@ describe('parseLiveness', () => {
     const read = parseLiveness(LIVENESS_BLOCK.replace('  faulted: false,\n', ''));
     expect(read?.faulted).toBe(true);
     expect(classifyConsent(read, null, 1.0)).toBe('other');
+  });
+
+  // Fail closed like faulted: only a printed false counts as not poisoned.
+  it('reads a missing poisoned field as poisoned, so the run is other', () => {
+    const read = parseLiveness(LIVENESS_BLOCK.replace('  poisoned: false,\n', ''));
+    expect(read?.poisoned).toBe(true);
+    expect(classifyConsent(read, null, 1.0)).toBe('other');
+  });
+
+  it('reads a printed poisoned: true as poisoned', () => {
+    const read = parseLiveness(LIVENESS_BLOCK.replace('poisoned: false', 'poisoned: true'));
+    expect(read?.poisoned).toBe(true);
   });
 
   it('parseLiveness reads a line split across chunks', () => {
@@ -143,6 +158,14 @@ describe('classifyConsent', () => {
   it('is dead at 0 callbacks with no fault', () => {
     expect(classifyConsent(counters(0, 0), null, 1.0)).toBe('dead');
   });
+
+  it('is other when the run was poisoned, even with a carrying ratio', () => {
+    expect(classifyConsent(counters(2000, 2000, { poisoned: true }), null, 1.0)).toBe('other');
+  });
+
+  it('is other when a destroy failed, even with a carrying ratio', () => {
+    expect(classifyConsent(counters(2000, 2000, { destroyFailures: 1 }), null, 1.0)).toBe('other');
+  });
 });
 
 describe('classifyMatrix', () => {
@@ -156,6 +179,17 @@ describe('classifyMatrix', () => {
 
   it('exclude with no signal passes', () => {
     expect(classifyMatrix('exclude', counters(2984, 0), null)).toBe('pass');
+  });
+
+  it('a poisoned include run is a finding', () => {
+    expect(classifyMatrix('include', counters(2315, 856, { poisoned: true }), null)).toBe(
+      'finding'
+    );
+  });
+
+  // A leak stays a leak: the leak check comes before the readable check.
+  it('a poisoned exclude run with signal is still a leak', () => {
+    expect(classifyMatrix('exclude', counters(2984, 1, { poisoned: true }), null)).toBe('leak');
   });
 
   it('a fault is a finding', () => {
@@ -174,11 +208,11 @@ describe('classifyRevoke', () => {
     expect(classifyRevoke(counters(2000, 600), null, control, 10, 10)).toBe('silenced');
   });
 
-  it('between 0.5 and 0.8 of control is other', () => {
+  it('between 0.5 and 0.95 of control is other', () => {
     expect(classifyRevoke(counters(2000, 1300), null, control, 10, 10)).toBe('other');
   });
 
-  it('fewer than half the expected callbacks is stopped', () => {
+  it('under 0.9 of the expected callbacks is stopped', () => {
     expect(classifyRevoke(counters(500, 500), null, control, 10, 10)).toBe('stopped');
   });
 
@@ -194,6 +228,12 @@ describe('classifyRevoke', () => {
   const control20 = counters(2000, 2000); // 100 callbacks a second over 20 s
   it('a tap that ends after 31 s of a 60 s run is stopped, not no-effect', () => {
     expect(classifyRevoke(counters(3100, 3100), null, control20, 20, 60)).toBe('stopped');
+  });
+
+  it('a revoke run with a failed destroy is other', () => {
+    expect(
+      classifyRevoke(counters(2000, 2000, { destroyFailures: 1 }), null, control, 10, 10)
+    ).toBe('other');
   });
 
   it('a tap that goes silent after 48 s of a 60 s run is not no-effect', () => {
@@ -432,39 +472,6 @@ describe('incompleteCells', () => {
   });
 });
 
-describe('classify.mjs CLI', () => {
-  const row = (label: string, screen: string, microphone: string, runId: string) =>
-    JSON.stringify({
-      runId,
-      label,
-      kind: 'consent',
-      screen,
-      microphone,
-      enumerable: true,
-      faultStage: null,
-      counters: counters(2000, 2000),
-      seconds: 10,
-    });
-
-  // The runner can stop early; a rows file that holds only the control must not
-  // read as Rule A.
-  it('gives Rule C for a rows file that holds only the control', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-'));
-    const file = path.join(dir, 'rows.jsonl');
-    fs.writeFileSync(
-      file,
-      `ROW ${row('C1', 'granted', 'granted', 'a')}\nROW ${row('C1', 'granted', 'granted', 'b')}\n`
-    );
-    const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
-    const run = spawnSync(process.execPath, [cli, file], { encoding: 'utf8' });
-    fs.rmSync(dir, { recursive: true, force: true });
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('rule C');
-    expect(run.stdout).toContain('reason C2 has no rows');
-    expect(run.stdout).toContain('reason the revoke run R1 has no row');
-  });
-});
-
 describe('classify.mjs CLI, a whole session through main()', () => {
   const session = {
     osBuild: '26B123',
@@ -483,6 +490,8 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     kind: 'consent',
     screen,
     microphone,
+    screenAfter: screen,
+    microphoneAfter: microphone,
     counters: counters(cb, sig),
     seconds: 20,
   });
@@ -514,16 +523,31 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     consent('C5', 'not-determined', 'not-determined', 3001, 3001),
   ];
 
-  function classify(rows: object[]): string {
+  // Runs the CLI on a rows file holding `text`; extraArgs go after the file name.
+  function runCli(text: string, extraArgs: string[] = []) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-'));
     const file = path.join(dir, 'rows.jsonl');
-    fs.writeFileSync(file, rows.map((r) => `ROW ${JSON.stringify(r)}\n`).join(''));
+    fs.writeFileSync(file, text);
     const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
-    const run = spawnSync(process.execPath, [cli, file], { encoding: 'utf8' });
+    const run = spawnSync(process.execPath, [cli, file, ...extraArgs], { encoding: 'utf8' });
     fs.rmSync(dir, { recursive: true, force: true });
+    return run;
+  }
+
+  function classify(rows: object[], extraArgs: string[] = []): string {
+    const run = runCli(rows.map((r) => `ROW ${JSON.stringify(r)}\n`).join(''), extraArgs);
     expect(run.status).toBe(0);
     return run.stdout;
   }
+
+  // The runner can stop early; a rows file that holds only the control must not
+  // read as Rule A.
+  it('gives Rule C for a rows file that holds only the control', () => {
+    const out = classify(consentRows().slice(0, 2));
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C2 has no rows');
+    expect(out).toContain('reason the revoke run R1 has no row');
+  });
 
   it('reaches Rule A for a complete carrying set and a no-effect revoke', () => {
     const out = classify([...consentRows(), revoke(9000, 9000)]);
@@ -625,6 +649,180 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     rows[3] = { ...rows[3], windowId: 8 };
     const out = classify([...rows, revoke(9000, 9000)]);
     expect(out).toMatch(/^rule C$/m);
-    expect(out).toContain('reason the consent runs measured 2 different windows');
+    expect(out).toContain('reason the consent and revoke runs measured 2 different windows');
+  });
+
+  it('gives Rule C when R1 measured another window than the consent runs', () => {
+    const out = classify([...consentRows(), revoke(9000, 9000, { windowId: 8 })]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason the consent and revoke runs measured 2 different windows');
+  });
+
+  it('gives Rule C when a consent or revoke run has no window id', () => {
+    const out = classify([...consentRows(), revoke(9000, 9000, { windowId: undefined })]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason a consent or revoke run has no window id');
+  });
+
+  // F21: a consent run whose grant changed during the run measured two states.
+  it('gives Rule C when a consent run read a grant change during the run', () => {
+    const rows = consentRows();
+    const c2 = rows.findIndex((r) => r.label === 'C2');
+    rows[c2] = { ...rows[c2], microphoneAfter: 'granted' };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain(
+      'reason C2 has a run that read microphone denied before it and granted after it'
+    );
+  });
+
+  it('gives Rule C when a consent run has no after-reading', () => {
+    const rows = consentRows();
+    const c2 = rows.findIndex((r) => r.label === 'C2');
+    const { screenAfter: _dropped, ...noAfter } = rows[c2];
+    rows[c2] = noAfter as (typeof rows)[number];
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C2 has a run with no valid screen reading after it');
+  });
+
+  it('gives Rule C for an invalid after-reading without printing it', () => {
+    const rows = consentRows();
+    const c3 = rows.findIndex((r) => r.label === 'C3');
+    rows[c3] = { ...rows[c3], microphoneAfter: 'bogus' };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C3 has a run with no valid microphone reading after it');
+    expect(out).not.toContain('bogus');
+  });
+
+  // The log lines still echo row values; only the reason lines are held to this.
+  it('gives Rule C for an invalid start value without printing it in a reason', () => {
+    const rows = consentRows();
+    const c3 = rows.findIndex((r) => r.label === 'C3');
+    rows[c3] = { ...rows[c3], microphone: 'bogus-start' };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    const reasons = out.split('\n').filter((l) => l.startsWith('reason '));
+    expect(out).toMatch(/^rule C$/m);
+    expect(reasons).toContain('reason C3 has a run with no valid microphone reading before it');
+    expect(reasons.join('\n')).not.toContain('bogus-start');
+  });
+
+  it('still prints both valid values when the start and end readings differ', () => {
+    const rows = consentRows();
+    const c3 = rows.findIndex((r) => r.label === 'C3');
+    rows[c3] = { ...rows[c3], microphone: 'denied', microphoneAfter: 'granted' };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain(
+      'reason C3 has a run that read microphone denied before it and granted after it'
+    );
+    expect(out).not.toContain('no valid microphone reading before it');
+  });
+
+  it('does not need after-readings on the revoke row for this reason', () => {
+    const out = classify([
+      ...consentRows(),
+      revoke(9000, 9000, { screenAfter: undefined, microphoneAfter: undefined }),
+    ]);
+    expect(out).not.toContain('reading after it');
+  });
+
+  it('gives Rule C when a consent run has no window id', () => {
+    const rows = consentRows();
+    rows[2] = { ...rows[2], windowId: undefined } as (typeof rows)[number];
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason a consent or revoke run has no window id');
+  });
+
+  it('stays Rule A when the after-readings match the start readings', () => {
+    const rows = consentRows().map((r) => ({
+      ...r,
+      screenAfter: r.screen,
+      microphoneAfter: r.microphone,
+    }));
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule A$/m);
+  });
+
+  // F9: one poisoned run, or one failed destroy, stops the rule at C.
+  it('gives Rule C when one consent run was poisoned', () => {
+    const rows = consentRows();
+    rows[4] = { ...rows[4], counters: counters(3000, 3000, { poisoned: true }) };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C3 is other');
+  });
+
+  it('gives Rule C when one consent run had a destroy failure', () => {
+    const rows = consentRows();
+    rows[4] = { ...rows[4], counters: counters(3000, 3000, { destroyFailures: 1 }) };
+    const out = classify([...rows, revoke(9000, 9000)]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason C3 is other');
+  });
+
+  // F3: --never-requested defaults to both grants, and '' names none.
+  describe('--never-requested', () => {
+    const silentC5 = () =>
+      consentRows().map((r) => (r.label === 'C5' ? { ...r, counters: counters(3000, 0) } : r));
+
+    it('defaults to both grants, so a silent not-determined cell is Rule C', () => {
+      const out = classify([...silentC5(), revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toContain(
+        'reason C5 reads not-determined for screen, which the app never requests'
+      );
+      expect(out).toContain('never requested: screen, microphone');
+    });
+
+    it("an explicit '' names none, so the same rows are Rule B", () => {
+      const out = classify([...silentC5(), revoke(9000, 9000)], ['--never-requested', '']);
+      expect(out).toMatch(/^rule B$/m);
+      expect(out).toContain('predicate screen=not-determined microphone=not-determined');
+      expect(out).toContain('never requested: none');
+    });
+  });
+  // Argument and input errors all exit 2 with a FAIL line on stderr.
+  describe('argument and input errors', () => {
+    it('exits 2 for a flag with no value', () => {
+      const run = runCli('', ['--never-requested']);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL --never-requested needs a value');
+    });
+
+    it('exits 2 for an unknown grant', () => {
+      const run = runCli('', ['--never-requested', 'camera']);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL --never-requested takes screen and/or microphone');
+    });
+
+    it('exits 2 for a rows line that is not JSON', () => {
+      const run = runCli('ROW {not json\n');
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL line 1 is not JSON');
+    });
+
+    it('exits 2 for an unreadable rows file', () => {
+      const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'classify.mjs');
+      const run = spawnSync(process.execPath, [cli, '/nonexistent/rows.jsonl'], {
+        encoding: 'utf8',
+      });
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL cannot read the rows file');
+    });
+
+    it('exits 2 for extra positional arguments', () => {
+      const run = runCli('', ['extra']);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL usage');
+    });
+
+    it('exits 2 for a rows line with an unknown kind', () => {
+      const run = runCli(`ROW ${JSON.stringify({ kind: 'bogus', runId: 'x' })}\n`);
+      expect(run.status).toBe(2);
+      expect(run.stderr).toContain('FAIL line 1 has an unknown kind');
+    });
   });
 });

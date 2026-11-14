@@ -49,19 +49,31 @@
 // enumerationFailed, faultStage, counters, seconds}` and exit 0, or `FAIL <reason>`
 // and exit 2 with no row: the run did not happen. `screenAfter` and
 // `microphoneAfter` are the grants read again after the run, which is how R1 shows
-// that a grant was turned off. `counters: null` means the child printed no liveness
-// block (it died, or no capture started); with no fault stage classify.mjs reads
-// that as `other`, never as silence. `windowId` is the handle the run used, so a
-// later cell can target the same window with --window-id; every consent run must
-// use one window, or classify.mjs reads Rule C. `enumerable` is false for a
-// --window-id the fence's
-// enumeration does not list, and `enumerationFailed` is true when the enumeration
-// itself rejected (the bundle holds no Screen Recording grant), so only --window-id
-// can run. Either way the run goes ahead, because what the child does with such a
-// handle is the evidence.
+// that a grant was turned off. A consent run whose grants differ before and after
+// measured two states, not its cell, so classify.mjs reads it as Rule C.
+// `counters: null` means the child printed no liveness block (it died, or no
+// capture started); with no fault stage classify.mjs reads that as `other`, never
+// as silence. `windowId` is the handle the run used, so a later cell can target the
+// same window with --window-id; every consent and revoke run must measure one
+// window, or classify.mjs reads Rule C. `enumerable` is false for a --window-id the
+// fence's enumeration does not list, and `enumerationFailed` is true when the
+// enumeration itself rejected (the bundle holds no Screen Recording grant), so only
+// --window-id can run. Either way the run goes ahead, because what the child does
+// with such a handle is the evidence.
 //
-// macOS ships no `timeout`, so bound the run from outside (a background kill or a
-// perl alarm). As for the target probe, judge it by its ROW or FAIL line.
+// The runner bounds itself: 40 s past --seconds it prints `FAIL timeout`, kills the
+// capture child and exits. An outside bound is only a backstop, and it must reach
+// Electron itself. Not every supported macOS release ships `timeout`, so put a perl
+// alarm on the Electron binary, in the terminal form:
+//
+//     perl -e 'alarm 60; exec @ARGV' "$(node -p "require('electron')")" \
+//       scripts/audiocap-matrix-probe --label t1 --title <...> --kind consent --seconds 5
+//
+// Not on `./node_modules/.bin/electron`, a Node wrapper that forwards only SIGINT,
+// SIGTERM and SIGUSR2, and not on `open`, which is not the app's parent: either way
+// the alarm ends the launcher and Electron keeps running. After an alarm, check for a
+// leftover Electron or Electron Helper process and stop it before the next run. As
+// for the target probe, judge a run by its ROW or FAIL line.
 //
 // It is deliberately NOT wired to CI: it needs real grants and a real window.
 'use strict';
