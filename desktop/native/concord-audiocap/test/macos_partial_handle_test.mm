@@ -51,6 +51,12 @@ OSStatus testAudioDeviceCreateIOProcID(AudioObjectID, AudioDeviceIOProc proc, vo
   return g_ioProcStatus;
 }
 
+uint64_t nsToTicks(uint64_t ns) {
+  mach_timebase_info_data_t tb = {};
+  mach_timebase_info(&tb);
+  return ns * tb.denom / tb.numer;
+}
+
 }  // namespace
 
 #ifdef CONCORD_TEST_SLEPT_SECONDS
@@ -67,16 +73,10 @@ OSStatus testAudioDeviceCreateIOProcID(AudioObjectID, AudioDeviceIOProc proc, vo
 // that uv_hrtime reads mach_continuous_time on Electron 45; that is a separate,
 // recorded finding.
 namespace {
-uint64_t simulatedSleepTicks() {
-  static const uint64_t ticks = [] {
-    mach_timebase_info_data_t tb = {};
-    mach_timebase_info(&tb);
-    const uint64_t ns = static_cast<uint64_t>(CONCORD_TEST_SLEPT_SECONDS) * 1000000000ULL;
-    return ns * tb.denom / tb.numer;
-  }();
-  return ticks;
+uint64_t simulatedContinuousTime() {
+  return mach_absolute_time() +
+         nsToTicks(static_cast<uint64_t>(CONCORD_TEST_SLEPT_SECONDS) * 1000000000ULL);
 }
-uint64_t simulatedContinuousTime() { return mach_absolute_time() + simulatedSleepTicks(); }
 }  // namespace
 #define mach_continuous_time() simulatedContinuousTime()
 #endif
@@ -216,8 +216,9 @@ void testCreateIoProcForwardsSuccessOutput() {
 // mach_absolute_time does not. The two differ by the time the Mac has slept
 // since boot, so BOTH branches of nowStampNs (null timestamp, and a timestamp
 // with a valid host time) must land in the continuous domain. Testing both
-// means a fix to one branch alone fails this test. Case (c) gives a host time
-// 2 s in the past, so a stamp that reads "now" instead of mHostTime fails too.
+// means a fix to one branch alone fails this test. Case (c) covers the host-time
+// branch with a host time 2 s in the past, so it fails both a wrong-domain stamp
+// and one that reads "now" instead of mHostTime.
 //
 // Outcome and exit status:
 //   FAIL     -> a CHECK failed, g_failures > 0, the process exits 1.
@@ -242,21 +243,10 @@ void testNowStampIsInContinuousDomain() {
   const long long refA = static_cast<long long>(macos::hostTimeToNs(mach_continuous_time()));
   const long long diffA = nullStamp - refA;
 
-  // (b) valid-host-time branch, host time read just before the call.
-  AudioTimeStamp ts = {};
-  ts.mHostTime = mach_absolute_time();
-  ts.mFlags = kAudioTimeStampHostTimeValid;
-  const long long hostStamp = static_cast<long long>(macos::nowStampNs(&ts));
-  const long long refB = static_cast<long long>(macos::hostTimeToNs(mach_continuous_time()));
-  const long long diffB = hostStamp - refB;
-
   // (c) a valid host time 2 s in the past: the stamp must keep mHostTime's instant,
   // moved into the continuous domain, not the callback's "now".
-  mach_timebase_info_data_t tbc = {};
-  mach_timebase_info(&tbc);
-  const uint64_t twoSecTicks = 2000000000ULL * tbc.denom / tbc.numer;
   AudioTimeStamp past = {};
-  past.mHostTime = mach_absolute_time() - twoSecTicks;
+  past.mHostTime = mach_absolute_time() - nsToTicks(2000000000ULL);
   past.mFlags = kAudioTimeStampHostTimeValid;
   const long long pastStamp = static_cast<long long>(macos::nowStampNs(&past));
   const long long refC =
@@ -266,11 +256,9 @@ void testNowStampIsInContinuousDomain() {
               static_cast<double>(diffC) / 1.0e6);
 
   std::printf("nowStampNs(nullptr)    - continuous = %.3f ms\n", static_cast<double>(diffA) / 1.0e6);
-  std::printf("nowStampNs(hostValid)  - continuous = %.3f ms\n", static_cast<double>(diffB) / 1.0e6);
 
   const int failuresBefore = g_failures;
   CHECK(diffA > -kToleranceNs && diffA < kToleranceNs);
-  CHECK(diffB > -kToleranceNs && diffB < kToleranceNs);
   CHECK(diffC > -kToleranceNs && diffC < kToleranceNs);
 
   if (g_failures != failuresBefore) {
