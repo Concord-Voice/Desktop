@@ -643,6 +643,32 @@ describe('createPipWindow', () => {
     expect(rec.pips.has(pipWc)).toBe(true);
   });
 
+  // D1 for PiP windows (Codex C1): main.ts issues pip.loadURL in the tick that creates
+  // the window, so the PiP preload's whoAmI can arrive before its commit is recorded.
+  // Without the tracker the uncommitted PiP is refused and boots ConnectionUnavailable.
+  it('tracks the PiP main-frame navigation, so its uncommitted first whoAmI is admitted', async () => {
+    const rec = await mustOpen(register(SELF_A).serviceId);
+    const pip = createPipWindow(rec.webContents as never, { width: 320, height: 240 });
+    expect(pip).not.toBeNull();
+    const pipWc = h.state.pips[0].webContents;
+    const frame = { processId: 9, routingId: 2 };
+    pipWc.emit('did-start-navigation', {
+      url: 'app://concord/index.html#/pip/p1',
+      isMainFrame: true,
+      isSameDocument: false,
+      frame,
+    });
+    const admitted = requireConnectionSender(
+      {
+        sender: pipWc,
+        senderFrame: { url: '', parent: null, frameTreeNodeId: 1, detached: false, ...frame },
+      } as never,
+      { admitUncommitted: true }
+    );
+    expect(admitted).not.toBeNull();
+    expect(admitted?.role).toBe('pip');
+  });
+
   it('refuses an opener that is not a bound primary and builds no window', () => {
     const stranger = h.makeWc(h.defaultSession);
     expect(createPipWindow(stranger as never, { width: 1, height: 1 })).toBeNull();

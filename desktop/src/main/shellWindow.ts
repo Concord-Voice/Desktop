@@ -565,6 +565,9 @@ export function createPipWindow(
     pip.destroy();
     return null;
   }
+  // D1: the caller loads the PiP in the tick that creates it, so its preload's whoAmI
+  // can arrive before the commit is recorded. Track before returning, as for a primary.
+  trackMainFrameNavigation(pipContents);
   pipWindows.set(pipContents, pip);
   pip.on('closed', () => {
     pipWindows.delete(pipContents);
