@@ -174,7 +174,10 @@ function onGeneration(
   // `attachTrayResetHooks`, which runs before the generation hooks on the same event.
   // Forgetting here left the tray neutral after a cancelled navigation, because the
   // renderer sends only on change and never resent the unchanged snapshot (Codex P2).
-  if (reason === 'document') {
+  // A credential advance re-keys the SAME running document (#87 RC-14): its call and snapshot
+  // go on, and the renderer sends only on change, so the snapshot moves to the new generation
+  // or the tray owner (re-keyed by the capture lease) would reject it and show neutral.
+  if (reason === 'document' || reason === 'credential-start' || reason === 'credential-end') {
     const entry = kept.get(connectionId);
     if (entry) kept.set(connectionId, { snapshot: entry.snapshot, generation: to });
   }

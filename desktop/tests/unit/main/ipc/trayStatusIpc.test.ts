@@ -693,6 +693,22 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
       expect(trayActionTarget()).toBeNull();
     });
 
+    it.each(['credential-start', 'credential-end'] as const)(
+      'a %s re-key keeps the owner showing its snapshot with no resend (Codex P2)',
+      async (reason) => {
+        const { handler, A } = boot();
+        const reg = await import('../../../../src/main/connectionRegistry');
+        await handler(ev(A), IN_VOICE);
+        setTrayOwner(A.ref);
+        expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+        reg.advanceGeneration(A.record.connectionId, reason);
+        // The capture lease re-keys the owner in the same event.
+        setTrayOwner(reg.refOf(reg.recordFor(A.record.connectionId)!));
+        expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+        expect(trayActionTarget()).not.toBeNull();
+      }
+    );
+
     it("never shows a snapshot kept at an older generation than the owner's named one (M6)", async () => {
       const { handler, A, B } = boot();
       const reg = await import('../../../../src/main/connectionRegistry');
