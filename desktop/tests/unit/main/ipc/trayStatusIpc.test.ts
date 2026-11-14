@@ -495,6 +495,39 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
       expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
     });
 
+    it("re-renders neutral at once when the owner's generation advances, with no resend (M11)", async () => {
+      const { handler, A, B } = boot();
+      const reg = await import('../../../../src/main/connectionRegistry');
+      await handler(ev(A), IN_VOICE);
+      await handler(ev(B), IDLE);
+      setTrayOwner(B.ref);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      mockApplyTraySnapshot.mockClear();
+      reg.advanceGeneration(B.record.connectionId, 'document');
+      expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+      expect(trayActionTarget()).toBeNull();
+    });
+
+    it("never shows a snapshot kept at an older generation than the owner's named one (M6)", async () => {
+      const { handler, A, B } = boot();
+      const reg = await import('../../../../src/main/connectionRegistry');
+      // B sends at generation N while A is foreground: kept, not shown.
+      await handler(ev(B), IDLE);
+      reg.advanceGeneration(B.record.connectionId, 'document');
+      const live = reg.recordFor(B.record.connectionId)!;
+      expect(live.generation).not.toBe(B.ref.generation);
+      // Main names B at its CURRENT generation N+1: the owner is current, but the
+      // kept snapshot predates it and B has not resent.
+      setTrayOwner(reg.refOf(live));
+      expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+      expect(trayActionTarget()).toBeNull();
+      // Once B resends at N+1, the owner shows it.
+      await handler(ev(B), IDLE);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      void A;
+    });
+
     it('blanks the tray when the foreground connection is disposed', async () => {
       const { handler, A } = boot();
       await handler(ev(A), IN_VOICE);
