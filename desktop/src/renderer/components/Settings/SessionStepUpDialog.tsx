@@ -85,6 +85,8 @@ interface ActionSpec {
   failure: string;
   path: string;
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Legacy SSO security keeps its established passphrase spelling. */
+  passwordField?: 'password' | 'current_passphrase';
   /** The request body before the credentials join it. */
   body: Record<string, unknown>;
 }
@@ -159,6 +161,7 @@ function specFor(action: SessionStepUpAction): ActionSpec {
         failure: 'Failed to update SSO security',
         path: '/api/v1/users/me/security',
         method: 'PATCH',
+        passwordField: 'current_passphrase',
         body: { trust_sso_security: true },
       };
   }
@@ -203,7 +206,7 @@ async function sendSessionRequest(
   context: ApiRequestContext
 ): Promise<SessionResult> {
   const payload: Record<string, unknown> = { ...spec.body };
-  if (password) payload.password = password;
+  if (password) payload[spec.passwordField ?? 'password'] = password;
   if (mfa) payload.mfa_code = mfa;
   try {
     const res = await apiFetchInContext(
