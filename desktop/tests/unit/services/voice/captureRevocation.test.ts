@@ -84,6 +84,23 @@ afterEach(() => {
 });
 
 describe('installCaptureRevocationHandler', () => {
+  it('a withhold left by a torn-down handler is lifted on dispose and on reinstall (Gitar)', async () => {
+    const { withholdReleases, release } = await import(
+      '@/renderer/services/voice/captureLeaseClient'
+    );
+    withholdReleases(true);
+    dispose(); // cleanup lifts it
+    releaseFn.mockClear();
+    await release('voice-join');
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+
+    withholdReleases(true);
+    dispose = installCaptureRevocationHandler(); // reinstall lifts it too
+    releaseFn.mockClear();
+    await release('voice-join');
+    expect(releaseFn).toHaveBeenCalledTimes(1);
+  });
+
   it('moved: notice first, then supersede, cleanup, revoke event, releases, lease cleared', async () => {
     log.length = 0; // drop the install-time lease mirroring
     revoke({ reason: 'moved' });

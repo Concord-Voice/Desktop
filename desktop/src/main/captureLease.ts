@@ -90,6 +90,8 @@ interface Handoff {
   to: ConnectionRef | null;
   settle: ((result: CaptureAcquireResult) => void) | null;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Set only for a navigation hold: the holder to restore if the navigation never commits. */
+  navHeld?: HolderEntry;
 }
 
 interface Ceremony {
@@ -218,6 +220,7 @@ function supersedeGrantee(h: Handoff): void {
 function completeHandoff(d: CaptureLeaseDeps, h: Handoff, excludeId: ConnectionId | null): void {
   if (handoff !== h) return;
   handoff = null;
+  navigating.delete(h.from.connectionId);
   if (h.timer !== null) clearTimeout(h.timer);
   h.timer = null;
   const to = h.to;
@@ -242,6 +245,18 @@ function onHandoffTimeout(h: Handoff): void {
   const record = liveRecord(d, h.from.connectionId);
   if (record === null) {
     completeHandoff(d, h, null);
+    return;
+  }
+  if (h.navHeld !== undefined) {
+    // A navigation hold, not a revocation: the renderer was never told to stop. A load still
+    // in progress may yet commit (which ends the hold); one that is not was cancelled, and the
+    // old document is alive and well, so the lease goes back to it instead of a crash.
+    const contents = record.webContents;
+    if (!contents.isDestroyed() && contents.isLoading?.() === true) {
+      h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
+      return;
+    }
+    restoreAfterCancelledNavigation(d, h.navHeld, record);
     return;
   }
   // Settled by the `renderer-gone` (or `document`) advance this causes, not here.
@@ -466,12 +481,30 @@ function holdThroughNavigation(d: CaptureLeaseDeps): void {
     to: null,
     settle: null,
     timer: null,
+    navHeld: entry,
   };
   holder = null;
   handoff = h;
   // The audiocap share is stopped by #86's own generation listener (RC-4), so no revoke here.
   if (quitShutdown || d.isQuitting()) return;
   h.timer = setTimeout(() => onHandoffTimeout(h), HANDOFF_ACK_TIMEOUT_MS);
+}
+
+/** The navigation was cancelled: the same document keeps its tracks, under its new generation. */
+function restoreAfterCancelledNavigation(
+  d: CaptureLeaseDeps,
+  entry: HolderEntry,
+  record: ConnectionRecord
+): void {
+  handoff = null;
+  navigating.delete(record.connectionId);
+  const next = freezeRef(refOf(record));
+  entry.ref = next;
+  entry.binding = bindOwner('capture-lease', next);
+  holder = entry;
+  leaseAware.set(record.connectionId, next.generation);
+  effect(() => d.setTrayOwner(next));
+  publish(d, null, null);
 }
 
 /** The second `document` advance (or a first one for a connection that held nothing). */

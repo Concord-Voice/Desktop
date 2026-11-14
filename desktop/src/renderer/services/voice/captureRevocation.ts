@@ -114,6 +114,8 @@ export function installCaptureRevocationHandler(): () => void {
   revokeInFlight = false;
   holdUntilReload = false;
   clearTimeout(holdTimer);
+  // A previous install may have been torn down mid-withhold; nothing else would lift it.
+  withholdReleases(false);
   const stopLease = subscribeLeaseState((view) => {
     // The push that follows a moved revocation arrives while its teardown is still running.
     if (!revokeInFlight && !holdUntilReload) withholdReleases(false);
@@ -130,5 +132,8 @@ export function installCaptureRevocationHandler(): () => void {
     stopLease();
     stopRevoked();
     clearTimeout(holdTimer);
+    revokeInFlight = false;
+    holdUntilReload = false;
+    withholdReleases(false);
   };
 }

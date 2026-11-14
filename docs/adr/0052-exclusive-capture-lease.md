@@ -79,8 +79,11 @@ user to move capture there. There is no simultaneous publication and no cloned c
     SECOND advance: #86 advances at a navigation's start and again when it commits, and a
     cancelled navigation (ERR_ABORTED) leaves the old document, with live tracks, after the
     first only. The first advance therefore keeps the lease reserved behind a grantee-less
-    handoff on the same 5 s ack-or-crash timer, so a navigation that never commits is crashed
-    and reloaded (then `renderer-gone` ends the holder) instead of freeing capture;
+    handoff on a 5 s timer. The renderer was never told to stop, so the timer does not crash it:
+    a commit (the second advance) or the renderer ending completes the hold, a load still in
+    progress (`webContents.isLoading()`) re-arms the timer, and a navigation that was cancelled
+    (nothing loading, the old document alive) restores the holder to the same document under its
+    new generation, with its claims, tray owner and lease-aware mark, and republishes the state;
     Known limit: the two advances share one reason, so a holder that cancels two navigations in a
     row has its second START read as a commit. That needs a hostile holder, which can already keep
     capturing through the accepted fake-ack gap; a distinct commit reason in #86's generation

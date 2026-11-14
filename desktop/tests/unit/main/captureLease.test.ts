@@ -75,7 +75,7 @@ function connect(origin: string): Conn {
   });
   if (!r.ok) throw new Error(r.reason);
   const id = nextWcId++;
-  const wc = { id, mainFrame: { frameTreeNodeId: id } };
+  const wc = { id, mainFrame: { frameTreeNodeId: id }, isDestroyed: () => false };
   const o = openConnection(r.service.serviceId, wc as never, null);
   if (!o.ok) throw new Error(o.reason);
   bindSender(wc as never, o.record.connectionId, 'primary');
@@ -685,15 +685,16 @@ describe('navigation hold (Codex Security: a cancelled navigation keeps the old 
     expect(d.runCeremony).not.toHaveBeenCalled();
   });
 
-  it('a navigation that never commits is crashed and reloaded after 5 s, then the lease frees', async () => {
+  it('a navigation that never commits is never crashed: the lease returns to the survivor', async () => {
     const { a, b } = await heldByAWithBInFront();
     advanceGeneration(a.record.connectionId, 'document'); // cancelled: no second advance
     vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
-    expect(d.crashAndReload).toHaveBeenCalledWith(a.record);
-    expect(isFree()).toBe(false);
-    advanceGeneration(a.record.connectionId, 'renderer-gone');
-    expect(isFree()).toBe(true);
-    await expect(acq(b)).resolves.toEqual(GRANTED);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+    expect(isHolder(ref(a))).toBe(true);
+    // Held again, so a competing acquire goes to the ceremony rather than being granted.
+    void acq(b);
+    await flush();
+    expect(d.runCeremony).toHaveBeenCalledTimes(1);
   });
 
   it('the commit frees the lease at once and cancels the crash', async () => {
@@ -703,6 +704,55 @@ describe('navigation hold (Codex Security: a cancelled navigation keeps the old 
     expect(isFree()).toBe(true);
     vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
     expect(d.crashAndReload).not.toHaveBeenCalled();
+  });
+});
+
+describe('navigation hold: a cancelled navigation restores the lease (Gitar)', () => {
+  it('a cancelled navigation gives the lease back to the same document without a crash', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document'); // started, never commits
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+    expect(isHolder(ref(a))).toBe(true);
+    expect(isLeaseAware(ref(a))).toBe(true);
+    expect(d.setTrayOwner).toHaveBeenLastCalledWith(ref(a));
+    void acq(b);
+    await flush();
+    expect(d.runCeremony).toHaveBeenCalledTimes(1);
+    // The holder can still release normally, and a later navigation holds again.
+    expect(rel(a)).toBe(true);
+    expect(isFree()).toBe(true);
+  });
+
+  it('a restored holder can be held through a second navigation (no stale navigating flag)', async () => {
+    const { a } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document');
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(isFree()).toBe(false); // held again, not ended by the stale flag
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(isFree()).toBe(true);
+  });
+
+  it('a load still in progress at the deadline re-arms the timer instead of restoring', async () => {
+    const { a } = await heldByAWithBInFront();
+    let loading = true;
+    (a.wc as { isLoading?: () => boolean }).isLoading = () => loading;
+    advanceGeneration(a.record.connectionId, 'document');
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(holderRef()).toBeNull();
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+    loading = false;
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(isHolder(ref(a))).toBe(true);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+  });
+
+  it('a handoff completing clears the navigating flag so the next navigation holds', async () => {
+    const { a } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'renderer-gone');
+    expect(isFree()).toBe(true);
+    expect(captureLeaseCounts().handoff).toBe(0);
   });
 });
 
