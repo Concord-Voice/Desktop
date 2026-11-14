@@ -44,6 +44,12 @@
 //    throws for any webContents on `defaultSession` whose binding does not resolve to
 //    the `saas` service — unbound included.
 //
+// 6. ONLY THE FOREGROUND PRIMARY REACHES THE OS BROWSER (C6b). The gate's `window.open`
+//    and `will-navigate` externalization admits the sender `open-external` admits: the
+//    foreground connection's bound primary, resolved at each event. A background
+//    primary or a PiP is denied without externalizing. Breaks if the check is the
+//    binding alone, since both events can be raised by script with no click.
+//
 // Calls that carry NO webContents — a permission check made off-document (Electron
 // documents `notifications` checks and service-worker checks as always `null`) and
 // every device check — have no binding to resolve. They keep today's static policy
@@ -336,6 +342,21 @@ function isPermittedPackagedNavTarget(
   return parsedUrl.protocol === `${SPA_CACHE_SCHEME}:` && parsedUrl.host === SPA_CACHE_HOST;
 }
 
+/**
+ * #86 C6b: may `wc` hand a URL to the OS browser? Only the FOREGROUND connection's bound
+ * primary, the sender `open-external` admits (`app-global-mutate`). `window.open` and
+ * `will-navigate` need no click, so without this a hidden connection's script could open
+ * the OS browser over the visible one. A PiP has no link of its own and is refused, as
+ * `open-external` refuses it. Breaks if this reads the binding alone, or reads it at install.
+ */
+function mayExternalize(wc: WebContents, deps: ConnectionSessionDeps): boolean {
+  const binding = deps.bindingFor(wc);
+  if (binding?.role !== 'primary') return false;
+  const record = deps.recordFor(binding.connectionId);
+  if (!record || record.state === 'disposed' || record.webContents !== wc) return false;
+  return deps.foreground()?.connectionId === record.connectionId;
+}
+
 /** Fire-and-forget; https only, symmetric with the open-external IPC handler (#754). */
 function externalizeHttps(url: string): void {
   try {
@@ -349,9 +370,10 @@ function externalizeHttps(url: string): void {
 function gateNavigation(
   event: { preventDefault(): void },
   navigationUrl: string,
-  kind: ServiceKind | null,
+  contents: WebContents,
   deps: ConnectionSessionDeps
 ): void {
+  const kind = boundKind(contents, deps);
   // Unbound fails closed: no navigation and no externalization (invariant 2).
   if (kind === null) {
     event.preventDefault();
@@ -374,25 +396,26 @@ function gateNavigation(
   event.preventDefault();
   // Drift safety net: an https: navigation goes to the OS browser so a bare <a> link
   // or SPA-driven redirect does not silently fail. javascript:, data:, file:, http:
-  // and the rest are dropped after preventDefault.
-  externalizeHttps(navigationUrl);
+  // and the rest are dropped after preventDefault. Foreground primary only (C6b).
+  if (mayExternalize(contents, deps)) externalizeHttps(navigationUrl);
 }
 
 /**
  * The navigation gate for one webContents (`web-contents-created`). Every in-app
- * `window.open` is denied; a bound document's https: target goes to the OS browser.
- * `will-navigate` admits only the targets of the connection's kind.
+ * `window.open` is denied; the foreground primary's https: target goes to the OS
+ * browser (C6b), and any other document's is dropped. `will-navigate` admits only the
+ * targets of the connection's kind.
  */
 export function installNavigationGate(contents: WebContents, deps: ConnectionSessionDeps): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (boundKind(contents, deps) !== null) externalizeHttps(url);
+    if (mayExternalize(contents, deps)) externalizeHttps(url);
     return { action: 'deny' };
   });
   contents.on('will-navigate', (event, navigationUrl) => {
     // The billing view runs its own Stripe-only gate (billing/billingWindow.ts), and
     // this check must stay first: the view joins that set before its loadURL.
     if (isBillingWebContents(contents)) return;
-    gateNavigation(event, navigationUrl, boundKind(contents, deps), deps);
+    gateNavigation(event, navigationUrl, contents, deps);
   });
 }
 

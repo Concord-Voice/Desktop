@@ -247,7 +247,13 @@ describe('sessionFetchFor', () => {
 });
 
 describe('installNavigationGate', () => {
-  function gate(serviceId: string | null, opts: Partial<ConnectionSessionDeps> = {}) {
+  // `place` is where the bound document sits (#86 C6b): the foreground connection's
+  // primary (the default), a background connection's primary, or a PiP.
+  function gate(
+    serviceId: string | null,
+    opts: Partial<ConnectionSessionDeps> = {},
+    place: 'foreground' | 'background' | 'pip' = 'foreground'
+  ) {
     const handlers: Record<string, (...a: never[]) => unknown> = {};
     let openHandler: ((d: { url: string }) => { action: string }) | null = null;
     const contents = {
@@ -258,13 +264,23 @@ describe('installNavigationGate', () => {
         openHandler = fn;
       }),
     };
-    if (serviceId) bindings.set(contents, { connectionId: 'c1', role: 'primary', serviceId });
+    const role = place === 'pip' ? 'pip' : 'primary';
+    if (serviceId) bindings.set(contents, { connectionId: 'c1', role, serviceId });
+    // A PiP is bound to its opener's connection; the record's webContents is the primary.
+    const record = {
+      connectionId: 'c1',
+      serviceId,
+      state: 'live',
+      webContents: place === 'pip' ? {} : contents,
+    };
+    const other = { connectionId: 'c2', serviceId: 'svc-b', state: 'live', webContents: {} };
     const deps = makeDeps({
       bindingFor: (w) => {
         const b = bindings.get(w);
         return b && ({ connectionId: b.connectionId, role: b.role } as never);
       },
-      recordFor: () => ({ serviceId }) as never,
+      recordFor: () => record as never,
+      foreground: () => (place === 'background' ? other : record) as never,
       getService: (id) =>
         id === 'saas'
           ? (service('saas', h.defaultSession) as never)
@@ -320,6 +336,41 @@ describe('installNavigationGate', () => {
 
   it('prevents navigation on a malformed URL', () => {
     expect(gate('svc-a').nav('not a url')).toBe(true);
+  });
+
+  // #86 C6b: window.open and will-navigate need no click, so a hidden connection could
+  // open the OS browser over the visible one. Only the foreground primary externalizes,
+  // the sender `open-external` admits (app-global-mutate).
+  it('a background primary neither navigates nor opens the OS browser', () => {
+    for (const serviceId of ['svc-a', 'saas']) {
+      const g = gate(serviceId, {}, 'background');
+      expect(g.nav('https://evil.example/path')).toBe(true);
+      expect(g.open('https://evil.example/popup').action).toBe('deny');
+    }
+    expect(h.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('a PiP neither navigates away nor opens the OS browser', () => {
+    const g = gate('saas', {}, 'pip');
+    expect(g.nav('https://evil.example/path')).toBe(true);
+    expect(g.open('https://evil.example/popup').action).toBe('deny');
+    expect(h.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('a background primary keeps its in-app navigation allowlist', () => {
+    const g = gate('saas', {}, 'background');
+    expect(g.nav('app://concord/index.html')).toBe(false);
+    expect(g.nav(`${SPA_ORIGIN}/channels`)).toBe(false);
+  });
+
+  it('the foreground primary still opens https in the OS browser while another is hidden', () => {
+    const g = gate('svc-a', {}, 'foreground');
+    expect(g.open('https://example.com/').action).toBe('deny');
+    expect(g.nav('https://example.com/next')).toBe(true);
+    expect(h.openExternal.mock.calls).toEqual([
+      ['https://example.com/'],
+      ['https://example.com/next'],
+    ]);
   });
 
   it('leaves the billing view to its own Stripe gate', () => {

@@ -633,6 +633,24 @@ function createMockContents(): { on: Mock; setWindowOpenHandler: Mock } {
   return contents;
 }
 
+/**
+ * The saas primary's own contents, made the foreground (#86 C6b): the only document the
+ * navigation gate externalizes for. A `createMockContents()` fake is a PiP and opens
+ * nothing. Its handlers are re-installed, so read the LAST registration.
+ */
+function foregroundSaasContents(): { on: Mock; setWindowOpenHandler: Mock } {
+  const live = connectionRegistry.liveConnections().find((r) => r.serviceId === saasServiceId);
+  if (!live) throw new Error('foregroundSaasContents: no live saas connection');
+  connectionRegistry.setForeground(live.connectionId);
+  return live.webContents as never;
+}
+
+const lastWillNavigate = (contents: { on: Mock }) =>
+  contents.on.mock.calls.findLast((c: unknown[]) => c[0] === 'will-navigate')![1] as (
+    event: { preventDefault: () => void },
+    url: string
+  ) => void;
+
 // #2354: dialog calls attributable to main.ts's module load + init, captured before
 // any test can add its own. Order-independent, unlike reading the mock later.
 let dialogCallsAfterImport = -1;
@@ -6096,18 +6114,28 @@ describe('main.ts', () => {
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
       expect(webContentsCreated).toBeDefined();
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
 
-      const handlerCall = mockContents.setWindowOpenHandler.mock.calls[0];
+      const handlerCall = mockContents.setWindowOpenHandler.mock.calls.at(-1);
       expect(handlerCall).toBeDefined();
-      const handler = handlerCall[0] as (details: { url: string }) => { action: string };
+      const handler = handlerCall![0] as (details: { url: string }) => { action: string };
 
       // HTTPS opens external
       (shell.openExternal as Mock).mockClear();
       const result1 = handler({ url: 'https://example.com' });
       expect(shell.openExternal).toHaveBeenCalledWith('https://example.com');
       expect(result1.action).toBe('deny');
+
+      // #86 C6b: a PiP (not the foreground primary) is denied and opens nothing.
+      const pip = createMockContents();
+      webContentsCreated![1]({}, pip);
+      const pipHandler = pip.setWindowOpenHandler.mock.calls[0][0] as (details: {
+        url: string;
+      }) => { action: string };
+      (shell.openExternal as Mock).mockClear();
+      expect(pipHandler({ url: 'https://example.com' }).action).toBe('deny');
+      expect(shell.openExternal).not.toHaveBeenCalled();
 
       // Invalid URL is ignored
       (shell.openExternal as Mock).mockClear();
@@ -6215,11 +6243,9 @@ describe('main.ts', () => {
       const webContentsCreated = (app.on as Mock).mock.calls.find(
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
-      const willNavigate = mockContents.on.mock.calls.find(
-        (c: unknown[]) => c[0] === 'will-navigate'
-      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+      const willNavigate = lastWillNavigate(mockContents);
 
       (shell.openExternal as Mock).mockClear();
       const event = { preventDefault: vi.fn() };
@@ -6321,11 +6347,9 @@ describe('main.ts', () => {
         const webContentsCreated = (app.on as Mock).mock.calls.find(
           (c: unknown[]) => c[0] === 'web-contents-created'
         );
-        const mockContents = createMockContents();
+        const mockContents = foregroundSaasContents();
         webContentsCreated![1]({}, mockContents);
-        const willNavigate = mockContents.on.mock.calls.find(
-          (c: unknown[]) => c[0] === 'will-navigate'
-        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+        const willNavigate = lastWillNavigate(mockContents);
 
         // Note: remoteSpaBaseUrl is null in test mock because the file-level
         // spaLoader mock returns {mode: 'bundled'} (see line ~224). With no

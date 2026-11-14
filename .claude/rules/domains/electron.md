@@ -1646,8 +1646,8 @@ The desktop client has four external-link surfaces, with different scheme polici
 
 | Surface | File | Allowed schemes | Why |
 |---------|------|-----------------|-----|
-| `setWindowOpenHandler` | `src/main/main.ts` (`externalizeWindowOpen`, registered on every window in `web-contents-created`) | `https:` | Passive nav — fires for `<a target="_blank">` and `window.open()`. |
-| `will-navigate` (with externalization safety net) | `src/main/main.ts` (`web-contents-created` → `will-navigate` listener) | `https:` | Passive nav — fires for redirects, programmatic nav, bare `<a>`. |
+| `setWindowOpenHandler` | `src/main/connectionSession.ts` (`installNavigationGate`, installed on every webContents in `web-contents-created`) | `https:` | Passive nav — fires for `<a target="_blank">` and `window.open()`. Every open is denied; only the foreground connection's bound primary has its `https:` target externalized (#86 C6b). |
+| `will-navigate` (with externalization safety net) | `src/main/connectionSession.ts` (`installNavigationGate`'s `will-navigate` listener) | `https:` | Passive nav — fires for redirects, programmatic nav, bare `<a>`. Externalized for the foreground connection's bound primary only (#86 C6b); a background primary or a PiP is prevented and nothing opens. |
 | `open-external` IPC | `src/main/ipc/openExternal.ts` | `http:`, `https:`, `mailto:` | User-initiated — fires only on explicit click of a Markdown-rendered link. The click is consent. Admitted from the foreground connection's bound primary only (#86 `app-global-mutate`); a background connection or a PiP gets `untrusted-sender`. |
 | Billing launcher | `src/main/billing/billingWindow.ts` | `https:` (`window.open` and downloads go to the OS browser; main-frame navigation allowlisted to the Stripe custom domain and 3DS host) | Hosted Stripe pages only; the return URL is intercepted. |
 
@@ -1661,7 +1661,7 @@ The desktop client has four external-link surfaces, with different scheme polici
 
 ## Accepted risk: in-renderer compromise
 
-A compromised SPA bundle that executes `window.location = 'https://evil.example'` will trigger `will-navigate`, which (after #754) externalizes `https:` URLs to the OS browser. The user's OS browser would open the attacker-controlled URL.
+A compromised SPA bundle that executes `window.location = 'https://evil.example'` will trigger `will-navigate`, which (after #754) externalizes `https:` URLs to the OS browser. The user's OS browser would open the attacker-controlled URL. Since #86 C6b only the foreground connection's bound primary is externalized, as only it may use `open-external`: `window.open` and `will-navigate` need no click, so a hidden connection's script could otherwise open the OS browser behind the visible one.
 
 **This risk is accepted** because:
 
