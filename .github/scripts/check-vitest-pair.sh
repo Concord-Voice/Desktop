@@ -23,10 +23,16 @@ for root in "$@"; do
     echo "::error file=$lock::$lock not found"
     status=1; continue
   fi
-  if ! pair="$(jq -er '[.packages["node_modules/vitest"].version // "",
-                        .packages["node_modules/@vitest/coverage-istanbul"].version // ""]
-                       | join(" ")' "$lock")"; then
-    echo "::error file=$lock::$lock is not a readable npm v2/v3 lockfile"
+  # Fail closed on a lockfile with no `packages` map (v1, or truncated), and on
+  # a version that is not plain semver: a newline in it could print its own
+  # workflow command, and anything else breaks the comparison below.
+  if ! pair="$(jq -er '
+      if (.packages | type) != "object" then error("no packages map") else . end
+      | [.packages["node_modules/vitest"].version // "",
+         .packages["node_modules/@vitest/coverage-istanbul"].version // ""]
+      | if all(test("^[0-9A-Za-z.+-]*$")) then join(" ")
+        else error("a version is not plain semver") end' "$lock" 2>&1)"; then
+    echo "::error file=$lock::$lock: cannot read the vitest pair (${pair//$'\n'/ })"
     status=1; continue
   fi
   # Split on the one space by hand: `read` would drop an empty first field.
@@ -45,8 +51,9 @@ for root in "$@"; do
     continue
   fi
 
-  low="$(printf '%s\n%s\n' "$v" "$c" | sort -V | head -n1)"
-  if [ "$low" = "$v" ]; then behind=vitest; ahead="$c"; else behind=@vitest/coverage-istanbul; ahead="$v"; fi
+  # `sort -V` puts `~` before a release, so 5.1.0~beta.1 sorts below 5.1.0.
+  low="$(printf '%s\n%s\n' "${v/-/\~}" "${c/-/\~}" | sort -V | head -n1)"
+  if [ "$low" = "${v/-/\~}" ]; then behind=vitest; ahead="$c"; else behind=@vitest/coverage-istanbul; ahead="$v"; fi
   echo "::error file=$lock,title=vitest pair split::$root: vitest $v, @vitest/coverage-istanbul $c — $behind is behind. The plugin pins vitest as an exact peer, so this lockfile cannot install. Fix: in $root, run npm install --save-dev vitest@$ahead @vitest/coverage-istanbul@$ahead and push to this branch, or close this PR and let a grouped update move both. CI does not push this fix."
   status=1
 done
