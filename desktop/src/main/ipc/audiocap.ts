@@ -31,6 +31,7 @@ import {
   type AudiocapStartResult,
 } from '../audiocapHost';
 import { isHolder } from '../captureLease';
+import type { ConnectionId } from '../../shared/connectionIdentity';
 import { parseWindowSourceId } from '../../shared/parseWindowSourceId';
 import {
   bindOwner,
@@ -84,6 +85,8 @@ function isOwnerPrimaryFrame(event: IpcMainInvokeEvent, owner: OwnerBinding): bo
  * lease's handoff (`revokeAudiocapShare`).
  */
 let shareOwner: OwnerBinding | null = null;
+/** Matches no live connection: used where a kill must reach only an ownerless capture. */
+const NO_CONNECTION = '' as ConnectionId;
 
 /** The owner of the live or pending share, for main's port and interrupt routing. */
 export function audiocapShareOwner(): OwnerBinding | null {
@@ -299,9 +302,13 @@ export function handleAudiocapStop(_sender: ConnectionSender, event: IpcMainInvo
  * every advance of its connection, and a kill there would race and cut that stop short.
  */
 export function revokeAudiocapShare(): void {
+  // The kill is scoped to a connection (#86): read the owner BEFORE forgetting it, so the
+  // holder's own share is ended in its name. An ownerless capture (a host-level start) ends
+  // for any id, which the empty one is.
+  const owner = shareOwner;
   forgetShareOwner();
   shareOperationEpoch += 1;
-  killAudiocapCapture();
+  killAudiocapCapture(owner?.ref.connectionId ?? NO_CONNECTION);
 }
 
 /**

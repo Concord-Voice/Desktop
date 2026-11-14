@@ -1152,7 +1152,9 @@ describe('audiocap #86 owner binding (Task 7B)', () => {
 
     ipc.revokeAudiocapShare();
     expect(ipc.audiocapShareOwner()).toBeNull();
+    // Scoped to the share's owner (#86): a kill in another connection's name would be a no-op.
     expect(killAudiocapCapture).toHaveBeenCalledTimes(1);
+    expect(killAudiocapCapture).toHaveBeenCalledWith(A.record.connectionId);
     expect(stopAudiocapHost).not.toHaveBeenCalled();
     expect(killAudiocapHost).not.toHaveBeenCalled();
 
