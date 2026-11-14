@@ -13,6 +13,7 @@ import { advanceVoiceActionGeneration } from './voiceActionGeneration';
 import {
   dispatchCaptureRevoked,
   release,
+  noteDeviceTestRevoked,
   settleDeviceCaptures,
   withholdReleases,
   subscribeLeaseRevoked,
@@ -31,13 +32,27 @@ function releaseAll(): void {
 }
 
 /** True from the revocation until its call and device-test teardown have both finished. */
-let movedInFlight = false;
+let revokeInFlight = false;
 /**
- * Set when the call teardown failed. The 5 s crash then replaces this document, so nothing
- * legitimate lifts the withhold: a later lease push (the user switching back to this
- * connection pushes one) must not let a Leave or a recovery release pass as the ack.
+ * Set when the teardown failed or a device capture never settled. The 5 s crash is meant to
+ * replace this document, so a later lease push (the user switching back to this connection
+ * pushes one) must not lift the withhold and let a Leave or a recovery release pass as the ack.
  */
 let holdUntilReload = false;
+let holdTimer: ReturnType<typeof setTimeout> | undefined;
+/** Above main's 5 s acknowledgement timeout plus the reload: a document still here is not crashing. */
+const HOLD_BOUND_MS = 8000;
+
+function holdAcknowledgement(): void {
+  holdUntilReload = true;
+  withholdReleases(true);
+  clearTimeout(holdTimer);
+  // If main never crashed this document (the handoff was cancelled), releases must work again.
+  holdTimer = setTimeout(() => {
+    holdUntilReload = false;
+    if (!revokeInFlight) withholdReleases(false);
+  }, HOLD_BOUND_MS);
+}
 
 async function handleMoved(): Promise<void> {
   // Any release from this document is the ack main reads, so none may leave before the call
@@ -45,7 +60,7 @@ async function handleMoved(): Promise<void> {
   // below is a real gap in which a stopping mic test or a finished webcam probe would
   // otherwise release on its own. The lease push that follows the revocation must not lift
   // it either (see the subscriber).
-  movedInFlight = true;
+  revokeInFlight = true;
   withholdReleases(true);
   try {
     useVoiceStore.getState().setCaptureMovedNotice(true);
@@ -60,43 +75,60 @@ async function handleMoved(): Promise<void> {
       voiceService.emergencyCleanup({ keepCaptureLease: true });
     } catch {
       tornDown = false;
-      holdUntilReload = true;
       // Message-only: an error object can carry ids or tokens.
       console.warn('[capture] call teardown after a moved revocation failed');
     }
     dispatchCaptureRevoked('moved');
     // A webcam probe or test still opening the camera must settle (its own continuation stops
     // the stream) before the acknowledgement lets main grant the next holder.
-    if (tornDown) await settleDeviceCaptures(DEVICE_CAPTURE_SETTLE_MS);
-    // After a failed teardown the withhold stays, so the releases below go nowhere and the
-    // 5 s crash ends this document.
-    if (tornDown) withholdReleases(false);
+    const settled = tornDown && (await settleDeviceCaptures(DEVICE_CAPTURE_SETTLE_MS));
+    // Without a clean teardown nothing is released, so main's 5 s crash ends this document.
+    if (settled) withholdReleases(false);
+    else holdAcknowledgement();
     releaseAll();
   } finally {
-    movedInFlight = false;
+    revokeInFlight = false;
   }
 }
 
-function handleBackgrounded(): void {
-  dispatchCaptureRevoked('backgrounded');
-  void release('device-test');
-  useVoiceStore.getState().setCaptureLease('none');
+async function handleBackgrounded(): Promise<void> {
+  // Only a device test held the lease; its release is the ack, so it waits for any capture
+  // still opening just like the moved path.
+  revokeInFlight = true;
+  withholdReleases(true);
+  try {
+    dispatchCaptureRevoked('backgrounded');
+    if (await settleDeviceCaptures(DEVICE_CAPTURE_SETTLE_MS)) {
+      withholdReleases(false);
+      void release('device-test');
+    } else {
+      holdAcknowledgement();
+    }
+    useVoiceStore.getState().setCaptureLease('none');
+  } finally {
+    revokeInFlight = false;
+  }
 }
 
 export function installCaptureRevocationHandler(): () => void {
-  movedInFlight = false;
+  revokeInFlight = false;
   holdUntilReload = false;
+  clearTimeout(holdTimer);
   const stopLease = subscribeLeaseState((view) => {
     // The push that follows a moved revocation arrives while its teardown is still running.
-    if (!movedInFlight && !holdUntilReload) withholdReleases(false);
+    if (!revokeInFlight && !holdUntilReload) withholdReleases(false);
     useVoiceStore.getState().setCaptureLease(view);
   });
   const stopRevoked = subscribeLeaseRevoked(({ reason }) => {
+    // Synchronously, before any await below: main already ended the device-test claim, so a
+    // test granted from here on must read the new epoch.
+    noteDeviceTestRevoked();
     if (reason === 'moved') void handleMoved();
-    else handleBackgrounded();
+    else void handleBackgrounded();
   });
   return () => {
     stopLease();
     stopRevoked();
+    clearTimeout(holdTimer);
   };
 }

@@ -81,6 +81,10 @@ user to move capture there. There is no simultaneous publication and no cloned c
     first only. The first advance therefore keeps the lease reserved behind a grantee-less
     handoff on the same 5 s ack-or-crash timer, so a navigation that never commits is crashed
     and reloaded (then `renderer-gone` ends the holder) instead of freeing capture;
+    Known limit: the two advances share one reason, so a holder that cancels two navigations in a
+    row has its second START read as a commit. That needs a hostile holder, which can already keep
+    capturing through the accepted fake-ack gap; a distinct commit reason in #86's generation
+    contract would close it;
   - `credential-start`, `credential-end` **re-key** it in place to the new generation: new
     `ConnectionRef`, new `bindOwner('capture-lease', …)`, claims and `legacy` kept,
     `setTrayOwner(newRef)`, no push, no audiocap call. The same re-key applies to `handoff.from`

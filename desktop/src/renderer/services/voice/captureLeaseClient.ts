@@ -169,6 +169,19 @@ export function withholdReleases(on: boolean): void {
  * revoke, finishing after the user started another test).
  */
 let deviceTestEpoch = 0;
+/** Set by `noteDeviceTestRevoked`, so the later `dispatchCaptureRevoked` does not bump twice. */
+let revokeNoted = false;
+
+/**
+ * Called synchronously the moment a revoke push arrives, BEFORE any await in the handler:
+ * main has already ended the claim, so a device test granted after this point must read the
+ * new epoch, and a test counted before it no longer holds anything.
+ */
+export function noteDeviceTestRevoked(): void {
+  deviceTestHolds = 0;
+  deviceTestEpoch += 1;
+  revokeNoted = true;
+}
 
 export function currentDeviceTestEpoch(): number {
   return deviceTestEpoch;
@@ -191,15 +204,28 @@ export function trackDeviceCapture<T>(capture: Promise<T>): Promise<T> {
   return capture;
 }
 
-/** Resolves once every tracked capture settled, or after `maxMs` (a permission prompt can hang). */
-export async function settleDeviceCaptures(maxMs: number): Promise<void> {
-  if (pendingDeviceCaptures.size === 0) return;
+/** Test seam: forget every tracked capture (a hung one would otherwise leak into the next test). */
+export function _resetDeviceCapturesForTesting(): void {
+  pendingDeviceCaptures.clear();
+}
+
+/**
+ * Resolves true once every tracked capture settled, or false after `maxMs` with one still
+ * pending (a permission prompt can hang). False is not a clean teardown: the caller must not
+ * acknowledge, and lets main's crash fallback end the document.
+ */
+export async function settleDeviceCaptures(maxMs: number): Promise<boolean> {
+  if (pendingDeviceCaptures.size === 0) return true;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const limit = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, maxMs);
+  const limit = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), maxMs);
   });
-  await Promise.race([Promise.allSettled([...pendingDeviceCaptures]), limit]);
+  const settled = await Promise.race([
+    Promise.allSettled([...pendingDeviceCaptures]).then(() => true as const),
+    limit,
+  ]);
   clearTimeout(timer);
+  return settled;
 }
 
 /** Never rejects, so cleanup paths can fire it with `void`. */
@@ -246,8 +272,11 @@ export const captureRevokedEvents: EventTarget = new EventTarget();
 
 export function dispatchCaptureRevoked(reason: CaptureRevokedReason): void {
   // Main has already ended the claim; the stopping tests' own releases must not be held back.
-  deviceTestHolds = 0;
-  deviceTestEpoch += 1;
+  if (!revokeNoted) {
+    deviceTestHolds = 0;
+    deviceTestEpoch += 1;
+  }
+  revokeNoted = false;
   captureRevokedEvents.dispatchEvent(
     new CustomEvent<CaptureRevokedReason>(CAPTURE_REVOKED_EVENT, { detail: reason })
   );

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  _resetDeviceCapturesForTesting,
   acquire,
   captureLeaseMessage,
   CaptureLeaseError,
@@ -9,6 +10,7 @@ import {
   leaseViewOf,
   release,
   subscribeAcquirePending,
+  noteDeviceTestRevoked,
   settleDeviceCaptures,
   subscribeLeaseState,
   trackDeviceCapture,
@@ -24,6 +26,7 @@ function setBridge(bridge: Record<string, unknown> | undefined): void {
 }
 
 afterEach(() => {
+  _resetDeviceCapturesForTesting();
   setBridge(undefined);
 });
 
@@ -259,10 +262,22 @@ describe('captureLeaseClient — overlapping device tests share one claim', () =
     await Promise.resolve();
     expect(done).not.toHaveBeenCalled();
     finish();
-    await vi.waitFor(() => expect(done).toHaveBeenCalled());
-    const hung = trackDeviceCapture(new Promise<void>(() => undefined));
-    void hung;
-    await expect(settleDeviceCaptures(10)).resolves.toBeUndefined();
+    await vi.waitFor(() => expect(done).toHaveBeenCalledWith(true));
+    // A capture that never settles ends the wait at its bound and reports it did not settle.
+    void trackDeviceCapture(new Promise<void>(() => undefined));
+    await expect(settleDeviceCaptures(10)).resolves.toBe(false);
+  });
+
+  it('a test granted after the revoke push reads the new epoch, even if the handler has not dispatched yet', async () => {
+    const releaseFn = vi.fn().mockResolvedValue(true);
+    bridgeWith(releaseFn);
+    noteDeviceTestRevoked(); // the push arrived; the handler is still awaiting its import
+    await acquire('device-test');
+    const epoch = currentDeviceTestEpoch(); // read after the acquire reply
+    dispatchCaptureRevoked('moved'); // the handler's dispatch must not bump past it
+    expect(currentDeviceTestEpoch()).toBe(epoch);
+    await expect(release('device-test', epoch)).resolves.toBe(true);
+    expect(releaseFn).toHaveBeenCalledTimes(1);
   });
 
   it('a revocation clears the count so the stopping tests still release', async () => {

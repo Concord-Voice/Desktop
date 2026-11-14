@@ -43,7 +43,8 @@ const onRevoked = (e: Event): void => {
   log.push(`capture-revoked:${String((e as CustomEvent<string>).detail)}`);
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  (await import('@/renderer/services/voice/captureLeaseClient'))._resetDeviceCapturesForTesting();
   resetAllStores();
   log.length = 0;
   vi.clearAllMocks();
@@ -142,6 +143,56 @@ describe('installCaptureRevocationHandler', () => {
     expect(log).not.toContain('release:device-test');
     // Once the teardown finished cleanly the acknowledgement does leave.
     await vi.waitFor(() => expect(log).toContain('release:voice-join'));
+  });
+
+  it('bumps the device-test epoch synchronously on the push, before the teardown import', async () => {
+    const { currentDeviceTestEpoch } = await import('@/renderer/services/voice/captureLeaseClient');
+    const before = currentDeviceTestEpoch();
+    revoke({ reason: 'moved' }); // the handler is now suspended on its dynamic import
+    expect(currentDeviceTestEpoch()).toBe(before + 1);
+    await vi.waitFor(() => expect(log).toContain('release:voice-join'));
+    expect(currentDeviceTestEpoch()).toBe(before + 1); // the dispatch did not bump again
+  });
+
+  it('a device capture that never settles keeps the acknowledgement withheld, and the hold ends after the bound', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { trackDeviceCapture, release } =
+        await import('@/renderer/services/voice/captureLeaseClient');
+      void trackDeviceCapture(new Promise<void>(() => undefined)); // getUserMedia that hangs
+      log.length = 0;
+      revoke({ reason: 'moved' });
+      await vi.advanceTimersByTimeAsync(2000); // past the settle bound
+      expect(log).toContain('setCaptureLease:none');
+      expect(log).not.toContain('release:voice-join');
+      expect(log).not.toContain('release:device-test');
+      pushLease({ held: true, mine: false }); // a foreground switch back must not lift it
+      await release('voice-join');
+      expect(log).not.toContain('release:voice-join');
+      // The crash never came (the handoff was cancelled): releases work again after the bound.
+      await vi.advanceTimersByTimeAsync(8000);
+      await release('voice-join');
+      expect(log).toContain('release:voice-join');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a backgrounded revocation also waits for an in-flight capture before releasing', async () => {
+    const { trackDeviceCapture } = await import('@/renderer/services/voice/captureLeaseClient');
+    let finish: () => void = () => undefined;
+    void trackDeviceCapture(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      })
+    );
+    log.length = 0;
+    revoke({ reason: 'backgrounded' });
+    await vi.waitFor(() => expect(log).toContain('capture-revoked:backgrounded'));
+    await Promise.resolve();
+    expect(log).not.toContain('release:device-test');
+    finish();
+    await vi.waitFor(() => expect(log).toContain('release:device-test'));
   });
 
   it('a throwing emergencyCleanup withholds every release (any release is the ack) and no later lease push lifts it', async () => {
