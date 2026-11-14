@@ -802,6 +802,30 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(foreground()?.serviceId).toBe(saas.serviceId);
   });
 
+  // The dev menu opens and activates a self-hosted connection that is deliberately never
+  // persisted; only saas may be appended when it has no entry.
+  it('an unpersisted self-hosted foreground is never added to connections.json', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(a, at(3))],
+      (origin) => register(origin) as never
+    );
+    const b = register(SELF_B);
+    await mustOpen(b.serviceId);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(b.serviceId)).toBe(true);
+    expect(foreground()?.serviceId).toBe(b.serviceId);
+    expect(writeConnectionsFile).not.toHaveBeenCalled();
+
+    // A later write keeps the restored list as it was, without b.
+    activateConnection(a.serviceId);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId]);
+  });
+
   // #86 PR 206 review row 5: macOS keeps the app alive with no window, and the dock
   // re-creates it. The restore must not fall back to the startup snapshot.
   it('a re-created window restores a connection added after startup and keeps it in the file', async () => {
