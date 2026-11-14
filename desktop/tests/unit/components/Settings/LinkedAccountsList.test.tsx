@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '../../../test-utils';
+import { render, screen, fireEvent } from '../../../test-utils';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import LinkedAccountsList from '@/renderer/components/Settings/LinkedAccountsList';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
@@ -124,7 +124,7 @@ describe('LinkedAccountsList', () => {
     expect(screen.getByText(/no linked accounts/i)).toBeInTheDocument();
   });
 
-  it('successfully unlinks a provider and refreshes the list', async () => {
+  it('opens a fresh-purpose confirmation before unlinking a provider', async () => {
     // Initial load: one identity present.
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -154,33 +154,13 @@ describe('LinkedAccountsList', () => {
           ],
         }),
     });
-    // DELETE succeeds.
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 204,
-      headers: new Headers(),
-      json: async () => ({}),
-      text: async () => '',
-    });
-    // Refetch after unlink: empty list.
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: new Headers({ 'Content-Type': 'application/json' }),
-      json: async () => ({ identities: [] }),
-      text: async () => JSON.stringify({ identities: [] }),
-    });
-
     render(<LinkedAccountsList />);
     const unlinkBtn = await screen.findByRole('button', { name: /unlink/i });
     fireEvent.click(unlinkBtn);
-
-    // After the refetch, the empty state replaces the row.
-    await screen.findByText(/no linked accounts/i);
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole('dialog', { name: 'Unlink SSO account' })).toBeInTheDocument();
   });
 
-  it('shows a generic unlink-failed error for non-lockout errors', async () => {
+  it('does not send an unlink request before the fresh-proof dialog is confirmed', async () => {
     // Initial load: one identity.
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -210,26 +190,21 @@ describe('LinkedAccountsList', () => {
           ],
         }),
     });
-    // DELETE fails with a non-lockout server error.
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      headers: new Headers({ 'Content-Type': 'application/json' }),
-      json: async () => ({ error_code: 'db_unavailable' }),
-      text: async () => JSON.stringify({ error_code: 'db_unavailable' }),
-    });
-
     render(<LinkedAccountsList />);
     const unlinkBtn = await screen.findByRole('button', { name: /unlink/i });
     fireEvent.click(unlinkBtn);
 
-    // Non-lockout errors fall through to the generic message.
-    await screen.findByText(/failed to unlink account/i);
-    // Lock-out copy must NOT appear for generic failures.
-    expect(screen.queryByText(/lock you out/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Unlink SSO account' })).toBeInTheDocument();
+    expect(
+      mockFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes('/api/v1/users/me/sso-identities/google') &&
+          (init as RequestInit | undefined)?.method === 'DELETE'
+      )
+    ).toBe(false);
   });
 
-  it('blocks unlink when it would lock the user out', async () => {
+  it('preserves the existing linked-account row while confirmation is open', async () => {
     // First call: list identities
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -259,31 +234,11 @@ describe('LinkedAccountsList', () => {
           ],
         }),
     });
-    // Second call: unlink — server refuses with would_lock_out
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      headers: new Headers({ 'Content-Type': 'application/json' }),
-      json: async () => ({
-        error_code: 'would_lock_out',
-        detail: 'Set a passphrase first or link another provider before unlinking this one.',
-      }),
-      text: async () =>
-        JSON.stringify({
-          error_code: 'would_lock_out',
-          detail: 'Set a passphrase first or link another provider before unlinking this one.',
-        }),
-    });
-
     render(<LinkedAccountsList />);
     const unlinkBtn = await screen.findByRole('button', { name: /unlink/i });
     fireEvent.click(unlinkBtn);
 
-    await screen.findByText(/lock you out/i);
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
-    // Confirm second call was the DELETE
-    const [, deleteInit] = mockFetch.mock.calls[1];
-    expect(deleteInit?.method).toBe('DELETE');
-    expect(String(mockFetch.mock.calls[1][0])).toContain('/api/v1/users/me/sso-identities/google');
+    expect(await screen.findByRole('dialog', { name: 'Unlink SSO account' })).toBeInTheDocument();
+    expect(screen.getByText(/google/i)).toBeInTheDocument();
   });
 });

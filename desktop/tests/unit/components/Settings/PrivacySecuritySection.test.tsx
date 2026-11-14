@@ -3046,7 +3046,7 @@ describe('PrivacySecuritySection', () => {
     expect(screen.getByRole('switch', { name: /Require SSO for sign-in/i })).toBeInTheDocument();
   });
 
-  it('Trust SSO toggle reveals passphrase confirm and PATCHes on submit', async () => {
+  it('Trust SSO toggle requests fresh proof and PATCHes on submit', async () => {
     // After the 4 default mocks (sessions, mfa/status, webauthn, sso-identities),
     // the 5th call is the PATCH /users/me/security from the toggle confirm.
     mockApiFetch.mockResolvedValueOnce({
@@ -3068,11 +3068,12 @@ describe('PrivacySecuritySection', () => {
     }) as HTMLInputElement;
     fireEvent.click(trustToggle);
 
-    // Inline confirm UI appears
-    const passInput = await screen.findByLabelText(/enter your passphrase to confirm/i);
+    // The shared fresh-proof dialog replaces the old inline passphrase confirm.
+    const dialog = await screen.findByRole('dialog');
+    const passInput = await within(dialog).findByLabelText(/^password$/i);
     fireEvent.change(passInput, { target: { value: 'CorrectPW!' } }); // pragma: allowlist secret
 
-    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /enable trust/i }));
 
     await vi.waitFor(() => {
       // 4 calls on mockApiFetch: sessions, mfa/status, webauthn/credentials, PATCH /security.

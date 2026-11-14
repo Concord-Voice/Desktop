@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch, safeJson } from '../../services/system/apiClient';
+import SessionStepUpDialog, {
+  sessionStepUpKey,
+  type SessionStepUpAction,
+} from './SessionStepUpDialog';
 import './LinkedAccountsList.css';
 
 interface SSOIdentity {
@@ -39,16 +43,6 @@ function relativeTime(iso: string | null): string {
 }
 
 /**
- * Pulls the `error_code` field out of an apiFetch error message so we can
- * branch on the lock-out case. apiFetch throws Error instances whose message
- * is the raw JSON body; we read the body fragment and parse it defensively.
- */
-function isLockOutError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : '';
-  return /would_lock_out/.test(msg);
-}
-
-/**
  * LinkedAccountsList — Settings view for managing SSO providers.
  *
  * Renders one row per linked identity with provider, email (or relay-email
@@ -61,7 +55,7 @@ function isLockOutError(err: unknown): boolean {
 const LinkedAccountsList: React.FC = () => {
   const [identities, setIdentities] = useState<SSOIdentity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(null);
+  const [stepUpAction, setStepUpAction] = useState<SessionStepUpAction | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -84,35 +78,6 @@ const LinkedAccountsList: React.FC = () => {
       // exists only to satisfy no-floating-promises without using `void`.
     });
   }, [load]);
-
-  const unlink = async (provider: string): Promise<void> => {
-    setError(null);
-    setUnlinkingProvider(provider);
-    try {
-      const res = await apiFetch(
-        `/api/v1/users/me/sso-identities/${encodeURIComponent(provider)}`,
-        {
-          method: 'DELETE',
-        }
-      );
-      if (!res.ok) {
-        // Throw the body so isLockOutError can pattern-match on `would_lock_out`.
-        const body = await res.text();
-        throw new Error(body);
-      }
-      await load();
-    } catch (err) {
-      if (isLockOutError(err)) {
-        setError(
-          'Removing this would lock you out. Set a passphrase first or link another provider before unlinking this one.'
-        );
-      } else {
-        setError('Failed to unlink account.');
-      }
-    } finally {
-      setUnlinkingProvider(null);
-    }
-  };
 
   if (identities === null) {
     return (
@@ -150,19 +115,29 @@ const LinkedAccountsList: React.FC = () => {
                 <button
                   type="button"
                   className="linked-accounts__unlink-btn"
-                  onClick={() => {
-                    unlink(identity.provider).catch(() => {
-                      // unlink() catches its own errors and stamps state.
-                    });
-                  }}
-                  disabled={unlinkingProvider === identity.provider}
+                  onClick={() =>
+                    setStepUpAction({ kind: 'ssoUnlink', provider: identity.provider })
+                  }
+                  disabled={stepUpAction?.kind === 'ssoUnlink'}
                 >
-                  {unlinkingProvider === identity.provider ? 'Unlinking...' : 'Unlink'}
+                  {stepUpAction?.kind === 'ssoUnlink' ? 'Unlinking...' : 'Unlink'}
                 </button>
               </li>
             );
           })}
         </ul>
+      )}
+      {stepUpAction?.kind === 'ssoUnlink' && (
+        <SessionStepUpDialog
+          key={sessionStepUpKey(stepUpAction)}
+          action={stepUpAction}
+          onClose={() => setStepUpAction(null)}
+          onAccepted={(action) => {
+            if (action.kind !== 'ssoUnlink') return;
+            setStepUpAction(null);
+            void load();
+          }}
+        />
       )}
     </div>
   );

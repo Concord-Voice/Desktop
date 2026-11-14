@@ -24,6 +24,11 @@ within that window restores them. After that window, or after reloading the
 interface, sections start collapsed again. **Expand all** and **Collapse all**
 apply to the current pane.
 
+An account-erasure confirmation link from email opens Settings ▸ Privacy and
+resumes the pending deletion after fresh proof. The app keeps the confirmation
+only in memory for 15 minutes and discards it when you switch accounts or
+servers. If the app restarts or the link expires, open the email link again.
+
 **Account ▸ Subscription** shows your current Sonic or Supersonic access,
 benefits, and code redemption in one place. **Compare planned options** opens
 the [product comparison page](https://concordvoice.com/compare/). Paid

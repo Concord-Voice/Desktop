@@ -5,7 +5,7 @@ import { useSettingsOverlayStore } from '../../stores/ui/settingsOverlayStore';
 import { useSettingsNavStore, type SettingsSection } from '../../stores/ui/settingsNavStore';
 import { useClientConfigStore } from '../../stores/ui/clientConfigStore';
 import AppearanceSection from './AppearanceSection';
-import PrivacySection from './PrivacySection';
+import PrivacySection, { type AccountErasureConfirmation } from './PrivacySection';
 import SecuritySection from './SecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
 import AccessibilitySection from './AccessibilitySection';
@@ -169,7 +169,15 @@ const navItems: NavItem[] = [
 
 // ─── Settings Page ──────────────────────────────────────────────────────────
 
-const SettingsPage: React.FC = () => {
+interface SettingsPageProps {
+  accountErasureConfirmation?: AccountErasureConfirmation | null;
+  onClearAccountErasureConfirmation?: () => void;
+}
+
+const SettingsPage: React.FC<SettingsPageProps> = ({
+  accountErasureConfirmation = null,
+  onClearAccountErasureConfirmation,
+}) => {
   const closeOverlay = useSettingsOverlayStore((s) => s.close);
   const activityHistoryCapability = useClientConfigStore(
     (state) => state.activityHistoryCapability
@@ -196,6 +204,12 @@ const SettingsPage: React.FC = () => {
         .map((sub) => sub.targetId),
     [activeSection, hiddenSubsectionId]
   );
+
+  useEffect(() => {
+    if (accountErasureConfirmation !== null && activeSection !== 'privacy') {
+      startTransition(() => setActiveSection('privacy'));
+    }
+  }, [accountErasureConfirmation, activeSection, startTransition]);
 
   // Draft settings lifecycle
   useDraftSettingsLifecycle();
@@ -311,6 +325,8 @@ const SettingsPage: React.FC = () => {
       case 'privacy':
         return (
           <PrivacySection
+            accountErasureConfirmation={accountErasureConfirmation}
+            onClearAccountErasureConfirmation={onClearAccountErasureConfirmation}
             onActivityHistoryAvailabilityChange={setActivityHistoryDestinationAvailable}
           />
         );

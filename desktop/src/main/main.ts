@@ -134,6 +134,7 @@ import { consumePipOpenToken, isPipOpenOptions, MAX_PIP_WINDOWS } from './pipOpe
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
+  normalizeAccountErasureDeepLink,
   normalizeInviteDeepLink,
   type DeepLinkKind,
 } from './deepLink';
@@ -398,6 +399,60 @@ const DEEP_LINK_KINDS: readonly DeepLinkKind[] = ['invite', 'friend'];
 export const PENDING_DEEP_LINK_CAP = 8;
 const pendingDeepLinks: Record<DeepLinkKind, string[]> = { invite: [], friend: [] };
 
+type PendingErasureConfirmation = {
+  requestId: string;
+  token: string;
+  owner: CredentialOwner;
+};
+
+let erasureRendererReady = false;
+const pendingErasureConfirmations: PendingErasureConfirmation[] = [];
+let lastErasureConfirmationKey: string | null = null;
+
+function forgetErasureConfirmations(): void {
+  erasureRendererReady = false;
+  pendingErasureConfirmations.length = 0;
+  lastErasureConfirmationKey = null;
+}
+
+function drainErasureConfirmations(): void {
+  if (!erasureRendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  const currentOwner = getCredentialCustodyState().credentialOwner;
+  for (const confirmation of pendingErasureConfirmations.splice(0)) {
+    if (currentOwner !== confirmation.owner) {
+      console.warn('[AccountErasureDeepLink] stale_session');
+      continue;
+    }
+    mainWindow.webContents.send('deeplink:account-erasure-confirmation', {
+      requestId: confirmation.requestId,
+      token: confirmation.token,
+    });
+  }
+}
+
+function queueErasureConfirmation(raw: string | undefined): boolean {
+  const result = normalizeAccountErasureDeepLink(raw);
+  if (!result.ok) {
+    if (result.reason !== 'empty') console.warn('[AccountErasureDeepLink] invalid_shape');
+    return false;
+  }
+  const owner = getCredentialCustodyState().credentialOwner;
+  if (owner === null) {
+    console.warn('[AccountErasureDeepLink] stale_session');
+    return true;
+  }
+  const key = `${owner}:${result.requestId}:${result.token}`;
+  if (key === lastErasureConfirmationKey) return true;
+  lastErasureConfirmationKey = key;
+  pendingErasureConfirmations.push({ ...result, owner });
+  while (pendingErasureConfirmations.length > PENDING_DEEP_LINK_CAP) {
+    pendingErasureConfirmations.shift();
+  }
+  drainErasureConfirmations();
+  console.debug('[AccountErasureDeepLink] accepted');
+  return true;
+}
+
 // Delivery after renderer-ready is otherwise unbounded: a page the user merely
 // visits can fire N concord:// links and get N IPC sends, N forced modal
 // re-opens, and N authenticated preview calls — each modal prefilled with an
@@ -608,6 +663,12 @@ function resetDeepLinkDelivery(): void {
   // turns it red. One fence per delivery path, not two per path.
   inviteRendererReady = false;
   friendRendererReady = false;
+  // Unlike invite links, this bearer confirmation may not survive a renderer
+  // reload: the renderer's in-memory account binding is deliberately lost.
+  erasureRendererReady = false;
+  pendingErasureConfirmations.length = 0;
+  // A reload drops the in-memory capability, so the same link may be delivered again.
+  lastErasureConfirmationKey = null;
   // Read ONCE for the whole reset, not per kind. NOT cleared here (RED-TEAM
   // F2): the arming belongs to whichever applySpaDecisionCarryingDeepLink call
   // took it out and is released by that call's `finally`. Clearing it on the
@@ -825,6 +886,7 @@ function forgetDeliveredDeepLinks(): void {
     }
     pendingDeepLinks[kind].length = 0;
   }
+  forgetErasureConfirmations();
 }
 
 function isRendererReadyFor(kind: DeepLinkKind): boolean {
@@ -1044,6 +1106,16 @@ function handleInviteDeepLink(raw: string | undefined, source: string): void {
   }
 }
 
+function handleProtocolDeepLink(raw: string | undefined, source: string): void {
+  // Erasure links are a separate closed capability surface. Once their host is
+  // selected, never hand the token-shaped path to invite/friend routing.
+  if (raw?.startsWith('concord://account-erasure/')) {
+    queueErasureConfirmation(raw);
+    return;
+  }
+  handleInviteDeepLink(raw, source);
+}
+
 function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, source: string): void {
   const result = extractInviteDeepLinkFromArgv(argv);
   if (result.ok) {
@@ -1066,6 +1138,20 @@ function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, sour
   } else if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link argv', 'source', source, 'reason', result.reason);
   }
+}
+
+function handleProtocolDeepLinksFromArgv(
+  argv: readonly string[] | undefined,
+  source: string
+): void {
+  if (!Array.isArray(argv)) return;
+  for (const arg of argv) {
+    if (arg.startsWith('concord://account-erasure/')) {
+      queueErasureConfirmation(arg);
+      return;
+    }
+  }
+  handleInviteDeepLinksFromArgv(argv, source);
 }
 
 // Set true by the before-quit handler so the [X] close intercept can
@@ -3155,19 +3241,31 @@ ipcMain.on('deeplink:renderer-ready', (event) => {
   drainPendingDeepLinks();
 });
 
+ipcMain.on('deeplink:account-erasure-ready', (event) => {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    !isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())
+  ) {
+    return;
+  }
+  erasureRendererReady = true;
+  drainErasureConfirmations();
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (gotTheLock) {
-  handleInviteDeepLinksFromArgv(process.argv, 'argv');
+  handleProtocolDeepLinksFromArgv(process.argv, 'argv');
 
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    handleInviteDeepLink(url, 'open-url');
+    handleProtocolDeepLink(url, 'open-url');
   });
 
   app.on('second-instance', (_event, argv: string[]) => {
-    handleInviteDeepLinksFromArgv(argv, 'second-instance');
+    handleProtocolDeepLinksFromArgv(argv, 'second-instance');
     // Someone tried to run a second instance, focus our window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();

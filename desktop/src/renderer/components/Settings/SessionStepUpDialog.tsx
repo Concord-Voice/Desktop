@@ -28,7 +28,9 @@ import ErrorBanner from './ErrorBanner';
 export type SessionStepUpAction =
   | { kind: 'revoke'; sessionId: string }
   | { kind: 'revokeAll' }
-  | { kind: 'modeChange'; mode: 'simple' | 'secure' };
+  | { kind: 'modeChange'; mode: 'simple' | 'secure' }
+  | { kind: 'ssoUnlink'; provider: string }
+  | { kind: 'ssoTrustEnable' };
 
 /**
  * The dialog's React `key`: one instance per action, so a dialog is never
@@ -43,6 +45,10 @@ export function sessionStepUpKey(action: SessionStepUpAction): string {
       return 'revokeAll';
     case 'modeChange':
       return `modeChange:${action.mode}`;
+    case 'ssoUnlink':
+      return `ssoUnlink:${action.provider}`;
+    case 'ssoTrustEnable':
+      return 'ssoTrustEnable';
   }
 }
 
@@ -78,7 +84,9 @@ interface ActionSpec {
   /** The sentence for an answer that is not a step-up refusal and says nothing itself. */
   failure: string;
   path: string;
-  method: 'POST' | 'PUT' | 'DELETE';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Legacy SSO security keeps its established passphrase spelling. */
+  passwordField?: 'password' | 'current_passphrase';
   /** The request body before the credentials join it. */
   body: Record<string, unknown>;
 }
@@ -128,6 +136,34 @@ function specFor(action: SessionStepUpAction): ActionSpec {
         method: 'PUT',
         body: { mode: action.mode },
       };
+    case 'ssoUnlink':
+      return {
+        purpose: 'account.sso_unlink',
+        title: 'Unlink SSO account',
+        description: 'Confirm it is you before unlinking this sign-in provider.',
+        cancel: 'Cancel',
+        confirm: 'Confirm & Unlink',
+        confirming: 'Unlinking...',
+        failure: 'Failed to unlink account',
+        path: `/api/v1/users/me/sso-identities/${encodeURIComponent(action.provider)}`,
+        method: 'DELETE',
+        body: {},
+      };
+    case 'ssoTrustEnable':
+      return {
+        purpose: 'account.sso_trust_enable',
+        title: 'Trust SSO provider verification',
+        description:
+          'Concord will skip its own MFA after a successful SSO sign-in. Confirm it is you to enable this.',
+        cancel: 'Cancel',
+        confirm: 'Enable trust',
+        confirming: 'Enabling...',
+        failure: 'Failed to update SSO security',
+        path: '/api/v1/users/me/security',
+        method: 'PATCH',
+        passwordField: 'current_passphrase',
+        body: { trust_sso_security: true },
+      };
   }
 }
 
@@ -170,7 +206,7 @@ async function sendSessionRequest(
   context: ApiRequestContext
 ): Promise<SessionResult> {
   const payload: Record<string, unknown> = { ...spec.body };
-  if (password) payload.password = password;
+  if (password) payload[spec.passwordField ?? 'password'] = password;
   if (mfa) payload.mfa_code = mfa;
   try {
     const res = await apiFetchInContext(
@@ -184,6 +220,18 @@ async function sendSessionRequest(
     );
     if (res.ok) return { kind: 'accepted' };
     const body: unknown = await res.json().catch(() => null);
+    if (
+      spec.purpose === 'account.sso_unlink' &&
+      typeof body === 'object' &&
+      body !== null &&
+      (body as { error_code?: unknown }).error_code === 'would_lock_out'
+    ) {
+      return {
+        kind: 'failed',
+        message:
+          'Removing this would lock you out. Set a passphrase first or link another provider before unlinking this one.',
+      };
+    }
     return refusedResult(res.status, body, spec.failure);
   } catch (err) {
     return isAbortError(err) ? { kind: 'aborted' } : { kind: 'transport' };
@@ -261,7 +309,13 @@ const SessionStepUpDialog: React.FC<SessionStepUpDialogProps> = ({
   const factor = useStepUpFactor({
     enabled: true,
     purpose: spec.purpose,
-    passwordLeg: LEG_ONLY_WITHOUT_MFA,
+    // #158 requires both legs when an enrolled account unlinks an SSO
+    // identity or starts trusting its SSO provider. Existing session actions
+    // retain their historical factor-first presentation.
+    passwordLeg:
+      action.kind === 'ssoUnlink' || action.kind === 'ssoTrustEnable'
+        ? 'always'
+        : LEG_ONLY_WITHOUT_MFA,
     readFailure: 'passwordOnly',
     allowBackup: true,
     seed,

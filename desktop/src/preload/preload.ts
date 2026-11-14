@@ -295,6 +295,20 @@ contextBridge.exposeInMainWorld('electron', {
   },
   friendRendererReady: () => ipcRenderer.send('deeplink:renderer-ready'),
 
+  // Account-erasure confirmations carry a bearer secret. This dedicated,
+  // field-copied event is intentionally separate from invite/friend routing.
+  onAccountErasureConfirmation: (
+    callback: (data: { requestId: string; token: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { requestId: string; token: string }
+    ) => callback({ requestId: data.requestId, token: data.token });
+    ipcRenderer.on('deeplink:account-erasure-confirmation', handler);
+    return () => ipcRenderer.removeListener('deeplink:account-erasure-confirmation', handler);
+  },
+  accountErasureRendererReady: () => ipcRenderer.send('deeplink:account-erasure-ready'),
+
   // Machine ID for token theft detection (#89)
   getMachineId: (apiBase?: string) =>
     ipcRenderer.invoke('auth:getMachineId', apiBase) as Promise<string>,
@@ -872,6 +886,10 @@ export interface ElectronAPI {
   forgetDeepLinks: () => Promise<void>;
   onFriendCodeReceived: (callback: (data: { code: string }) => void) => () => void;
   friendRendererReady: () => void;
+  onAccountErasureConfirmation: (
+    callback: (data: { requestId: string; token: string }) => void
+  ) => () => void;
+  accountErasureRendererReady: () => void;
 
   // Machine ID for token theft detection
   getMachineId: (apiBase?: string) => Promise<string>;

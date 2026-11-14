@@ -3482,12 +3482,19 @@ describe('main.ts', () => {
     ];
     const FRIEND_CODE = 'AbCdEfGh';
     const INVITE_CODE = 'AbCdEfGj';
+    const ERASURE_REQUEST_ID = '550e8400-e29b-41d4-a716-446655440000';
+    const ERASURE_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const rendererEvent = { sender: mockWebContents };
+    const erasureRendererEvent = {
+      sender: mockWebContents,
+      senderFrame: mockWebContents.mainFrame,
+    };
 
     let DEEP_LINK_EMIT_WINDOW_MS: number;
     let deliverDeepLink: (url: string) => void;
     let signalInviteReady: CallbackFn;
     let signalFriendReady: CallbackFn;
+    let signalErasureReady: CallbackFn;
     let simulateReload: CallbackFn;
 
     beforeAll(async () => {
@@ -3499,6 +3506,7 @@ describe('main.ts', () => {
       };
       signalInviteReady = ipcListener('invite:renderer-ready');
       signalFriendReady = ipcListener('deeplink:renderer-ready');
+      signalErasureReady = ipcListener('deeplink:account-erasure-ready');
 
       const didStartLoading = mockWebContents.on.mock.calls.find(
         (c: unknown[]) => c[0] === 'did-start-loading'
@@ -3560,6 +3568,51 @@ describe('main.ts', () => {
         .filter((c: unknown[]) => c[0] === channel)
         .map((c: unknown[]) => (c[1] as { code: string }).code);
     }
+
+    function erasureConfirmations(): Array<{ requestId: string; token: string }> {
+      return mockWebContents.send.mock.calls
+        .filter((c: unknown[]) => c[0] === 'deeplink:account-erasure-confirmation')
+        .map((c: unknown[]) => c[1] as { requestId: string; token: string });
+    }
+
+    function erasureDeepLink(requestId = ERASURE_REQUEST_ID, token = ERASURE_TOKEN): string {
+      return `concord://account-erasure/confirm/${requestId}/${token}`;
+    }
+
+    it('allows the same erasure link to be delivered after a renderer reload', () => {
+      resetDeepLinkState();
+      signalErasureReady(erasureRendererEvent);
+      deliverDeepLink(erasureDeepLink());
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+
+      simulateReload();
+      deliverDeepLink(erasureDeepLink());
+      // A replacement renderer has not installed its listener yet.
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+    });
+
+    it('queues a new erasure link until the replacement renderer is ready', () => {
+      resetDeepLinkState();
+      signalErasureReady(erasureRendererEvent);
+      simulateReload();
+      const nextRequestId = '550e8400-e29b-41d4-a716-446655440001';
+      deliverDeepLink(erasureDeepLink(nextRequestId));
+
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([{ requestId: nextRequestId, token: ERASURE_TOKEN }]);
+    });
 
     it('caps the pending queue at 8 entries, dropping oldest', () => {
       resetDeepLinkState();

@@ -101,4 +101,11 @@ describe('preload sandbox contract (integration)', () => {
     // guard must ship inside the bundle rather than be required.
     expect(content).toContain('isTrayAction');
   });
+
+  it('exposes only the dedicated account-erasure confirmation deep-link bridge', () => {
+    const content = readFileSync(preloadPath, 'utf-8');
+    expect(content).toContain('deeplink:account-erasure-confirmation');
+    expect(content).toContain('deeplink:account-erasure-ready');
+    expect(content).toContain('onAccountErasureConfirmation');
+  });
 });
