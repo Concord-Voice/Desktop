@@ -3,7 +3,6 @@ import Modal from '../ui/Modal';
 import StepUpCredentials, { stepUpActivation } from '../Auth/StepUpCredentials';
 import type { StepUpPurpose } from '../Auth/stepUpPurpose';
 import {
-  LEG_ONLY_WITHOUT_MFA,
   useStepUpFactor,
   type StepUpFactorRefusal,
   type StepUpPhase,
@@ -237,11 +236,9 @@ function primaryLabel(phase: StepUpPhase, spec: ActionSpec): string {
  * revoke-all and the revocation-mode change, so the three do not carry three
  * copies of the same credential markup and request handling.
  *
- * The password leg is `whenNoMfa`: the field appears only when the account
- * holds no inline method, and which methods those are comes from the
- * requirements read or a refusal, never from `users.mfa_methods` (C2). The
- * route also accepts a password alone from an MFA account; offering the code
- * first is a presentation choice, not a server rule.
+ * The server requires the password and an enrolled inline factor. The
+ * requirements read supplies the factor set; it never comes from
+ * `users.mfa_methods` (C2).
  *
  * The parent mounts this when the action opens and unmounts it on close, so
  * the password and the factor state die with it. Neither is stored, persisted
@@ -261,7 +258,7 @@ const SessionStepUpDialog: React.FC<SessionStepUpDialogProps> = ({
   const factor = useStepUpFactor({
     enabled: true,
     purpose: spec.purpose,
-    passwordLeg: LEG_ONLY_WITHOUT_MFA,
+    passwordLeg: 'always', // pragma: allowlist secret
     readFailure: 'passwordOnly',
     allowBackup: true,
     seed,
@@ -288,8 +285,7 @@ const SessionStepUpDialog: React.FC<SessionStepUpDialogProps> = ({
     <Modal isOpen onClose={onClose} title={spec.title} width="small" dismissable={!submitting}>
       <div className="revoke-all-modal-content">
         <p className="revoke-all-modal-description">{spec.description}</p>
-        {/* No initialFocusRef: the `whenNoMfa` password field exists only once the read
-            has landed, so the stage places focus then. */}
+        {/* No initialFocusRef: the stage places focus after its requirements read lands. */}
         <StepUpCredentials
           factor={factor}
           password={password}
