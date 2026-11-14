@@ -61,6 +61,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
 - **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Sessions:** Session revocation and revocation-mode changes now require your password and configured verification method ([#224](https://github.com/Concord-Voice/Desktop/pull/224)).
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.

@@ -2925,9 +2925,9 @@ describe('PrivacySecuritySection', () => {
 
   // ── handleRevokeAll validation (no password) ───────────────────────────
 
-  // ── MFA-enabled modals use MFA verify prompt ───────────────────────────
+  // ── MFA-enabled modals require password plus MFA verify prompt ─────────
 
-  it('revoke all asks an authenticator account for its code, not a password', async () => {
+  it('revoke all asks an authenticator account for its password and code', async () => {
     readOffers(['totp']);
     serveSection({ sessions: [sessionRow('s1', true)], mfaMethods: ['totp'] });
     render(<PrivacySecuritySection />);
@@ -2935,11 +2935,11 @@ describe('PrivacySecuritySection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke All Sessions' }));
     const dialog = await screen.findByRole('dialog');
 
+    expect(await within(dialog).findByLabelText('Password')).toBeInTheDocument();
     expect(await within(dialog).findByLabelText('Authenticator app code')).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
-  it('mode change asks an authenticator account for its code, not a password', async () => {
+  it('mode change asks an authenticator account for its password and code', async () => {
     readOffers(['totp']);
     serveSection({ mfaMethods: ['totp'] });
     render(<PrivacySecuritySection />);
@@ -2947,11 +2947,11 @@ describe('PrivacySecuritySection', () => {
     fireEvent.click(await screen.findByText('Simple'));
     const dialog = await screen.findByRole('dialog');
 
+    expect(await within(dialog).findByLabelText('Password')).toBeInTheDocument();
     expect(await within(dialog).findByLabelText('Authenticator app code')).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
-  it('single revoke on auth_required lets the read decide: an authenticator account gets its code field', async () => {
+  it('single revoke on auth_required lets the read decide: an authenticator account gets its password and code fields', async () => {
     readOffers(['totp']);
     serveSection({
       sessions: [sessionRow('s2', false)],
@@ -2964,8 +2964,8 @@ describe('PrivacySecuritySection', () => {
     const dialog = await screen.findByRole('dialog');
 
     // `methods` on this refusal lists users.mfa_methods; it is never read (C2).
+    expect(await within(dialog).findByLabelText('Password')).toBeInTheDocument();
     expect(await within(dialog).findByLabelText('Authenticator app code')).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('Password')).not.toBeInTheDocument();
   });
 
   // C2: the dialogs never read `mfaMethods`. An account whose only method is email

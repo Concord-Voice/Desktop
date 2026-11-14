@@ -11,8 +11,8 @@ import {
 } from '../../../helpers/stepUpApi';
 
 // The session step-up dialog (#7, plan 2026-10-07 §3): single revoke, revoke-all
-// and the revocation-mode change on one dialog. It reads the requirements itself
-// (`whenNoMfa`), never `users.mfa_methods` (C2), and reads the route's answers
+// and the revocation-mode change on one dialog. It reads the requirements itself,
+// never `users.mfa_methods` (C2), and reads the route's answers
 // through `adaptSessionsRefusal` (exact strings, C5), never the seam classifier.
 //
 // `apiFetch` is mocked at the module boundary and answers by path, so the
@@ -21,17 +21,15 @@ import {
 // "Mutant:" comments name the production change each case exists to turn red.
 
 const mockApiFetch = vi.fn();
-vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
-}));
+vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
+});
 
 const mockClassify = vi.hoisted(() => vi.fn());
-vi.mock('@/renderer/services/system/stepUpRefusal', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/stepUpRefusal')>();
-  mockClassify.mockImplementation(actual.classifyStepUpRefusal);
-  return { ...actual, classifyStepUpRefusal: mockClassify };
-});
+vi.mock('@/renderer/services/system/stepUpRefusal', () => ({
+  classifyStepUpRefusal: mockClassify,
+}));
 
 import SessionStepUpDialog, {
   sessionStepUpKey,
@@ -138,10 +136,10 @@ describe('what each action sends', () => {
   });
 });
 
-describe('the read decides the leg, never mfaMethods (C2)', () => {
-  // Mutant: a floor or an unconditional code box (the leg derived from the account's
-  // `mfa_methods`, which lists email) puts a field on screen an email-only account
-  // can never fill, and takes the password it needs away.
+describe('the read decides the factor, never mfaMethods (C2)', () => {
+  // Mutant: a floor or an unconditional code box (the factor derived from the
+  // account's `mfa_methods`, which lists email) puts a field on screen an
+  // email-only account can never fill.
   it.each([REVOKE_ALL, MODE])(
     'an account with no inline method (read: []) gets the password field for %j',
     async (action) => {
@@ -156,9 +154,8 @@ describe('the read decides the leg, never mfaMethods (C2)', () => {
     }
   );
 
-  // Mutant: `passwordLeg: 'always'` shows the password beside the code. // pragma: allowlist secret
   it.each([REVOKE_ALL, MODE])(
-    'an authenticator account gets the code field and no password for %j',
+    'an authenticator account gets the password and code fields for %j',
     async (action) => {
       installStepUpApi(mockApiFetch, {
         read: () => readOffers(['totp']),
@@ -167,24 +164,35 @@ describe('the read decides the leg, never mfaMethods (C2)', () => {
       renderDialog(action);
 
       expect(await codeField()).toBeInTheDocument();
-      expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+      expect(await passwordField()).toBeInTheDocument();
       expect(readCount(mockApiFetch)).toBe(1);
     }
   );
 
-  it('sends the code as mfa_code and no password', async () => {
-    installStepUpApi(mockApiFetch, {
-      read: () => readOffers(['totp']),
-      route: () => jsonResponse(200),
-    });
-    renderDialog(MODE);
+  it.each([REVOKE, REVOKE_ALL, MODE])(
+    'sends password and mfa_code for an authenticator account: %j',
+    async (action) => {
+      installStepUpApi(mockApiFetch, {
+        read: () => readOffers(['totp']),
+        route: () => jsonResponse(200),
+      });
+      renderDialog(action);
 
-    await userEvent.type(await codeField(), FIXTURE_OTP);
-    await userEvent.click(primary(MODE));
+      await userEvent.type(await passwordField(), FIXTURE_PW);
+      await userEvent.type(await codeField(), FIXTURE_OTP);
+      await userEvent.click(primary(action));
 
-    await waitForRequests(MODE);
-    expect(sent(MODE)).toEqual([{ mode: 'simple', mfa_code: FIXTURE_OTP }]);
-  });
+      await waitForRequests(action);
+      expect(sent(action)).toEqual([
+        {
+          ...(action.kind === 'revokeAll' ? { include_current: true } : {}),
+          ...(action.kind === 'modeChange' ? { mode: action.mode } : {}),
+          password: FIXTURE_PW,
+          mfa_code: FIXTURE_OTP,
+        },
+      ]);
+    }
+  );
 
   // The server's VerifyCode accepts a backup code on this route, so the dialog offers one.
   // Mutant: `allowBackup: false`.
@@ -195,38 +203,15 @@ describe('the read decides the leg, never mfaMethods (C2)', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.click(await screen.findByRole('button', { name: 'Use a backup code instead' }));
     await userEvent.type(await screen.findByLabelText('Backup code'), FIXTURE_BACKUP);
     await userEvent.click(primary(MODE));
 
     await waitForRequests(MODE);
-    expect(sent(MODE)).toEqual([{ mode: 'simple', mfa_code: FIXTURE_BACKUP }]);
-  });
-
-  // The C2 race: the set was read as TOTP, the route says the account needs its password.
-  // Mutant: ignoring `password_required` (the leg stays code-only), or mounting the field
-  // without moving focus to it.
-  it('a TOTP set that receives password_required mounts the password leg, focuses it, and the next submit carries the password', async () => {
-    let n = 0;
-    installStepUpApi(mockApiFetch, {
-      read: () => readOffers(['totp']),
-      route: () =>
-        ++n === 1 ? jsonResponse(403, { error: 'password_required' }) : jsonResponse(200),
-    });
-    renderDialog(REVOKE_ALL);
-
-    await userEvent.type(await codeField(), FIXTURE_OTP);
-    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
-    await userEvent.click(primary(REVOKE_ALL));
-
-    const password = await passwordField();
-    await waitFor(() => expect(password).toHaveFocus());
-    await userEvent.type(password, FIXTURE_PW);
-    await userEvent.click(primary(REVOKE_ALL));
-
-    await waitForRequests(REVOKE_ALL, 2);
-    expect(sent(REVOKE_ALL)[1]).toMatchObject({ include_current: true, password: FIXTURE_PW });
-    await waitFor(() => expect(onAccepted).toHaveBeenCalledTimes(1));
+    expect(sent(MODE)).toEqual([
+      { mode: 'simple', password: FIXTURE_PW, mfa_code: FIXTURE_BACKUP },
+    ]);
   });
 });
 
@@ -241,7 +226,7 @@ describe('a refusal-triggered single revoke (seed)', () => {
     renderDialog(REVOKE, { kind: 'mfaRequired', methods: null });
 
     expect(await codeField()).toBeInTheDocument();
-    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(await passwordField()).toBeInTheDocument();
     expect(readCount(mockApiFetch)).toBe(1);
   });
 
@@ -281,6 +266,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -327,6 +313,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -350,6 +337,7 @@ describe('what the route answers', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     await userEvent.click(primary(MODE));
 
@@ -430,6 +418,7 @@ describe('a sent code is never offered again', () => {
     });
     renderDialog(MODE);
 
+    await userEvent.type(await passwordField(), FIXTURE_PW);
     await userEvent.type(await codeField(), FIXTURE_OTP);
     expect(primary(MODE)).not.toHaveAttribute('aria-disabled');
     await userEvent.click(primary(MODE));
@@ -504,16 +493,17 @@ describe('the primary and Cancel', () => {
 describe('focus once the read has landed (focusOnReady)', () => {
   // Mutant: dropping `focusOnReady`: focus stays on the dialog, and a keyboard user
   // tabs past a field the read has only just put up.
-  it('an authenticator account lands on the code input', async () => {
+  it('an authenticator account lands on the password input and renders the code input', async () => {
     installStepUpApi(mockApiFetch, {
       read: () => readOffers(['totp']),
       route: () => jsonResponse(200),
     });
     renderDialog(REVOKE_ALL);
 
-    const code = await codeField();
+    expect(await codeField()).toBeInTheDocument();
+    const password = await passwordField();
 
-    await waitFor(() => expect(code).toHaveFocus());
+    await waitFor(() => expect(password).toHaveFocus());
   });
 
   it('a password-only account lands on the password field', async () => {
