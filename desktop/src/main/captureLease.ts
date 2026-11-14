@@ -287,6 +287,9 @@ async function runCeremonyFlow(
   if (entry.controller.signal.aborted || quitShutdown || d.isQuitting() || answer !== 'join') {
     return declined();
   }
+  // The dialog is modal to the window, not to the requester: the user may have switched
+  // connections while it was open, and a hidden connection must not take capture.
+  if (!isForeground(d, requester)) return rejected('not-foreground');
   if (holder === named) {
     return new Promise((resolve) => beginHandoff(d, named, requester, 'moved', resolve));
   }

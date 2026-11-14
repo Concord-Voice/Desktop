@@ -407,6 +407,19 @@ describe('acquire: the ceremony', () => {
     expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([]);
   });
 
+  it("a requester that left the foreground during the dialog is refused 'not-foreground' and the lease stays free", async () => {
+    const { a, b } = await heldByAWithBInFront();
+    const c = connect(ORIGIN_C);
+    const pending = acq(b);
+    expect(d.runCeremony).toHaveBeenCalledTimes(1);
+    expect(rel(a)).toBe(true); // the dialog's holder lets go while it is open
+    front(c); // the user switches away from B before answering
+    ceremonies[0].answer('join');
+    await expect(pending).resolves.toEqual(rejected('not-foreground'));
+    expect(isFree()).toBe(true);
+    expect(isHolder(ref(b))).toBe(false);
+  });
+
   it('a ceremony that throws declines and keeps the holder', async () => {
     const { a, b } = await heldByAWithBInFront();
     const pending = acq(b);
