@@ -1,0 +1,4 @@
+# Hosts that a lockfile `resolved` URL may use (#216). One host per line,
+# compared exactly against the URL authority (no port, no credentials).
+# check-lockfile-registries.sh reads this file; a change here is a visible diff.
+registry.npmjs.org
