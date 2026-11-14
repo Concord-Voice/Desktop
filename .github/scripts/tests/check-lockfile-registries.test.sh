@@ -84,11 +84,15 @@ npmrc 1 "npmrc env-substituted registry fails" 'registry=${NPM_REGISTRY}' "not a
 npmrc 1 "npmrc replace-registry-host fails" 'replace-registry-host=always' "replace-registry-host=always"
 npmrc 0 "npmrc commented registry passes" '# registry=https://npm.evil.example/'
 npmrc 0 "npmrc semicolon comment passes" '; registry=https://npm.evil.example/'
-npmrc 1 "npmrc quoted key fails" '"registry" = https://npm.evil.example/' "npm.evil.example"
-npmrc 1 "npmrc quoted scoped key fails" "'@acme:registry'=https://npm.evil.example/" "npm.evil.example"
+npmrc 1 "npmrc quoted key fails" '"registry" = https://npm.evil.example/' "quoted or escaped"
+npmrc 1 "npmrc quoted scoped key fails" "'@acme:registry'=https://npm.evil.example/" "quoted or escaped"
+npmrc 1 "npmrc JSON-escaped key fails" '"regis\u0074ry"=https://npm.evil.example/' "quoted or escaped"
+npmrc 0 "npmrc quoted approved value passes" 'registry="https://registry.npmjs.org/"' 
 npmrc 1 "npmrc odd registry key fails closed" 'REGISTRY=https://npm.evil.example/' "unrecognised registry setting"
 # shellcheck disable=SC2016  # the literal ${NPM_TOKEN} is the input under test
 npmrc 0 "npmrc per-host auth line passes" '//registry.npmjs.org/:_authToken=${NPM_TOKEN}'
+printf '# note\rregistry=https://npm.evil.example/\n' > "$tmp/.npmrc"
+expect 1 "npmrc bare CR splits a line" "$tmp/.npmrc" "npm.evil.example"
 printf 'install-links=true\nregistry=https://npm.evil.example/' > "$tmp/.npmrc"
 expect 1 "npmrc last line without newline is read" "$tmp/.npmrc" "npm.evil.example"
 

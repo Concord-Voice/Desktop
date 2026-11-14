@@ -96,17 +96,20 @@ for f in "$@"; do
       done <<<"$bad"
       ;;
     *.npmrc)
-      # Parse keys the way npm's ini reader does: the key is everything before
-      # the first `=`, trimmed, with surrounding quotes removed. Any other key
-      # that mentions "registry" fails closed; `//host/:…` lines are per-host
-      # auth settings and cannot move a fetch.
-      while IFS= read -r raw || [ -n "$raw" ]; do
-        line="${raw%%$'\r'}"
+      # npm's ini reader splits lines on CR as well as LF, takes the key as
+      # everything before the first `=`, and JSON-decodes a quoted key. Rather
+      # than copy that decoder, a key with a quote or a backslash fails closed.
+      # Any other key that mentions "registry" fails closed too; `//host/:…`
+      # lines are per-host auth settings and cannot move a fetch.
+      while IFS= read -r line || [ -n "$line" ]; do
         [[ "$line" =~ ^[[:space:]]*[\#\;] ]] && continue
         [[ "$line" =~ ^[[:space:]]*([^=]*[^=[:space:]])[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]] || continue
         key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]:-}"
+        if [[ "$key" == *[\"\'\\]* ]]; then
+          echo "::error file=$f,title=off-registry npmrc::$f: quoted or escaped setting name '$key' is not supported here. Write the key bare."
+          status=1; continue
+        fi
         for q in '"' "'"; do
-          [[ "$key" == "$q"*"$q" ]] && key="${key:1:${#key}-2}"
           [[ "$val" == "$q"*"$q" ]] && val="${val:1:${#val}-2}"
         done
         case "$key" in
@@ -128,7 +131,7 @@ for f in "$@"; do
               status=1
             fi ;;
         esac
-      done < "$f"
+      done < <(tr '\r' '\n' < "$f")
       ;;
     *yarn.lock|*pnpm-lock.yaml)
       echo "::error file=$f,title=unsupported lockfile::$f: this check reads npm lockfiles only. Remove it, or extend check-lockfile-registries.sh first."
