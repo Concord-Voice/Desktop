@@ -36,6 +36,7 @@ import {
   completeSSOLink,
   abandonSSOReservation,
   type SSOCompletionResult,
+  type SSOLinkCompletionResult,
 } from '../../services/system/ssoService';
 import { recordChallengeIssuer } from '../../services/system/challengeIssuer';
 import { methodsForOptions, webauthnOptionsOrNull } from '../../utils/webauthnOptions';
@@ -115,6 +116,43 @@ const SSOAccountLinkConfirm: React.FC = () => {
       if (issuedSession) await revokeAbortedSession(issuedSession);
     };
 
+    const completeLinkMFA = async (
+      result: Extract<SSOLinkCompletionResult, { kind: 'mfa_required' }>
+    ): Promise<SSOCompletionResult | null> => {
+      credentialOwner = result.credentialOwner;
+      if (!requestIsCurrent()) {
+        await cleanupIssuedSession();
+        return null;
+      }
+      setSSOState({ phase: 'mfa_required', mfaChallengeToken: result.mfaChallengeToken });
+      recordChallengeIssuer(result.mfaChallengeToken, requestSelection);
+      const webauthnOptions = webauthnOptionsOrNull(
+        result.webauthnOptions,
+        requestSelection.apiBase
+      );
+      const mfaResult = await useMFAChallengeStore
+        .getState()
+        .showChallenge(
+          result.mfaChallengeToken,
+          methodsForOptions(result.methods, webauthnOptions),
+          'sso_login',
+          result.recoveryOnlyMethods,
+          { provider: state.provider, credentialOwner: result.credentialOwner },
+          webauthnOptions,
+          result.defaultMethod
+        );
+      if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
+        if (requestIsCurrent()) {
+          void abandonSSOReservation();
+          setSSOState({ phase: 'idle' });
+        } else {
+          await cleanupIssuedSession();
+        }
+        return null;
+      }
+      return mfaResult.ssoCompletion;
+    };
+
     try {
       const result = await completeSSOLink(
         {
@@ -124,43 +162,8 @@ const SSOAccountLinkConfirm: React.FC = () => {
         },
         requestSelection
       );
-      let completion: SSOCompletionResult;
-      if ('kind' in result) {
-        credentialOwner = result.credentialOwner;
-        if (!requestIsCurrent()) {
-          await cleanupIssuedSession();
-          return;
-        }
-        setSSOState({ phase: 'mfa_required', mfaChallengeToken: result.mfaChallengeToken });
-        recordChallengeIssuer(result.mfaChallengeToken, requestSelection);
-        const webauthnOptions = webauthnOptionsOrNull(
-          result.webauthnOptions,
-          requestSelection.apiBase
-        );
-        const mfaResult = await useMFAChallengeStore
-          .getState()
-          .showChallenge(
-            result.mfaChallengeToken,
-            methodsForOptions(result.methods, webauthnOptions),
-            'sso_login',
-            result.recoveryOnlyMethods,
-            { provider: state.provider, credentialOwner: result.credentialOwner },
-            webauthnOptions,
-            result.defaultMethod
-          );
-        if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
-          if (requestIsCurrent()) {
-            void abandonSSOReservation();
-            setSSOState({ phase: 'idle' });
-          } else {
-            await cleanupIssuedSession();
-          }
-          return;
-        }
-        completion = mfaResult.ssoCompletion;
-      } else {
-        completion = result;
-      }
+      const completion = 'kind' in result ? await completeLinkMFA(result) : result;
+      if (!completion) return;
       issuedSession = {
         accessToken: completion.accessToken,
         sessionId: completion.sessionId,
