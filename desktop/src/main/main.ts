@@ -169,6 +169,7 @@ import {
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
+  initPersistedConnections,
   persistAddedConnections,
   restorePersistedConnections,
   saasPrimary,
@@ -1664,6 +1665,9 @@ const createWindow = async (): Promise<void> => {
   };
 
   const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(pinFirstPartyApiOrigin());
+  // #86 C9: before the saas view exists. Its renderer can call connection:create while
+  // the loader below is still awaiting, before restorePersistedConnections runs.
+  initPersistedConnections(app.getPath('userData'), startupConnections);
   const opened = saas
     ? await openConnectionView(saas.serviceId, 'app://concord/index.html', loadSaasView)
     : null;

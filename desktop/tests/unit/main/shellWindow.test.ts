@@ -173,6 +173,7 @@ import {
   disposeConnectionView,
   foregroundView,
   foregroundWebContents,
+  initPersistedConnections,
   installDevConnectionMenu,
   layoutViews,
   openConnectionView,
@@ -854,6 +855,53 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(activateConnection(saas.serviceId)).toBe(true);
     const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
     expect(written.map((e) => e.serviceId)).toEqual([saas.serviceId, a.serviceId, b.serviceId]);
+  });
+
+  // #86 C9: the saas renderer is shown and interactive while its loader still awaits the
+  // SPA hash fetch, before restore runs. A connection:create then had no list to append
+  // to: the write was refused, and restore re-seeded from the startup snapshot without it.
+  it('a connection added before startup restore is written with the restored list and kept', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    const startup = [entryFor(a, at(3))];
+    initPersistedConnections('/user-data', startup);
+    await mustOpen(saas.serviceId);
+    const b = register(SELF_B);
+    await mustOpen(b.serviceId);
+    writeConnectionsFile.mockClear();
+    await persistAddedConnections([entryFor(b, null)]);
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+    const [root, added] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(root).toBe('/user-data');
+    expect(added.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId]);
+
+    await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+    expect(liveConnections().map((r) => r.serviceId)).toEqual([
+      saas.serviceId,
+      b.serviceId,
+      a.serviceId,
+    ]);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId, saas.serviceId]);
+  });
+
+  it('initPersistedConnections keeps the live list for the same root', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    const b = register(SELF_B);
+    initPersistedConnections('/user-data', [entryFor(a, at(3))]);
+    await mustOpen(saas.serviceId);
+    await persistAddedConnections([entryFor(b, null)]);
+    // A re-created window seeds again from the same startup snapshot.
+    initPersistedConnections('/user-data', [entryFor(a, at(3))]);
+    writeConnectionsFile.mockClear();
+    await persistAddedConnections([entryFor(b, null)]); // still listed: nothing to write
+    expect(writeConnectionsFile).not.toHaveBeenCalled();
+    await persistAddedConnections([entryFor(saas, null)]);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId, saas.serviceId]);
   });
 
   // Review row 6: a quit during the saas load closes the window before restore runs.

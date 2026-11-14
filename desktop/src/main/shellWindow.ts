@@ -333,8 +333,9 @@ function recordForeground(serviceId: ServiceId): void {
 /**
  * Append the entries `connection:create` opened (#86 §3.7) to the restored list and
  * write the whole list. An entry whose serviceId is already listed is kept as it is.
- * Refuses (rejects, writing nothing) before startup restore has run: without the
- * restored list, a write would replace the user's other connections.
+ * Refuses (rejects, writing nothing) while no list is seeded (`initPersistedConnections`,
+ * which `createWindow` calls before the first view): without it, a write would replace
+ * the user's other connections.
  */
 export function persistAddedConnections(added: readonly ConnectionsFileEntry[]): Promise<void> {
   const state = persisted;
@@ -399,10 +400,8 @@ export async function restorePersistedConnections(
   register: (origin: string) => ServiceRecord | null
 ): Promise<void> {
   if (shellWindow() === null) return;
-  if (persisted?.root !== userDataRoot) {
-    persisted = { root: userDataRoot, entries: [...startupEntries] };
-  }
-  const entries = persisted.entries;
+  initPersistedConnections(userDataRoot, startupEntries);
+  const entries = persisted?.entries ?? [];
   const url = deps?.devConnectionUrl ?? DEFAULT_CONNECTION_URL;
   const loads: Promise<void>[] = [];
   for (const entry of entries) {
@@ -425,6 +424,22 @@ export async function restorePersistedConnections(
   const first = entryToForeground(entries);
   if (first) showConnection(first.serviceId, false);
   await Promise.all(loads);
+}
+
+/**
+ * Seed the `connections.json` list before the first view can call `connection:create`
+ * (#86 C9). The saas renderer is shown and interactive while its loader still awaits the
+ * SPA hash fetch, before `restorePersistedConnections` runs; without the list there, a
+ * create in that window was refused and then missing from the file. Only a list for a
+ * different userData root is replaced: a re-created window keeps the live one.
+ */
+export function initPersistedConnections(
+  userDataRoot: string,
+  startupEntries: readonly ConnectionsFileEntry[]
+): void {
+  if (persisted?.root !== userDataRoot) {
+    persisted = { root: userDataRoot, entries: [...startupEntries] };
+  }
 }
 
 /** Test-only: forget the restored `connections.json` list, as a fresh process would. */

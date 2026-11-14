@@ -1148,7 +1148,11 @@ not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isola
   ceremony (dialog plus the provisional probe under `beginPendingApproval`) →
   `commitSelfHostedApproval` → `registerService` → `openConnectionView` → activate → the
   entry is appended to `connections.json` through `persistAddedConnections`, which merges by
-  `serviceId` into the restored list and writes nothing before startup restore has run.
+  `serviceId` into the restored list and writes nothing while no list is seeded.
+  `createWindow` seeds it with `initPersistedConnections` before the saas view opens
+  (#86 C9): the saas renderer is interactive while its loader still awaits the SPA hash
+  fetch, before `restorePersistedConnections` runs, and a create in that window was
+  refused, then missing from the file at the next launch.
 - **One create at a time, not one per origin.** Each probe starts an uncancellable
   `dns.lookup` on libuv's four-slot threadpool, so concurrent creates of different names would
   head-of-line-block main's credential IO, the same hazard `selfHosted:probeServer`'s
