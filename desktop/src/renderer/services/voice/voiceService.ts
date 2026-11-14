@@ -4110,7 +4110,7 @@ class VoiceService {
       // #87 §3.8: the first await. The capture lease comes before authorization, E2EE
       // init and any getUserMedia. A Stay (declined) ends the join silently; a non-grant
       // tears nothing down, because this document may still hold a live call.
-      if (!(await this.acquireVoiceJoinLease(directDMJoiningState))) return;
+      if (!(await this.acquireVoiceJoinLease(joinType === 'dm' ? channelId : undefined))) return;
       shouldRecoverJoinFailure = true;
       await this.leaveActiveChannelBeforeJoin(store, callStateToPreserve);
       this.requireJoinOwnership(recoveryOwner, cleanupGeneration);
@@ -4187,18 +4187,26 @@ class VoiceService {
    * Ask main for the capture lease (#87 §3.8). `true` on a grant; `false` when the user
    * chose Stay in main's dialog, which shows no error. Any other answer shows its copy
    * and throws `CaptureLeaseError`. Nothing was granted on those paths, so none releases;
-   * a DM join claim this join made is handed back, as a failed join's reset would.
+   * the DM `joining` state for this conversation is handed back, as a failed join's reset would.
    */
-  private async acquireVoiceJoinLease(
-    dmJoinClaim: Extract<CallState, { kind: 'joining' }> | undefined
-  ): Promise<boolean> {
+  private async acquireVoiceJoinLease(dmChannelId: string | undefined): Promise<boolean> {
     const result = await acquire('voice-join');
     const store = useVoiceStore.getState();
     if (result.status === 'granted') {
       store.setCaptureMovedNotice(false);
       return true;
     }
-    if (dmJoinClaim && store.callState === dmJoinClaim) store.setCallState({ kind: 'idle' });
+    // The DM `joining` state is released whether this join claimed it or a ring did (the
+    // ring's accept path sets it before calling in), so a Stay or a refusal cannot leave a
+    // `joining` state that its caller would promote to `in-call` with no media session.
+    const callState = store.callState;
+    if (
+      dmChannelId !== undefined &&
+      callState.kind === 'joining' &&
+      callState.conversationId === dmChannelId
+    ) {
+      store.setCallState({ kind: 'idle' });
+    }
     if (result.status === 'declined') {
       store.bumpCaptureDeclined();
       return false;
@@ -4479,16 +4487,20 @@ class VoiceService {
     // transition below MUST still run — otherwise the ghost-state bug this
     // catch block fixes regresses on a different failure mode. Log the
     // cleanup failure separately so it isn't silently lost.
+    let mediaTornDown = true;
     try {
       await this.cleanup();
     } catch (cleanupErr) {
+      mediaTornDown = false;
       console.error(
         'Cleanup failed during join-error recovery:',
         this.sanitizeErrForLog(cleanupErr)
       );
     }
-    // The failed join's media is gone, so its capture lease goes too (#87 §3.8).
-    void release('voice-join');
+    // The failed join's media is gone, so its capture lease goes too (#87 §3.8). A cleanup
+    // that threw may have skipped the track teardown, so then the lease stays held until the
+    // document ends; releasing would let another connection capture beside live tracks.
+    if (mediaTornDown) void release('voice-join');
     // store.setActiveChannel runs early in joinChannel (before mic / media-
     // plane handshake), so a late-stage failure leaves activeChannelId
     // pointing at the channel we never actually joined. Reset clears that

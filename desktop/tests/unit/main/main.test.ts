@@ -1430,6 +1430,24 @@ describe('main.ts', () => {
   describe('IPC: media & clipboard', () => {
     // #87 RC-8: only the capture-lease holder may enumerate the screens and windows. The
     // holder fixture is a real lease grant to the bound saas primary, released after.
+    // Order matters here: the legacy case needs a document nothing has marked lease-aware
+    // yet, and the holder case below marks it through its explicit acquire.
+    it('media:getDesktopSources gives a legacy SPA the implicit lease while it is free and foreground', async () => {
+      const lease = await import('../../../src/main/captureLease');
+      const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+      const { desktopCapturer } = await import('electron');
+      const sender = requireConnectionSender(trustedIpcEvent as never, { roles: ['primary'] });
+      if (sender === null) throw new Error('fixture: the saas view is not a bound primary');
+      expect(lease.isLeaseAware(sender.ref)).toBe(false);
+      expect(lease.holderRef()).toBeNull();
+      (desktopCapturer.getSources as Mock).mockClear();
+      const result = (await handlers.get('media:getDesktopSources')!(trustedIpcEvent)) as unknown[];
+      expect(desktopCapturer.getSources).toHaveBeenCalledOnce();
+      expect(result).toHaveLength(1);
+      expect(lease.isHolder(sender.ref)).toBe(true);
+      expect(lease.release(sender, trustedIpcEvent as never, { intent: 'voice-join' })).toBe(true);
+    });
+
     it('media:getDesktopSources returns source list to the capture-lease holder', async () => {
       const lease = await import('../../../src/main/captureLease');
       const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
@@ -1456,10 +1474,15 @@ describe('main.ts', () => {
       }
     });
 
-    it('media:getDesktopSources answers [] to a non-holder without enumerating', async () => {
+    it('media:getDesktopSources answers [] to a lease-aware non-holder without enumerating', async () => {
       const lease = await import('../../../src/main/captureLease');
+      const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
       const { desktopCapturer } = await import('electron');
-      // The bound foreground saas primary, holding no lease: admission alone is not enough.
+      const sender = requireConnectionSender(trustedIpcEvent as never, { roles: ['primary'] });
+      if (sender === null) throw new Error('fixture: the saas view is not a bound primary');
+      // The bound foreground saas primary, holding no lease: admission alone is not enough,
+      // and a lease-aware document never gets the implicit legacy lease.
+      lease.markLeaseAware(sender.ref);
       expect(lease.holderRef()).toBeNull();
       (desktopCapturer.getSources as Mock).mockClear();
       const result = await handlers.get('media:getDesktopSources')!(trustedIpcEvent);

@@ -142,6 +142,19 @@ describe('joinChannel acquires the capture lease first (#87 §3.8)', () => {
     expect(calls).toEqual(['acquire:voice-join']);
   });
 
+  it('a Stay on a ring-owned join returns the joining state the ring set before calling in', async () => {
+    answer({ status: 'declined' });
+    // callStateMachine sets `joining` (with the ring id) BEFORE it calls joinChannel, so
+    // this join claims nothing; its caller promotes `joining` to `in-call` on resolve.
+    useVoiceStore
+      .getState()
+      .setCallState({ kind: 'joining', conversationId: 'dm-1', ringId: 'r-1' });
+
+    await expect(voiceService.joinChannel('dm-1', 'dm')).resolves.toBeUndefined();
+
+    expect(useVoiceStore.getState().callState).toEqual({ kind: 'idle' });
+  });
+
   const rejected: Array<[CaptureFailureReason, Awaited<ReturnType<typeof acquire>>]> = [
     ['busy', { status: 'rejected', reason: 'busy' }],
     ['not-foreground', { status: 'rejected', reason: 'not-foreground' }],
@@ -201,5 +214,19 @@ describe('joinChannel acquires the capture lease first (#87 §3.8)', () => {
     expect(useVoiceStore.getState().connectionState).toBe('error');
     expect(mockRelease).toHaveBeenCalledTimes(1);
     expect(calls.at(-1)).toBe('release:voice-join');
+  });
+
+  it('a join failure whose cleanup throws keeps the lease (the tracks may still be live)', async () => {
+    answer({ status: 'granted' });
+    vi.spyOn(
+      voiceService as unknown as { cleanup: () => Promise<void> },
+      'cleanup'
+    ).mockRejectedValueOnce(new Error('cleanup failed'));
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(voiceService.joinChannel('ch-1')).rejects.toThrow('connect stopped by test');
+
+    expect(useVoiceStore.getState().connectionState).toBe('error');
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 });

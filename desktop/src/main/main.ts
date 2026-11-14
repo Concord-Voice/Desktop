@@ -196,7 +196,13 @@ import {
   type SelfHostedProbeResult,
 } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
-import { holderRef, initCaptureLease, isHolder, shutdownCaptureLeaseForQuit } from './captureLease';
+import {
+  holderRef,
+  initCaptureLease,
+  isHolder,
+  legacyAcquire,
+  shutdownCaptureLeaseForQuit,
+} from './captureLease';
 import { installCaptureLeaseArbiter } from './capturePolicy';
 import { runCaptureCeremony, type CeremonyAnswer } from './captureCeremony';
 import { consumeCaptureCeremonyToken } from './captureCeremonyBudget';
@@ -2176,8 +2182,11 @@ registerIpc(
   'app-global-mutate',
   async (sender) => {
     // #87 RC-8: the foreground alone is not enough; only the capture-lease holder may
-    // enumerate every screen and window. Same refusal value as the admission's.
-    if (!isHolder(sender.ref)) return [];
+    // enumerate every screen and window. Same refusal value as the admission's. A pre-35
+    // SPA never calls `capture:acquire`, so its first capture-adjacent call can be this one
+    // (a listen-only join, then Share Screen): it gets the same implicit lease its
+    // permission request would, and only while the lease is free and it is the foreground.
+    if (!isHolder(sender.ref) && !legacyAcquire(sender.ref)) return [];
     const sources = await desktopCapturer.getSources({
       types: ['window', 'screen'],
       thumbnailSize: { width: 320, height: 180 },

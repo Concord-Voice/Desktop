@@ -143,10 +143,23 @@ export async function acquire(
  */
 let deviceTestHolds = 0;
 
+/**
+ * While set, `release` sends nothing. Main reads ANY release from a revoked holder as the
+ * handoff ack, so after a failed call teardown no release may leave this document (the
+ * 5 s crash must run instead), whichever path fires it: the revocation handler's own or a
+ * stopping device test's. Cleared by the next lease push, which also ends the handoff.
+ */
+let releasesWithheld = false;
+
+export function withholdReleases(on: boolean): void {
+  releasesWithheld = on;
+}
+
 /** Never rejects, so cleanup paths can fire it with `void`. */
 export async function release(intent: CaptureIntent): Promise<boolean> {
   const invoke = bridge()?.release;
   if (typeof invoke !== 'function') return false;
+  if (releasesWithheld) return false;
   if (intent === 'device-test' && deviceTestHolds > 1) {
     deviceTestHolds -= 1;
     return true;

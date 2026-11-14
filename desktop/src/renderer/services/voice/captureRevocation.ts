@@ -13,19 +13,15 @@ import { advanceVoiceActionGeneration } from './voiceActionGeneration';
 import {
   dispatchCaptureRevoked,
   release,
+  withholdReleases,
   subscribeLeaseRevoked,
   subscribeLeaseState,
 } from './captureLeaseClient';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { useConnectionStore } from '../../stores/ui/connectionStore';
 
-/**
- * `keepVoiceJoin` holds back the `voice-join` release after a failed teardown: main reads
- * that release as the ack, so sending it would grant the lease while this call's tracks may
- * still be live. Without the ack, the 5 s timeout crashes this renderer instead.
- */
-function releaseAll(keepVoiceJoin: boolean): void {
-  if (!keepVoiceJoin) void release('voice-join');
+function releaseAll(): void {
+  void release('voice-join');
   void release('device-test');
   useVoiceStore.getState().setCaptureLease('none');
 }
@@ -44,8 +40,11 @@ async function handleMoved(): Promise<void> {
     // Message-only: an error object can carry ids or tokens.
     console.warn('[capture] call teardown after a moved revocation failed');
   }
+  // After a failed teardown no release may leave (main reads any as the ack), including the
+  // stopping device tests': the 5 s crash then ends this document instead.
+  if (!tornDown) withholdReleases(true);
   dispatchCaptureRevoked('moved');
-  releaseAll(!tornDown);
+  releaseAll();
 }
 
 function handleBackgrounded(): void {
@@ -56,6 +55,7 @@ function handleBackgrounded(): void {
 
 export function installCaptureRevocationHandler(): () => void {
   const stopLease = subscribeLeaseState((view) => {
+    withholdReleases(false);
     useVoiceStore.getState().setCaptureLease(view);
   });
   const stopRevoked = subscribeLeaseRevoked(({ reason }) => {
