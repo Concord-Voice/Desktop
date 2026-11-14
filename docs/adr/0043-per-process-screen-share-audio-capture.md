@@ -1891,6 +1891,10 @@ Caveats:
 - The real macOS tap stamps in a different clock domain on this runtime. That finding, its
   proposed fix, and the real-device figure belong to issue 75.
 
+**Ruling (project lead, 2026-11-14):** criterion 2 is met with the synthetic source. The
+real-device figure is recorded under issue 75. Two runs under heavy host load are listed in
+criterion 1's re-measure; their `L_total` p50 and p99 were 0.261/0.472 and 0.281/0.582 ms.
+
 ### Criterion 1: allocations
 
 Scope: `renderer isolate: bridge plus preload relay`. The heap pass runs on a fresh page load with
@@ -1900,8 +1904,8 @@ no probe hooks installed. Figures are the median and [range] over the three runs
 |---|---|---|---|
 | Sampled script-heap allocation per quantum | 1363 B [1350, 1383] | at most 2 KB (2048 B) | within |
 | Retained script-heap growth after GC over 60 s | 120 B [120, 1424] (runs: 120, 1424, 120) | at most 64 KB (65536 B), and not rising across the runs | within; not rising |
-| Largest gap between writes (the design's limit, raw) | 15.7 ms [15.2, 17.3] | at most 20 ms | within in every run |
-| Largest gap the transport added between writes (proposed basis for the limit, pending; see below) | 0.956 ms [0.914, 1.159] | at most 20 ms | within in every run |
+| Largest gap between writes (raw, recorded beside the judged figure) | 15.7 ms [15.2, 17.3] | not judged (see the ruling below) | within 20 ms in every recorded run (20.1 and 22.1 ms in the re-measure below) |
+| Largest gap the transport added between writes (the figure the 20 ms limit judges) | 0.956 ms [0.914, 1.159] | at most 20 ms | within in every run |
 
 Beside those, for the record:
 
@@ -1932,28 +1936,69 @@ only. It does not by itself show that the payload is not copied. That property i
 in `transfer`, so the buffer actually detaches": the transferred buffer is detached and its
 `byteLength` is 0. Copies inside the browser engine below `AudioData` are not measured.
 
-**Proposed criterion wording. Pending project-lead approval.**
+**Re-measure at `a5bc657a`, under heavy host load (2026-11-14).** The project lead asked for the
+60 s runs to be repeated at the head before this addendum stood. No product code changed
+between the recorded commit `6ab1c735` and the head; the commits between them touch only the
+probe, tests, CI configuration and docs. Three runs were taken at `a5bc657a` on the same machine
+and runtime while other work loaded the host: the load average read just after the runs was
+60.67, 43.24 and 32.39 (1-, 5- and 15-minute). The host load during the three recorded runs was
+not recorded. Run 3 was void (exit 2): its window was hidden for the whole latency window, 4736
+of 6000 frames did not pair within 1 ms, and the latency pass voided as designed; the heap pass
+then could not start its second capture (`target-unresolved`). One earlier run at `32a280f5`,
+taken just after a native build with its load not recorded, is listed beside them but is not
+part of the heavy-load set. The heap denominator in these runs is the smaller of the writes the
+page counted and the nominal count.
+
+| Figure | Run 1 | Run 2 | Run at `32a280f5` (load not recorded) |
+|---|---|---|---|
+| Frames bit-exact and paired | 6000 of 6000 | 6000 of 6000 | passed |
+| `L_total` p50 / p99 (ms) | 0.261 / 0.472 | 0.281 / 0.582 | within the recorded ranges |
+| Largest write delay (ms) | 8.397 | 3.270 | 2.54 |
+| Largest raw gap between writes (ms) | 17.7 | 20.1 | 22.1 |
+| The source's own gap at that point (ms) | 10.093 | 17.906 | 20.1 |
+| Largest gap the transport added (ms) | 7.607 | 2.917 | 2.35 |
+| Sampled allocation per quantum (B) | 1354 | 1354 | 1360 |
+| Retained growth after GC over 60 s (B) | −1616 | −1256 | not recorded |
+| Sequence gaps and overrun, both windows | 0 | 0 | not recorded |
+
+The `L_total` medians and the allocation figure match the record. Both p99s fall outside the
+recorded range of 0.486 to 0.541 ms: run 1's below it (0.472) and run 2's above it (0.582). The
+maxima do not match: the largest write delay and the largest gap the transport added rose from about
+1 ms to between 2.3 and 8.4 ms. In runs 1 and 2 each maximum sits far above that run's `L_transport`
+p99 (0.39 and 0.51 ms), a rare tail event, consistent with a thread being descheduled on a loaded
+host. In runs 1 and 2 no quantum was dropped and no frame was wrong; in every run listed, every gap
+the transport added stayed under 20 ms. Run 2's and the `32a280f5` run's raw gaps reached 20.1 and
+22.1 ms mostly because the source itself woke 17.9 and 20.1 ms apart; the transport added about 2.2
+and 2.0 ms at those points. That is the case the ruling below addresses.
+
+**Criterion wording, restated per the project lead's ruling of 2026-11-14** (both sets of runs,
+with the two-clock tolerance; the exact text goes to the project lead at the merge gate).
 
 > In steady state the renderer hot path allocates only a bounded set of short-lived control
-> objects per quantum (measured: 1363 bytes) and its retained heap does not grow: script-heap
-> growth after garbage collection over 60 s was at most 1424 bytes (120 bytes in two of three
-> runs), no quantum was dropped, no write was delayed by more than 1.4 ms after capture, and the
-> transport added no gap between writes larger than 1.2 ms. The PCM payload is handed to
-> `AudioData` by transfer, not copied by the bridge.
+> objects per quantum (measured: 1363 bytes in the recorded runs, 1354 bytes under heavy host
+> load) and its retained heap does not grow: script-heap growth after garbage collection
+> over 60 s was at most 1424 bytes, and no quantum was dropped. Against the 20 ms limit, the
+> transport added no gap between writes larger than 1.2 ms in the recorded runs, or 7.7 ms under
+> heavy host load. No write was delayed by more than 1.4 ms after capture in the recorded runs,
+> or 8.4 ms under heavy host load; these delays cross two clocks and carry about ±0.22 ms. The
+> PCM payload is handed to `AudioData` by transfer, not copied by the bridge.
 
-The allocation figure is the median of the three runs; the growth, delay and gap bounds are the
-worst run, so each "no more than" holds for every run.
+The recorded-run allocation figure is the median of those three runs. The growth, delay and gap
+bounds are the worst run of each set, rounded up, so each "no more than" holds for every run in
+it. "Heavy host load" means runs 1 and 2 above, taken with the load reading recorded there.
 
-**Ruling put to the project lead: which gap the 20 ms limit judges.** The design's limit is on the
-raw gap between writes, and that was within 20 ms in all three recorded runs. The proposal is to
-judge it on the gap the transport adds (the write gap minus the capture gap between the same two
-quanta), with the raw gap recorded beside it. The reason: one 10 s run on an earlier build of the
-probe, which recorded only the raw gap, failed its 20 ms flag with a raw gap of 31.1 ms, while in
-the same run the largest capture-to-write delay was 9.2 ms and 999 of 1000 quanta were written with
-zero sequence gaps. That is what the synthetic source's pacing produces when it wakes late: it
-skips the missed slot without advancing the sequence number (`napi/addon.cc`, "late: skip the
-missed slots, never burst to catch up"). A gap the source never filled is not a write delayed by
-the transport.
+**Ruling (project lead, 2026-11-14): the 20 ms limit judges the gap the transport adds.** The
+design's limit is on the raw gap between writes, and that was within 20 ms in all three recorded
+runs. It is judged on the gap the transport adds (the write gap minus the capture gap between the
+same two quanta), with the raw gap recorded beside it. The reason: one 10 s run on an earlier build
+of the probe, which recorded only the raw gap, failed its 20 ms flag with a raw gap of 31.1 ms,
+while in the same run the largest capture-to-write delay was 9.2 ms and 999 of 1000 quanta were
+written with zero sequence gaps. That is what the synthetic source's pacing produces when it wakes
+late: it skips the missed slot without advancing the sequence number (`napi/addon.cc`, "late: skip
+the missed slots, never burst to catch up"). A gap the source never filled is not a write delayed by
+the transport. The re-measure above shows the same effect at the limit: raw gaps of 20.1 and 22.1 ms
+where the source's own gap was 17.9 and 20.1 ms, so the transport added about 2.2 and 2.0 ms at
+those points (its largest additions anywhere in those runs were 2.92 and 2.35 ms).
 
 ### Criterion 3: slow consumer
 
@@ -2003,5 +2048,6 @@ renderer can invoke repeatedly, and each start supersedes the previous child thr
 `reapChild` still arms a bare `once('spawn')` with no bound. The code's own comment on that
 listener (`audiocapHost.ts`, "`once('spawn')` rather than a timer") argues that no timer is needed,
 because a listener on a child that never spawns costs nothing; this ADR says a bounded timeout is
-owed. That disagreement is open and needs a decision, which the issue 73 pull request puts to the
-project lead.
+owed. That disagreement is still open. The project lead ruled at the issue 73 pull request's merge
+gate to settle it in its own issue, issue 213. This record keeps both texts until that issue
+decides.

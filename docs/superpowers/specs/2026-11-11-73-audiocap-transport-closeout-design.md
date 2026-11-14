@@ -2,7 +2,7 @@
 
 **Issue:** #73 (`feat: utilityProcess host and PCM transport for concord-audiocap`), child of epic #71
 **Date:** 2026-11-11
-**Status:** Design approved by the project lead on 2026-11-11. Items 2 to 5 of section 11 are still open.
+**Status:** Design approved by the project lead on 2026-11-11. Items 2 to 5 of section 11 were ruled on 2026-11-14 (see section 11).
 **Governing decision record:** [ADR-0043](../../adr/0043-per-process-screen-share-audio-capture.md)
 
 ## 1. What this is
@@ -257,7 +257,7 @@ transport sources, so the workflow runs when they change.
 ## 9. Docs that ship in the same pull request
 
 - **ADR-0043**, a new addendum at the end: the latency table against S1 with its caveat; the
-  criterion 1 figures and the proposed wording, marked pending the project lead's ruling; the
+  criterion 1 figures and the wording restated per the project lead's ruling; the
   slow-consumer result; one sentence stating
   that a crashed capture child is never respawned (in code as invariant I6, in no document
   today); and two record corrections: the watchdog functions the first addendum said would return
@@ -274,7 +274,7 @@ committed anywhere; the probe handles a deterministic test waveform only.
 - Any change to the transport, protocol, ring, credit scheme, relay or bridge.
 - The real macOS backend latency (measured under #75).
 - A Windows leg of the probe (the Windows backend is not built).
-- The watchdog rail, and the spawn-listener timeout. The second is proposed as a follow-up issue.
+- The watchdog rail, and the spawn-listener timeout. The second is issue 213.
 - Latency through a media server or an RTP sender.
 - Latency or heap thresholds that gate CI.
 - A cross-origin-isolated probe page, a second helper application, per-file hashing of the stage.
@@ -288,6 +288,13 @@ committed anywhere; the probe handles a deterministic test waveform only.
 3. Accept criterion 2 measured with the synthetic source, with the real-device figure under #75.
 4. The CI step edits `.github/workflows/`, which needs a push with workflow scope.
 5. File the spawn-listener timeout as a follow-up issue, or not.
+
+**Ruled 2026-11-14 at the pull request's merge gate.** Item 1 was approved before the build. On
+items 2 to 5: the criterion 1 wording is restated in the ADR-0043 addendum to state both sets of
+runs (its exact text goes to the project lead at the merge gate), with the 20 ms limit judged on
+the gap the transport adds; criterion 2 is accepted with the synthetic
+source; the CI step was pushed; and the spawn-listener timeout is issue 213. The ADR-0043
+addendum is the record of the wording and the figures.
 
 ## 12. Risks
 
