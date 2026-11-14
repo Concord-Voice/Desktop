@@ -56,7 +56,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 
 ### Security
 
-- **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure also asks you to confirm any owned servers that have other members ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
+- **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure asks you to confirm any owned servers that have other members and complete an emailed confirmation link ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
