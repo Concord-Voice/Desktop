@@ -42,9 +42,13 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 - **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+- **Servers:** Each server connection now runs in its own isolated browser session, with its own storage, cookies and sign-in. A window that cannot confirm which server connection it belongs to shows a "connection unavailable" screen instead of falling back to the default server.
 
 ### Fixed
 
+- **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
+- **Servers:** A server connection added while the app is still starting is now remembered at the next launch.
+- **Window:** Closing or minimizing the window now follows your setting from the moment the app starts, not only after you change it. With more than one server connection open, it follows the connection on screen.
 - **Chat:** Large or unknown-size images and videos now wait for a click before downloading.
 - **Privacy:** Profile and conversation images now stop downloading when they exceed a safety limit or take too long.
 - **Accessibility:** Reduce Animations and the system reduced-motion preference now stop animated server-bar scrolling and volume-slider thumb transitions.
@@ -64,6 +68,8 @@ This release adds groundwork for verifying account keys and protects remembered 
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
+- **Desktop:** Screen sharing with app sound, picture-in-picture, window focus, the clipboard, Google and Apple sign-in, and self-hosted server checks now work only from the server connection you are looking at. A connection in the background cannot use them.
+- **Sign-in:** A sign-in on one server connection can no longer cancel a sign-in in progress on another.
 
 ## [0.3.1] - 2026-11-06
 

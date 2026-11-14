@@ -81,7 +81,7 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 
 The inventory above is an architectural overview. The canonical store set lives in `src/renderer/stores/`.
 
-The table inventories 42 Zustand stores. The structural 43-module count in `internal-reference` also includes `colorSyncSuppression.ts`, a dependency-free mutable UI support module intentionally excluded from this table.
+The table inventories 42 of the 45 Zustand stores; `billingStore`, `settingsCollapsibleStore` and `totpAcceptedStore` are not yet listed. The structural module count (47, measured in `src/renderer/stores/` excluding tests, `index.ts` and `types.ts`) also includes two dependency-free support modules intentionally excluded from this table: `colorSyncSuppression.ts`, a mutable UI support module, and `voice/audioQualityTiers.ts`, pure tier data.
 
 ---
 

@@ -65,10 +65,6 @@ vi.mock('node:fs', () => ({
   renameSync: vi.fn(),
 }));
 
-vi.mock('../../../src/main/tokenManager', () => ({
-  getPersistedApiBase: vi.fn().mockReturnValue(null),
-}));
-
 vi.mock('../../../src/main/updateLogger', () => ({
   createUpdateLogger: vi.fn().mockReturnValue(mockLogger),
 }));
@@ -391,8 +387,6 @@ describe('updater', () => {
   describe('public recovery feed (#1981)', () => {
     it('configures and schedules the public recovery feed when no API base is persisted', async () => {
       vi.useFakeTimers();
-      const tm = await import('../../../src/main/tokenManager');
-      vi.mocked(tm.getPersistedApiBase).mockReturnValue(null);
       const { updater } = await loadModule();
 
       updater.initAutoUpdater(() => null);
@@ -439,8 +433,6 @@ describe('updater', () => {
       vi.resetModules();
       mockSend.mockClear();
       originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
-      const tm = await import('../../../src/main/tokenManager');
-      vi.mocked(tm.getPersistedApiBase).mockReturnValue('https://api.concordvoice.chat');
     });
 
     afterEach(() => {

@@ -6,7 +6,12 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 // `tests/integration/preload-sandbox-contract.test.ts` pins. `import type` is erased
 // by esbuild, so this adds no `require`. Same shape as the `ipcContract` import above.
 import type { AudiocapStartResult } from '../main/audiocapHost';
-import type { CredentialOwner, SelfHostedProbeResult } from '../main/ipcContract';
+import type {
+  ConnectionCreateResult,
+  ConnectionGenerationPush,
+  CredentialOwner,
+  SelfHostedProbeResult,
+} from '../main/ipcContract';
 import type { AppleSignInResult } from '../shared/appleSso';
 import type {
   SSOCompleteLinkPayload,
@@ -17,7 +22,7 @@ import type {
 } from '../shared/sso';
 import type { SpaFallbackDiagnostic } from '../shared/spaIpcTypes';
 
-// The ONLY four runtime local imports in this file. `scripts/build-preload.mjs`
+// The ONLY runtime local imports in this file (the four below and `connectionIdentity`). `scripts/build-preload.mjs`
 // runs esbuild with `bundle: true, external: ['electron']`, so all four are
 // inlined into `dist/preload/preload.js` rather than becoming a `require` — which
 // is what keeps `tests/integration/preload-sandbox-contract.test.ts` green.
@@ -29,6 +34,17 @@ import type { SpaFallbackDiagnostic } from '../shared/spaIpcTypes';
 import { isAudiocapInterrupted, type AudiocapInterrupted } from '../shared/audiocapProtocol';
 import { AUDIOCAP_PORT_TAG, installAudiocapRelay, type AudiocapRelayWindow } from './audiocapRelay';
 import { createSetZoomFactor } from './uiZoom';
+// `connectionIdentity` is import-free by contract (its own header says the preload
+// bundle inlines it). It supplies the exact-key identity codec, so the `whoAmI` answer
+// and every `connection:generation` push narrow against the same anchor main and the
+// renderer use (#86 §3.7).
+import {
+  isGeneration,
+  parseConnectionIdentity,
+  type ConnectionIdentity,
+  type GenerationReason,
+  type PreferenceScope,
+} from '../shared/connectionIdentity';
 // `trayStatus` has no imports of its own. It supplies the channel constants and
 // `isTrayAction`, so the `tray:action` push narrows against the same closed-enum
 // anchor main and the renderer use (tray-status spec §4).
@@ -70,6 +86,41 @@ export interface TokenRefreshedData {
   previousSessionId?: string;
 }
 
+const GENERATION_REASONS: ReadonlySet<string> = new Set([
+  'document',
+  'renderer-gone',
+  'credential-start',
+  'credential-end',
+  'disposed',
+]);
+
+/**
+ * #86 §3.7 (contract v34): which connection this document belongs to. ONE sendSync at
+ * preload evaluation, before any renderer module runs. Main answers from its own sender
+ * binding, never from anything the page sends, and the answer is re-validated with the
+ * shared exact-key codec. Cached for the document's lifetime; only a NEWER generation
+ * push for the same connection moves it. `null` means "no connection" and is final.
+ */
+let connectionIdentity: ConnectionIdentity | null = (() => {
+  try {
+    return parseConnectionIdentity(ipcRenderer.sendSync('connection:whoAmI'));
+  } catch {
+    return null;
+  }
+})();
+
+/** A field-copied push for THIS document's connection, or null. */
+function generationPushFor(
+  current: ConnectionIdentity,
+  data: unknown
+): ConnectionGenerationPush | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const { connectionId, generation, reason } = data as Record<string, unknown>;
+  if (connectionId !== current.connectionId || !isGeneration(generation)) return null;
+  if (typeof reason !== 'string' || !GENERATION_REASONS.has(reason)) return null;
+  return { connectionId: current.connectionId, generation, reason: reason as GenerationReason };
+}
+
 contextBridge.exposeInMainWorld('electron', {
   // App info
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
@@ -82,6 +133,45 @@ contextBridge.exposeInMainWorld('electron', {
   // Threat-model: knowing the tag does not unlock any capability — exposure
   // here is acceptable because the read-only surface is bounded.
   getBuildTag: () => ipcRenderer.invoke('app:getBuildTag') as Promise<string>,
+
+  // #86 §3.7 (contract v34). Feature-detect the namespace: absent means a pre-34 shell
+  // and the legacy single-connection path; `whoAmI() === null` means no connection.
+  connection: {
+    whoAmI: (): ConnectionIdentity | null => connectionIdentity,
+    create: (origin: string) =>
+      ipcRenderer.invoke('connection:create', origin) as Promise<ConnectionCreateResult>,
+    activate: (serviceId: string) =>
+      ipcRenderer.invoke('connection:activate', serviceId) as Promise<boolean>,
+    /**
+     * Validated, then copied. Each subscription delivers only a generation newer than
+     * the last one it saw (starting from the cache at subscribe time), and a delivery
+     * moves the cache, so a replayed or reordered push never reaches the callback.
+     * Unsubscribe disarms as well as removes (same reasoning as `onTrayAction`).
+     */
+    onGenerationChanged: (callback: (push: ConnectionGenerationPush) => void) => {
+      let subscribed = true;
+      let seen = connectionIdentity?.generation ?? null;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        const current = connectionIdentity;
+        if (!subscribed || current === null || seen === null) return;
+        const push = generationPushFor(current, data);
+        if (push === null || push.generation <= seen) return;
+        seen = push.generation;
+        if (push.generation > current.generation) {
+          connectionIdentity = Object.freeze({ ...current, generation: push.generation });
+        }
+        callback(push);
+      };
+      ipcRenderer.on('connection:generation', handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener('connection:generation', handler);
+      };
+    },
+    /** #86 Task 9 registers the handler; until then the invoke rejects. */
+    preferenceScope: () =>
+      ipcRenderer.invoke('connection:preferenceScope') as Promise<PreferenceScope | null>,
+  },
 
   // SPA self-heal (#753, ADR-0001): renderer signals chunk-load failure or
   // unhandled dynamic-import rejection. Main process refetches client config,
@@ -183,6 +273,7 @@ contextBridge.exposeInMainWorld('electron', {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    serverUserId?: string;
   }) =>
     ipcRenderer.invoke('auth:storeRefreshToken', data) as Promise<
       CredentialOwner | { status: 'rejected' }
@@ -760,6 +851,19 @@ export interface ElectronAPI {
   getBuildTag: () => Promise<string>;
 
   /**
+   * #86 §3.7 (contract v34). `whoAmI` is the identity main gave this document at preload
+   * evaluation; `onGenerationChanged` delivers only newer generations of that same
+   * connection. A pre-34 shell has no `connection` namespace at all.
+   */
+  connection: {
+    whoAmI: () => ConnectionIdentity | null;
+    create: (origin: string) => Promise<ConnectionCreateResult>;
+    activate: (serviceId: string) => Promise<boolean>;
+    onGenerationChanged: (callback: (push: ConnectionGenerationPush) => void) => () => void;
+    preferenceScope: () => Promise<PreferenceScope | null>;
+  };
+
+  /**
    * SPA self-heal (#753, ADR-0001): renderer requests the main process refetch
    * client config and reload the BrowserWindow once after a chunk-load failure.
    */
@@ -810,6 +914,8 @@ export interface ElectronAPI {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    /** #86 T9: hashed in main into the connection's account key; never stored in clear. */
+    serverUserId?: string;
   }) => Promise<CredentialOwner | { status: 'rejected' }>;
   restoreSession: () => Promise<{
     status: string;

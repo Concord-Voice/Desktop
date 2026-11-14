@@ -18,7 +18,16 @@ deadline own final shutdown.
 
 The probe loads the actual built sandboxed preload, calls the production
 attestation IPC handler from trusted and untrusted real renderer frames, and
-runs the production microphone host with the Vite-emitted worklet. It checks
+runs the production microphone host with the Vite-emitted worklet.
+`attestation:get-token` is connection-bound (#86), so the probe registers the
+`saas` service and the production `connection:whoAmI` handler once, then opens,
+binds and navigation-tracks each origin window as a `saas` connection before its
+first load, the way `shellWindow.ts` opens a view, and disposes it before the
+next origin opens. It loads those primitives from the same built bundle as the
+attestation handler, so both read one registry. The trusted document must
+receive the bound identity from `connection.whoAmI()`. The untrusted `data:`
+document must be refused, and must read a null identity, while its window still
+holds that binding, so the refusal comes from its frame URL. It checks
 the limited stereo impulse, lookahead delay and processor-error path on both
 `app://concord` and `spa-cache://concord` fixture origins. The existing dialog
 probe supplies inertness, Escape and close-watcher positive controls. Output

@@ -4,7 +4,23 @@ import { deferred } from '../../helpers/deferred';
 
 // ── Hoisted mocks (available during vi.mock factory execution) ─────────
 
-const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => {
+// #86 Task 4: the main window is a `BaseWindow` (`mockMainWindow`) whose `saas`
+// connection is one `WebContentsView` (`mockView`, contents `mockWebContents`).
+// `BrowserWindow` now builds PiP windows only; each gets its OWN webContents
+// (`makePipContents`), because a PiP is bound 'pip' and the registry refuses to
+// bind another connection's primary. The window-level spies a PiP test asserts on
+// are shared across every PiP (`mockPipWindow`), so the per-test deltas still read.
+const {
+  mockMainWindow,
+  mockWebContents,
+  mockView,
+  mockPipWindow,
+  pipFrame,
+  makePipContents,
+  MockBrowserWindow,
+  MockBaseWindow,
+  MockWebContentsView,
+} = vi.hoisted(() => {
   const mockWebContents = {
     openDevTools: vi.fn(),
     closeDevTools: vi.fn(),
@@ -12,34 +28,116 @@ const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => 
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
     on: vi.fn(),
+    once: vi.fn(),
     getURL: vi.fn(() => ''),
-    mainFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
-  };
-  const mockMainWindow = {
     loadURL: vi.fn().mockResolvedValue(undefined),
     loadFile: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    close: vi.fn(),
+    focus: vi.fn(),
+    mainFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77 },
+  };
+  const mockView = {
+    webContents: mockWebContents,
+    setBounds: vi.fn(),
+    setVisible: vi.fn(),
+    setBackgroundColor: vi.fn(),
+  };
+  const mockMainWindow = {
     once: vi.fn(),
     on: vi.fn(),
     show: vi.fn(),
+    hide: vi.fn(),
+    minimize: vi.fn(),
+    maximize: vi.fn(),
     destroy: vi.fn(),
     close: vi.fn(),
     focus: vi.fn(),
     isMinimized: vi.fn(() => false),
+    isFocused: vi.fn(() => false),
     isDestroyed: vi.fn(() => false),
     restore: vi.fn(),
     setAlwaysOnTop: vi.fn(),
     setContentProtection: vi.fn(),
     flashFrame: vi.fn(),
-    webContents: mockWebContents,
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 720 })),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  };
+  // The PiP's own main frame. A getter on each PiP's contents reads it, so a test
+  // can move the PiP's document (an SPA transition) after the window exists.
+  const pipFrame = {
+    current: { url: 'http://localhost:3001/', frameTreeNodeId: 88, parent: null as null },
+  };
+  function makePipContents(): Record<string, unknown> {
+    return {
+      on: vi.fn(),
+      once: vi.fn(),
+      send: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      setWindowOpenHandler: vi.fn(),
+      getURL: vi.fn(() => ''),
+      get mainFrame() {
+        return pipFrame.current;
+      },
+    };
+  }
+  const mockPipWindow = {
+    loadURL: vi.fn().mockResolvedValue(undefined),
+    on: vi.fn(),
+    once: vi.fn(),
+    destroy: vi.fn(),
+    close: vi.fn(),
+    focus: vi.fn(),
+    isDestroyed: vi.fn(() => false),
+    setAlwaysOnTop: vi.fn(),
+    setContentProtection: vi.fn(),
   };
   // Use mockImplementation (not mockReturnValue) — Vitest requires this for `new` calls
   const bw = vi.fn().mockImplementation(function () {
-    return mockMainWindow;
+    return { ...mockPipWindow, webContents: makePipContents() };
   });
   // Static method used by activate handler
   (bw as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
-  return { mockMainWindow, mockWebContents, MockBrowserWindow: bw };
+  const base = vi.fn().mockImplementation(function () {
+    return mockMainWindow;
+  });
+  (base as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
+  const wcv = vi.fn().mockImplementation(function () {
+    return mockView;
+  });
+  return {
+    mockMainWindow,
+    mockWebContents,
+    mockView,
+    mockPipWindow,
+    pipFrame,
+    makePipContents,
+    MockBrowserWindow: bw,
+    MockBaseWindow: base,
+    MockWebContentsView: wcv,
+  };
 });
+
+// #86 adaptation of main's #178 PiP fixtures: a PiP child must own a webContents
+// distinct from the saas primary's, or createPipWindow's 'pip' binding refuses it.
+let nextPipChildContents = 7000;
+function pipChildContents(): unknown {
+  const id = (nextPipChildContents += 1);
+  return {
+    ...mockWebContents,
+    id,
+    send: vi.fn(),
+    on: vi.fn(),
+    once: vi.fn(),
+    mainFrame: { url: 'http://localhost:3001/', frameTreeNodeId: id, parent: null },
+  };
+}
+
+/** The webContents of the PiP window `pip:open` built most recently. */
+function lastPipContents(): { mainFrame: { url: string; frameTreeNodeId: number } } {
+  const results = (MockBrowserWindow as Mock).mock.results;
+  return results[results.length - 1].value.webContents;
+}
 
 // ── SSO flow teardown spies (#975: window-close tears down BOTH flows) ──
 const { mockCancelAppleFlow, mockCancelGoogleFlow } = vi.hoisted(() => ({
@@ -127,6 +225,14 @@ vi.mock('../../../src/main/oauth/google/googleFlow', () => ({
 
 vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
+  BaseWindow: MockBaseWindow,
+  WebContentsView: MockWebContentsView,
+  Menu: {
+    buildFromTemplate: vi.fn((template: unknown) => ({ template })),
+    setApplicationMenu: vi.fn(),
+    getApplicationMenu: vi.fn(() => null),
+  },
+  net: { fetch: vi.fn() },
   nativeImage: {
     createFromPath: vi.fn(() => ({
       isEmpty: vi.fn(() => false),
@@ -199,7 +305,19 @@ vi.mock('electron', () => ({
       webRequest: {
         onBeforeSendHeaders: vi.fn(),
       },
+      protocol: { handle: vi.fn() },
+      fetch: vi.fn(),
     },
+    // #86: a self-hosted service's own session (registered in dev from approvals).
+    fromPath: vi.fn(() => ({
+      setPermissionRequestHandler: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setDevicePermissionHandler: vi.fn(),
+      on: vi.fn(),
+      webRequest: { onBeforeSendHeaders: vi.fn() },
+      protocol: { handle: vi.fn() },
+      fetch: vi.fn(),
+    })),
   },
   shell: { openExternal: vi.fn(() => Promise.resolve()) },
   powerMonitor: { on: vi.fn() },
@@ -245,42 +363,61 @@ vi.mock('node:http', () => {
 
 vi.mock('electron-squirrel-startup', () => ({ default: false }));
 
-vi.mock('../../../src/main/tokenManager', () => ({
-  storeRefreshToken: vi.fn(() => 41),
-  // Async like the real functions: a sync mock would let main.ts drop its
-  // `await` and still pass, since awaiting a plain value changes nothing.
-  restoreRefreshToken: vi.fn(async () => ({
-    status: 'ok',
-    token: 'mock-token',
-    apiBase: 'http://localhost:8080',
-    rememberMe: true,
-  })),
-  performRefresh: vi.fn(() =>
-    Promise.resolve({ status: 'ok', accessToken: 'mock-access', sessionId: 'mock-session' })
-  ),
-  performLogout: vi.fn(() => Promise.resolve()),
-  clearTokens: vi.fn(),
-  clearTokensIfOwner: vi.fn((owner: number) => owner === 41),
-  getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
-  storeE2EEKeys: vi.fn(),
-  storeE2EEKeysIfOwner: vi.fn((_data: unknown, owner: number) => owner === 41),
-  restoreE2EEKeys: vi.fn(async () => ({
-    wrappingKeyBase64: 'key',
-    preferencesKeyBase64: 'pkey',
-    wrappedPrivateKeyBase64: 'wpk',
-  })),
-  getCredentialCustodyState: vi.fn(() => ({
-    credentialOwner: 41,
-    pendingE2EEUnlock: false,
-  })),
-  setProactiveRefreshCallback: vi.fn(),
-  onSystemResume: vi.fn(),
-  getCachedAccessToken: vi.fn(() => null),
-  getApiBaseOrigin: vi.fn(() => null),
-}));
+vi.mock('../../../src/main/tokenManager', () => {
+  // #86 Task 5: main.ts reaches custody through the transitional routers, and
+  // each hands back this one mocked set, so assertions on its members still hold.
+  const custody = {
+    storeRefreshToken: vi.fn(() => 41),
+    // Async like the real functions: a sync mock would let main.ts drop its
+    // `await` and still pass, since awaiting a plain value changes nothing.
+    restoreRefreshToken: vi.fn(async () => ({
+      status: 'ok',
+      token: 'mock-token',
+      apiBase: 'http://localhost:8080',
+      rememberMe: true,
+    })),
+    performRefresh: vi.fn(() =>
+      Promise.resolve({ status: 'ok', accessToken: 'mock-access', sessionId: 'mock-session' })
+    ),
+    performLogout: vi.fn(() => Promise.resolve()),
+    clearTokens: vi.fn(),
+    clearTokensIfOwner: vi.fn((owner: number) => owner === 41),
+    getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
+    storeE2EEKeys: vi.fn(),
+    storeE2EEKeysIfOwner: vi.fn((_data: unknown, owner: number) => owner === 41),
+    restoreE2EEKeys: vi.fn(async () => ({
+      wrappingKeyBase64: 'key',
+      preferencesKeyBase64: 'pkey',
+      wrappedPrivateKeyBase64: 'wpk',
+    })),
+    getCredentialCustodyState: vi.fn(() => ({
+      credentialOwner: 41,
+      pendingE2EEUnlock: false,
+    })),
+    setProactiveRefreshCallback: vi.fn(),
+    onSystemResume: vi.fn(),
+    getCachedAccessToken: vi.fn(() => null),
+    getApiBaseOrigin: vi.fn(() => null),
+    // #86 Task 4: each connection view subscribes for its R6 generation bumps.
+    onCredentialEvent: vi.fn(() => () => undefined),
+  };
+  return {
+    ...custody,
+    custodyFor: vi.fn(() => custody),
+    custodyForApiBase: vi.fn(() => custody),
+    liveCustody: vi.fn(() => custody),
+    restoreTargetCustody: vi.fn(() => custody),
+  };
+});
 
 vi.mock('../../../src/main/machineId', () => ({
   getMachineId: vi.fn(() => 'mock-machine-id'),
+}));
+
+// #86 Task 6: the startup migration's own connections.json write would otherwise land
+// in the mocked fs and interleave with the writes these suites assert on.
+vi.mock('../../../src/main/connectionMigration', () => ({
+  runConnectionMigration: vi.fn(() => ({ entries: [], derived: false })),
 }));
 
 vi.mock('../../../src/main/selfHostedProbe', async (importActual) => ({
@@ -360,6 +497,23 @@ vi.mock('../../../src/main/spaLoader', () => ({
   },
 }));
 
+import type * as TrayModule from '../../../src/main/tray';
+
+// #86 B1: capture the sender main.ts hands the tray, so a test can fire a tray action
+// without a real tray. Everything else in the module stays real.
+const { trayActionSenderHolder } = vi.hoisted(() => ({
+  trayActionSenderHolder: { send: null as null | ((action: unknown) => void) },
+}));
+vi.mock('../../../src/main/tray', async (importActual) => {
+  const actual = await importActual<typeof TrayModule>();
+  return {
+    ...actual,
+    setTrayActionSender: (send: (action: never) => void) => {
+      trayActionSenderHolder.send = send as (action: unknown) => void;
+      actual.setTrayActionSender(send);
+    },
+  };
+});
 vi.mock('../../../src/main/ipcContract', () => ({
   IPC_CONTRACT_VERSION: '1.0',
 }));
@@ -379,15 +533,73 @@ vi.mock('../../../src/main/billing/billingWindow', () => ({
 type HandlerFn = (...args: unknown[]) => unknown;
 type CallbackFn = (...args: unknown[]) => void;
 let handlers: Map<string, HandlerFn>;
+// #86 7B: the saas view's own main frame. Handlers registered through registerIpc
+// admit only a bound connection sender, so the trusted fixture is the bound saas view.
 const trustedIpcEvent = {
-  sender: { id: 41 },
-  senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 41 },
+  sender: mockWebContents,
+  // A main frame has parent === null (senderMainFrame refuses anything else).
+  senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
 };
-const probeEvent = { sender: mockWebContents, senderFrame: mockWebContents.mainFrame };
+// #86 Task 7B (DEV-BUILD ORIGIN ruling): main pins the saas service's origin at startup to
+// the first-party API base. This fixture is unpackaged with no CONCORD_DEV_API_BASE, so
+// saas is the dev control plane; production is just another origin here.
+const SAAS_DEV_API_BASE = 'http://localhost:8080';
+// #86 R8: pip:open admits only a bound connection PRIMARY, and the saas view's
+// contents is the one this file's window opens. Same trusted frame as above.
+const pipOpenerEvent = { sender: mockWebContents, senderFrame: trustedIpcEvent.senderFrame };
+// The same saas main frame on the bundled document (packaged builds admit app://concord,
+// never a localhost dev server).
+const saasAppFrameEvent = {
+  sender: mockWebContents,
+  senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 77, parent: null },
+};
+// Main's "live main window main frame" fixture (#195/#198/#199), adapted for #86 to the
+// bound foreground saas primary's main frame.
+const probeEvent = trustedIpcEvent;
 const foreignIpcEvent = {
   sender: { id: 99 },
   senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 99 },
 };
+// #86 Task 7B: a bound primary of a self-hosted service, registered and bound the way
+// shellWindow does it. The pre-#86 probe cases assert that a probe returns the probe's own
+// result. Under #86 that holds only when the probed origin is the SENDER'S OWN service:
+// another origin opens in its own connection, which '#86 … probeServer from the saas view'
+// locks. So those cases probe from a primary of the service they probe. `dispose()` closes
+// the connection and gives the foreground back to whoever held it.
+let nextSelfHostedFrame = 8800;
+function bindSelfHostedPrimary(origin: string, opts: { foreground?: boolean } = {}) {
+  const frameUrl = 'app://concord/index.html';
+  const svc = connectionRegistry.registerService(origin, {
+    makeSession: () => ({}) as never,
+    makeCustody: () => ({}) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!svc.ok) throw new Error(`registerService refused ${origin}: ${svc.reason}`);
+  const frameTreeNodeId = (nextSelfHostedFrame += 1);
+  const wc = {
+    id: frameTreeNodeId,
+    send: vi.fn(),
+    on: vi.fn(),
+    once: vi.fn(),
+    getURL: vi.fn(() => frameUrl),
+    loadURL: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    mainFrame: { url: frameUrl, frameTreeNodeId },
+  };
+  const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+  if (!opened.ok) throw new Error(`openConnection refused ${origin}: ${opened.reason}`);
+  connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+  const before = connectionRegistry.foreground()?.connectionId ?? null;
+  if (opts.foreground) connectionRegistry.setForeground(opened.record.connectionId);
+  return {
+    event: { sender: wc, senderFrame: { url: frameUrl, frameTreeNodeId, parent: null } },
+    makeForeground: () => connectionRegistry.setForeground(opened.record.connectionId),
+    dispose: () => {
+      connectionRegistry.disposeConnection(opened.record.connectionId);
+      if (before) connectionRegistry.setForeground(before);
+    },
+  };
+}
 let appOnCallbacks: Map<string, CallbackFn>;
 let sessionHandlers: {
   permissionRequest?: CallbackFn;
@@ -407,9 +619,37 @@ let klipyInterceptor: {
 // contents now gets a window-open handler registered on it (the PiP-gap fix —
 // see externalizeWindowOpen in main.ts), so a fake missing setWindowOpenHandler
 // throws the instant the callback under test runs.
+//
+// #86: the navigation gate admits nothing for an UNBOUND contents (fail closed;
+// connectionSession.test.ts pins that). Every fake here stands for a document of
+// the live saas connection, so it is bound as one of its PiPs.
+let connectionRegistry: typeof import('../../../src/main/connectionRegistry');
+let saasServiceId: import('../../../src/shared/connectionIdentity').ServiceId;
 function createMockContents(): { on: Mock; setWindowOpenHandler: Mock } {
-  return { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+  const contents = { on: vi.fn(), setWindowOpenHandler: vi.fn() };
+  const live = connectionRegistry.liveConnections().find((r) => r.serviceId === saasServiceId);
+  if (!live) throw new Error('createMockContents: no live saas connection');
+  connectionRegistry.bindSender(contents as never, live.connectionId, 'pip');
+  return contents;
 }
+
+/**
+ * The saas primary's own contents, made the foreground (#86 C6b): the only document the
+ * navigation gate externalizes for. A `createMockContents()` fake is a PiP and opens
+ * nothing. Its handlers are re-installed, so read the LAST registration.
+ */
+function foregroundSaasContents(): { on: Mock; setWindowOpenHandler: Mock } {
+  const live = connectionRegistry.liveConnections().find((r) => r.serviceId === saasServiceId);
+  if (!live) throw new Error('foregroundSaasContents: no live saas connection');
+  connectionRegistry.setForeground(live.connectionId);
+  return live.webContents as never;
+}
+
+const lastWillNavigate = (contents: { on: Mock }) =>
+  contents.on.mock.calls.findLast((c: unknown[]) => c[0] === 'will-navigate')![1] as (
+    event: { preventDefault: () => void },
+    url: string
+  ) => void;
 
 // #2354: dialog calls attributable to main.ts's module load + init, captured before
 // any test can add its own. Order-independent, unlike reading the mock later.
@@ -450,6 +690,11 @@ afterEach(() => {
 beforeAll(async () => {
   // Import triggers all module-scope side effects + whenReady resolves
   await import('../../../src/main/main');
+  connectionRegistry = await import('../../../src/main/connectionRegistry');
+  const saasBinding = connectionRegistry.bindingFor(mockWebContents as never);
+  const saasRecord = saasBinding ? connectionRegistry.recordFor(saasBinding.connectionId) : null;
+  if (!saasRecord) throw new Error('beforeAll: createWindow did not open the saas view');
+  saasServiceId = saasRecord.serviceId;
   dialogCallsAfterImport = mockShowMessageBox.mock.calls.length;
 
   // Allow async operations to settle (createWindow, whenReady callback)
@@ -508,8 +753,8 @@ describe('main.ts', () => {
     it('applies initial content protection before loading renderer content', () => {
       const protectionOrder = mockMainWindow.setContentProtection.mock.invocationCallOrder[0];
       const rendererLoadOrders = [
-        mockMainWindow.loadURL.mock.invocationCallOrder[0],
-        mockMainWindow.loadFile.mock.invocationCallOrder[0],
+        mockWebContents.loadURL.mock.invocationCallOrder[0],
+        mockWebContents.loadFile.mock.invocationCallOrder[0],
       ].filter((order): order is number => order !== undefined);
 
       expect(protectionOrder).toBeDefined();
@@ -554,9 +799,9 @@ describe('main.ts', () => {
       expect(appOnCallbacks.has('before-quit')).toBe(true);
     });
 
-    it('checks Applications-folder relocation before creating BrowserWindow', () => {
+    it('checks Applications-folder relocation before creating the shell window', () => {
       const gateOrder = mockMaybePromptMove.mock.invocationCallOrder[0];
-      const windowOrder = MockBrowserWindow.mock.invocationCallOrder[0];
+      const windowOrder = MockBaseWindow.mock.invocationCallOrder[0];
 
       expect(gateOrder).toBeDefined();
       expect(windowOrder).toBeDefined();
@@ -693,7 +938,11 @@ describe('main.ts', () => {
 
     it('persists a trusted boolean before updating live windows', async () => {
       const fs = (await import('node:fs')).default;
-      const pip = { isDestroyed: vi.fn(() => false), setContentProtection: vi.fn() };
+      const pip = {
+        isDestroyed: vi.fn(() => false),
+        setContentProtection: vi.fn(),
+        webContents: makePipContents(),
+      };
       Object.assign(pip, {
         loadURL: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
@@ -703,10 +952,7 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
-        { id: 'content-protection-pip' }
-      );
+      await handlers.get('pip:open')!(pipOpenerEvent, { id: 'content-protection-pip' });
       (fs.writeFileSync as Mock).mockClear();
       mockMainWindow.setContentProtection.mockClear();
       pip.setContentProtection.mockClear();
@@ -737,6 +983,9 @@ describe('main.ts', () => {
       expect(fs.renameSync.mock.invocationCallOrder[0]).toBeLessThan(
         pip.setContentProtection.mock.invocationCallOrder[0]
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('canonicalizes the target value only after every live window accepts it', async () => {
@@ -773,6 +1022,7 @@ describe('main.ts', () => {
       const pip = {
         isDestroyed: vi.fn(() => false),
         setContentProtection: vi.fn(),
+        webContents: makePipContents(),
         loadURL: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
         focus: vi.fn(),
@@ -781,10 +1031,7 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
-        { id: 'content-protection-rollback-pip' }
-      );
+      await handlers.get('pip:open')!(pipOpenerEvent, { id: 'content-protection-rollback-pip' });
       (fs.writeFileSync as Mock).mockImplementation(() => undefined);
       mockMainWindow.setContentProtection.mockReset();
       pip.setContentProtection.mockReset();
@@ -799,6 +1046,9 @@ describe('main.ts', () => {
         JSON.stringify({ enabled: true, previousEnabled: false, staged: true }),
         'utf-8'
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('reads the old value from a staged record after native failure in either direction', async () => {
@@ -1030,6 +1280,7 @@ describe('main.ts', () => {
       const pip = {
         isDestroyed: vi.fn(() => false),
         setContentProtection: vi.fn(),
+        webContents: makePipContents(),
         loadURL: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
         focus: vi.fn(),
@@ -1038,14 +1289,14 @@ describe('main.ts', () => {
       (MockBrowserWindow as Mock).mockImplementationOnce(function () {
         return pip;
       });
-      await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
-        { id: 'content-protection-persisted-pip' }
-      );
+      await handlers.get('pip:open')!(pipOpenerEvent, { id: 'content-protection-persisted-pip' });
       expect(pip.setContentProtection).toHaveBeenCalledWith(true);
       expect(pip.setContentProtection.mock.invocationCallOrder[0]).toBeLessThan(
         pip.loadURL.mock.invocationCallOrder[0]
       );
+      // #86 RT5: close it, so this PiP does not hold a slot of the saas connection's cap
+      // for the rest of the file.
+      for (const [event, listener] of pip.on.mock.calls) if (event === 'closed') listener();
     });
 
     it('rejects an untrusted sender and non-boolean payload without side effects', async () => {
@@ -1076,22 +1327,25 @@ describe('main.ts', () => {
     });
 
     it('app:getVersion returns version', async () => {
-      const result = await handlers.get('app:getVersion')!();
+      const result = await handlers.get('app:getVersion')!(trustedIpcEvent);
       expect(result).toBe('1.0.0-test');
     });
 
     it('app:getPlatform returns platform', async () => {
-      const result = await handlers.get('app:getPlatform')!();
+      const result = await handlers.get('app:getPlatform')!(trustedIpcEvent);
       expect(result).toBe(process.platform);
     });
 
     it('app:getIpcContract returns contract version', async () => {
-      const result = await handlers.get('app:getIpcContract')!();
+      const result = await handlers.get('app:getIpcContract')!(trustedIpcEvent);
       expect(result).toBe('1.0');
     });
 
     it('app:getSystemInfo returns system details', async () => {
-      const result = (await handlers.get('app:getSystemInfo')!()) as Record<string, string>;
+      const result = (await handlers.get('app:getSystemInfo')!(trustedIpcEvent)) as Record<
+        string,
+        string
+      >;
       expect(result).toHaveProperty('platform');
       expect(result).toHaveProperty('arch');
       expect(result).toHaveProperty('electronVersion');
@@ -1102,7 +1356,7 @@ describe('main.ts', () => {
 
   describe('IPC: hardware acceleration', () => {
     it('app:getHardwareAcceleration returns current pref', async () => {
-      const result = await handlers.get('app:getHardwareAcceleration')!();
+      const result = await handlers.get('app:getHardwareAcceleration')!(trustedIpcEvent);
       expect(result).toBe(true);
     });
 
@@ -1164,7 +1418,7 @@ describe('main.ts', () => {
     it('app:quit exits the app', async () => {
       const { app } = await import('electron');
       (app.quit as Mock).mockClear();
-      await handlers.get('app:quit')!(probeEvent);
+      await handlers.get('app:quit')!(trustedIpcEvent);
       expect(app.quit).toHaveBeenCalled();
     });
   });
@@ -1172,7 +1426,7 @@ describe('main.ts', () => {
   describe('IPC: GPU info', () => {
     it('gpu:getInfo returns vendor and device', async () => {
       const { app } = await import('electron');
-      const result = (await handlers.get('gpu:getInfo')!()) as {
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
         vendor: string;
         device: string;
         encodeProfiles: string[];
@@ -1187,14 +1441,14 @@ describe('main.ts', () => {
     it('gpu:getInfo returns null on failure', async () => {
       const { app } = await import('electron');
       (app.getGPUInfo as Mock).mockRejectedValueOnce(new Error('fail'));
-      const result = await handlers.get('gpu:getInfo')!();
+      const result = await handlers.get('gpu:getInfo')!(trustedIpcEvent);
       expect(result).toBeNull();
     });
   });
 
   describe('IPC: screen info', () => {
     it('screen:getDisplayInfo returns display list', async () => {
-      const result = (await handlers.get('screen:getDisplayInfo')!()) as Array<{
+      const result = (await handlers.get('screen:getDisplayInfo')!(trustedIpcEvent)) as Array<{
         width: number;
         height: number;
         refreshRate: number;
@@ -1285,13 +1539,61 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       const { setUpdateFeedUrl } = await import('../../../src/main/updater');
       const data = { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' };
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
       expect(result).toBe(41);
       expect(storeRefreshToken).toHaveBeenCalledWith(data);
       expect(setUpdateFeedUrl).toHaveBeenCalledWith('http://localhost:8080');
+    });
+
+    // #86 Task 9: serverUserId is renderer-supplied and is only ever input to the hash.
+    it('auth:storeRefreshToken passes a valid serverUserId through to the custody', async () => {
+      const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+      (storeRefreshToken as Mock).mockClear();
+      const data = {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId: 'user-123',
+      };
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
+      expect(result).toBe(41);
+      expect(storeRefreshToken).toHaveBeenCalledWith(data);
+    });
+
+    it.each([
+      ['empty', ''],
+      ['too long', 'x'.repeat(257)],
+      ['control character', 'user\u0001id'],
+      ['NUL', 'user\0id'],
+      ['newline', 'user\nid'],
+      ['not a string', 42],
+      ['object', { id: 'u' }],
+    ])('auth:storeRefreshToken rejects a serverUserId that is %s', async (_label, serverUserId) => {
+      const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+      (storeRefreshToken as Mock).mockClear();
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId,
+      });
+      expect(result).toEqual({ status: 'rejected' });
+      expect(storeRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('auth:storeRefreshToken never logs the serverUserId in clear', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+        serverUserId: 'secret-user\u0001',
+      });
+      const logged = JSON.stringify([...warn.mock.calls, ...log.mock.calls]);
+      expect(logged).not.toContain('secret-user');
+      warn.mockRestore();
+      log.mockRestore();
     });
 
     it('auth:storeRefreshToken rejects untrusted sender frames', async () => {
@@ -1301,9 +1603,30 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
     });
+
+    // #86 Task 7B ruling (DEV-BUILD ORIGIN): an unpackaged build's saas origin is the dev
+    // base main pinned at startup. The test above stores against it; every other origin,
+    // production included, names a different service and is refused before custody.
+    it.each(['https://api.concordvoice.chat', 'http://localhost:8081', 'https://evil.example'])(
+      'auth:storeRefreshToken from the unpackaged saas view refuses %s',
+      async (apiBase) => {
+        const { storeRefreshToken } = await import('../../../src/main/tokenManager');
+        const { setUpdateFeedUrl } = await import('../../../src/main/updater');
+        (storeRefreshToken as Mock).mockClear();
+        (setUpdateFeedUrl as Mock).mockClear();
+        const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase,
+        });
+        expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
+        expect(storeRefreshToken).not.toHaveBeenCalled();
+        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
+      }
+    );
 
     it('auth:storeRefreshToken rejects malformed payloads', async () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
@@ -1311,12 +1634,14 @@ describe('main.ts', () => {
       (storeRefreshToken as Mock).mockClear();
       (setUpdateFeedUrl as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { refreshToken: 'tok', rememberMe: true, apiBase: 'javascript:alert(1)' }
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: 'javascript:alert(1)',
+      });
 
-      expect(result).toEqual({ status: 'rejected' });
+      // #86 D3: its origin is 'null', which names no service, so the cross-check refuses it.
+      expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
       expect(setUpdateFeedUrl).not.toHaveBeenCalled();
     });
@@ -1328,10 +1653,11 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       (storeRefreshToken as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { rememberMe: true, apiBase: 'https://api.concordvoice.chat', ...fields }
-      );
+      const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        rememberMe: true,
+        apiBase: SAAS_DEV_API_BASE,
+        ...fields,
+      });
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeRefreshToken).not.toHaveBeenCalled();
@@ -1341,14 +1667,11 @@ describe('main.ts', () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       (storeRefreshToken as Mock).mockClear();
 
-      await handlers.get('auth:storeRefreshToken')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        {
-          refreshToken: 'r'.repeat(8192),
-          rememberMe: true,
-          apiBase: 'https://api.concordvoice.chat',
-        }
-      );
+      await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'r'.repeat(8192),
+        rememberMe: true,
+        apiBase: SAAS_DEV_API_BASE,
+      });
 
       expect(storeRefreshToken).toHaveBeenCalledTimes(1);
     });
@@ -1366,32 +1689,28 @@ describe('main.ts', () => {
       app.isPackaged = true;
       try {
         // Attacker host rejected even with a trusted frame + well-formed https URL.
-        const evil = await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'https://evil.example' }
-        );
-        expect(evil).toEqual({ status: 'rejected' });
-        expect(storeRefreshToken).not.toHaveBeenCalled();
-        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
-
-        // The single SaaS control-plane origin is accepted (trailing slash too).
-        const data = {
+        const evil = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
           refreshToken: 'tok',
           rememberMe: true,
-          apiBase: 'https://api.concordvoice.chat/',
-        };
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          data
-        );
-        expect(storeRefreshToken).toHaveBeenCalledWith(data);
-        expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://api.concordvoice.chat/');
+          apiBase: 'https://evil.example',
+        });
+        // #86 D3: refused as naming another service before the payload guard runs.
+        expect(evil).toEqual({ status: 'rejected', reason: 'wrong-owner' });
+        expect(storeRefreshToken).not.toHaveBeenCalled();
+        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
+        // A packaged build accepting production is pinned where the origin is decided:
+        // apiBaseUrl.test.ts ("a packaged build pins production ..."). This fixture's
+        // saas origin was fixed unpackaged at startup, and flipping isPackaged now
+        // cannot move it.
       } finally {
         app.isPackaged = false;
       }
     });
 
-    it('auth:storeRefreshToken accepts a validated self-hosted apiBase in packaged builds', async () => {
+    // #86 D3 re-point: before #86 the one global custody stored whatever validated
+    // origin the renderer named. Now the saas view's custody is saas's alone, so a
+    // validated self-hosted origin from it names a different service and is refused.
+    it('auth:storeRefreshToken refuses a validated self-hosted apiBase from the saas view (#86 D3)', async () => {
       const { storeRefreshToken } = await import('../../../src/main/tokenManager');
       const { setUpdateFeedUrl } = await import('../../../src/main/updater');
       const { _resetSelfHostedProfileForTesting, commitSelfHostedApproval } =
@@ -1410,12 +1729,10 @@ describe('main.ts', () => {
           rememberMe: true,
           apiBase: 'https://homelab.lan',
         };
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          data
-        );
-        expect(storeRefreshToken).toHaveBeenCalledWith(data);
-        expect(setUpdateFeedUrl).toHaveBeenCalledWith('https://homelab.lan');
+        const result = await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, data);
+        expect(result).toEqual({ status: 'rejected', reason: 'wrong-owner' });
+        expect(storeRefreshToken).not.toHaveBeenCalled();
+        expect(setUpdateFeedUrl).not.toHaveBeenCalled();
       } finally {
         app.isPackaged = false;
         _resetSelfHostedProfileForTesting();
@@ -1423,9 +1740,7 @@ describe('main.ts', () => {
     });
 
     it('auth:restoreSession restores and refreshes token', async () => {
-      const result = (await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as {
+      const result = (await handlers.get('auth:restoreSession')!(trustedIpcEvent)) as {
         status: string;
         accessToken?: string;
         rememberMe?: boolean;
@@ -1445,9 +1760,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true })
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toMatchObject({
         status: 'restored',
@@ -1466,9 +1779,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 42, pendingE2EEUnlock: false });
       (restoreE2EEKeys as Mock).mockClear();
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toEqual({ status: 'refresh_failed' });
       expect(restoreE2EEKeys).not.toHaveBeenCalled();
@@ -1485,9 +1796,7 @@ describe('main.ts', () => {
         .mockReturnValueOnce({ credentialOwner: 41, pendingE2EEUnlock: true })
         .mockReturnValueOnce({ credentialOwner: 42, pendingE2EEUnlock: false });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(restoreE2EEKeys).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ status: 'refresh_failed' });
@@ -1499,9 +1808,7 @@ describe('main.ts', () => {
       (performRefresh as Mock).mockClear();
       (restoreRefreshToken as Mock).mockResolvedValueOnce({ status: 'tampered' });
 
-      const result = await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
       expect(result).toEqual({ status: 'tampered' });
       expect(performRefresh).not.toHaveBeenCalled();
@@ -1516,9 +1823,10 @@ describe('main.ts', () => {
         rememberMe: false,
       });
 
-      const result = (await handlers.get('auth:restoreSession')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as { status: string; rememberMe?: boolean };
+      const result = (await handlers.get('auth:restoreSession')!(trustedIpcEvent)) as {
+        status: string;
+        rememberMe?: boolean;
+      };
 
       expect(result.status).toBe('restored');
       expect(result.rememberMe).toBe(false);
@@ -1530,7 +1838,7 @@ describe('main.ts', () => {
       (restoreRefreshToken as Mock).mockClear();
       (performRefresh as Mock).mockClear();
 
-      const event = { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } };
+      const event = trustedIpcEvent;
       await handlers.get('auth:restoreSession')!(event);
       await handlers.get('auth:restoreSession')!(event);
 
@@ -1544,7 +1852,7 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:restoreSession')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(restoreRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -1555,10 +1863,7 @@ describe('main.ts', () => {
         preferencesKeyBase64: 'b',
         wrappedPrivateKeyBase64: 'c',
       };
-      await handlers.get('auth:storeE2EEKeys')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data
-      );
+      await handlers.get('auth:storeE2EEKeys')!(trustedIpcEvent, data);
       expect(storeE2EEKeys).toHaveBeenCalledWith(data);
     });
 
@@ -1569,7 +1874,7 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { wrappingKeyBase64: 'a', preferencesKeyBase64: 'b', wrappedPrivateKeyBase64: 'c' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeE2EEKeys).not.toHaveBeenCalled();
     });
 
@@ -1577,10 +1882,11 @@ describe('main.ts', () => {
       const { storeE2EEKeys } = await import('../../../src/main/tokenManager');
       (storeE2EEKeys as Mock).mockClear();
 
-      const result = await handlers.get('auth:storeE2EEKeys')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { wrappingKeyBase64: 'a', preferencesKeyBase64: 42, wrappedPrivateKeyBase64: 'c' }
-      );
+      const result = await handlers.get('auth:storeE2EEKeys')!(trustedIpcEvent, {
+        wrappingKeyBase64: 'a',
+        preferencesKeyBase64: 42,
+        wrappedPrivateKeyBase64: 'c',
+      });
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeE2EEKeys).not.toHaveBeenCalled();
@@ -1594,11 +1900,7 @@ describe('main.ts', () => {
         wrappedPrivateKeyBase64: 'c',
       };
 
-      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data,
-        41
-      );
+      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(trustedIpcEvent, data, 41);
 
       expect(result).toBe(true);
       expect(storeE2EEKeysIfOwner).toHaveBeenCalledWith(data, 41);
@@ -1618,11 +1920,7 @@ describe('main.ts', () => {
         [field]: 'k'.repeat(length),
       };
 
-      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        data,
-        41
-      );
+      const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(trustedIpcEvent, data, 41);
 
       expect(result).toEqual({ status: 'rejected' });
       expect(storeE2EEKeysIfOwner).not.toHaveBeenCalled();
@@ -1633,7 +1931,7 @@ describe('main.ts', () => {
       (storeE2EEKeysIfOwner as Mock).mockClear();
 
       await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         {
           wrappingKeyBase64: 'k'.repeat(1024),
           preferencesKeyBase64: 'k'.repeat(1024),
@@ -1650,7 +1948,7 @@ describe('main.ts', () => {
       (storeE2EEKeysIfOwner as Mock).mockClear();
 
       const result = await handlers.get('auth:storeE2EEKeysIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         {
           wrappingKeyBase64: 'a',
           preferencesKeyBase64: 'b',
@@ -1677,14 +1975,14 @@ describe('main.ts', () => {
         41
       );
 
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(storeE2EEKeysIfOwner).not.toHaveBeenCalled();
     });
 
     it('auth:refreshToken delegates to performRefresh', async () => {
-      const result = (await handlers.get('auth:refreshToken')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as { status: string };
+      const result = (await handlers.get('auth:refreshToken')!(trustedIpcEvent)) as {
+        status: string;
+      };
       expect(result.status).toBe('ok');
     });
 
@@ -1694,16 +1992,13 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:refreshToken')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(performRefresh).not.toHaveBeenCalled();
     });
 
     it('auth:logout delegates to performLogout', async () => {
       const { performLogout } = await import('../../../src/main/tokenManager');
-      await handlers.get('auth:logout')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { accessToken: 'tok' }
-      );
+      await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
       expect(performLogout).toHaveBeenCalledWith('tok');
     });
 
@@ -1714,26 +2009,21 @@ describe('main.ts', () => {
         { senderFrame: { url: 'https://evil.example/' } },
         { accessToken: 'tok' }
       );
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(performLogout).not.toHaveBeenCalled();
     });
 
     it('auth:logout rejects malformed payloads', async () => {
       const { performLogout } = await import('../../../src/main/tokenManager');
       (performLogout as Mock).mockClear();
-      const result = await handlers.get('auth:logout')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        { accessToken: 42 }
-      );
+      const result = await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 42 });
       expect(result).toEqual({ status: 'rejected' });
       expect(performLogout).not.toHaveBeenCalled();
     });
 
     it('auth:clearTokens delegates to clearTokens', async () => {
       const { clearTokens } = await import('../../../src/main/tokenManager');
-      await handlers.get('auth:clearTokens')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      await handlers.get('auth:clearTokens')!(trustedIpcEvent);
       expect(clearTokens).toHaveBeenCalled();
     });
 
@@ -1743,21 +2033,15 @@ describe('main.ts', () => {
       const result = await handlers.get('auth:clearTokens')!({
         senderFrame: { url: 'https://evil.example/' },
       });
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(clearTokens).not.toHaveBeenCalled();
     });
 
     it('auth:clearTokensIfOwner delegates conditional credential clearing', async () => {
       const { clearTokensIfOwner } = await import('../../../src/main/tokenManager');
 
-      const cleared = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        41
-      );
-      const preserved = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        40
-      );
+      const cleared = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 41);
+      const preserved = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 40);
 
       expect(cleared).toBe(true);
       expect(preserved).toBe(false);
@@ -1769,10 +2053,7 @@ describe('main.ts', () => {
       const { clearTokensIfOwner } = await import('../../../src/main/tokenManager');
       (clearTokensIfOwner as Mock).mockClear();
 
-      const result = await handlers.get('auth:clearTokensIfOwner')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-        Number.NaN
-      );
+      const result = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, Number.NaN);
 
       expect(result).toEqual({ status: 'rejected' });
       expect(clearTokensIfOwner).not.toHaveBeenCalled();
@@ -1787,14 +2068,12 @@ describe('main.ts', () => {
         41
       );
 
-      expect(result).toEqual({ status: 'rejected' });
+      expect(result).toEqual({ status: 'rejected', reason: 'untrusted-sender' });
       expect(clearTokensIfOwner).not.toHaveBeenCalled();
     });
 
     it('auth:getCapabilities returns capabilities for a trusted sender', async () => {
-      const result = (await handlers.get('auth:getCapabilities')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      })) as {
+      const result = (await handlers.get('auth:getCapabilities')!(trustedIpcEvent)) as {
         safeStorage: boolean;
       };
       expect(result.safeStorage).toBe(true);
@@ -1809,26 +2088,35 @@ describe('main.ts', () => {
 
     it('auth:getMachineId returns machine id', async () => {
       const { getMachineId } = await import('../../../src/main/machineId');
-      const result = await handlers.get('auth:getMachineId')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('auth:getMachineId')!(trustedIpcEvent);
       expect(result).toBe('mock-machine-id');
-      expect(getMachineId).toHaveBeenCalledWith();
+      // #86: the id is per service, always the sender's own (#1618).
+      expect(getMachineId).toHaveBeenCalledWith(SAAS_DEV_API_BASE);
     });
 
-    it('auth:getMachineId returns the machine id for a validated self-hosted apiBase', async () => {
+    it('auth:getMachineId admits the saas view naming its own dev origin', async () => {
+      const { getMachineId } = await import('../../../src/main/machineId');
+      (getMachineId as Mock).mockClear();
+      const result = await handlers.get('auth:getMachineId')!(trustedIpcEvent, SAAS_DEV_API_BASE);
+      expect(result).toBe('mock-machine-id');
+      expect(getMachineId).toHaveBeenCalledWith(SAAS_DEV_API_BASE);
+    });
+
+    // #86 D3 re-point: a validated self-hosted origin named from the saas view is another
+    // service's, so it is refused before any id is read or minted.
+    it('auth:getMachineId refuses a validated self-hosted apiBase from the saas view (#86 D3)', async () => {
       const { getMachineId } = await import('../../../src/main/machineId');
       const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
       (getMachineId as Mock).mockClear();
       commitSelfHostedApproval('https://homelab.lan', '10.0.0.5');
 
       const result = await handlers.get('auth:getMachineId')!(
-        { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
+        trustedIpcEvent,
         'https://homelab.lan'
       );
 
-      expect(result).toBe('mock-machine-id');
-      expect(getMachineId).toHaveBeenCalledWith('https://homelab.lan');
+      expect(result).toBe('');
+      expect(getMachineId).not.toHaveBeenCalled();
     });
 
     it('auth:getMachineId rejects untrusted sender frames', async () => {
@@ -1847,18 +2135,24 @@ describe('main.ts', () => {
         capabilities: {},
       });
 
-      const result = await handlers.get('selfHosted:probeServer')!(
-        probeEvent,
-        'https://homelab.lan'
-      );
+      // #86 7B: the probed origin is the sender's own service (see bindSelfHostedPrimary).
+      const homelab = bindSelfHostedPrimary('https://homelab.lan', { foreground: true });
+      try {
+        const result = await handlers.get('selfHosted:probeServer')!(
+          homelab.event,
+          'https://homelab.lan'
+        );
 
-      expect(result).toEqual({
-        status: 'ok',
-        apiBase: 'https://homelab.lan',
-        clientConfig: {},
-        capabilities: {},
-      });
-      expect(probeSelfHostedServer).toHaveBeenCalledWith('https://homelab.lan');
+        expect(result).toEqual({
+          status: 'ok',
+          apiBase: 'https://homelab.lan',
+          clientConfig: {},
+          capabilities: {},
+        });
+        expect(probeSelfHostedServer).toHaveBeenCalledWith('https://homelab.lan');
+      } finally {
+        homelab.dispose();
+      }
     });
 
     it('selfHosted:probeServer rejects an event carrying no sender id (Gitar, #2668)', async () => {
@@ -1870,6 +2164,7 @@ describe('main.ts', () => {
       // this guards the refactor or harness where it does not.
       const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
       (probeSelfHostedServer as Mock).mockClear();
+      // #86: no sender means no binding, so admission refuses it before the handler.
       const result = await handlers.get('selfHosted:probeServer')!(
         { senderFrame: { url: 'app://concord/index.html' } },
         'https://real.lan'
@@ -2040,7 +2335,7 @@ describe('main.ts', () => {
       } as never);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        probeEvent,
+        trustedIpcEvent,
         'https://metadata.invalid'
       );
 
@@ -2064,7 +2359,7 @@ describe('main.ts', () => {
       mockShowMessageBox.mockResolvedValueOnce({ response: 0 });
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        probeEvent,
+        trustedIpcEvent,
         'https://declined.lan'
       );
 
@@ -2100,7 +2395,7 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockResolvedValueOnce(failure);
 
       const result = await handlers.get('selfHosted:probeServer')!(
-        probeEvent,
+        trustedIpcEvent,
         'https://not-concord.lan'
       );
 
@@ -2124,9 +2419,15 @@ describe('main.ts', () => {
       const ok = { status: 'ok', apiBase: 'https://real.lan' };
       (probeSelfHostedServer as Mock).mockResolvedValue(ok);
 
-      expect(await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://real.lan')).toEqual(
-        ok
-      );
+      // #86 7B: the probed origin is the sender's own service (see bindSelfHostedPrimary).
+      const real = bindSelfHostedPrimary('https://real.lan', { foreground: true });
+      try {
+        expect(
+          await handlers.get('selfHosted:probeServer')!(real.event, 'https://real.lan')
+        ).toEqual(ok);
+      } finally {
+        real.dispose();
+      }
       expect(isValidatedSelfHostedApiBase('https://real.lan')).toBe(true);
       expect(approvalStore.records).toHaveLength(1);
 
@@ -2137,7 +2438,7 @@ describe('main.ts', () => {
       approvalStore.failAppend = true;
       try {
         expect(
-          await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://unwritable.lan')
+          await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://unwritable.lan')
         ).toEqual({
           status: 'error',
           code: 'approval_not_saved',
@@ -2159,8 +2460,8 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockClear();
       (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok' });
 
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://approved.lan');
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://approved.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://approved.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://approved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1); // rarity: once per origin
       expect(isValidatedSelfHostedApiBase('https://approved.lan')).toBe(true);
@@ -2185,7 +2486,7 @@ describe('main.ts', () => {
         addresses: ['203.0.113.10'],
         decision: { tier: 'public' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://moved.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://moved.lan');
       expect(approvalStore.records).toEqual([
         expect.objectContaining({ tierAtApproval: 'public' }),
       ]);
@@ -2199,7 +2500,7 @@ describe('main.ts', () => {
         addresses: ['10.0.0.5'],
         decision: { tier: 'tier2', reason: 'private' },
       } as never);
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://moved.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://moved.lan');
 
       expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
       expect(approvalStore.records).toHaveLength(2);
@@ -2225,9 +2526,9 @@ describe('main.ts', () => {
         decision: { tier: 'public' },
       } as never;
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://steady.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://steady.lan');
       mockResolveForDisplay.mockResolvedValueOnce(publicResolution);
-      await handlers.get('selfHosted:probeServer')!(probeEvent, 'https://steady.lan');
+      await handlers.get('selfHosted:probeServer')!(trustedIpcEvent, 'https://steady.lan');
 
       // Rarity invariant: an approved origin produces no prompt on repeat connect.
       expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
@@ -2322,12 +2623,19 @@ describe('main.ts', () => {
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
 
       // An origin approved before the bucket drained is unaffected — no dialog, so
-      // no token, so the throttle must not touch it.
-      const approved = await handlers.get('selfHosted:probeServer')!(
-        probeEvent,
-        'https://burst0.lan'
-      );
-      expect(approved).toEqual({ status: 'ok' });
+      // no token, so the throttle must not touch it. #86 7B: probed from its own
+      // service's primary. #195 (merged from main) admits only the foreground primary,
+      // approved origin or not.
+      const burst0 = bindSelfHostedPrimary('https://burst0.lan', { foreground: true });
+      try {
+        const approved = await handlers.get('selfHosted:probeServer')!(
+          burst0.event,
+          'https://burst0.lan'
+        );
+        expect(approved).toEqual({ status: 'ok' });
+      } finally {
+        burst0.dispose();
+      }
       expect(mockShowMessageBox).toHaveBeenCalledTimes(CEREMONY_BUDGET);
     });
   });
@@ -2354,23 +2662,38 @@ describe('main.ts', () => {
         return { status: 'ok' };
       });
 
-      const senderA = probeEvent;
-      const senderB = probeEvent;
+      // #195 re-expressed for #86: ONE slot process-wide. A is the foreground primary;
+      // B, a second connection, becomes foreground while A's probe is in flight, so it
+      // passes admission and must still meet the busy slot. Both origins are approved
+      // up front so neither path raises a dialog.
+      const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
+      commitSelfHostedApproval('https://inflight.lan', '10.0.0.4');
+      commitSelfHostedApproval('https://third.lan', '10.0.0.5');
+      const A = bindSelfHostedPrimary('https://inflight.lan', { foreground: true });
+      const B = bindSelfHostedPrimary('https://third.lan');
+      try {
+        const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://inflight.lan');
+        const refused = await handlers.get('selfHosted:probeServer')!(A.event, 'https://other.lan');
+        B.makeForeground();
+        const third = handlers.get('selfHosted:probeServer')!(B.event, 'https://third.lan');
 
-      const first = handlers.get('selfHosted:probeServer')!(senderA, 'https://inflight.lan');
-      const refused = await handlers.get('selfHosted:probeServer')!(senderA, 'https://other.lan');
-      const third = handlers.get('selfHosted:probeServer')!(senderB, 'https://third.lan');
+        expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
 
-      expect(refused).toEqual({ status: 'error', code: 'busy', message: '' });
-
-      release();
-      await expect(first).resolves.toEqual({ status: 'ok' });
-      await expect(third).resolves.toEqual({ status: 'error', code: 'busy', message: '' });
-      // The refused call must not have dialled or prompted for its own origin.
-      expect(probeSelfHostedServer).toHaveBeenCalledTimes(1);
+        release();
+        await expect(first).resolves.toEqual({ status: 'ok' });
+        await expect(third).resolves.toEqual({ status: 'error', code: 'busy', message: '' });
+        // The refused calls must not have dialled or prompted for their own origin.
+        expect(probeSelfHostedServer).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        B.dispose();
+        A.dispose();
+      }
     });
 
     it('keeps the global probe slot while the owner window is destroyed', async () => {
+      // #86: a destroyed owner window is an unbound sender. It is rejected before the
+      // slot, and the slot stays held until the first lookup settles.
       let release: ((value: unknown) => void) | undefined;
       mockResolveForDisplay.mockImplementationOnce(
         () =>
@@ -2378,16 +2701,22 @@ describe('main.ts', () => {
             release = resolve;
           }) as never
       );
-      const first = handlers.get('selfHosted:probeServer')!(probeEvent, 'https://inflight.lan');
-      mockMainWindow.isDestroyed.mockReturnValueOnce(true);
-      await expect(
-        handlers.get('selfHosted:probeServer')!(probeEvent, 'https://other.lan')
-      ).resolves.toMatchObject({ code: 'rejected' });
-      await expect(
-        handlers.get('selfHosted:probeServer')!(probeEvent, 'https://other.lan')
-      ).resolves.toMatchObject({ code: 'busy' });
-      release?.({ ok: false, kind: 'unreachable' });
-      await expect(first).resolves.toMatchObject({ code: 'unreachable' });
+      const A = bindSelfHostedPrimary('https://slot.lan', { foreground: true });
+      try {
+        const first = handlers.get('selfHosted:probeServer')!(A.event, 'https://slot.lan');
+        const unbound = { ...A.event, sender: { ...A.event.sender, id: 99_001 } };
+        await expect(
+          handlers.get('selfHosted:probeServer')!(unbound, 'https://other.lan')
+        ).resolves.toMatchObject({ code: 'rejected' });
+        await expect(
+          handlers.get('selfHosted:probeServer')!(A.event, 'https://other.lan')
+        ).resolves.toMatchObject({ code: 'busy' });
+        release?.({ ok: false, kind: 'unreachable' });
+        await expect(first).resolves.toMatchObject({ code: 'unreachable' });
+      } finally {
+        release?.({ ok: false, kind: 'unreachable' });
+        A.dispose();
+      }
     });
 
     it('releases the slot after a probe settles, including on rejection', async () => {
@@ -2400,15 +2729,20 @@ describe('main.ts', () => {
       (probeSelfHostedServer as Mock).mockReset();
       (probeSelfHostedServer as Mock).mockRejectedValueOnce(new Error('boom'));
 
-      const sender = probeEvent;
-      await expect(
-        handlers.get('selfHosted:probeServer')!(sender, 'https://flaky.lan')
-      ).rejects.toThrow('boom');
+      // #86 7B: one bound connection probing its own service (see bindSelfHostedPrimary).
+      const flaky = bindSelfHostedPrimary('https://flaky.lan', { foreground: true });
+      try {
+        await expect(
+          handlers.get('selfHosted:probeServer')!(flaky.event, 'https://flaky.lan')
+        ).rejects.toThrow('boom');
 
-      (probeSelfHostedServer as Mock).mockResolvedValueOnce({ status: 'ok' });
-      await expect(
-        handlers.get('selfHosted:probeServer')!(sender, 'https://flaky.lan')
-      ).resolves.toEqual({ status: 'ok' });
+        (probeSelfHostedServer as Mock).mockResolvedValueOnce({ status: 'ok' });
+        await expect(
+          handlers.get('selfHosted:probeServer')!(flaky.event, 'https://flaky.lan')
+        ).resolves.toEqual({ status: 'ok' });
+      } finally {
+        flaky.dispose();
+      }
     });
   });
 
@@ -2447,7 +2781,7 @@ describe('main.ts', () => {
     });
 
     it('update:getAllowPrerelease returns current setting', async () => {
-      const result = await handlers.get('update:getAllowPrerelease')!();
+      const result = await handlers.get('update:getAllowPrerelease')!(trustedIpcEvent);
       expect(result).toBe(false);
     });
 
@@ -2594,6 +2928,72 @@ describe('main.ts', () => {
         Promise.resolve(handlers.get('tray:setStatus')!(foreignIpcEvent, {}))
       ).resolves.toBe(true);
     });
+
+    // #86 B1: a tray action reaches only the connection whose snapshot the tray shows.
+    describe('tray action target (#86 B1)', () => {
+      const TRAY_SNAPSHOT = {
+        v: 1,
+        auth: 'signed-in',
+        presence: 'online',
+        conn: 'ok',
+        voice: 'channel',
+        speaking: false,
+        muted: false,
+        deafened: false,
+        sharing: false,
+        micLocked: false,
+        deafenLocked: false,
+        unread: 0,
+        mention: false,
+        reducedMotion: false,
+        iconStyle: 'auto',
+      };
+      const ACTION = { kind: 'set-muted', value: true };
+
+      function saasRef() {
+        const binding = connectionRegistry.bindingFor(mockWebContents as never);
+        const record = binding ? connectionRegistry.recordFor(binding.connectionId) : undefined;
+        if (!binding || !record) throw new Error('saas connection missing');
+        return { id: binding.connectionId, ref: connectionRegistry.refOf(record) };
+      }
+
+      it('sends the action to the foreground when the tray shows its snapshot', async () => {
+        const saas = saasRef();
+        connectionRegistry.setForeground(saas.id);
+        await handlers.get('tray:setStatus')!(saasAppFrameEvent, TRAY_SNAPSHOT);
+        mockWebContents.send.mockClear();
+        trayActionSenderHolder.send!(ACTION);
+        expect(mockWebContents.send).toHaveBeenCalledWith('tray:action', ACTION);
+      });
+
+      it('does not send to a foreground connection whose snapshot the tray is not showing', async () => {
+        const saas = saasRef();
+        const other = bindSelfHostedPrimary('https://tray-target.example');
+        try {
+          connectionRegistry.setForeground(saas.id);
+          await handlers.get('tray:setStatus')!(saasAppFrameEvent, TRAY_SNAPSHOT);
+          // The tray belongs to saas (owner), but another connection is foreground.
+          const { setTrayOwner } = await import('../../../src/main/ipc/trayStatus');
+          setTrayOwner(saas.ref);
+          other.makeForeground();
+          mockWebContents.send.mockClear();
+          (other.event.sender.send as Mock).mockClear();
+          trayActionSenderHolder.send!(ACTION);
+          expect(other.event.sender.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+          // Neutral tray (no owner, the new foreground has sent nothing): still nowhere.
+          setTrayOwner(null);
+          trayActionSenderHolder.send!(ACTION);
+          expect(other.event.sender.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+        } finally {
+          const { setTrayOwner } = await import('../../../src/main/ipc/trayStatus');
+          setTrayOwner(null);
+          other.dispose();
+          connectionRegistry.setForeground(saas.id);
+        }
+      });
+    });
   });
 
   describe('IPC: PiP window management', () => {
@@ -2616,25 +3016,58 @@ describe('main.ts', () => {
       closed?.();
       expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
     });
+    it('refuses pip:open from a BACKGROUND connection primary and builds no window (#86, foreground-only PiP)', async () => {
+      const { BrowserWindow } = await import('electron');
+      const before = (BrowserWindow as unknown as Mock).mock.calls.length;
+      // Another connection takes the foreground; the saas view is now a hidden primary.
+      const other = bindSelfHostedPrimary('https://pip-foreground.lan', { foreground: true });
+      try {
+        await expect(
+          handlers.get('pip:open')!(
+            {
+              sender: mockWebContents,
+              senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+            },
+            { id: 'background-opener-pip' }
+          )
+        ).rejects.toThrow();
+        expect((BrowserWindow as unknown as Mock).mock.calls).toHaveLength(before);
+      } finally {
+        other.dispose();
+      }
+    });
     // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
     // defense-in-depth). In this test environment isPackaged=false, so a
     // localhost URL satisfies the validator.
+    //
+    // #86 R8: the opener must also be a bound connection primary — both frames
+    // below live in the saas view's contents. A PiP has its own contents, so its
+    // main-frame events are built from `lastPipContents()`, never from the opener.
     const pipOwnerEvent = {
       sender: mockWebContents,
-      senderFrame: mockWebContents.mainFrame,
+      senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
     };
     const otherPermittedPipEvent = {
+      sender: mockWebContents,
       senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 99 },
     };
+    function pipMainFrame(): { sender: unknown; senderFrame: unknown } {
+      const contents = lastPipContents();
+      return { sender: contents, senderFrame: contents.mainFrame };
+    }
 
+    // Electron runs EVERY 'closed' listener; shellWindow.ts and main.ts each add one.
     async function openPip(id: string, event = pipOwnerEvent): Promise<() => void> {
-      const firstNewCall = mockMainWindow.on.mock.calls.length;
+      const firstNewCall = mockPipWindow.on.mock.calls.length;
       await handlers.get('pip:open')!(event, { id });
-      const closed = mockMainWindow.on.mock.calls
+      const closedListeners = mockPipWindow.on.mock.calls
         .slice(firstNewCall)
-        .find((call) => call[0] === 'closed')?.[1] as (() => void) | undefined;
-      expect(closed).toBeDefined();
-      return closed!;
+        .filter((call) => call[0] === 'closed')
+        .map((call) => call[1] as () => void);
+      expect(closedListeners.length).toBeGreaterThan(0);
+      return () => {
+        for (const listener of closedListeners) listener();
+      };
     }
 
     it('rejects a same-origin subframe in the main web contents', async () => {
@@ -2669,6 +3102,7 @@ describe('main.ts', () => {
         failedLoad.catch(() => undefined);
         const child = {
           ...mockMainWindow,
+          webContents: pipChildContents(),
           destroy: vi.fn(),
           on: vi.fn(),
           loadURL: vi.fn(() => failedLoad),
@@ -2704,6 +3138,7 @@ describe('main.ts', () => {
         (MockBrowserWindow as Mock).mockImplementationOnce(function () {
           return {
             ...mockMainWindow,
+            webContents: pipChildContents(),
             on: vi.fn(),
             destroy: vi.fn(),
             loadURL: vi.fn().mockRejectedValue(new Error('load failed')),
@@ -2724,6 +3159,7 @@ describe('main.ts', () => {
       const gate = deferred();
       const child = {
         ...mockMainWindow,
+        webContents: pipChildContents(),
         on: vi.fn(),
         focus: vi.fn(),
         loadURL: vi.fn(() => gate.promise),
@@ -2760,14 +3196,16 @@ describe('main.ts', () => {
       } finally {
         gate.resolve();
         await Promise.allSettled([first, ...duplicates]);
-        const close = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
-        close();
+        // shellWindow.ts and main.ts each add a 'closed' listener; run them all, or main's
+        // entry outlives the window and holds a slot of the saas cap (#86 RT5).
+        for (const [event, listener] of child.on.mock.calls) if (event === 'closed') listener();
       }
     });
 
     it('destroys a newly created PiP if loading throws synchronously', async () => {
       const child = {
         ...mockMainWindow,
+        webContents: pipChildContents(),
         destroy: vi.fn(),
         loadURL: vi.fn(() => {
           throw new Error('load failed');
@@ -2796,35 +3234,43 @@ describe('main.ts', () => {
     });
 
     it('limits simultaneous PiPs, still focuses an existing one, and reuses a closed slot', async () => {
-      const { MAX_PIP_WINDOWS, _resetPipOpenBudgetForTesting } =
+      const { MAX_PIP_WINDOWS, MAX_PIP_WINDOWS_PER_CONNECTION, _resetPipOpenBudgetForTesting } =
         await import('../../../src/main/pipOpenPolicy');
       const opened: Array<{ id: string; close: () => void }> = [];
       try {
         for (let n = 0; n <= MAX_PIP_WINDOWS; n++) {
           _resetPipOpenBudgetForTesting();
-          const before = mockMainWindow.on.mock.calls.length;
+          const before = mockPipWindow.on.mock.calls.length;
           const id = `cap-test-${n}`;
           try {
             await handlers.get('pip:open')!(pipOwnerEvent, { id });
           } catch {
             break;
           }
-          const close = mockMainWindow.on.mock.calls
+          // #86: shellWindow.ts and main.ts each add a 'closed' listener; run them all.
+          const closeListeners = mockPipWindow.on.mock.calls
             .slice(before)
-            .find((call) => call[0] === 'closed')?.[1] as () => void;
+            .filter((call) => call[0] === 'closed')
+            .map((call) => call[1] as () => void);
+          const close = (
+            closeListeners.length > 0
+              ? () => closeListeners.forEach((listener) => listener())
+              : undefined
+          ) as () => void;
           expect(close).toBeDefined();
           opened.push({ id, close });
         }
-        expect(opened.length).toBeGreaterThanOrEqual(7);
+        // #86 RT5: one connection alone stops at its own cap, below the process-wide ceiling.
+        expect(opened).toHaveLength(MAX_PIP_WINDOWS_PER_CONNECTION);
         _resetPipOpenBudgetForTesting();
         await expect(
           handlers.get('pip:open')!(pipOwnerEvent, { id: 'over-cap' })
         ).rejects.toThrow();
-        mockMainWindow.focus.mockClear();
+        mockPipWindow.focus.mockClear();
         await expect(
           handlers.get('pip:open')!(pipOwnerEvent, { id: opened[0].id })
         ).resolves.toBeUndefined();
-        expect(mockMainWindow.focus).toHaveBeenCalledOnce();
+        expect(mockPipWindow.focus).toHaveBeenCalledOnce();
         await handlers.get('pip:close')!(pipOwnerEvent, { id: opened[0].id });
         await expect(
           handlers.get('pip:open')!(pipOwnerEvent, { id: 'still-at-cap' })
@@ -2868,11 +3314,12 @@ describe('main.ts', () => {
       mockWebContents.mainFrame = { url: 'spa-cache://concord/index.html', frameTreeNodeId: 77 };
       mockWebContents.getURL.mockReturnValue('spa-cache://concord/index.html');
       try {
+        // #86: the bound saas primary's main frame (parent === null) on the cache origin.
         const closed = await openPip('cache-main', {
           sender: mockWebContents,
-          senderFrame: mockWebContents.mainFrame,
+          senderFrame: { url: 'spa-cache://concord/index.html', frameTreeNodeId: 77, parent: null },
         });
-        expect(mockMainWindow.loadURL).toHaveBeenCalledWith(
+        expect(mockPipWindow.loadURL).toHaveBeenCalledWith(
           'spa-cache://concord/index.html#/pip/cache-main'
         );
         closed();
@@ -2889,9 +3336,9 @@ describe('main.ts', () => {
       const closed = await openPip('owner-controls-pip');
       expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
 
-      mockMainWindow.focus.mockClear();
-      mockMainWindow.setAlwaysOnTop.mockClear();
-      mockMainWindow.close.mockClear();
+      mockPipWindow.focus.mockClear();
+      mockPipWindow.setAlwaysOnTop.mockClear();
+      mockPipWindow.close.mockClear();
       await handlers.get('pip:open')!(pipOwnerEvent, { id: 'owner-controls-pip' });
       expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
       await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
@@ -2899,20 +3346,17 @@ describe('main.ts', () => {
         flag: false,
       });
       await handlers.get('pip:close')!(pipOwnerEvent, { id: 'owner-controls-pip' });
-      expect(mockMainWindow.focus).toHaveBeenCalled();
-      expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-      expect(mockMainWindow.close).toHaveBeenCalled();
+      expect(mockPipWindow.focus).toHaveBeenCalled();
+      expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      expect(mockPipWindow.close).toHaveBeenCalled();
       closed();
     });
 
     it('lets the PiP window main frame update and close itself', async () => {
       const closed = await openPip('child-controls-pip');
-      const pipMainFrameEvent = {
-        sender: mockWebContents,
-        senderFrame: mockWebContents.mainFrame,
-      };
-      mockMainWindow.setAlwaysOnTop.mockClear();
-      mockMainWindow.close.mockClear();
+      const pipMainFrameEvent = pipMainFrame();
+      mockPipWindow.setAlwaysOnTop.mockClear();
+      mockPipWindow.close.mockClear();
 
       await handlers.get('pip:setAlwaysOnTop')!(pipMainFrameEvent, {
         id: 'child-controls-pip',
@@ -2920,8 +3364,8 @@ describe('main.ts', () => {
       });
       await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'child-controls-pip' });
 
-      expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-      expect(mockMainWindow.close).toHaveBeenCalled();
+      expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      expect(mockPipWindow.close).toHaveBeenCalled();
       closed();
     });
 
@@ -2933,15 +3377,15 @@ describe('main.ts', () => {
         // "called during module init" assertion).
         const { BrowserWindow } = await import('electron');
         const before = (BrowserWindow as unknown as Mock).mock.calls.length;
-        mockMainWindow.close.mockClear();
-        mockMainWindow.setAlwaysOnTop.mockClear();
+        mockPipWindow.close.mockClear();
+        mockPipWindow.setAlwaysOnTop.mockClear();
         await expect(handlers.get('pip:open')!(event, { id: 'rejected-pip' })).rejects.toThrow();
         await handlers.get('pip:close')!(event, { id: 'rejected-pip' });
         await handlers.get('pip:setAlwaysOnTop')!(event, { id: 'rejected-pip', flag: false });
         const after = (BrowserWindow as unknown as Mock).mock.calls.length;
         expect(after).toBe(before);
-        expect(mockMainWindow.close).not.toHaveBeenCalled();
-        expect(mockMainWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+        expect(mockPipWindow.close).not.toHaveBeenCalled();
+        expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
       }
     );
 
@@ -2950,9 +3394,9 @@ describe('main.ts', () => {
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
       const closed = await openPip('frame-owned-pip');
       expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
-      mockMainWindow.focus.mockClear();
-      mockMainWindow.close.mockClear();
-      mockMainWindow.setAlwaysOnTop.mockClear();
+      mockPipWindow.focus.mockClear();
+      mockPipWindow.close.mockClear();
+      mockPipWindow.setAlwaysOnTop.mockClear();
 
       await expect(
         handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' })
@@ -2964,9 +3408,9 @@ describe('main.ts', () => {
         flag: false,
       });
 
-      expect(mockMainWindow.focus).not.toHaveBeenCalled();
-      expect(mockMainWindow.close).not.toHaveBeenCalled();
-      expect(mockMainWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+      expect(mockPipWindow.focus).not.toHaveBeenCalled();
+      expect(mockPipWindow.close).not.toHaveBeenCalled();
+      expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
       closed();
     });
 
@@ -3003,10 +3447,7 @@ describe('main.ts', () => {
         token: string;
       };
 
-      const pipMainFrameEvent = {
-        sender: mockWebContents,
-        senderFrame: mockWebContents.mainFrame,
-      };
+      const pipMainFrameEvent = pipMainFrame();
       const granted = await handlers.get('pip:session')!(pipMainFrameEvent, {
         id: 'session-token-pip',
       });
@@ -3022,9 +3463,13 @@ describe('main.ts', () => {
     ])('refuses pip:session to %s', async (_label, makeEvent) => {
       const child = {
         ...mockMainWindow,
+        // #86: the shell is a BaseWindow without loadURL; a PiP is a BrowserWindow.
+        loadURL: vi.fn().mockResolvedValue(undefined),
         on: vi.fn(),
         webContents: {
           ...mockWebContents,
+          // #86: its own identity, or the 'pip' binding collides with the saas primary.
+          id: 900,
           mainFrame: {
             url: 'http://localhost:3001/#/pip/session-denied-pip',
             frameTreeNodeId: 900,
@@ -3035,7 +3480,15 @@ describe('main.ts', () => {
         return child;
       });
       await handlers.get('pip:open')!(pipOwnerEvent, { id: 'session-denied-pip' });
-      const closed = child.on.mock.calls.find((call) => call[0] === 'closed')?.[1] as () => void;
+      // #86: shellWindow.ts and main.ts each add a 'closed' listener; run them all.
+      const closedListeners = child.on.mock.calls
+        .filter((call) => call[0] === 'closed')
+        .map((call) => call[1] as () => void);
+      const closed = (
+        closedListeners.length > 0
+          ? () => closedListeners.forEach((listener) => listener())
+          : undefined
+      ) as () => void;
       expect(closed).toBeDefined();
       const result = await handlers.get('pip:session')!(makeEvent(), {
         id: 'session-denied-pip',
@@ -3045,15 +3498,16 @@ describe('main.ts', () => {
     });
 
     it('refuses pip:session for an unknown or already-closed PiP id', async () => {
-      const pipMainFrameEvent = {
-        sender: mockWebContents,
-        senderFrame: mockWebContents.mainFrame,
-      };
       expect(
-        await handlers.get('pip:session')!(pipMainFrameEvent, { id: 'never-opened-pip' })
+        await handlers.get('pip:session')!(
+          { sender: mockWebContents, senderFrame: trustedIpcEvent.senderFrame },
+          { id: 'never-opened-pip' }
+        )
       ).toBeNull();
 
       const closed = await openPip('transient-session-pip');
+      // The closed PiP's OWN main frame: the one sender that held the token.
+      const pipMainFrameEvent = pipMainFrame();
       closed();
       expect(
         await handlers.get('pip:session')!(pipMainFrameEvent, { id: 'transient-session-pip' })
@@ -3062,88 +3516,582 @@ describe('main.ts', () => {
 
     it('refuses pip:session for a malformed id payload', async () => {
       const closed = await openPip('malformed-session-pip');
-      const pipMainFrameEvent = {
-        sender: mockWebContents,
-        senderFrame: mockWebContents.mainFrame,
-      };
+      const pipMainFrameEvent = pipMainFrame();
       for (const payload of [undefined, null, {}, { id: 42 }, { id: '' }]) {
         expect(await handlers.get('pip:session')!(pipMainFrameEvent, payload)).toBeNull();
       }
       closed();
     });
 
+    // A remote-SPA PiP keeps its own controls only while the origin main loaded it
+    // from is still the current one: turning the remote SPA off, or moving it to
+    // another origin, revokes them. A bundled PiP's app:// frame needs no remote
+    // origin, so it keeps them when the remote SPA comes up.
     it.each([
       {
         name: 'remote to bundled',
         initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
         nextRemoteSpaUrl: null,
         senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/transition-pip',
+        admitted: false,
+      },
+      {
+        name: 'remote to another remote origin',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa-b.example.test/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/transition-pip',
+        admitted: false,
       },
       {
         name: 'bundled to remote',
         initialRemoteSpaUrl: null,
         nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
         senderFrameUrl: 'app://concord/index.html#/pip/transition-pip',
+        admitted: true,
       },
-    ])('keeps PiP self controls working across a $name SPA transition', async (transition) => {
+    ])(
+      'PiP self controls across a $name SPA transition (admitted: $admitted)',
+      async (transition) => {
+        const { app } = await import('electron');
+        const { setRemoteSpaState } = await import('../../../src/main/spaState');
+        const originalPipFrame = pipFrame.current;
+        const testApp = app as unknown as { isPackaged: boolean };
+        testApp.isPackaged = true;
+        setRemoteSpaState(transition.initialRemoteSpaUrl);
+        pipFrame.current = {
+          url: transition.senderFrameUrl,
+          frameTreeNodeId: 88,
+          parent: null,
+        };
+
+        let closed: (() => void) | undefined;
+        try {
+          closed = await openPip('transition-pip', {
+            sender: mockWebContents,
+            senderFrame: {
+              url: transition.senderFrameUrl,
+              frameTreeNodeId: 77,
+              parent: null,
+            },
+          });
+          const pipMainFrameEvent = pipMainFrame();
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+          mockPipWindow.setAlwaysOnTop.mockClear();
+          mockPipWindow.close.mockClear();
+
+          await handlers.get('pip:setAlwaysOnTop')!(pipMainFrameEvent, {
+            id: 'transition-pip',
+            flag: false,
+          });
+          await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'transition-pip' });
+
+          expect(mockPipWindow.setAlwaysOnTop.mock.calls).toEqual(
+            transition.admitted ? [[false]] : []
+          );
+          expect(mockPipWindow.close).toHaveBeenCalledTimes(transition.admitted ? 1 : 0);
+        } finally {
+          closed?.();
+          setRemoteSpaState(null);
+          testApp.isPackaged = false;
+          pipFrame.current = originalPipFrame;
+        }
+      }
+    );
+
+    // A remote-SPA PiP whose pinned origin stops being current is refused on every
+    // pip-scoped channel, its own pip:close included, and it is frameless, so main
+    // tears it down at the transition rather than strand it until quit. A PiP whose
+    // pin is still the current origin (same origin, new hash) stays open.
+    it.each([
+      {
+        name: 'remote to bundled',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: null,
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: true,
+      },
+      {
+        name: 'remote to another remote origin',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa-b.example.test/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: true,
+      },
+      {
+        name: 'remote to the same origin at a new hash',
+        initialRemoteSpaUrl: 'https://spa.example.test/spa/a/index.html',
+        nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
+        senderFrameUrl: 'https://spa.example.test/spa/a/index.html#/pip/stale-pin-pip',
+        closesPip: false,
+      },
+      {
+        name: 'bundled to remote',
+        initialRemoteSpaUrl: null,
+        nextRemoteSpaUrl: 'https://spa.example.test/spa/b/index.html',
+        senderFrameUrl: 'app://concord/index.html#/pip/stale-pin-pip',
+        closesPip: false,
+      },
+    ])(
+      'a $name SPA transition closes the PiP only if its pin went stale (closes: $closesPip)',
+      async (transition) => {
+        const { app } = await import('electron');
+        const { setRemoteSpaState } = await import('../../../src/main/spaState');
+        const originalPipFrame = pipFrame.current;
+        const testApp = app as unknown as { isPackaged: boolean };
+        testApp.isPackaged = true;
+        setRemoteSpaState(transition.initialRemoteSpaUrl);
+        pipFrame.current = { url: transition.senderFrameUrl, frameTreeNodeId: 88, parent: null };
+
+        let closed: (() => void) | undefined;
+        try {
+          closed = await openPip('stale-pin-pip', {
+            sender: mockWebContents,
+            senderFrame: { url: transition.senderFrameUrl, frameTreeNodeId: 77, parent: null },
+          });
+          mockPipWindow.destroy.mockClear();
+          mockPipWindow.close.mockClear();
+          const pushesBefore = mockWebContents.send.mock.calls.length;
+
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+          // The same state written again (a re-entered fallback) before Electron
+          // emits 'closed' must not tear the window down a second time.
+          setRemoteSpaState(transition.nextRemoteSpaUrl);
+
+          expect(mockPipWindow.destroy).toHaveBeenCalledTimes(transition.closesPip ? 1 : 0);
+          // Not close(): a renderer beforeunload guard must not be able to veto it.
+          expect(mockPipWindow.close).not.toHaveBeenCalled();
+
+          // Electron guarantees 'closed' after destroy(); its handling runs once.
+          closed();
+          closed = undefined;
+          const closedPushes = mockWebContents.send.mock.calls
+            .slice(pushesBefore)
+            .filter((call) => call[0] === 'pip:closed');
+          expect(closedPushes).toEqual([['pip:closed', { id: 'stale-pin-pip' }]]);
+        } finally {
+          closed?.();
+          setRemoteSpaState(null);
+          testApp.isPackaged = false;
+          pipFrame.current = originalPipFrame;
+        }
+      }
+    );
+
+    it('leaves a PiP that pinned no remote origin open across every SPA transition', async () => {
       const { app } = await import('electron');
       const { setRemoteSpaState } = await import('../../../src/main/spaState');
-      const originalMainFrame = mockWebContents.mainFrame;
+      const originalPipFrame = pipFrame.current;
       const testApp = app as unknown as { isPackaged: boolean };
       testApp.isPackaged = true;
-      setRemoteSpaState(transition.initialRemoteSpaUrl);
-      mockWebContents.mainFrame = {
-        url: transition.senderFrameUrl,
-        frameTreeNodeId: 77,
-      };
+      setRemoteSpaState(null);
+      const frameUrl = 'app://concord/index.html#/pip/unpinned-pip';
+      pipFrame.current = { url: frameUrl, frameTreeNodeId: 88, parent: null };
 
+      let closed: (() => void) | undefined;
       try {
-        const closed = await openPip('transition-pip', {
+        closed = await openPip('unpinned-pip', {
           sender: mockWebContents,
-          senderFrame: mockWebContents.mainFrame,
+          senderFrame: { url: frameUrl, frameTreeNodeId: 77, parent: null },
         });
-        const pipMainFrameEvent = {
-          sender: mockWebContents,
-          senderFrame: mockWebContents.mainFrame,
-        };
-        setRemoteSpaState(transition.nextRemoteSpaUrl);
-        mockMainWindow.setAlwaysOnTop.mockClear();
-        mockMainWindow.close.mockClear();
-
-        await handlers.get('pip:setAlwaysOnTop')!(pipMainFrameEvent, {
-          id: 'transition-pip',
-          flag: false,
-        });
-        await handlers.get('pip:close')!(pipMainFrameEvent, { id: 'transition-pip' });
-
-        expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-        expect(mockMainWindow.close).toHaveBeenCalled();
-        closed();
+        mockPipWindow.destroy.mockClear();
+        mockPipWindow.close.mockClear();
+        for (const url of [
+          'https://spa.example.test/spa/a/index.html',
+          'https://spa.example.test/spa/b/index.html',
+          'https://spa-b.example.test/index.html',
+          null,
+          null,
+        ]) {
+          setRemoteSpaState(url);
+        }
+        expect(mockPipWindow.destroy).not.toHaveBeenCalled();
+        expect(mockPipWindow.close).not.toHaveBeenCalled();
       } finally {
+        closed?.();
         setRemoteSpaState(null);
         testApp.isPackaged = false;
-        mockWebContents.mainFrame = originalMainFrame;
+        pipFrame.current = originalPipFrame;
       }
     });
 
+    // #86 R8: only a bound primary's MAIN frame may open a PiP, so the second
+    // opener is another connection's primary rather than a second frame of the
+    // saas view (which senderMainFrame now refuses before any PiP logic runs).
+    it('assigns a fresh owner when a closed PiP ID is reused', async () => {
+      const svc = connectionRegistry.registerService('https://pip-reuse.example', {
+        makeSession: () => ({}) as never,
+        makeCustody: () => ({}) as never,
+        isValidatedSelfHostedApiBase: () => true,
+      });
+      if (!svc.ok) throw new Error(svc.reason);
+      const otherFrame = { url: 'http://localhost:3001/', frameTreeNodeId: 8801, parent: null };
+      const otherWc = {
+        id: 8801,
+        send: vi.fn(),
+        on: vi.fn(),
+        once: vi.fn(),
+        isDestroyed: vi.fn(() => false),
+        getURL: vi.fn(() => otherFrame.url),
+        mainFrame: otherFrame,
+      };
+      const opened = connectionRegistry.openConnection(
+        svc.service.serviceId,
+        otherWc as never,
+        null
+      );
+      if (!opened.ok) throw new Error(opened.reason);
+      connectionRegistry.bindSender(otherWc as never, opened.record.connectionId, 'primary');
+      const otherOwnerEvent = { sender: otherWc, senderFrame: otherFrame };
+
+      try {
+        const closeFirst = await openPip('reused-pip');
+        closeFirst();
+        // pip:open is foreground-only (#86): the other connection must be foreground to open.
+        const priorForeground = connectionRegistry.foreground()?.connectionId ?? null;
+        connectionRegistry.setForeground(opened.record.connectionId);
+        const closeSecond = await openPip('reused-pip', otherOwnerEvent as never);
+        if (priorForeground) connectionRegistry.setForeground(priorForeground);
+        mockPipWindow.setAlwaysOnTop.mockClear();
+
+        await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
+          id: 'reused-pip',
+          flag: false,
+        });
+        expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+        await handlers.get('pip:setAlwaysOnTop')!(otherOwnerEvent, {
+          id: 'reused-pip',
+          flag: false,
+        });
+        expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+        closeSecond();
+      } finally {
+        connectionRegistry.disposeConnection(opened.record.connectionId);
+        connectionRegistry.unregisterService(svc.service.serviceId);
+      }
+    });
+
+    // #178 (merged from main): the opener's main frame may reopen a closed PiP ID; the
+    // reopened window is its own, and a second permitted frame still cannot mutate it.
     it('allows the main frame to reopen a closed PiP ID', async () => {
       const closeFirst = await openPip('reused-pip');
       closeFirst();
       const closeSecond = await openPip('reused-pip');
-      mockMainWindow.setAlwaysOnTop.mockClear();
+      mockPipWindow.setAlwaysOnTop.mockClear();
 
       await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
         id: 'reused-pip',
         flag: false,
       });
-      expect(mockMainWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
-      mockMainWindow.setAlwaysOnTop.mockClear();
+      expect(mockPipWindow.setAlwaysOnTop).toHaveBeenCalledWith(false);
+      mockPipWindow.setAlwaysOnTop.mockClear();
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
         id: 'reused-pip',
         flag: false,
       });
-      expect(mockMainWindow.setAlwaysOnTop).not.toHaveBeenCalled();
+      expect(mockPipWindow.setAlwaysOnTop).not.toHaveBeenCalled();
       closeSecond();
+    });
+
+    // #86 Phase-4 red team, RT4 and RT5 (PoCs PIP-1 to PIP-5): the PiP id namespace and the
+    // open budget are per connection, under the process-wide ceiling. pip:open is
+    // foreground-only, so every opener below is made foreground for its own opens.
+    describe('#86 RT4/RT5: PiP ids and open budgets are per connection', () => {
+      let nextRtOrigin = 0;
+      let nextRtFrame = 9400;
+      const windowsBuilt = (): number => (MockBrowserWindow as Mock).mock.calls.length;
+      function saasConnectionId(): string {
+        const id = connectionRegistry.bindingFor(mockWebContents as never)?.connectionId;
+        if (!id) throw new Error('the saas view is not bound');
+        return id;
+      }
+      // A bound self-hosted primary on a localhost frame, which the unpackaged
+      // isValidPipOpenSender admits exactly as it would app://concord in a packaged build.
+      function selfHostedOpener(frameUrl = 'http://localhost:3001/') {
+        const svc = connectionRegistry.registerService(
+          `https://pip-rt-${(nextRtOrigin += 1)}.example`,
+          {
+            makeSession: () => ({}) as never,
+            makeCustody: () => ({}) as never,
+            isValidatedSelfHostedApiBase: () => true,
+          }
+        );
+        if (!svc.ok) throw new Error(svc.reason);
+        const frameTreeNodeId = (nextRtFrame += 1);
+        const frame = { url: frameUrl, frameTreeNodeId, parent: null };
+        const wc = {
+          id: frameTreeNodeId,
+          send: vi.fn(),
+          on: vi.fn(),
+          once: vi.fn(),
+          isDestroyed: vi.fn(() => false),
+          getURL: vi.fn(() => frame.url),
+          mainFrame: frame,
+        };
+        const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+        if (!opened.ok) throw new Error(opened.reason);
+        connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+        return {
+          wc,
+          connectionId: opened.record.connectionId as string,
+          event: { sender: wc, senderFrame: frame },
+          dispose: () => {
+            connectionRegistry.disposeConnection(opened.record.connectionId);
+            connectionRegistry.unregisterService(svc.service.serviceId);
+          },
+        };
+      }
+      const closers: Array<() => void> = [];
+      async function openAs(
+        connectionId: string,
+        event: unknown,
+        id: string
+      ): Promise<'opened' | 'refused'> {
+        connectionRegistry.setForeground(connectionId as never);
+        try {
+          closers.push(await openPip(id, event as never));
+          return 'opened';
+        } catch {
+          return 'refused';
+        } finally {
+          connectionRegistry.setForeground(saasConnectionId() as never);
+        }
+      }
+      function tokenPushed(send: Mock, id: string): string | undefined {
+        const push = send.mock.calls.filter((c) => c[0] === 'pip:opened').at(-1)?.[1] as
+          { id: string; token: string } | undefined;
+        return push?.id === id ? push.token : undefined;
+      }
+      afterEach(() => {
+        while (closers.length > 0) closers.pop()?.();
+        connectionRegistry.setForeground(saasConnectionId() as never);
+      });
+
+      // Codex C3: a packaged self-hosted primary runs on app://concord whatever the saas
+      // remote-SPA state is, so its PiP must be validated without the saas remote origin.
+      describe('C3: a packaged self-hosted opener with the saas remote SPA active', () => {
+        const REMOTE = 'https://spa.example.test/spa/a/index.html';
+        async function packaged() {
+          const { app } = await import('electron');
+          const { setRemoteSpaState } = await import('../../../src/main/spaState');
+          const testApp = app as unknown as { isPackaged: boolean };
+          testApp.isPackaged = true;
+          return {
+            setRemoteSpaState,
+            restore: () => {
+              setRemoteSpaState(null);
+              testApp.isPackaged = false;
+            },
+          };
+        }
+
+        it('opens its PiP on the bundled renderer', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.loadURL.mockClear();
+            expect(await openAs(opener.connectionId, opener.event, 'sh-pip')).toBe('opened');
+            expect(mockPipWindow.loadURL).toHaveBeenLastCalledWith(
+              'app://concord/index.html#/pip/sh-pip'
+            );
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('its owner frame can still close the PiP after remote mode turns on', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            expect(await openAs(opener.connectionId, opener.event, 'sh-close')).toBe('opened');
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.close.mockClear();
+            await handlers.get('pip:close')!(opener.event, { id: 'sh-close' });
+            expect(mockPipWindow.close).toHaveBeenCalledTimes(1);
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('control: a saas primary on app://concord is still refused while remote mode is on', async () => {
+          const env = await packaged();
+          try {
+            env.setRemoteSpaState(REMOTE);
+            expect(await openAs(saasConnectionId(), saasAppFrameEvent, 'saas-app')).toBe('refused');
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            env.restore();
+          }
+        });
+      });
+
+      it("RT4 (PIP-1): another connection cannot squat the saas pop-out id 'controls-main'", async () => {
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(evil.connectionId, evil.event, 'controls-main')).toBe('opened');
+          const before = windowsBuilt();
+          // The user pops out the saas voice controls (PersistentVoiceBar.tsx's fixed id).
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          expect(windowsBuilt() - before).toBe(1);
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it("RT4 (PIP-2): another connection's live PiP id looks exactly like an absent one", async () => {
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          mockPipWindow.focus.mockClear();
+          const before = windowsBuilt();
+          const probeLiveId = await openAs(evil.connectionId, evil.event, 'controls-main');
+          const probeIdleId = await openAs(evil.connectionId, evil.event, 'never-used-id');
+          expect({ probeLiveId, built: windowsBuilt() - before }).toEqual({
+            probeLiveId: probeIdleId,
+            built: 2,
+          });
+          // The saas PiP was neither focused nor otherwise touched by the probe.
+          expect(mockPipWindow.focus).not.toHaveBeenCalled();
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT4 (PIP-4): with colliding ids each connection reaches only its own PiP', async () => {
+        const evil = selfHostedOpener();
+        const results = (MockBrowserWindow as Mock).mock.results;
+        try {
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+          const saasWindow = results[results.length - 1].value;
+          const saasToken = tokenPushed(mockWebContents.send, 'controls-main');
+          expect(await openAs(evil.connectionId, evil.event, 'controls-main')).toBe('opened');
+          const evilWindow = results[results.length - 1].value;
+          const evilToken = tokenPushed(evil.wc.send, 'controls-main');
+          expect(typeof saasToken).toBe('string');
+          expect(evilToken).not.toBe(saasToken);
+          const evilPipEvent = {
+            sender: evilWindow.webContents,
+            senderFrame: evilWindow.webContents.mainFrame,
+          };
+          const saasPipEvent = {
+            sender: saasWindow.webContents,
+            senderFrame: saasWindow.webContents.mainFrame,
+          };
+          // The attacker's own PiP frame gets ITS token for the shared id, never the saas one.
+          expect(
+            await handlers.get('pip:session')!(evilPipEvent as never, { id: 'controls-main' })
+          ).toEqual({ token: evilToken });
+          mockPipWindow.setAlwaysOnTop.mockClear();
+          mockPipWindow.close.mockClear();
+          await handlers.get('pip:setAlwaysOnTop')!(evil.event as never, {
+            id: 'controls-main',
+            flag: false,
+          });
+          await handlers.get('pip:close')!(evil.event as never, { id: 'controls-main' });
+          expect(mockPipWindow.setAlwaysOnTop.mock.contexts).toEqual([evilWindow]);
+          expect(mockPipWindow.close.mock.contexts).toEqual([evilWindow]);
+          // The attacker's PiP closes (its 'closed' listeners run); the saas entry survives it.
+          closers.pop()?.();
+          expect(
+            await handlers.get('pip:session')!(saasPipEvent as never, { id: 'controls-main' })
+          ).toEqual({ token: saasToken });
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT5 (PIP-3): another connection cannot exhaust the saas PiP window budget', async () => {
+        const { MAX_PIP_WINDOWS_PER_CONNECTION } = await import('../../../src/main/pipOpenPolicy');
+        const evil = selfHostedOpener();
+        try {
+          let attackerOpened = 0;
+          for (let n = 0; n < 12; n++) {
+            if ((await openAs(evil.connectionId, evil.event, `flood-${n}`)) !== 'opened') break;
+            attackerOpened += 1;
+          }
+          const saasResult = await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main');
+          expect(saasResult).toBe('opened');
+          expect(attackerOpened).toBe(MAX_PIP_WINDOWS_PER_CONNECTION);
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it("RT5: another connection's open-and-close churn spends none of the saas tokens", async () => {
+        const evil = selfHostedOpener();
+        try {
+          for (let n = 0; n < 8; n++) {
+            expect(await openAs(evil.connectionId, evil.event, `churn-${n}`)).toBe('opened');
+            closers.pop()?.();
+          }
+          // The attacker's own bucket is spent...
+          expect(await openAs(evil.connectionId, evil.event, 'churn-ninth')).toBe('refused');
+          // ...and the saas connection's is untouched.
+          expect(await openAs(saasConnectionId(), pipOwnerEvent, 'controls-main')).toBe('opened');
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          evil.dispose();
+        }
+      });
+
+      it('RT5: the process-wide ceiling still bounds every connection together', async () => {
+        const { MAX_PIP_WINDOWS, MAX_PIP_WINDOWS_PER_CONNECTION } =
+          await import('../../../src/main/pipOpenPolicy');
+        const first = selfHostedOpener();
+        const second = selfHostedOpener();
+        try {
+          const openUntilRefused = async (
+            connectionId: string,
+            event: unknown,
+            prefix: string
+          ): Promise<number> => {
+            let opened = 0;
+            while ((await openAs(connectionId, event, `${prefix}-${opened}`)) === 'opened') {
+              opened += 1;
+            }
+            return opened;
+          };
+          const perConnection = [
+            await openUntilRefused(saasConnectionId(), pipOwnerEvent, 'ceiling-saas'),
+            await openUntilRefused(first.connectionId, first.event, 'ceiling-first'),
+          ];
+          expect(perConnection).toEqual([
+            MAX_PIP_WINDOWS_PER_CONNECTION,
+            MAX_PIP_WINDOWS - MAX_PIP_WINDOWS_PER_CONNECTION,
+          ]);
+          const before = windowsBuilt();
+          expect(await openAs(second.connectionId, second.event, 'over-ceiling')).toBe('refused');
+          expect(windowsBuilt()).toBe(before);
+          // A freed slot is reusable by a connection under its own cap.
+          closers.pop()?.();
+          expect(await openAs(second.connectionId, second.event, 'freed-slot')).toBe('opened');
+        } finally {
+          while (closers.length > 0) closers.pop()?.();
+          first.dispose();
+          second.dispose();
+        }
+      });
+
+      it('RT5: disposing a connection releases its open budget', async () => {
+        const { _pipOpenBudgetHeldForTesting } = await import('../../../src/main/pipOpenPolicy');
+        const evil = selfHostedOpener();
+        try {
+          expect(await openAs(evil.connectionId, evil.event, 'budget-held')).toBe('opened');
+          closers.pop()?.();
+          expect(_pipOpenBudgetHeldForTesting(evil.connectionId as never)).toBe(true);
+        } finally {
+          evil.dispose();
+        }
+        expect(_pipOpenBudgetHeldForTesting(evil.connectionId as never)).toBe(false);
+      });
     });
   });
 
@@ -3192,40 +4140,46 @@ describe('main.ts', () => {
             sessionHandlers.permissionCheck!(sender, permission, 'http://localhost:3001', details)
           ).toBe(false);
         }
-        mockMainWindow.isDestroyed.mockReturnValueOnce(true);
-        expect(
-          sessionHandlers.permissionCheck!(
-            mockWebContents,
-            permission,
-            'http://localhost:3001',
-            valid
-          )
-        ).toBe(false);
+        // #86: a destroyed main window is, for a bound view, one no longer foreground.
+        const fg = connectionRegistry.foreground()?.connectionId ?? null;
+        connectionRegistry.setForeground(null);
+        try {
+          expect(
+            sessionHandlers.permissionCheck!(
+              mockWebContents,
+              permission,
+              'http://localhost:3001',
+              valid
+            )
+          ).toBe(false);
+        } finally {
+          connectionRegistry.setForeground(fg);
+        }
       }
     );
 
     it('denies geolocation requests', () => {
       expect(sessionHandlers.permissionRequest).toBeDefined();
       const callback = vi.fn();
-      sessionHandlers.permissionRequest!(null, 'geolocation', callback);
+      sessionHandlers.permissionRequest!(mockWebContents, 'geolocation', callback);
       expect(callback).toHaveBeenCalledWith(false);
     });
 
     it('allows camera requests', () => {
       const callback = vi.fn();
-      sessionHandlers.permissionRequest!(null, 'media', callback);
+      sessionHandlers.permissionRequest!(mockWebContents, 'media', callback);
       expect(callback).toHaveBeenCalledWith(true);
     });
 
     it('allows notification requests', () => {
       const callback = vi.fn();
-      sessionHandlers.permissionRequest!(null, 'notifications', callback);
+      sessionHandlers.permissionRequest!(mockWebContents, 'notifications', callback);
       expect(callback).toHaveBeenCalledWith(true);
     });
 
     it('allows speaker-selection requests', () => {
       const callback = vi.fn();
-      sessionHandlers.permissionRequest!(null, 'speaker-selection', callback);
+      sessionHandlers.permissionRequest!(mockWebContents, 'speaker-selection', callback);
       expect(callback).toHaveBeenCalledWith(true);
     });
 
@@ -3279,16 +4233,21 @@ describe('main.ts', () => {
       const { stopAutoUpdater } = await import('../../../src/main/updater');
       const beforeQuit = appOnCallbacks.get('before-quit');
       expect(beforeQuit).toBeDefined();
+      // #86 R8: the opener must be the bound saas view's MAIN frame (parent null,
+      // its frameTreeNodeId); a bare-url frame is refused and opens no PiP.
       await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        {
+          sender: mockWebContents,
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+        },
         { id: 'before-quit-pip' }
       );
-      mockMainWindow.destroy.mockClear();
+      mockPipWindow.destroy.mockClear();
 
       beforeQuit!();
 
       expect(stopAutoUpdater).toHaveBeenCalled();
-      expect(mockMainWindow.destroy).toHaveBeenCalled();
+      expect(mockPipWindow.destroy).toHaveBeenCalled();
     });
 
     it('before-quit-for-update force-destroys PiP windows', async () => {
@@ -3297,15 +4256,20 @@ describe('main.ts', () => {
         (call) => call[0] === 'before-quit-for-update'
       )?.[1] as (() => void) | undefined;
       expect(beforeQuitForUpdate).toBeDefined();
+      // #86 R8: the opener must be the bound saas view's MAIN frame (parent null,
+      // its frameTreeNodeId); a bare-url frame is refused and opens no PiP.
       await handlers.get('pip:open')!(
-        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        {
+          sender: mockWebContents,
+          senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+        },
         { id: 'before-update-quit-pip' }
       );
-      mockMainWindow.destroy.mockClear();
+      mockPipWindow.destroy.mockClear();
 
       beforeQuitForUpdate!();
 
-      expect(mockMainWindow.destroy).toHaveBeenCalled();
+      expect(mockPipWindow.destroy).toHaveBeenCalled();
     });
 
     it('window-all-closed quits on non-macOS', async () => {
@@ -3350,19 +4314,26 @@ describe('main.ts', () => {
   });
 
   describe('createWindow', () => {
-    it('creates a BrowserWindow', async () => {
-      const { BrowserWindow } = await import('electron');
-      // BrowserWindow was called during module init (createWindow from whenReady)
-      expect(BrowserWindow).toHaveBeenCalled();
+    it('creates the shell BaseWindow and the saas WebContentsView', async () => {
+      const { BaseWindow, WebContentsView } = await import('electron');
+      // Both were constructed during module init (createWindow from whenReady).
+      expect(BaseWindow).toHaveBeenCalled();
+      expect(WebContentsView).toHaveBeenCalled();
+      expect(mockMainWindow.contentView.addChildView).toHaveBeenCalledWith(mockView);
     });
 
-    it('registers ready-to-show handler', () => {
-      expect(mockMainWindow.once).toHaveBeenCalledWith('ready-to-show', expect.any(Function));
+    it('registers the first-load handler on the saas view', () => {
+      // A BaseWindow has no 'ready-to-show'; the saas view's first did-finish-load
+      // stands in for it.
+      expect(mockWebContents.once).toHaveBeenCalledWith('did-finish-load', expect.any(Function));
     });
 
     it('constructs the main window sandboxed with contextIsolation and no Node integration (dev build)', async () => {
-      const { BrowserWindow } = await import('electron');
-      const mainCall = (BrowserWindow as unknown as Mock).mock.calls.find((c) =>
+      const { BaseWindow, WebContentsView, session } = await import('electron');
+      // The window carries no web preferences: its views do.
+      const windowCall = (BaseWindow as unknown as Mock).mock.calls[0];
+      expect(windowCall?.[0]?.webPreferences).toBeUndefined();
+      const mainCall = (WebContentsView as unknown as Mock).mock.calls.find((c) =>
         (c[0]?.webPreferences?.preload as string | undefined)?.endsWith('preload/preload.js')
       );
       expect(mainCall).toBeDefined();
@@ -3370,6 +4341,8 @@ describe('main.ts', () => {
       expect(webPreferences.sandbox).toBe(true);
       expect(webPreferences.contextIsolation).toBe(true);
       expect(webPreferences.nodeIntegration).toBe(false);
+      // R1: the saas view runs on defaultSession.
+      expect(webPreferences.session).toBe(session.defaultSession);
     });
 
     it('registers closed handler', () => {
@@ -3397,7 +4370,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x8086, deviceId: 0x5678 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Intel');
     });
 
@@ -3406,7 +4381,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x106b, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Apple');
     });
 
@@ -3415,7 +4392,9 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x1002, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('AMD');
     });
 
@@ -3424,14 +4403,16 @@ describe('main.ts', () => {
       (app.getGPUInfo as Mock).mockResolvedValueOnce({
         gpuDevice: [{ vendorId: 0x9999, deviceId: 0x0001 }],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toContain('Unknown');
     });
 
     it('returns null when no GPU device', async () => {
       const { app } = await import('electron');
       (app.getGPUInfo as Mock).mockResolvedValueOnce({ gpuDevice: [] });
-      const result = await handlers.get('gpu:getInfo')!();
+      const result = await handlers.get('gpu:getInfo')!(trustedIpcEvent);
       expect(result).toBeNull();
     });
 
@@ -3442,7 +4423,9 @@ describe('main.ts', () => {
           { vendorId: 0x106b, deviceId: 0x0001, driverVendor: '0x106b', driverDescription: 'M1' },
         ],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as { vendor: string } | null;
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
+        vendor: string;
+      } | null;
       expect(result!.vendor).toBe('Apple'); // Falls back to vendor map, not hex string
     });
 
@@ -3459,7 +4442,7 @@ describe('main.ts', () => {
           { profile: 11 }, // VP8
         ],
       });
-      const result = (await handlers.get('gpu:getInfo')!()) as {
+      const result = (await handlers.get('gpu:getInfo')!(trustedIpcEvent)) as {
         encodeProfiles: string[];
       } | null;
       expect(result!.encodeProfiles.sort()).toEqual(['video/AV1', 'video/HEVC', 'video/VP8']);
@@ -3482,7 +4465,7 @@ describe('main.ts', () => {
     ];
     const FRIEND_CODE = 'AbCdEfGh';
     const INVITE_CODE = 'AbCdEfGj';
-    const rendererEvent = { sender: mockWebContents };
+    const rendererEvent = trustedIpcEvent;
 
     let DEEP_LINK_EMIT_WINDOW_MS: number;
     let deliverDeepLink: (url: string) => void;
@@ -3746,7 +4729,7 @@ describe('main.ts', () => {
     describe('main-initiated SPA swap carry (#2363)', () => {
       // Not yet implemented in production: main.ts exports no primitive for
       // arming the carry. Driving the real spa:reloadLatest handler cannot
-      // substitute — mockMainWindow.loadURL is a bare vi.fn that resolves
+      // substitute — mockWebContents.loadURL is a bare vi.fn that resolves
       // without ever invoking the captured did-start-loading listener (see
       // the harness above at :2094-2098 and the spa:reloadLatest coverage at
       // :2860-2872, which asserts loadURL was called but never that reload
@@ -3818,9 +4801,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:clearTokens')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent);
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3839,10 +4820,7 @@ describe('main.ts', () => {
         signalInviteReady(rendererEvent);
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
 
-        await handlers.get('auth:clearTokens')!(
-          { senderFrame: { url: 'app://concord/index.html' } },
-          { keepDeepLinks: 'yes' }
-        );
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent, { keepDeepLinks: 'yes' });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3858,10 +4836,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:clearTokens')!(
-          { senderFrame: { url: 'app://concord/index.html' } },
-          { keepDeepLinks: true }
-        );
+        await handlers.get('auth:clearTokens')!(trustedIpcEvent, { keepDeepLinks: true });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3889,10 +4864,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('auth:logout')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { accessToken: 'tok' }
-        );
+        await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -3915,10 +4887,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        const cleared = await handlers.get('auth:clearTokensIfOwner')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          41
-        );
+        const cleared = await handlers.get('auth:clearTokensIfOwner')!(trustedIpcEvent, 41);
         expect(cleared).toBe(true);
 
         const releaseCarry = await armDeepLinkCarryForTest();
@@ -3952,10 +4921,7 @@ describe('main.ts', () => {
           const held = TEN_CODES.slice(0, 3);
           for (const code of held) deliverDeepLink(`concord://invite/${code}`);
 
-          await handlers.get('auth:logout')!(
-            { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-            { accessToken: 'tok' }
-          );
+          await handlers.get('auth:logout')!(trustedIpcEvent, { accessToken: 'tok' });
 
           // An ORDINARY reload — no carry armed. If `held` had survived the
           // logout it would be re-queued here regardless, and the drain below
@@ -3984,10 +4950,9 @@ describe('main.ts', () => {
         const logoutPost = deferred<void>();
         (performLogout as Mock).mockImplementationOnce(() => logoutPost.promise);
 
-        const handlerPromise = handlers.get('auth:logout')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { accessToken: 'tok' }
-        );
+        const handlerPromise = handlers.get('auth:logout')!(trustedIpcEvent, {
+          accessToken: 'tok',
+        });
 
         // The POST is still in flight — the forget must already have run.
         const releaseCarry = await armDeepLinkCarryForTest();
@@ -4206,9 +5171,7 @@ describe('main.ts', () => {
         deliverDeepLink(`concord://invite/${INVITE_CODE}`);
         expect(sentOn('invite:received')).toEqual([INVITE_CODE]);
 
-        await handlers.get('deeplink:forget')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('deeplink:forget')!(trustedIpcEvent);
 
         const releaseCarry = await armDeepLinkCarryForTest();
         simulateReload();
@@ -4243,9 +5206,7 @@ describe('main.ts', () => {
         // The in-flight retry, armed while user A's code was still live.
         const staleRelease = await armDeepLinkCarryForTest();
 
-        await handlers.get('deeplink:forget')!({
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        await handlers.get('deeplink:forget')!(trustedIpcEvent);
         staleRelease();
 
         // A later, unrelated swap — user B has signed in and clicked their own invite.
@@ -4656,10 +5617,11 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase: 'http://localhost:8080',
+        });
 
         // A's teardown on an old SPA tells main nothing; B signs in; swap.
         (getCredentialCustodyState as Mock).mockReturnValue({
@@ -4694,10 +5656,11 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:storeRefreshToken')!(
-          { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } },
-          { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
-        );
+        await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+          refreshToken: 'tok',
+          rememberMe: true,
+          apiBase: 'http://localhost:8080',
+        });
         signalInviteReady(rendererEvent);
 
         expect(
@@ -4723,10 +5686,9 @@ describe('main.ts', () => {
           credentialOwner: 42,
           pendingE2EEUnlock: false,
         });
-        await handlers.get('auth:restoreSession')!({
-          sender: { id: 1 },
-          senderFrame: { url: 'app://concord/index.html' },
-        });
+        // #86: a restore from an UNBOUND sender is refused before it binds
+        // anything, so the restore comes from the bound saas view.
+        await handlers.get('auth:restoreSession')!(trustedIpcEvent);
 
         (getCredentialCustodyState as Mock).mockReturnValue({
           credentialOwner: 43,
@@ -5111,9 +6073,9 @@ describe('main.ts', () => {
   });
 
   describe('createWindow callbacks', () => {
-    it('ready-to-show shows the window', () => {
-      const readyCall = mockMainWindow.once.mock.calls.find(
-        (c: unknown[]) => c[0] === 'ready-to-show'
+    it('the saas view first load shows the window', () => {
+      const readyCall = mockWebContents.once.mock.calls.find(
+        (c: unknown[]) => c[0] === 'did-finish-load'
       );
       expect(readyCall).toBeDefined();
       readyCall![1](); // invoke the callback
@@ -5123,13 +6085,23 @@ describe('main.ts', () => {
     it('closed handler tears down both SSO flows and nulls mainWindow', () => {
       const closedCall = mockMainWindow.on.mock.calls.find((c: unknown[]) => c[0] === 'closed');
       expect(closedCall).toBeDefined();
-      closedCall![1](); // invoke — sets mainWindow = null internally
+      mockWebContents.close.mockClear();
+      closedCall![1](); // invoke — disposes every connection view
       // #974/#975: a window-less SSO flow has no UI for its result, so the
       // 'closed' handler must tear down BOTH provider flows (else the loopback
       // listener + 5-min deadline outlive the renderer). Regression guard for
       // the google-parity gap.
       expect(mockCancelAppleFlow).toHaveBeenCalled();
       expect(mockCancelGoogleFlow).toHaveBeenCalled();
+      // #86 invariant 4 (Task 0: a child view outlives its BaseWindow's close):
+      // the saas view's renderer is closed explicitly, not orphaned.
+      expect(mockWebContents.close).toHaveBeenCalled();
+      expect(connectionRegistry.liveConnections()).toEqual([]);
+
+      // Restore the fixture every later test shares: the dock 'activate' path
+      // re-creates the window (and its saas view) once no shell window exists.
+      appOnCallbacks.get('activate')!();
+      expect(connectionRegistry.bindingFor(mockWebContents as never)?.role).toBe('primary');
     });
 
     it('window open handler allows https and denies others', async () => {
@@ -5142,18 +6114,28 @@ describe('main.ts', () => {
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
       expect(webContentsCreated).toBeDefined();
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
 
-      const handlerCall = mockContents.setWindowOpenHandler.mock.calls[0];
+      const handlerCall = mockContents.setWindowOpenHandler.mock.calls.at(-1);
       expect(handlerCall).toBeDefined();
-      const handler = handlerCall[0] as (details: { url: string }) => { action: string };
+      const handler = handlerCall![0] as (details: { url: string }) => { action: string };
 
       // HTTPS opens external
       (shell.openExternal as Mock).mockClear();
       const result1 = handler({ url: 'https://example.com' });
       expect(shell.openExternal).toHaveBeenCalledWith('https://example.com');
       expect(result1.action).toBe('deny');
+
+      // #86 C6b: a PiP (not the foreground primary) is denied and opens nothing.
+      const pip = createMockContents();
+      webContentsCreated![1]({}, pip);
+      const pipHandler = pip.setWindowOpenHandler.mock.calls[0][0] as (details: {
+        url: string;
+      }) => { action: string };
+      (shell.openExternal as Mock).mockClear();
+      expect(pipHandler({ url: 'https://example.com' }).action).toBe('deny');
+      expect(shell.openExternal).not.toHaveBeenCalled();
 
       // Invalid URL is ignored
       (shell.openExternal as Mock).mockClear();
@@ -5261,11 +6243,9 @@ describe('main.ts', () => {
       const webContentsCreated = (app.on as Mock).mock.calls.find(
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
-      const willNavigate = mockContents.on.mock.calls.find(
-        (c: unknown[]) => c[0] === 'will-navigate'
-      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+      const willNavigate = lastWillNavigate(mockContents);
 
       (shell.openExternal as Mock).mockClear();
       const event = { preventDefault: vi.fn() };
@@ -5367,11 +6347,9 @@ describe('main.ts', () => {
         const webContentsCreated = (app.on as Mock).mock.calls.find(
           (c: unknown[]) => c[0] === 'web-contents-created'
         );
-        const mockContents = createMockContents();
+        const mockContents = foregroundSaasContents();
         webContentsCreated![1]({}, mockContents);
-        const willNavigate = mockContents.on.mock.calls.find(
-          (c: unknown[]) => c[0] === 'will-navigate'
-        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+        const willNavigate = lastWillNavigate(mockContents);
 
         // Note: remoteSpaBaseUrl is null in test mock because the file-level
         // spaLoader mock returns {mode: 'bundled'} (see line ~224). With no
@@ -5523,7 +6501,7 @@ describe('main.ts', () => {
       // The restoreSession handler caches its promise — calling it twice
       // should return the same result without re-invoking performRefresh.
       const handler = handlers.get('auth:restoreSession')!;
-      const event = { sender: { id: 1 }, senderFrame: { url: 'app://concord/index.html' } };
+      const event = trustedIpcEvent;
       const result1 = await handler(event);
       const result2 = await handler(event);
       expect(result1).toEqual(result2);
@@ -5589,7 +6567,8 @@ describe('main.ts', () => {
   describe('KLIPY media proxy interceptor', () => {
     it('registers onBeforeSendHeaders with the correct URL filter', () => {
       expect(klipyInterceptor).not.toBeNull();
-      expect(klipyInterceptor!.filter.urls).toEqual(['*://*/api/v1/klipy/media*']);
+      // #86 invariant 3: pinned to the saas service's own origin, not any host.
+      expect(klipyInterceptor!.filter.urls).toEqual(['http://localhost:8080/api/v1/klipy/media*']);
     });
 
     it.each(['1.0.0', '1.1.0-pilot.2'])(
@@ -5598,7 +6577,6 @@ describe('main.ts', () => {
         const tokenManager = await import('../../../src/main/tokenManager');
         const { app } = await import('electron');
         (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-        (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
         (app.getVersion as Mock).mockReturnValueOnce(version);
 
         const details = {
@@ -5624,7 +6602,6 @@ describe('main.ts', () => {
         const tokenManager = await import('../../../src/main/tokenManager');
         const { app } = await import('electron');
         (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-        (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
         (app.getVersion as Mock).mockReturnValueOnce(version);
 
         const details = {
@@ -5663,8 +6640,9 @@ describe('main.ts', () => {
         const { app } = await import('electron');
         (app.getVersion as Mock).mockReturnValue(version);
         const tokenManager = await import('../../../src/main/tokenManager');
-        (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-        (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
+        // Held (not Once): the origin check runs before the custody read, so a
+        // queued value would never be consumed and would leak into the next test.
+        (tokenManager.getCachedAccessToken as Mock).mockReturnValue('test-jwt-token');
 
         const details = {
           url: 'https://attacker.tld/api/v1/klipy/media?steal=true',
@@ -5672,7 +6650,11 @@ describe('main.ts', () => {
         };
         const callback = vi.fn();
 
-        klipyInterceptor!.callback(details, callback);
+        try {
+          klipyInterceptor!.callback(details, callback);
+        } finally {
+          (tokenManager.getCachedAccessToken as Mock).mockReturnValue(null);
+        }
 
         expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
         expect(details.requestHeaders['Authorization']).toBeUndefined();
@@ -5680,18 +6662,24 @@ describe('main.ts', () => {
       }
     );
 
-    it('does not inject header when API base origin is null', async () => {
+    // #86: there is no "API base" to be null any more — the interceptor is bound to
+    // the saas service's origin. Another first-party origin (a self-hosted server
+    // the renderer once used) gets no saas token either.
+    it('does not inject the saas token into another first-party origin', async () => {
       const tokenManager = await import('../../../src/main/tokenManager');
-      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce(null);
+      (tokenManager.getCachedAccessToken as Mock).mockReturnValue('test-jwt-token');
 
       const details = {
-        url: 'http://localhost:8080/api/v1/klipy/media?url=test',
+        url: 'https://api.concordvoice.chat/api/v1/klipy/media?url=test',
         requestHeaders: {} as Record<string, string>,
       };
       const callback = vi.fn();
 
-      klipyInterceptor!.callback(details, callback);
+      try {
+        klipyInterceptor!.callback(details, callback);
+      } finally {
+        (tokenManager.getCachedAccessToken as Mock).mockReturnValue(null);
+      }
 
       expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
     });
@@ -5701,23 +6689,21 @@ describe('main.ts', () => {
     it('spa:reloadLatest rejects an untrusted sender frame and does NOT navigate', async () => {
       // The renderer never supplies a URL; an untrusted frame must be refused at
       // the boundary FIRST — before any state check, resolveSpaSource, or loadURL.
-      (mockMainWindow.loadURL as Mock).mockClear();
+      (mockWebContents.loadURL as Mock).mockClear();
       const result = await handlers.get('spa:reloadLatest')!({
         senderFrame: { url: 'https://evil.example/' },
       });
       expect(result).toEqual({ mode: 'bundled', changed: false, rejected: true });
-      expect(mockMainWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockWebContents.loadURL).not.toHaveBeenCalled();
     });
 
     it('spa:reloadLatest is inert (no navigation) in dev/unpackaged mode', async () => {
       const { app } = await import('electron');
       (app as unknown as { isPackaged: boolean }).isPackaged = false;
-      (mockMainWindow.loadURL as Mock).mockClear();
-      const result = await handlers.get('spa:reloadLatest')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      (mockWebContents.loadURL as Mock).mockClear();
+      const result = await handlers.get('spa:reloadLatest')!(trustedIpcEvent);
       expect(result).toEqual({ mode: 'bundled', changed: false });
-      expect(mockMainWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockWebContents.loadURL).not.toHaveBeenCalled();
     });
 
     it('spa:reloadLatest loads remote SPA with no-cache headers in packaged mode', async () => {
@@ -5734,13 +6720,11 @@ describe('main.ts', () => {
         url: 'https://spa.concordvoice.chat/index.html',
         reason: 'remote SPA compatible',
       });
-      (mockMainWindow.loadURL as Mock).mockClear();
+      (mockWebContents.loadURL as Mock).mockClear();
 
-      const result = await handlers.get('spa:reloadLatest')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('spa:reloadLatest')!(saasAppFrameEvent);
 
-      expect(mockMainWindow.loadURL).toHaveBeenCalledWith(
+      expect(mockWebContents.loadURL).toHaveBeenCalledWith(
         'https://spa.concordvoice.chat/index.html',
         expect.objectContaining({
           extraHeaders: expect.stringContaining('Cache-Control: no-cache'),
@@ -5764,9 +6748,7 @@ describe('main.ts', () => {
     it('spa:checkForUpdate returns an inert result in dev/unpackaged mode (permitted frame)', async () => {
       const { app } = await import('electron');
       (app as unknown as { isPackaged: boolean }).isPackaged = false;
-      const result = await handlers.get('spa:checkForUpdate')!({
-        senderFrame: { url: 'app://concord/index.html' },
-      });
+      const result = await handlers.get('spa:checkForUpdate')!(trustedIpcEvent);
       expect(result).toEqual({
         currentMode: 'remote',
         remoteAvailable: false,
@@ -5913,7 +6895,7 @@ describe('main.ts', () => {
       // before `.send` -- and a disposed render FRAME does not throw at all. So this guard,
       // not the optional chain, is what stands between a teardown race and
       // `uncaughtException` -> `app.exit(1)`.
-      mockMainWindow.isDestroyed.mockReturnValueOnce(true);
+      mockWebContents.isDestroyed.mockReturnValueOnce(true);
 
       didFinishLoadHandler()();
 
@@ -5942,17 +6924,23 @@ describe('main.ts', () => {
      * caller can assert the registration itself happened (the non-vacuity check every
      * other case in this block relies on).
      */
+    // #86 Task 7B: the listener delivers to the share's OWNER connection only, so every
+    // case hands it the owner binding of the saas view (this file's main window), read
+    // from the fresh registry. `staleOwner` is the same connection one generation back.
+    type InterruptListener = (interrupt: Record<string, unknown>, owner?: unknown) => void;
     async function captureInterruptListener(): Promise<{
-      listener: (interrupt: Record<string, unknown>) => void;
+      listener: InterruptListener;
       spy: ReturnType<typeof vi.spyOn>;
+      owner: unknown;
+      staleOwner: unknown;
     }> {
       vi.resetModules();
       const hostModule = await import('../../../src/main/audiocapHost');
-      let captured: ((interrupt: Record<string, unknown>) => void) | null = null;
+      let captured: InterruptListener | null = null;
       const spy = vi
         .spyOn(hostModule, 'setAudiocapInterruptListener')
         .mockImplementation((listener) => {
-          captured = listener as (interrupt: Record<string, unknown>) => void;
+          captured = listener as InterruptListener;
         });
 
       mockWebContents.send.mockClear();
@@ -5970,7 +6958,17 @@ describe('main.ts', () => {
         'function'
       );
 
-      return { listener: captured!, spy };
+      const reg = await import('../../../src/main/connectionRegistry');
+      const binding = reg.bindingFor(mockWebContents as never);
+      const record = binding ? reg.recordFor(binding.connectionId) : undefined;
+      expect(record, 'the saas view is not a bound connection').toBeDefined();
+      const ref = reg.refOf(record!);
+      return {
+        listener: captured!,
+        spy,
+        owner: { kind: 'audiocap', ref },
+        staleOwner: { kind: 'audiocap', ref: { ...ref, generation: ref.generation - 1 } },
+      };
     }
 
     function interruptPushes() {
@@ -5978,9 +6976,9 @@ describe('main.ts', () => {
     }
 
     it('sends the exact channel and payload when the host reports an interrupt', async () => {
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
-      listener({ generation: 4, reason: 'child-crash' });
+      listener({ generation: 4, reason: 'child-crash' }, owner);
 
       expect(interruptPushes()).toEqual([
         ['audiocap:interrupted', { generation: 4, reason: 'child-crash' }],
@@ -5989,11 +6987,27 @@ describe('main.ts', () => {
       spy.mockRestore();
     });
 
+    it('pushes nothing with no owner, or to an owner whose generation has moved on', async () => {
+      // #86 Task 7B: owner-only. Before #86 an ownerless interrupt went to the main
+      // window; now nobody hears it, and neither does the owner's previous document.
+      const { listener, spy, owner, staleOwner } = await captureInterruptListener();
+
+      listener({ generation: 4, reason: 'child-crash' });
+      listener({ generation: 4, reason: 'child-crash' }, staleOwner);
+      expect(interruptPushes()).toEqual([]);
+
+      // Control: the same harness does deliver to the current owner.
+      listener({ generation: 4, reason: 'child-crash' }, owner);
+      expect(interruptPushes()).toHaveLength(1);
+
+      spy.mockRestore();
+    });
+
     it('sends a NEW object, never the input reference, and carries no extra field', async () => {
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
       const input = { generation: 4, reason: 'child-crash', extra: 'nope' };
-      listener(input);
+      listener(input, owner);
 
       const pushes = interruptPushes();
       expect(pushes).toHaveLength(1);
@@ -6009,10 +7023,10 @@ describe('main.ts', () => {
       // Non-vacuity: `captureInterruptListener` already asserts the listener was
       // registered, so this case's zero pushes cannot be explained by "nothing was ever
       // wired" -- only by the `isDestroyed()` guard this case exists to pin.
-      const { listener, spy } = await captureInterruptListener();
+      const { listener, spy, owner } = await captureInterruptListener();
 
-      mockMainWindow.isDestroyed.mockReturnValueOnce(true);
-      listener({ generation: 4, reason: 'child-crash' });
+      mockWebContents.isDestroyed.mockReturnValueOnce(true);
+      listener({ generation: 4, reason: 'child-crash' }, owner);
 
       expect(interruptPushes()).toEqual([]);
 
@@ -6105,7 +7119,7 @@ describe('main.ts', () => {
       const pendingLoad = new Promise<void>((resolve) => {
         releaseLoad = resolve;
       });
-      (mockMainWindow.loadFile as Mock).mockImplementationOnce(() => pendingLoad);
+      (mockWebContents.loadFile as Mock).mockImplementationOnce(() => pendingLoad);
 
       // Snapshot the SHARED mocks' call histories before the second import, so only
       // registrations made by THIS import are inspected below.
@@ -6119,7 +7133,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as
@@ -6135,7 +7155,7 @@ describe('main.ts', () => {
         'no did-navigate listener was registered before the initial load resolved'
       ).toBeTypeOf('function');
       didNavigateHandler!({}, 'https://example.invalid/', 200, 'OK');
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
 
       // Release the held load so this import does not leave a permanently-pending
       // promise hanging off the shared mock past this test.
@@ -6151,7 +7171,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as (
@@ -6161,7 +7187,936 @@ describe('main.ts', () => {
       didNavigateHandler({}, 'https://example.invalid/', 200, 'OK');
       // Proves the harness itself can observe an epoch bump when the wire IS registered --
       // so the RED case above is a genuine finding, not a broken assertion.
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
     });
+  });
+});
+
+// ── #86 Task 7B (RED): per-connection main-process semantics ─────────────────
+describe('#86 connection-isolated main semantics', () => {
+  type Registry = typeof import('../../../src/main/connectionRegistry');
+  const APP_FRAME = 'app://concord/index.html';
+  let nextFrame = 9100;
+
+  /** A fake self-hosted primary registered and bound exactly like shellWindow does. */
+  function openFakeSelfHosted(origin: string) {
+    const reg: Registry = connectionRegistry;
+    const svc = reg.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = reg.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    reg.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      wc,
+      record: opened.record,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
+    };
+  }
+
+  const saasEvent = () => ({
+    sender: mockWebContents,
+    senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 77, parent: null },
+  });
+
+  describe('app:setBadgeCount is a per-connection sum', () => {
+    const lastBadge = async () => {
+      const { app } = await import('electron');
+      const calls = (app.setBadgeCount as Mock).mock.calls;
+      return calls[calls.length - 1]?.[0];
+    };
+
+    afterEach(async () => {
+      // Leave the saas contribution at zero for later suites.
+      await handlers.get('app:setBadgeCount')!(saasEvent(), 0);
+    });
+
+    it('A=3 and B=4 show 7, and disposing a connection drops only its share', async () => {
+      const A = openFakeSelfHosted('https://badge-a.lan');
+      const B = openFakeSelfHosted('https://badge-b.lan');
+      try {
+        await handlers.get('app:setBadgeCount')!(saasEvent(), 0);
+        await handlers.get('app:setBadgeCount')!(A.event, 3);
+        await handlers.get('app:setBadgeCount')!(B.event, 4);
+        expect(await lastBadge()).toBe(7);
+
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        expect(await lastBadge()).toBe(4);
+      } finally {
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it('clamps the summed total (9000 + 9000) to 9999', async () => {
+      const A = openFakeSelfHosted('https://clamp-a.lan');
+      const B = openFakeSelfHosted('https://clamp-b.lan');
+      try {
+        await handlers.get('app:setBadgeCount')!(A.event, 9000);
+        await handlers.get('app:setBadgeCount')!(B.event, 9000);
+        expect(await lastBadge()).toBe(9999);
+      } finally {
+        connectionRegistry.disposeConnection(A.record.connectionId);
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+  });
+
+  // #86 RT6/RT7 (Phase-4 red-team WIN-1 and WIN-2; WIN-3 is the badge suite above).
+  describe('RT6/RT7: window chrome from a background connection', () => {
+    const fireWindow = (name: 'focus' | 'blur') => {
+      for (const [event, listener] of mockMainWindow.on.mock.calls as Array<[string, () => void]>) {
+        if (event === name) listener();
+      }
+    };
+
+    beforeEach(() => {
+      // Start with no flash request outstanding: the window's focus answers them all.
+      fireWindow('focus');
+      mockMainWindow.flashFrame.mockClear();
+    });
+
+    afterEach(() => {
+      fireWindow('blur');
+      mockMainWindow.isFocused.mockReturnValue(false);
+      mockMainWindow.isMinimized.mockReturnValue(false);
+    });
+
+    it('WIN-1: a background self-hosted view cannot restore and focus the shell window', async () => {
+      const B = openFakeSelfHosted('https://win-1.lan');
+      try {
+        expect(connectionRegistry.foreground()?.connectionId).not.toBe(B.record.connectionId);
+        mockMainWindow.isMinimized.mockReturnValue(true);
+        mockMainWindow.restore.mockClear();
+        mockMainWindow.focus.mockClear();
+        await handlers.get('app:focusWindow')!(B.event);
+        expect({
+          restore: mockMainWindow.restore.mock.calls.length,
+          focus: mockMainWindow.focus.mock.calls.length,
+        }).toEqual({ restore: 0, focus: 0 });
+
+        // The foreground primary still can: its notification click focuses the window.
+        await handlers.get('app:focusWindow')!(saasEvent());
+        expect({
+          restore: mockMainWindow.restore.mock.calls.length,
+          focus: mockMainWindow.focus.mock.calls.length,
+        }).toEqual({ restore: 1, focus: 1 });
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it("WIN-2: a background self-hosted view cannot cancel CVNet's taskbar flash", async () => {
+      const B = openFakeSelfHosted('https://win-2.lan');
+      try {
+        await handlers.get('app:flashFrame')!(saasEvent(), true); // CVNet: a mention
+        await handlers.get('app:flashFrame')!(B.event, false); // B, in the background
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true]]);
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it('the window flashes while any connection asks and stops when the last one withdraws', async () => {
+      const B = openFakeSelfHosted('https://win-any.lan');
+      try {
+        await handlers.get('app:flashFrame')!(saasEvent(), true);
+        await handlers.get('app:flashFrame')!(B.event, true);
+        await handlers.get('app:flashFrame')!(saasEvent(), false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true]]);
+        await handlers.get('app:flashFrame')!(B.event, false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+
+    it("a disposed connection's request leaves with it, and the window's focus answers every request", async () => {
+      const B = openFakeSelfHosted('https://win-dispose.lan');
+      await handlers.get('app:flashFrame')!(B.event, true);
+      connectionRegistry.disposeConnection(B.record.connectionId);
+      expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+
+      await handlers.get('app:flashFrame')!(saasEvent(), true);
+      fireWindow('focus');
+      expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false], [true], [false]]);
+      // Answered: the next request starts a new flash.
+      fireWindow('blur');
+      await handlers.get('app:flashFrame')!(saasEvent(), true);
+      expect(mockMainWindow.flashFrame.mock.calls.at(-1)).toEqual([true]);
+    });
+
+    it('a request made while the window is focused is dropped, not left outstanding', async () => {
+      const B = openFakeSelfHosted('https://win-focused.lan');
+      try {
+        mockMainWindow.isFocused.mockReturnValue(true);
+        await handlers.get('app:flashFrame')!(B.event, true); // hidden B cannot see the focus
+        expect(mockMainWindow.flashFrame).not.toHaveBeenCalled();
+
+        mockMainWindow.isFocused.mockReturnValue(false);
+        await handlers.get('app:flashFrame')!(saasEvent(), true);
+        await handlers.get('app:flashFrame')!(saasEvent(), false);
+        expect(mockMainWindow.flashFrame.mock.calls).toEqual([[true], [false]]);
+      } finally {
+        connectionRegistry.disposeConnection(B.record.connectionId);
+      }
+    });
+  });
+
+  describe('selfHosted:probeServer from the saas view', () => {
+    it('opens an approved other origin in its own connection and never re-homes saas', async () => {
+      const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+      const { WebContentsView } = await import('electron');
+      const { serviceIdForApiBase } = await import('../../../src/main/selfHostedProfile');
+      const origin = new URL('https://other-approved.lan').origin;
+      const { commitSelfHostedApproval } = await import('../../../src/main/selfHostedProfile');
+      approvalStore.records.length = 0;
+      // Approved for real: the in-memory mint gate AND a durable record with its tier.
+      // A bare `{ origin }` record is no approval (approvalTierForApiBase fails closed),
+      // so the probe re-ran the ceremony against a resolve mock with no addresses.
+      commitSelfHostedApproval(origin, '10.0.0.5');
+      (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok', apiBase: origin });
+      mockResolveForDisplay.mockResolvedValue({
+        ok: true,
+        address: '10.0.0.5',
+        addresses: ['10.0.0.5'],
+        decision: { tier: 'tier2' },
+      } as never);
+
+      // A fresh view for the new connection (the shared mock view is the saas one).
+      const newWc = {
+        send: vi.fn(),
+        on: vi.fn(),
+        once: vi.fn(),
+        getURL: vi.fn(() => ''),
+        loadURL: vi.fn().mockResolvedValue(undefined),
+        loadFile: vi.fn().mockResolvedValue(undefined),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+        mainFrame: { url: APP_FRAME, frameTreeNodeId: 9001 },
+      };
+      (WebContentsView as unknown as Mock).mockImplementationOnce(function () {
+        return {
+          webContents: newWc,
+          setBounds: vi.fn(),
+          setVisible: vi.fn(),
+          setBackgroundColor: vi.fn(),
+        };
+      });
+      mockWebContents.loadURL.mockClear();
+      const saasBefore = connectionRegistry.foreground()?.connectionId;
+
+      const result = await handlers.get('selfHosted:probeServer')!(saasEvent(), origin);
+
+      try {
+        expect(result).toEqual({
+          status: 'opened-in-connection',
+          serviceId: serviceIdForApiBase(origin),
+        });
+        // Activated: the new connection is foreground, the saas view was not navigated.
+        const opened = connectionRegistry
+          .liveConnections()
+          .find((r) => r.serviceId === serviceIdForApiBase(origin));
+        expect(opened).toBeDefined();
+        expect(connectionRegistry.foreground()?.connectionId).toBe(opened!.connectionId);
+        expect(connectionRegistry.foreground()?.connectionId).not.toBe(saasBefore);
+        expect(mockWebContents.loadURL).not.toHaveBeenCalledWith(
+          expect.stringContaining('other-approved')
+        );
+        expect(mockWebContents.loadURL).not.toHaveBeenCalled();
+      } finally {
+        for (const r of connectionRegistry.liveConnections()) {
+          if (r.serviceId === serviceIdForApiBase(origin)) {
+            connectionRegistry.disposeConnection(r.connectionId);
+          }
+        }
+        if (saasBefore) connectionRegistry.setForeground(saasBefore);
+        mockResolveForDisplay.mockReset();
+      }
+    });
+  });
+
+  describe('deep links are delivered to the saas connection only', () => {
+    // #86 C8: delivery goes to the saas view alone, so a valid OS link must also put
+    // that view on screen and bring the window forward; a rejected link changes nothing.
+    // The gate is reset on both sides: a delivered link holds the next one for
+    // DEEP_LINK_EMIT_WINDOW_MS, which would starve the tests after this one.
+    it.each(['open-url', 'second-instance'] as const)(
+      'a valid %s link brings the saas view in front of a self-hosted foreground; a rejected one changes nothing',
+      async (entry) => {
+        const { ipcMain } = await import('electron');
+        const readyCall = (ipcMain.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'invite:renderer-ready'
+        );
+        expect(readyCall, "ipcMain.on('invite:renderer-ready') was never registered").toBeDefined();
+        const reset = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const S = openFakeSelfHosted(`https://deeplink-fg-${entry}.lan`);
+        const deliver = (url: string): void => {
+          if (entry === 'open-url')
+            appOnCallbacks.get('open-url')!({ preventDefault: vi.fn() }, url);
+          else appOnCallbacks.get('second-instance')!({}, ['/app', url]);
+        };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          reset();
+          (readyCall![1] as CallbackFn)(saasEvent());
+          connectionRegistry.setForeground(S.record.connectionId);
+          mockView.setVisible.mockClear();
+          mockMainWindow.focus.mockClear();
+          mockWebContents.send.mockClear();
+
+          deliver('concord://invite/!!bad!!');
+          expect(connectionRegistry.foreground()?.connectionId).toBe(S.record.connectionId);
+          expect(mockView.setVisible).not.toHaveBeenCalled();
+          // second-instance focuses for any relaunch, link or not; open-url only for a link.
+          if (entry === 'open-url') expect(mockMainWindow.focus).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+
+          deliver('concord://invite/MnPqRsTu');
+          expect(connectionRegistry.foreground()?.serviceId).toBe(saasServiceId);
+          expect(mockView.setVisible).toHaveBeenLastCalledWith(true);
+          expect(mockMainWindow.focus).toHaveBeenCalled();
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', {
+            code: 'MnPqRsTu',
+          });
+          expect(S.wc.send).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
+
+    it('a self-hosted primary signalling ready neither receives nor drains a deep link', async () => {
+      const { ipcMain } = await import('electron');
+      const S = openFakeSelfHosted('https://deeplink-self.lan');
+      const onCall = (ch: string): CallbackFn => {
+        const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === ch);
+        expect(call, `ipcMain.on('${ch}') was never registered`).toBeDefined();
+        return call![1] as CallbackFn;
+      };
+      const openUrl = appOnCallbacks.get('open-url')!;
+      try {
+        // Drop both readiness flags the way a reload does, then queue a link.
+        const reload = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        reload();
+        mockWebContents.send.mockClear();
+        openUrl({ preventDefault: vi.fn() }, 'concord://invite/AbCdEfGj');
+
+        onCall('invite:renderer-ready')(S.event);
+        onCall('deeplink:renderer-ready')(S.event);
+        // Never to the self-hosted primary, and its signal must not count as saas readiness.
+        expect(S.wc.send).not.toHaveBeenCalled();
+        expect(mockWebContents.send).not.toHaveBeenCalledWith('invite:received', expect.anything());
+
+        // The first saas primary load/ready drains the queued link to saas.
+        onCall('invite:renderer-ready')(saasEvent());
+        expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code: 'AbCdEfGj' });
+        expect(S.wc.send).not.toHaveBeenCalled();
+      } finally {
+        connectionRegistry.disposeConnection(S.record.connectionId);
+        reload_cleanup();
+      }
+
+      function reload_cleanup(): void {
+        const r = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        r();
+        mockWebContents.send.mockClear();
+      }
+    });
+
+    // Two ways the saas connection can be gone: its window closed (readiness reset), or
+    // the connection disposed while its renderer had last said ready. In both the link
+    // must wait in the queue: not reach the self-hosted primary, and not be lost.
+    it.each([
+      ['its window closed', true, 'QrStUvWx'],
+      ['its connection disposed while ready', false, 'HjKmNpQr'],
+    ] as const)(
+      'with NO live saas connection (%s) a link is queued, never sent to a self-hosted primary, and reaches the first saas primary to load',
+      async (_label, windowClosed, code) => {
+        const { ipcMain } = await import('electron');
+        const onCall = (ch: string): CallbackFn => {
+          const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === ch);
+          expect(call, `ipcMain.on('${ch}') was never registered`).toBeDefined();
+          return call![1] as CallbackFn;
+        };
+        const reset = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const openUrl = appOnCallbacks.get('open-url')!;
+        const saasBinding = connectionRegistry.bindingFor(mockWebContents as never);
+        expect(saasBinding, 'the saas view is not bound').toBeTruthy();
+        const saasServiceId = connectionRegistry.recordFor(saasBinding!.connectionId)!.serviceId;
+
+        // The saas connection goes away while a self-hosted primary stays live.
+        reset();
+        if (!windowClosed) onCall('invite:renderer-ready')(saasEvent());
+        connectionRegistry.disposeConnection(saasBinding!.connectionId);
+        const S = openFakeSelfHosted('https://deeplink-nosaas.lan');
+        let reopenedId: string | null = null;
+        try {
+          expect(
+            connectionRegistry.liveConnections().some((r) => r.serviceId === saasServiceId),
+            'precondition: no live saas connection'
+          ).toBe(false);
+          mockWebContents.send.mockClear();
+
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          onCall('invite:renderer-ready')(S.event);
+          onCall('deeplink:renderer-ready')(S.event);
+          expect(S.wc.send).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalledWith(
+            'invite:received',
+            expect.anything()
+          );
+
+          // The first saas primary loads: opened and bound the way shellWindow does, then
+          // its renderer signals ready. The queued link reaches it, and only it.
+          const reopened = connectionRegistry.openConnection(
+            saasServiceId,
+            mockWebContents as never,
+            null
+          );
+          if (!reopened.ok) throw new Error(`saas re-open refused: ${reopened.reason}`);
+          reopenedId = reopened.record.connectionId;
+          connectionRegistry.bindSender(mockWebContents as never, reopenedId, 'primary');
+          connectionRegistry.setForeground(reopenedId);
+          onCall('invite:renderer-ready')(saasEvent());
+
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code });
+          expect(S.wc.send).not.toHaveBeenCalled();
+        } finally {
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          if (reopenedId) connectionRegistry.setForeground(reopenedId);
+          reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
+  });
+
+  describe('X1: a packaged build restores views onto the bundled app, not the dev server', () => {
+    it('does not pass the dev server URL to the shell unconditionally', async () => {
+      const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+      const src = realFs.readFileSync(
+        new URL('../../../src/main/main.ts', import.meta.url),
+        'utf8'
+      );
+      const m = /devConnectionUrl:\s*([^\n]+)/.exec(src);
+      expect(m, 'main.ts must pass devConnectionUrl').not.toBeNull();
+      const value = m![1];
+      expect(value).not.toMatch(/^DEV_SERVER_URL\s*,?\s*$/);
+      expect(value).toMatch(/isPackaged/);
+      expect(value).toContain('app://concord/index.html');
+    });
+  });
+
+  // #86 RT3 (Phase-4 red-team HEAL-1). Self-heal reloads the saas view and, on its second
+  // trigger, drops it to bundled and clears the app-wide remote-SPA origin (which destroys
+  // CVNet's pinned PiPs). A did-fail-load is evidence about its OWN contents only, so a
+  // self-hosted view framing an SPA asset must not reach it.
+  describe('RT3: SPA self-heal acts only on a failed load in the saas view', () => {
+    const SPA_URL = 'https://spa.concordvoice.chat/index.html';
+    const SPA_ORIGIN = 'https://spa.concordvoice.chat';
+
+    function didFailLoadOf(contents: { on: Mock }): (...args: unknown[]) => void {
+      const created = appOnCallbacks.get('web-contents-created');
+      expect(created).toBeDefined();
+      const first = contents.on.mock.calls.length;
+      created!({}, contents);
+      const call = contents.on.mock.calls.slice(first).find((c) => c[0] === 'did-fail-load');
+      expect(call).toBeDefined();
+      return call![1] as (...args: unknown[]) => void;
+    }
+
+    async function withSelfHealState(
+      body: (markPackaged: () => void) => Promise<void>
+    ): Promise<void> {
+      const { setRemoteSpaState } = await import('../../../src/main/spaState');
+      const { __resetSelfHealState } = await import('../../../src/main/spaSelfHeal');
+      const { app } = await import('electron');
+      const testApp = app as unknown as { isPackaged: boolean };
+      __resetSelfHealState();
+      setRemoteSpaState(SPA_URL); // CVNet is on the remote SPA (the packaged saas default)
+      try {
+        // isPackaged gates the bundled fallback; the body sets it once its PiP is open.
+        await body(() => {
+          testApp.isPackaged = true;
+        });
+      } finally {
+        testApp.isPackaged = false;
+        setRemoteSpaState(null);
+        __resetSelfHealState();
+      }
+    }
+
+    it("a self-hosted view's own failed subframe load does not reload or re-home the saas view", async () => {
+      const { getRemoteSpaBaseUrl } = await import('../../../src/main/spaState');
+      const { resolveSpaSource } = await import('../../../src/main/spaLoader');
+      const evil = openFakeSelfHosted('https://evil-selfhost.example');
+      Object.assign(evil.wc, { setWindowOpenHandler: vi.fn() });
+      expect(connectionRegistry.foreground()?.connectionId).not.toBe(evil.record.connectionId);
+      const warn = vi.spyOn(console, 'warn');
+      const closers: Array<() => void> = [];
+      try {
+        await withSelfHealState(async (markPackaged) => {
+          // CVNet's own pop-out, pinned to the SPA origin.
+          const firstPipOn = mockPipWindow.on.mock.calls.length;
+          await handlers.get('pip:open')!(saasEvent() as never, { id: 'controls-main' });
+          for (const call of mockPipWindow.on.mock.calls.slice(firstPipOn)) {
+            if (call[0] === 'closed') closers.push(call[1] as () => void);
+          }
+          expect(closers.length).toBeGreaterThan(0);
+          markPackaged();
+          const didFailLoad = didFailLoadOf(evil.wc);
+          mockWebContents.loadURL.mockClear();
+          mockPipWindow.destroy.mockClear();
+          warn.mockClear();
+          // No *Once fixture: a refused trigger never reads one, and it would leak.
+          const resolveCallsBefore = (resolveSpaSource as Mock).mock.calls.length;
+          // The attacker renderer inserts <iframe src="https://spa.concordvoice.chat/assets/x.js">.
+          // Chromium refuses the frame and reports it on the attacker's OWN webContents.
+          didFailLoad({}, -30, 'ERR_BLOCKED_BY_CSP', `${SPA_ORIGIN}/assets/redteam-1.js`, false);
+          await new Promise((resolve) => setTimeout(resolve, 900));
+          didFailLoad(
+            {},
+            -27,
+            'ERR_BLOCKED_BY_RESPONSE',
+            `${SPA_ORIGIN}/assets/redteam-2.js`,
+            false
+          );
+          // A main-frame failure at the SPA URL in the attacker's view is refused too.
+          didFailLoad({}, -105, 'ERR_NAME_NOT_RESOLVED', SPA_URL, true);
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          expect({
+            cvnetViewLoads: mockWebContents.loadURL.mock.calls.map((call) => call[0]),
+            remoteSpaOrigin: getRemoteSpaBaseUrl(),
+            cvnetPipsDestroyed: mockPipWindow.destroy.mock.calls.length,
+            resolveSpaSourceCalls:
+              (resolveSpaSource as Mock).mock.calls.length - resolveCallsBefore,
+            // The main.ts gate refuses before self-heal is reached at all.
+            selfHealLogs: warn.mock.calls.filter((c) => String(c[0]).startsWith('[spaSelfHeal]')),
+          }).toEqual({
+            cvnetViewLoads: [],
+            remoteSpaOrigin: SPA_ORIGIN,
+            cvnetPipsDestroyed: 0,
+            resolveSpaSourceCalls: 0,
+            selfHealLogs: [],
+          });
+        });
+      } finally {
+        warn.mockRestore();
+        for (const close of closers) close();
+        connectionRegistry.disposeConnection(evil.record.connectionId);
+      }
+    });
+
+    it("control: a main-frame SPA load failure in the saas view's own primary still self-heals", async () => {
+      const { resolveSpaSource } = await import('../../../src/main/spaLoader');
+      await withSelfHealState(async () => {
+        const didFailLoad = didFailLoadOf(mockWebContents);
+        mockWebContents.loadURL.mockClear();
+        (resolveSpaSource as Mock).mockResolvedValueOnce({ mode: 'remote', url: SPA_URL });
+        didFailLoad({}, -105, 'ERR_NAME_NOT_RESOLVED', SPA_URL, true);
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        expect(mockWebContents.loadURL.mock.calls.map((call) => call[0])).toEqual([SPA_URL]);
+      });
+    });
+  });
+});
+
+// #86 exit criterion S2 (Task 7B pass 2). Keys staged through auth:storeE2EEKeys land in
+// the SENDER's own custody, chosen by the main-held binding, so another connection's next
+// credential can never adopt them: the only custody that credential reaches is its own,
+// and that custody never received the keys. Driven through main.ts's real handlers with
+// one spy custody per connection.
+describe('#86 S2: E2EE keys staged by one connection reach only its own custody', () => {
+  const APP_FRAME = 'app://concord/index.html';
+  let nextFrame = 9600;
+
+  function openWithSpyCustody(origin: string) {
+    const custody = {
+      storeE2EEKeys: vi.fn(async () => true),
+      storeE2EEKeysIfOwner: vi.fn(async () => true),
+      storeRefreshToken: vi.fn(() => 77),
+    };
+    const svc = connectionRegistry.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => custody as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      custody,
+      origin,
+      record: opened.record,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
+    };
+  }
+
+  it("A's staged keys reach A's custody alone, and B's next credential reaches B's custody alone", async () => {
+    const A = openWithSpyCustody('https://s2-a.lan');
+    const B = openWithSpyCustody('https://s2-b.lan');
+    try {
+      const keysA = {
+        wrappingKeyBase64: 'wa',
+        preferencesKeyBase64: 'pa',
+        wrappedPrivateKeyBase64: 'ka', // pragma: allowlist secret
+      };
+      await expect(handlers.get('auth:storeE2EEKeys')!(A.event, keysA)).resolves.toBe(true);
+      expect(A.custody.storeE2EEKeys).toHaveBeenCalledTimes(1);
+      expect(A.custody.storeE2EEKeys).toHaveBeenCalledWith(keysA);
+      expect(B.custody.storeE2EEKeys).not.toHaveBeenCalled();
+      expect(B.custody.storeE2EEKeysIfOwner).not.toHaveBeenCalled();
+
+      // B signs in: its credential is published into B's custody, the only place B's
+      // adoption of staged keys can happen, and that custody never saw A's keys.
+      await handlers.get('auth:storeRefreshToken')!(B.event, {
+        refreshToken: 'tok-b',
+        rememberMe: true,
+        apiBase: B.origin,
+      });
+      expect(B.custody.storeRefreshToken).toHaveBeenCalledTimes(1);
+      expect(A.custody.storeRefreshToken).not.toHaveBeenCalled();
+      expect(B.custody.storeE2EEKeys).not.toHaveBeenCalled();
+    } finally {
+      connectionRegistry.disposeConnection(A.record.connectionId);
+      connectionRegistry.disposeConnection(B.record.connectionId);
+    }
+  });
+});
+
+// #86 Task 7B pass 2: the PiP window renders App's main tree, and ChangelogModalHost
+// (rendered there unconditionally) asks for app:getVersion on mount. A primary-only row
+// answered the PiP with the refusal ''. The row is pip-scoped, so a PiP bound to a live
+// connection gets the real version and an unbound sender still gets ''.
+describe('#86 app:getVersion is pip-scoped (the PiP SPA calls it)', () => {
+  const PIP_FRAME = 'app://concord/index.html#/pip/1';
+
+  it("a bound PiP gets the app version; an unbound sender gets ''", async () => {
+    const { app } = await import('electron');
+    const svc = connectionRegistry.registerService('https://pip-version.lan', {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error('registerService refused');
+    const primary = { id: 9701, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9701 } };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, primary as never, null);
+    if (!opened.ok) throw new Error('openConnection refused');
+    connectionRegistry.bindSender(primary as never, opened.record.connectionId, 'primary');
+    const pip = { id: 9702, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9702 } };
+    connectionRegistry.bindSender(pip as never, opened.record.connectionId, 'pip');
+    const frame = (id: number) => ({ url: PIP_FRAME, frameTreeNodeId: id, parent: null });
+    try {
+      const version = app.getVersion();
+      expect(version).not.toBe('');
+      const fromPip = await handlers.get('app:getVersion')!({
+        sender: pip,
+        senderFrame: frame(9702),
+      });
+      expect(fromPip).toBe(version);
+      const stranger = { id: 9703, mainFrame: { url: PIP_FRAME, frameTreeNodeId: 9703 } };
+      const fromStranger = await handlers.get('app:getVersion')!({
+        sender: stranger,
+        senderFrame: frame(9703),
+      });
+      expect(fromStranger).toBe('');
+    } finally {
+      connectionRegistry.disposeConnection(opened.record.connectionId);
+    }
+  });
+});
+
+// #86 PR 206 review rows 2, 6, 7 and 11: connection-scoped behaviour main owns.
+describe('#86 review rows: connection-scoped auth and window lifecycle in main', () => {
+  const APP_FRAME = 'app://concord/index.html';
+  const saasEvent = () => trustedIpcEvent;
+  const saasConnectionId = () => {
+    const binding = connectionRegistry.bindingFor(mockWebContents as never);
+    if (!binding) throw new Error('the saas view is not bound');
+    return binding.connectionId;
+  };
+  const onCall = async (channel: string): Promise<CallbackFn> => {
+    const { ipcMain } = await import('electron');
+    const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === channel);
+    if (!call) throw new Error(`ipcMain.on('${channel}') was never registered`);
+    return call[1] as CallbackFn;
+  };
+  /** Drops both saas readiness flags the way a reload does, so a link queues. */
+  const resetDeepLinkReadiness = () => {
+    const reload = mockWebContents.on.mock.calls.find(
+      (c: unknown[]) => c[0] === 'did-start-loading'
+    )?.[1] as CallbackFn;
+    reload();
+    mockWebContents.send.mockClear();
+  };
+
+  let nextFrame = 9400;
+  /** A bound self-hosted primary whose custody can log out and clear. */
+  function openSelfHostedWithCustody(origin: string) {
+    const custody = { performLogout: vi.fn(async () => undefined), clearTokens: vi.fn() };
+    const svc = connectionRegistry.registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => custody as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!svc.ok) throw new Error(`registerService refused ${origin}`);
+    const frameTreeNodeId = (nextFrame += 1);
+    const wc = {
+      id: frameTreeNodeId,
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => APP_FRAME),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId },
+    };
+    const opened = connectionRegistry.openConnection(svc.service.serviceId, wc as never, null);
+    if (!opened.ok) throw new Error(`openConnection refused ${origin}`);
+    connectionRegistry.bindSender(wc as never, opened.record.connectionId, 'primary');
+    return {
+      custody,
+      event: { sender: wc, senderFrame: { url: APP_FRAME, frameTreeNodeId, parent: null } },
+      dispose: () => connectionRegistry.disposeConnection(opened.record.connectionId),
+    };
+  }
+
+  it('row 2: a document that reloads mid-restore starts its own restore instead of joining the doomed one', async () => {
+    const { restoreRefreshToken } = await import('../../../src/main/tokenManager');
+    let release: () => void = () => undefined;
+    (restoreRefreshToken as Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              status: 'ok',
+              token: 'mock-token',
+              apiBase: SAAS_DEV_API_BASE,
+              rememberMe: true,
+            });
+        })
+    );
+    const restore = handlers.get('auth:restoreSession')!;
+    const first = restore(saasEvent()) as Promise<{ status: string }>;
+    // The document reloads while the first restore is still reading the token.
+    connectionRegistry.advanceGeneration(saasConnectionId(), 'document');
+    const second = restore(saasEvent()) as Promise<{ status: string }>;
+    release();
+
+    expect((await second).status).toBe('restored');
+    // The old document's restore still fails closed on its own generation check.
+    expect((await first).status).toBe('refresh_failed');
+  });
+
+  describe('row 7: only a saas sign-out forgets the saas deep links', () => {
+    const signOuts = [
+      ['auth:logout', [{ accessToken: 'tok' }]],
+      ['auth:clearTokens', []],
+    ] as const;
+
+    it.each(signOuts.map(([ch, args], i) => [ch, args, ['QwErTyUp', 'ZxCvBnMk'][i]] as const))(
+      '%s from a self-hosted connection leaves the pending saas invite deliverable',
+      async (channel, args, code) => {
+        const openUrl = appOnCallbacks.get('open-url')!;
+        const S = openSelfHostedWithCustody(`https://signout-${code.toLowerCase()}.lan`);
+        try {
+          resetDeepLinkReadiness();
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          await handlers.get(channel)!(S.event, ...args);
+          // The handler did run against the self-hosted custody.
+          const ran = channel === 'auth:logout' ? S.custody.performLogout : S.custody.clearTokens;
+          expect(ran).toHaveBeenCalledTimes(1);
+
+          (await onCall('invite:renderer-ready'))(saasEvent());
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code });
+        } finally {
+          S.dispose();
+          resetDeepLinkReadiness();
+        }
+      }
+    );
+
+    it.each(signOuts.map(([ch, args], i) => [ch, args, ['HgFdSaPw', 'JkMnBvCx'][i]] as const))(
+      '%s from the saas connection still forgets the pending invite',
+      async (channel, args, code) => {
+        const openUrl = appOnCallbacks.get('open-url')!;
+        try {
+          resetDeepLinkReadiness();
+          openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
+          await handlers.get(channel)!(saasEvent(), ...args);
+          (await onCall('invite:renderer-ready'))(saasEvent());
+          expect(mockWebContents.send).not.toHaveBeenCalledWith('invite:received', { code });
+        } finally {
+          resetDeepLinkReadiness();
+        }
+      }
+    );
+  });
+
+  it("row 11: a proactive refresh reaches only the refreshing service's views", async () => {
+    const { setProactiveRefreshCallback } = await import('../../../src/main/tokenManager');
+    const { probeSelfHostedServer } = await import('../../../src/main/selfHostedProbe');
+    const { WebContentsView } = await import('electron');
+    const { commitSelfHostedApproval, serviceIdForApiBase } =
+      await import('../../../src/main/selfHostedProfile');
+    type RefreshCb = (accessToken: string, sessionId: string, previousSessionId: string) => void;
+    const refreshCalls = (setProactiveRefreshCallback as Mock).mock.calls;
+    // Service A is saas, registered at startup through main's own connectionServiceDeps.
+    const refreshA = refreshCalls[0]?.[0] as RefreshCb;
+    expect(refreshA).toBeDefined();
+
+    // Service B: registered through the same real deps, by opening it from the saas view.
+    const origin = new URL('https://refresh-owner-b.lan').origin;
+    commitSelfHostedApproval(origin, '10.0.0.7');
+    (probeSelfHostedServer as Mock).mockResolvedValue({ status: 'ok', apiBase: origin });
+    mockResolveForDisplay.mockResolvedValue({
+      ok: true,
+      address: '10.0.0.7',
+      addresses: ['10.0.0.7'],
+      decision: { tier: 'tier2' },
+    } as never);
+    const viewB = {
+      send: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      getURL: vi.fn(() => ''),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      loadFile: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+      mainFrame: { url: APP_FRAME, frameTreeNodeId: 9451 },
+    };
+    (WebContentsView as unknown as Mock).mockImplementationOnce(function () {
+      return {
+        webContents: viewB,
+        setBounds: vi.fn(),
+        setVisible: vi.fn(),
+        setBackgroundColor: vi.fn(),
+      };
+    });
+    const before = refreshCalls.length;
+    const saasBefore = connectionRegistry.foreground()?.connectionId;
+    const result = await handlers.get('selfHosted:probeServer')!(saasEvent(), origin);
+    try {
+      expect(result).toEqual({
+        status: 'opened-in-connection',
+        serviceId: serviceIdForApiBase(origin),
+      });
+      expect(refreshCalls).toHaveLength(before + 1);
+      const refreshB = refreshCalls[before][0] as RefreshCb;
+
+      mockWebContents.send.mockClear();
+      viewB.send.mockClear();
+      refreshA('tok-A', 'sess-A', 'prev-A');
+      refreshB('tok-B', 'sess-B', 'prev-B');
+      const refreshed = (send: Mock) =>
+        send.mock.calls
+          .filter((c: unknown[]) => c[0] === 'auth:token-refreshed')
+          .map((c: unknown[]) => (c[1] as { accessToken: string }).accessToken);
+      // Each view hears its own service's refresh (the positive control), and only it.
+      expect(refreshed(mockWebContents.send)).toEqual(['tok-A']);
+      expect(refreshed(viewB.send)).toEqual(['tok-B']);
+    } finally {
+      for (const r of connectionRegistry.liveConnections()) {
+        if (r.serviceId === serviceIdForApiBase(origin)) {
+          connectionRegistry.disposeConnection(r.connectionId);
+        }
+      }
+      if (saasBefore) connectionRegistry.setForeground(saasBefore);
+      mockResolveForDisplay.mockReset();
+    }
+  });
+
+  it('row 6: a window closed during the saas load opens nothing more and rejects nothing', async () => {
+    const closeWindow = (from = 0) => {
+      for (const [event, listener] of mockMainWindow.on.mock.calls.slice(from) as Array<
+        [string, () => void]
+      >) {
+        if (event === 'closed') listener();
+      }
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    let finishLoad: () => void = () => undefined;
+    const pendingLoad = () =>
+      new Promise<void>((resolve) => {
+        finishLoad = resolve;
+      });
+    try {
+      closeWindow();
+      expect(connectionRegistry.liveConnections()).toEqual([]);
+      mockWebContents.loadURL.mockClear();
+      mockWebContents.loadFile.mockClear();
+      mockWebContents.loadURL.mockImplementation(pendingLoad);
+      mockWebContents.loadFile.mockImplementation(pendingLoad);
+      mockWebContents.openDevTools.mockClear();
+      const mark = mockMainWindow.on.mock.calls.length;
+
+      appOnCallbacks.get('activate')!();
+      await vi.waitFor(() =>
+        expect(
+          mockWebContents.loadURL.mock.calls.length + mockWebContents.loadFile.mock.calls.length
+        ).toBeGreaterThan(0)
+      );
+      // The user quits while the saas document is still loading.
+      closeWindow(mark);
+      finishLoad();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+      expect(connectionRegistry.liveConnections()).toEqual([]);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      mockWebContents.loadURL.mockResolvedValue(undefined);
+      mockWebContents.loadFile.mockResolvedValue(undefined);
+      // Restore the shared fixture: a live window with its saas view.
+      if (connectionRegistry.bindingFor(mockWebContents as never)?.role !== 'primary') {
+        appOnCallbacks.get('activate')!();
+        await vi.waitFor(() =>
+          expect(connectionRegistry.bindingFor(mockWebContents as never)?.role).toBe('primary')
+        );
+      }
+    }
   });
 });

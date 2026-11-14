@@ -6,10 +6,12 @@ import { useUserStore, UserProfile } from '../../stores/auth/userStore';
 import { usePendingRegistrationStore } from '../../stores/auth/pendingRegistrationStore';
 import { useSSOStore } from '../../stores/auth/ssoStore';
 import { clientConfigService } from '../../services/system/clientConfigService';
+import { bootConnection } from '../../services/system/bootConnection';
 import {
   resetRuntimeServerBase,
   setRuntimeServerBase,
 } from '../../services/system/runtimeServerBase';
+import { SAAS_SERVICE_ID } from '../../../shared/connectionIdentity';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
@@ -75,6 +77,19 @@ type AuthStep =
   | 'change-email'
   | 'forgot-password';
 
+/**
+ * #86 §3.10: where this document's auth flow starts and returns to. A self-hosted
+ * connection's API base is pinned to its own origin, so the connection selector's
+ * hosted sign-in and sign-up would run against that origin; its home is its own login
+ * step. The saas connection and the legacy single-connection path keep the selector.
+ */
+function homeStep(): AuthStep {
+  const boot = bootConnection();
+  return boot.mode === 'connection' && boot.identity.serviceId !== SAAS_SERVICE_ID
+    ? 'hosted-login'
+    : 'connection-select';
+}
+
 const AuthFlow: React.FC = () => {
   const navigate = useNavigate();
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -90,11 +105,11 @@ const AuthFlow: React.FC = () => {
 
   // Derive initial step: pending registration resumes at email-verification,
   // otherwise a token without verified email goes to verification (login gate),
-  // otherwise start at connection selection.
+  // otherwise start at this document's home step.
   const getInitialStep = (): AuthStep => {
     if (hasPending) return 'email-verification';
     if (accessToken && !emailVerified) return 'email-verification';
-    return 'connection-select';
+    return homeStep();
   };
 
   const [step, setStep] = useState<AuthStep>(getInitialStep);
@@ -119,12 +134,45 @@ const AuthFlow: React.FC = () => {
   };
 
   const handleServerConnect = (url: string) => {
+    const boot = bootConnection();
+    if (boot.mode === 'connection') {
+      // #86 §3.10: this document's server base is boot-immutable, so main opens (or
+      // activates) the origin in its own connection. The probe answers 'ok' only for
+      // this document's own service, so an opened result naming it continues to login
+      // here; anything else returns this view to its home step.
+      globalThis.electron.connection.create(url).then(
+        (result) => {
+          const ownService =
+            result.status === 'opened' && result.serviceId === boot.identity.serviceId;
+          setStep(ownService ? 'hosted-login' : homeStep());
+        },
+        () => {
+          console.warn('[AuthFlow] connection.create failed');
+          setStep(homeStep());
+        }
+      );
+      return;
+    }
     setRuntimeServerBase(url);
     void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('hosted-login');
   };
 
   const handleBack = () => {
+    if (bootConnection().mode === 'connection') {
+      // Back leaves for the saas connection instead of re-homing this document, which
+      // returns to its own home step either way: never the selector on a self-hosted one.
+      globalThis.electron.connection.activate(SAAS_SERVICE_ID).then(
+        (activated) => {
+          if (!activated) console.warn('[AuthFlow] connection.activate refused');
+        },
+        () => {
+          console.warn('[AuthFlow] connection.activate failed');
+        }
+      );
+      setStep(homeStep());
+      return;
+    }
     resetRuntimeServerBase();
     void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('connection-select');

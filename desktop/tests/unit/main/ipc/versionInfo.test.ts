@@ -15,6 +15,7 @@ vi.mock('@/main/spaState', () => ({
 import { ipcMain } from 'electron';
 import { getRemoteSpaUrl, getSpaHash, getSpaVersion, onSpaStateChange } from '@/main/spaState';
 import { registerVersionInfoIpc, extractSpaHash } from '@/main/ipc/versionInfo';
+import { bindTestSender, type BoundSenderFixture } from './boundSenderFixture';
 
 describe('extractSpaHash', () => {
   it('extracts the hash slug from a typical SPA URL with index.html suffix', () => {
@@ -43,7 +44,12 @@ describe('extractSpaHash', () => {
 });
 
 describe('registerVersionInfoIpc', () => {
+  // #86 Task 7B: the handler runs behind registerIpc (app-global-read), so it is
+  // invoked from a bound saas primary and the registry is reset per case.
+  let fx: BoundSenderFixture;
+
   beforeEach(() => {
+    fx = bindTestSender();
     vi.clearAllMocks();
     vi.mocked(getRemoteSpaUrl).mockReturnValue('https://example.com/spa/abc123/index.html');
     vi.mocked(getSpaHash).mockReturnValue('');
@@ -63,7 +69,7 @@ describe('registerVersionInfoIpc', () => {
       (c) => c[0] === 'window:getVersionString'
     );
     const handler = handlerCall![1];
-    expect(handler()).toEqual({ appVersion: '0.1.40', spaHash: 'abc123' });
+    expect(handler(fx.event())).toEqual({ appVersion: '0.1.40', spaHash: 'abc123' });
   });
 
   it('handler uses captured SPA version before legacy URL parsing', () => {
@@ -74,7 +80,7 @@ describe('registerVersionInfoIpc', () => {
       (c) => c[0] === 'window:getVersionString'
     );
     const handler = handlerCall![1];
-    expect(handler()).toEqual({ appVersion: '0.1.40', spaHash: 'feedbee' });
+    expect(handler(fx.event())).toEqual({ appVersion: '0.1.40', spaHash: 'feedbee' });
   });
 
   it('handler falls back to captured HTML hash for flat remote SPA URLs', () => {
@@ -87,7 +93,7 @@ describe('registerVersionInfoIpc', () => {
       (c) => c[0] === 'window:getVersionString'
     );
     const handler = handlerCall![1];
-    expect(handler()).toEqual({ appVersion: '0.1.40', spaHash: htmlHash });
+    expect(handler(fx.event())).toEqual({ appVersion: '0.1.40', spaHash: htmlHash });
   });
 
   it('handler does not report a captured hash after remote SPA state is cleared', () => {
@@ -100,7 +106,7 @@ describe('registerVersionInfoIpc', () => {
       (c) => c[0] === 'window:getVersionString'
     );
     const handler = handlerCall![1];
-    expect(handler()).toEqual({ appVersion: '0.1.40', spaHash: null });
+    expect(handler(fx.event())).toEqual({ appVersion: '0.1.40', spaHash: null });
   });
 
   it('subscribes to spa state changes', () => {

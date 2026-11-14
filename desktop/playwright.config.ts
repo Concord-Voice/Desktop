@@ -23,6 +23,9 @@ const browserLaunchOptions = {
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  // The Electron spec launches the built shell and owns port 3001 itself; it runs only
+  // under playwright.electron.config.ts (`npm run test:e2e:electron`).
+  testIgnore: /connectionIsolation\.spec\.ts/,
   fullyParallel: false, // Run tests sequentially (they share DB state)
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

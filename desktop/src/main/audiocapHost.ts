@@ -117,7 +117,9 @@ import {
   type AudiocapStart,
   type ScreenAudioInterruptReason,
 } from '../shared/audiocapProtocol';
+import type { ConnectionId } from '../shared/connectionIdentity';
 import { NATIVE_ADDON_ENV, resolveNativeAddonPath } from './nativeAddonPath';
+import type { OwnerBinding } from './connectionCapability';
 
 /**
  * Why the local share has no audio. A closed enum of MECHANISM strings — never a
@@ -238,6 +240,12 @@ interface HostSession {
    * because `handleChildMessage`'s hello arm now posts `{kind:'start', …}` with it.
    */
   readonly windowHandle: number | null;
+  /**
+   * The connection that started this share (#86 Task 7B, spec §3.8), or `null` for the
+   * windowless capability probe. Handed to the port sink and the interrupt listener so
+   * main delivers both to the owner's current primary and to nobody else.
+   */
+  readonly owner: OwnerBinding | null;
   /** Resolves `startAudiocapHost`. Cleared by the first outcome (I4). */
   settle: ((result: AudiocapStartResult) => void) | null;
   handshakeTimer: NodeJS.Timeout | null;
@@ -426,7 +434,11 @@ function retire(
   // `interrupt !== null` is repeated so TypeScript narrows it; `publish` alone does not.
   if (publish && interrupt !== null) {
     try {
-      onInterrupted?.({ generation: live.generation, reason: interrupt });
+      // The owner rides as a second argument only for an owned share: the windowless
+      // probe (and a host-level caller with no owner) publishes exactly as before #86.
+      const published = { generation: live.generation, reason: interrupt };
+      if (live.owner) onInterrupted?.(published, live.owner);
+      else onInterrupted?.(published);
     } catch {
       // Fixed string only -- never the caught value, which may carry an
       // `Error.cause` (observability.md principle 3). No reason either: a line
@@ -490,27 +502,38 @@ export function killAudiocapHost(): void {
  * reader that looks only at `faulted` (spec §4.1's fault watch) forfeits nothing here.
  *
  * PUBLISHES NOTHING (I7): this is a voluntary end, and `killAudiocapHost` never calls `retire`.
+ *
+ * ONLY THE OWNER'S LOSS (#86). Every connection's view is wired, so `connectionId` names the
+ * connection whose renderer went away. A capture another connection owns is not that loss's
+ * to end: before this check, connection B's reload killed connection A's live share, and A
+ * was told nothing. A capture with no owner (a host-level start) has nothing to compare, so
+ * any connection's loss ends it, which fails closed. What breaks it: comparing anything but
+ * the owner binding's connection id, or skipping the kill for an unowned capture.
  */
-export function killAudiocapCapture(): void {
+export function killAudiocapCapture(connectionId: ConnectionId): void {
   const live = session;
   if (live?.windowHandle == null) return;
+  if (live.owner != null && live.owner.ref.connectionId !== connectionId) return;
   killAudiocapHost();
 }
 
 /**
- * Counts renderer losses, so an `audiocap:start` still awaiting its window enumeration can
- * see one that landed during the await. Without it the loss finds no session to kill, the
- * start forks anyway, and the new document inherits a tap nobody reaps (red-team VULN-A).
+ * Counts renderer losses PER CONNECTION, so an `audiocap:start` still awaiting its window
+ * enumeration can see one of its own connection's that landed during the await. Without it
+ * the loss finds no session to kill, the start forks anyway, and the new document inherits
+ * a tap nobody reaps (red-team VULN-A). Per connection (#86): another connection's reload
+ * is not this start's loss and must not refuse it. One number per connection opened in
+ * this process; ids are never reused, so a stale entry is never read for a new connection.
  */
-let rendererLossEpoch = 0;
+const rendererLossEpochs = new Map<ConnectionId, number>();
 
-export function audiocapRendererLossEpoch(): number {
-  return rendererLossEpoch;
+export function audiocapRendererLossEpoch(connectionId: ConnectionId): number {
+  return rendererLossEpochs.get(connectionId) ?? 0;
 }
 
-function noteRendererLoss(): void {
-  rendererLossEpoch += 1;
-  killAudiocapCapture();
+function noteRendererLoss(connectionId: ConnectionId): void {
+  rendererLossEpochs.set(connectionId, audiocapRendererLossEpoch(connectionId) + 1);
+  killAudiocapCapture(connectionId);
 }
 
 /**
@@ -518,21 +541,25 @@ function noteRendererLoss(): void {
  * here — `src/main/**` is outside coverage, and a wire nobody reaches is the failure mode
  * this epic keeps meeting.
  */
-export function wireAudiocapRendererLoss(contents: Pick<Electron.WebContents, 'on'>): void {
-  contents.on('render-process-gone', noteRendererLoss);
+export function wireAudiocapRendererLoss(
+  contents: Pick<Electron.WebContents, 'on'>,
+  connectionId: ConnectionId
+): void {
+  const lost = (): void => noteRendererLoss(connectionId);
+  contents.on('render-process-gone', lost);
   // `did-navigate`, NOT `did-start-navigation`. Electron fires `did-start-navigation`
   // BEFORE `will-navigate`, so keying on it would end the capture for a link click that
   // main.ts's `will-navigate` gate then cancels, silently dropping app audio from a live
   // share. `did-navigate` fires only for the main frame and only once a cross-document
   // navigation COMMITS; in-page navigations fire `did-navigate-in-page` instead. The
   // cost is that on a real reload the tap outlives the old document until commit.
-  contents.on('did-navigate', noteRendererLoss);
+  contents.on('did-navigate', lost);
   // A main-frame navigation that FAILS commits an error page and fires no `did-navigate`,
   // yet the document that owned the capture is gone (measured on Electron 44, red-team
   // VULN-B). ERR_ABORTED (-3) is excluded, as in the self-heal filter: a cancelled
   // navigation leaves the document in place.
   contents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
-    if (isMainFrame && errorCode !== -3) noteRendererLoss();
+    if (isMainFrame && errorCode !== -3) lost();
   });
 }
 
@@ -741,7 +768,8 @@ function beginCapture(live: HostSession, windowHandle: number): boolean {
       windowHandle,
     };
     live.child.postMessage(start, [channel.port1]);
-    sink(live.generation, channel.port2);
+    if (live.owner) sink(live.generation, channel.port2, live.owner);
+    else sink(live.generation, channel.port2);
     return true;
   } catch {
     // Nothing caught here is logged. The throw can carry an `Error.cause` from the
@@ -988,7 +1016,8 @@ function handleChildMessage(live: HostSession, message: unknown): void {
  */
 export function startAudiocapHost(
   generation: number,
-  windowHandle: number | null
+  windowHandle: number | null,
+  owner: OwnerBinding | null
 ): Promise<AudiocapStartResult> {
   // I3. Supersede first, synchronously, with nothing awaited in between.
   killAudiocapHost();
@@ -1064,6 +1093,7 @@ export function startAudiocapHost(
       generation,
       child,
       windowHandle,
+      owner,
       settle: resolve,
       handshakeTimer: null,
       startAckTimer: null,
@@ -1190,10 +1220,11 @@ export function setAudiocapCapabilityListener(
  * from two main-owned values; a listener that forwards it should still copy the two
  * fields rather than pass the reference on.
  */
-let onInterrupted: ((interrupt: AudiocapInterrupted) => void) | null = null;
+let onInterrupted: ((interrupt: AudiocapInterrupted, owner?: OwnerBinding) => void) | null = null;
 
+/** `owner` is the session's owner binding (#86 Task 7B); deliver to that connection only. */
 export function setAudiocapInterruptListener(
-  listener: ((interrupt: AudiocapInterrupted) => void) | null
+  listener: ((interrupt: AudiocapInterrupted, owner?: OwnerBinding) => void) | null
 ): void {
   onInterrupted = listener;
 }
@@ -1212,11 +1243,15 @@ export function setAudiocapInterruptListener(
  * is — the child is already capturing and nobody is listening — so the hello arm treats
  * it as a failed start and retires the session rather than swallowing it.
  */
-let onCapturePort: ((generation: number, port: Electron.MessagePortMain) => void) | null = null;
+type CapturePortSink = (
+  generation: number,
+  port: Electron.MessagePortMain,
+  owner?: OwnerBinding
+) => void;
+let onCapturePort: CapturePortSink | null = null;
 
-export function setAudiocapPortSink(
-  sink: ((generation: number, port: Electron.MessagePortMain) => void) | null
-): void {
+/** `owner` is the session's owner binding (#86 Task 7B); throw unless it is current. */
+export function setAudiocapPortSink(sink: CapturePortSink | null): void {
   onCapturePort = sink;
 }
 
@@ -1234,7 +1269,7 @@ async function runCapabilityProbe(): Promise<AudiocapProbeResult> {
     // `null`, and it is a statement rather than an omission: the probe asks whether
     // this MACHINE has a per-process backend, so it has no window and must never
     // reach the hello arm's `start` post. See the parameter's docblock.
-    const pendingProbe = startAudiocapHost(PROBE_GENERATION, null);
+    const pendingProbe = startAudiocapHost(PROBE_GENERATION, null, null);
     probeOwn = session;
     const started = await pendingProbe;
     result = started.ok

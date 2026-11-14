@@ -5,9 +5,13 @@
  * is the mistake this module's existence is meant to prevent.
  *
  * FOUR FENCES, in this order, and the order is the design:
- *   1. sender frame   -- read on the FIRST statement (A4): a permitted origin AND the
- *                        main window's own main frame (#3394 PR 1, R5). Re-run after
- *                        the only await, because the requester can go away during it.
+ *   1. sender frame   -- read on the FIRST statement (A4). Since IPC contract v34
+ *                        (#86): `app-global-mutate` admission (the foreground
+ *                        connection's primary), then `isOwnerPrimaryFrame` for the
+ *                        connection the share is bound to, and a refusal while another
+ *                        connection owns a live share. Re-run after the only await,
+ *                        with a foreground re-check, because the requester can go away
+ *                        or go to the background during it.
  *   2. payload shape  -- one known field; extras are dropped, never honoured
  *   3. prefix + shape -- re-parsed HERE, never trusted from the renderer (D4a)
  *   4. liveness       -- the id must still be in desktopCapturer's enumeration
@@ -16,79 +20,109 @@
  * the capture child is the only process that ever learns a PID, and it never
  * sends one back.
  */
-import { ipcMain, desktopCapturer, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { desktopCapturer, type IpcMainInvokeEvent } from 'electron';
 
 import {
   audiocapRendererLossEpoch,
+  currentAudiocapGeneration,
   startAudiocapHost,
   stopAudiocapHost,
   type AudiocapStartResult,
 } from '../audiocapHost';
 import { parseWindowSourceId } from '../../shared/parseWindowSourceId';
+import {
+  bindOwner,
+  onGenerationAdvanced,
+  requireOwner,
+  type OwnerBinding,
+} from '../connectionCapability';
 
-import { requireTrustedSender } from './frameValidation';
-
-/** Matches every sibling registrar (`attestation.ts`, `openExternal.ts`, `saveImage.ts`). */
-type RemoteSpaOriginProvider = () => string | null;
+import { CHANNEL_CLASSES } from './channelClassification';
+import {
+  requireConnectionSender,
+  requireForegroundPrimary,
+  type ConnectionSender,
+} from './connectionSender';
+import { currentRemoteSpaOrigin, registerIpc } from './registry';
 
 /**
- * Late-bound, matching `registerWindowControlsIpc(() => mainWindow)`: the registrar runs in
- * `whenReady` before `createWindow` assigns the window, and `main.ts` nulls it on `closed`,
- * so the lookup has to happen per call rather than once at registration.
+ * FENCE 1 (#86 Task 7B), shared by the start, the post-await re-check and the stop.
+ *
+ * THE OWNER IS A CONNECTION, NOT A WINDOW. Before #86 the share belonged to "the main
+ * window", proven by `event.sender === getMainWindow().webContents`. With one view per
+ * connection that identity names nothing, so the share is bound in main to the
+ * `ConnectionRef` that started it (`bindOwner('audiocap', ref)`, spec §3.8 R4):
+ *
+ *   - `requireOwner` admits only a PRIMARY binding to the owner's connection whose
+ *     current main frame sent the event (`senderMainFrame`: no parent, not detached,
+ *     the webContents' own `frameTreeNodeId`), and only while the owner's captured
+ *     generation is still the record's. A PiP shares the origin and is refused, as
+ *     #3394 PR 1 refused it; a document change, renderer loss, credential change or
+ *     dispose advances the generation and revokes the binding;
+ *   - `requireConnectionSender` re-runs the registry's whole admission (binding,
+ *     membership, the frame URL permitted for the connection's kind), so the re-check
+ *     after the await is the same fence the wrapper ran before it, not a subset.
+ *
+ * Both read `event.senderFrame` inside a try (a destroyed frame throws on access), so
+ * nothing that cannot be proven to be the owner's current primary main frame passes.
+ * What breaks it: comparing the payload, the window, or a renderer-held id instead of
+ * the binding, or dropping the generation half of `requireOwner`.
  */
-type MainWindowProvider = () => BrowserWindow | null;
+function isOwnerPrimaryFrame(event: IpcMainInvokeEvent, owner: OwnerBinding): boolean {
+  if (requireOwner(event, owner) === null) return false;
+  const sender = requireConnectionSender(event, { roles: ['primary'] }, currentRemoteSpaOrigin());
+  return sender !== null && sender.ref.connectionId === owner.ref.connectionId;
+}
 
 /**
- * FENCE 1, shared by both handlers so the start and the stop cannot drift apart (#3394 PR 1,
- * R5).
- *
- * THE ORIGIN ALLOWLIST ALONE WAS NOT ENOUGH. `requireTrustedSender` answers "is this frame
- * one of OUR documents", and more than one of our documents exists: a PiP window loads the
- * same SPA entry from the same origin, and any subframe the main window hosts on a permitted
- * origin passes too. Admitting on origin alone let a PiP start a capture whose port main
- * then hands to the MAIN window, and let either one end the main window's share. The
- * capture seam, the port sink and the renderer-loss wire all belong to the main window, so
- * the handlers admit exactly the frame those three are wired to:
- *
- *   - the origin is permitted (the existing check, unchanged and still first);
- *   - `event.sender` IS the main window's `webContents`, by identity;
- *   - the sender frame IS that `webContents`' main frame, by `frameTreeNodeId`.
- *
- * `senderFrame` is read ONCE, inside `requireTrustedSender`, and the frame whose URL passed
- * is the frame whose id is compared. Reading the property a second time would compare a
- * frame the origin check never saw.
- *
- * A DESTROYED WINDOW IS REFUSED EXPLICITLY, matching every other `isDestroyed()` check in
- * `main.ts`, and the catch stays behind it as a backstop rather than the only guard: reading
- * `.webContents` off a destroyed `BrowserWindow` throws `Object has been destroyed` on the
- * property access (#3198 Phase-8 probe on Electron 44.1.1, recorded beside the
- * `did-finish-load` push in `main.ts`), and so does `.mainFrame` on a destroyed `webContents`.
- * The explicit check is what keeps a later refactor that narrows the catch from silently
- * dropping the protection. `main.ts` also nulls the window on `closed`, which the `!win` arm
- * covers. Fail closed: nothing that cannot be proven to be the main window's main frame is
- * admitted.
+ * The connection that owns the live or pending share, or null. Set synchronously when a
+ * well-formed start is admitted (before its await), so the owner's stop during the
+ * enumeration wins and another connection's stop is refused. Cleared by the owner's
+ * stop and by any generation advance of the owner's connection (below).
  */
-function isMainWindowMainFrame(
-  event: IpcMainInvokeEvent,
-  getRemoteSpaOrigin: RemoteSpaOriginProvider,
-  getMainWindow: MainWindowProvider
-): boolean {
-  const senderFrame = requireTrustedSender(event, getRemoteSpaOrigin());
-  if (!senderFrame) return false;
-  const win = getMainWindow();
-  if (!win) return false;
-  try {
-    if (win.isDestroyed()) return false;
-    const contents = win.webContents;
-    return (
-      event.sender === contents &&
-      senderFrame.frameTreeNodeId === contents.mainFrame.frameTreeNodeId
-    );
-  } catch {
-    // Not logged: the throw is Electron's "destroyed" error, which says nothing a refusal
-    // does not, and this module's rule is that nothing caught here reaches a sink.
-    return false;
-  }
+let shareOwner: OwnerBinding | null = null;
+
+/** The owner of the live or pending share, for main's port and interrupt routing. */
+export function audiocapShareOwner(): OwnerBinding | null {
+  return shareOwner;
+}
+
+/**
+ * The generation this module handed `startAudiocapHost` for `shareOwner`'s share, or 0
+ * before one reached the host. Cleared with `shareOwner`.
+ */
+let ownedShareGeneration = 0;
+
+/**
+ * NO SILENT REPLACE (#86 Task 7B pass 2, accepted security finding). True while a
+ * connection other than `owner`'s owns a LIVE share: the host's live session is the one
+ * this module started for `shareOwner`. A start that passed this check would supersede
+ * that session inside `startAudiocapHost` and hand the tap to another connection.
+ *
+ * "Live" is the host's own answer (`currentAudiocapGeneration`, 0 when nothing is live),
+ * so a share the host retired on its own (an interrupt, a crash) blocks nobody, while a
+ * share still starting or capturing does. A pending start that has not reached the host
+ * yet is not live: only the foreground primary can start, so a second start can only come
+ * from a connection that became foreground since, and its epoch bump supersedes the first.
+ * The owner restarting its own share is not refused (the pre-#86 behaviour). What breaks
+ * it: comparing the window or the payload instead of the owner's connection, or reading
+ * the module's own generation mint instead of the host's live one.
+ */
+function anotherConnectionOwnsLiveShare(owner: OwnerBinding): boolean {
+  const current = shareOwner;
+  if (current === null || current.ref.connectionId === owner.ref.connectionId) return false;
+  return ownedShareGeneration !== 0 && currentAudiocapGeneration() === ownedShareGeneration;
+}
+
+/** True while the owner's connection is still the foreground one (re-checked after the await). */
+function isOwnerForeground(event: IpcMainInvokeEvent, owner: OwnerBinding): boolean {
+  const sender = requireForegroundPrimary(event, currentRemoteSpaOrigin());
+  return sender !== null && sender.ref.connectionId === owner.ref.connectionId;
+}
+
+function forgetShareOwner(): void {
+  shareOwner = null;
+  ownedShareGeneration = 0;
 }
 
 /**
@@ -111,8 +145,9 @@ function nextShareGeneration(): number {
 }
 
 /**
- * Exported for test. `ipcMain.handle` is registered against it below, so the
- * tests exercise the same function production does rather than a copy.
+ * Exported for test. `registerIpc` registers it below behind the `connection-bound`
+ * admission, so the tests exercise the same function production does rather than a copy.
+ * `sender` is the main-held binding the registry admitted in the event's own tick.
  *
  * `request: unknown` IS THE POINT, and it is a deliberate divergence from the plan's
  * draft, which declared it `AudiocapStartRequest` and then immediately cast back to
@@ -122,16 +157,23 @@ function nextShareGeneration(): number {
  * to reach the field at all, so it cannot be deleted without the compiler objecting.
  */
 export async function handleAudiocapStart(
+  sender: ConnectionSender,
   event: IpcMainInvokeEvent,
-  request: unknown,
-  getRemoteSpaOrigin: RemoteSpaOriginProvider,
-  getMainWindow: MainWindowProvider
+  request: unknown
 ): Promise<AudiocapStartResult> {
   // FENCE 1 -- first statement. A4 is specific about this: a validation that
-  // runs after any other work is a validation a future edit can reorder past.
-  if (!isMainWindowMainFrame(event, getRemoteSpaOrigin, getMainWindow)) {
-    return { ok: false, reason: 'protocol-fault' };
-  }
+  // runs after any other work is a validation a future edit can reorder past. Only the
+  // FOREGROUND primary may start a share (#86 Task 7B pass 2: the registry admits this
+  // channel as app-global-mutate); the share is bound to THAT connection's current
+  // generation, captured here, synchronously, before any await.
+  if (sender.role !== 'primary') return { ok: false, reason: 'protocol-fault' };
+  const owner = bindOwner('audiocap', sender.ref);
+  if (!isOwnerPrimaryFrame(event, owner)) return { ok: false, reason: 'protocol-fault' };
+  // No silent replace: another connection's live share is refused, not superseded. The
+  // refusal reuses `protocol-fault`, the member this fence already answers with: the
+  // degrade union is closed and every member carries renderer copy, so a new reason is
+  // not additive.
+  if (anotherConnectionOwnsLiveShare(owner)) return { ok: false, reason: 'protocol-fault' };
 
   // FENCE 2. Read exactly the one field. An extra `systemAudio: true` is not
   // rejected, because rejecting it would tell a hostile renderer which fields
@@ -165,9 +207,14 @@ export async function handleAudiocapStart(
   // cannot land after the check but before the native host is registered.
   shareOperationEpoch += 1;
   const operationEpoch = shareOperationEpoch;
+  // A different connection's start (admitted only because no share of the old owner is
+  // live) must not inherit the old owner's generation.
+  if (shareOwner?.ref.connectionId !== owner.ref.connectionId) ownedShareGeneration = 0;
+  shareOwner = owner;
   // A reload or renderer crash during the await below finds no session to kill, so the
   // start must notice it here instead, or it forks a tap for a document that is gone.
-  const lossEpoch = audiocapRendererLossEpoch();
+  // The owner's connection's count only: another connection's loss is not this start's.
+  const lossEpoch = audiocapRendererLossEpoch(owner.ref.connectionId);
 
   // FENCE 4. A well-formed id for a window that has since closed is STALE, and
   // "a stale id must never silently widen a capture" (D4a). Thumbnail-free, so
@@ -177,23 +224,33 @@ export async function handleAudiocapStart(
     thumbnailSize: { width: 0, height: 0 },
     fetchWindowIcons: false,
   });
-  if (operationEpoch !== shareOperationEpoch || lossEpoch !== audiocapRendererLossEpoch()) {
+  if (
+    operationEpoch !== shareOperationEpoch ||
+    lossEpoch !== audiocapRendererLossEpoch(owner.ref.connectionId)
+  ) {
     return { ok: false, reason: 'target-unresolved' };
   }
   // FENCE 1 again, the WHOLE fence and not only its origin half, because the await above
   // can outlive the requester in ways the loss epoch does not see: Electron nulls
-  // `senderFrame` once its document navigates, the main window can close (the provider
-  // then answers `null`) or be replaced by a new one, and the frame that asked can stop
-  // being that window's main frame. Any of those means the port would be handed to a
-  // document that did not ask for it.
-  if (!isMainWindowMainFrame(event, getRemoteSpaOrigin, getMainWindow)) {
+  // `senderFrame` once its document navigates, the connection can advance its generation
+  // (document, credential, renderer loss) or be disposed, and the frame that asked can
+  // stop being its webContents' main frame. Any of those means the port would be handed
+  // to a document that did not ask for it: a superseded request's effect is dropped.
+  if (!isOwnerPrimaryFrame(event, owner)) {
+    return { ok: false, reason: 'protocol-fault' };
+  }
+  // A start admitted while foreground is refused if its connection went to the background
+  // during the enumeration: a hidden connection must not start capture (#86 Task 7B pass 2).
+  if (!isOwnerForeground(event, owner)) {
     return { ok: false, reason: 'protocol-fault' };
   }
   if (!live.some((s) => s.id === sourceId)) {
     return { ok: false, reason: 'target-unresolved' };
   }
 
-  return startAudiocapHost(nextShareGeneration(), handle);
+  const generation = nextShareGeneration();
+  ownedShareGeneration = generation;
+  return startAudiocapHost(generation, handle, owner);
 }
 
 /**
@@ -222,32 +279,42 @@ export async function handleAudiocapStart(
  * calls it while only the windowless app-start probe is live, which `stopAudiocapHost`
  * spares because it is no renderer's capture (#3394 PR 1, R4).
  */
-export function handleAudiocapStop(
-  event: IpcMainInvokeEvent,
-  getRemoteSpaOrigin: RemoteSpaOriginProvider,
-  getMainWindow: MainWindowProvider
-): void {
+export function handleAudiocapStop(_sender: ConnectionSender, event: IpcMainInvokeEvent): void {
   // FENCE 1, first statement, and the SAME helper as the start handler. This reaches a
-  // process kill, so only the frame the share belongs to -- the main window's main frame --
-  // may end it; a PiP or a subframe on a permitted origin may not.
-  if (!isMainWindowMainFrame(event, getRemoteSpaOrigin, getMainWindow)) return;
+  // process kill, so only the connection the share belongs to -- its current primary main
+  // frame -- may end it; another connection, a PiP or a subframe may not. With no owner
+  // there is no renderer's share to end, and the windowless probe is no renderer's.
+  const owner = shareOwner;
+  if (owner === null || !isOwnerPrimaryFrame(event, owner)) return;
+  forgetShareOwner();
   shareOperationEpoch += 1;
   stopAudiocapHost();
 }
 
-export function registerAudiocapIpc(
-  getRemoteSpaOrigin: RemoteSpaOriginProvider,
-  getMainWindow: MainWindowProvider
-): void {
-  // DI, matching every sibling registrar (registerAttestationIpc, registerOpenExternalHandler,
-  // registerSaveImageHandler). A direct module import would make this the one registrar that
-  // cannot be tested without stubbing a module. `getMainWindow` is main-side DI only: no
-  // channel, payload or signature the renderer sees changes, so IPC_CONTRACT_VERSION does
-  // not move.
-  ipcMain.handle('audiocap:start', (event, request: unknown) =>
-    handleAudiocapStart(event, request, getRemoteSpaOrigin, getMainWindow)
-  );
-  ipcMain.handle('audiocap:stop', (event) =>
-    handleAudiocapStop(event, getRemoteSpaOrigin, getMainWindow)
-  );
+/**
+ * Registers `audiocap:start` behind `app-global-mutate` (the foreground primary, #86 Task 7B
+ * pass 2) and `audiocap:stop` behind `connection-bound` (#86 Task 7B). The
+ * legacy `(getRemoteSpaOrigin, getMainWindow)` providers are gone: the remote-SPA origin
+ * comes from the registry and the owner from the binding.
+ *
+ * A generation advance on the owner's connection (document change, renderer loss,
+ * credential start or end, dispose) revokes the share: the owner is forgotten, a pending
+ * start is superseded through the operation epoch, and the live capture is stopped, so a
+ * tap can never outlive the document that asked for it. Registered once per process.
+ */
+export function registerAudiocapIpc(): void {
+  const refusal = (): Promise<AudiocapStartResult> =>
+    Promise.resolve({ ok: false, reason: 'protocol-fault' });
+  registerIpc('audiocap:start', CHANNEL_CLASSES['audiocap:start'], handleAudiocapStart, {
+    refusal,
+  });
+  registerIpc('audiocap:stop', CHANNEL_CLASSES['audiocap:stop'], handleAudiocapStop, {
+    refusal: () => undefined,
+  });
+  onGenerationAdvanced((id) => {
+    if (shareOwner?.ref.connectionId !== id) return;
+    forgetShareOwner();
+    shareOperationEpoch += 1;
+    stopAudiocapHost();
+  });
 }

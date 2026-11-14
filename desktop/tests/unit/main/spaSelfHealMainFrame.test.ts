@@ -15,6 +15,8 @@ import {
 } from '@/main/spaSelfHealMainFrame';
 
 const mockAttempt = attemptSelfHeal as unknown as ReturnType<typeof vi.fn>;
+// The contents a handler names as its requester; attemptSelfHeal checks it (#86 RT3).
+const requester = { id: 1 } as unknown as Electron.WebContents;
 
 // Legacy per-SHA host (pre-#976): SPA served under /spa/<sha>/, SHARING the
 // origin with the API. Base dir = '/spa/abc1234/' — so non-SPA same-origin
@@ -43,7 +45,9 @@ describe('shouldTriggerSelfHealForFailedLoad — did-fail-load filter', () => {
     ).toBe(true);
   });
 
-  it('triggers on isMainFrame=false for a chunk under the SPA assets dir (legacy)', () => {
+  // #86 RT3: a subframe did-fail-load at an SPA asset URL can only come from a
+  // document framing the SPA origin, so it never triggers, even under assets/.
+  it('does NOT trigger on isMainFrame=false, even for a chunk under the SPA assets dir (legacy)', () => {
     expect(
       shouldTriggerSelfHealForFailedLoad({
         errorCode: 404,
@@ -52,7 +56,7 @@ describe('shouldTriggerSelfHealForFailedLoad — did-fail-load filter', () => {
         remoteSpaBaseUrl: LEGACY_ORIGIN,
         remoteSpaBaseDir: LEGACY_DIR,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does NOT trigger on errorCode=-3 (ABORTED) — user-cancelled nav', () => {
@@ -191,16 +195,16 @@ describe('shouldTriggerSelfHealForFailedLoad — did-fail-load filter', () => {
     ).toBe(true);
   });
 
-  it('triggers on flat-host chunk asset (sub-resource)', () => {
+  it('does NOT trigger on a flat-host subframe at a chunk asset URL (#86 RT3 frame-the-SPA vector)', () => {
     expect(
       shouldTriggerSelfHealForFailedLoad({
-        errorCode: 404,
+        errorCode: -30,
         validatedURL: 'https://spa.concordvoice.chat/assets/recoveryService-40XchBlv.js',
         isMainFrame: false,
         remoteSpaBaseUrl: FLAT_ORIGIN,
         remoteSpaBaseDir: FLAT_DIR,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('does NOT trigger on flat-host non-asset sub-resource', () => {
@@ -374,6 +378,7 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       payload: { reason: 'chunk-load' },
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -385,6 +390,7 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       payload: { reason: 'main-frame-load' },
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -396,6 +402,7 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       payload: 'not-an-object',
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -410,12 +417,14 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       },
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
 
     expect(mockAttempt).toHaveBeenCalledOnce();
     expect(mockAttempt).toHaveBeenCalledWith({
       reason: 'chunk-load',
       url: 'https://api.concordvoice.chat/spa/abc1234/assets/x.js',
+      requester,
     });
     expect(result).toEqual({ mode: 'recovered', retryCount: 1 });
   });
@@ -426,9 +435,14 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       payload: { reason: 'chunk-import-rejected' },
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
 
-    expect(mockAttempt).toHaveBeenCalledWith({ reason: 'chunk-import-rejected', url: undefined });
+    expect(mockAttempt).toHaveBeenCalledWith({
+      reason: 'chunk-import-rejected',
+      url: undefined,
+      requester,
+    });
   });
 
   it('dispatches on a flat-host hash-route sender (post-#976 end-to-end)', async () => {
@@ -439,8 +453,13 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
       payload: { reason: 'chunk-import-rejected' },
       remoteSpaBaseUrl: FLAT_ORIGIN,
       remoteSpaBaseDir: FLAT_DIR,
+      requester,
     });
-    expect(mockAttempt).toHaveBeenCalledWith({ reason: 'chunk-import-rejected', url: undefined });
+    expect(mockAttempt).toHaveBeenCalledWith({
+      reason: 'chunk-import-rejected',
+      url: undefined,
+      requester,
+    });
   });
 });
 
@@ -454,6 +473,7 @@ describe('handleDidFailLoad — extracted listener body', () => {
       isMainFrame: true,
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -466,6 +486,7 @@ describe('handleDidFailLoad — extracted listener body', () => {
       isMainFrame: true,
       remoteSpaBaseUrl: null,
       remoteSpaBaseDir: null,
+      requester,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -478,6 +499,7 @@ describe('handleDidFailLoad — extracted listener body', () => {
       isMainFrame: true,
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
 
     expect(mockAttempt).toHaveBeenCalledOnce();
@@ -485,23 +507,22 @@ describe('handleDidFailLoad — extracted listener body', () => {
       reason: 'main-frame-load',
       url: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       errorCode: -105,
+      requester,
     });
   });
 
-  it('dispatches sub-resource on isMainFrame=false with chunk URL', async () => {
-    await handleDidFailLoad({
+  it('does not dispatch on isMainFrame=false, even with a chunk URL (#86 RT3)', async () => {
+    const result = await handleDidFailLoad({
       errorCode: 404,
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings-x.js',
       isMainFrame: false,
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
 
-    expect(mockAttempt).toHaveBeenCalledWith({
-      reason: 'sub-resource',
-      url: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings-x.js',
-      errorCode: 404,
-    });
+    expect(result).toBeNull();
+    expect(mockAttempt).not.toHaveBeenCalled();
   });
 
   it('returns the recovery outcome on dispatch', async () => {
@@ -511,6 +532,7 @@ describe('handleDidFailLoad — extracted listener body', () => {
       isMainFrame: true,
       remoteSpaBaseUrl: LEGACY_ORIGIN,
       remoteSpaBaseDir: LEGACY_DIR,
+      requester,
     });
     expect(result).toEqual({ mode: 'recovered', retryCount: 1 });
   });

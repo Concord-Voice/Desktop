@@ -7,9 +7,15 @@ import { registerSSOIPC } from './ipc/sso';
 import { cancelActiveAppleFlow } from './oauth/apple/appleFlow';
 import { cancelActiveGoogleFlow } from './oauth/google/googleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
+import {
+  openApprovedConnection,
+  registerConnectionIpc,
+  type ConnectionCeremonyVerdict,
+} from './ipc/connection';
+import { registerIpc, setRemoteSpaOriginSource } from './ipc/registry';
+import { crossCheckApiBase, type ConnectionSender } from './ipc/connectionSender';
 import { registerAudiocapIpc } from './ipc/audiocap';
 import { registerBillingIpc } from './ipc/billing';
-import { isBillingWebContents } from './billing/billingWindow';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import {
   initTray,
@@ -19,7 +25,7 @@ import {
   setTrayActionSender,
   setTrayWindowFocused,
 } from './tray';
-import { attachTrayResetHooks, registerTrayStatusIpc } from './ipc/trayStatus';
+import { attachTrayResetHooks, registerTrayStatusIpc, trayActionTarget } from './ipc/trayStatus';
 import { TRAY_ACTION } from '../shared/trayStatus';
 import {
   audiocapMachineCapability,
@@ -33,50 +39,32 @@ import {
 import { registerVersionInfoIpc } from './ipc/versionInfo';
 import { buildBrowserWindowConfig } from './browserWindowConfig';
 import { PRODUCTION_API_BASE } from './apiBaseUrl';
+import { pinFirstPartyApiOrigin } from './firstPartyOrigin';
 import { revealLoadFailure } from './loadFailureVisibility';
 import { loadWindowState, attachWindowState } from './windowState';
 import { isWayland } from './waylandDetect';
 import { deriveCloseAction, deriveMinimizeAction } from '../shared/clientBehavior';
 import { SPA_FALLBACK_MESSAGE } from '../shared/spaIpcTypes';
-import { isSupportedDesktopClientVersion } from '../shared/stableDesktopVersion';
 import {
   app,
   autoUpdater as electronAutoUpdater,
-  BrowserWindow,
   clipboard,
   desktopCapturer,
   dialog,
-  ipcMain,
   nativeImage,
-  net,
   powerMonitor,
   protocol,
   screen,
-  session,
-  shell,
+  type BaseWindow,
+  type BrowserWindow,
   type IpcMainInvokeEvent,
   type WebContents,
 } from 'electron';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
-import {
-  storeRefreshToken,
-  restoreRefreshToken,
-  performRefresh,
-  performLogout,
-  clearTokens,
-  clearTokensIfOwner,
-  getCapabilities,
-  storeE2EEKeys,
-  storeE2EEKeysIfOwner,
-  restoreE2EEKeys,
-  getCredentialCustodyState,
-  setProactiveRefreshCallback,
-  onSystemResume,
-  getCachedAccessToken,
-  getApiBaseOrigin,
-} from './tokenManager';
+// #86: custody is per service and reached only through the sender's binding or the
+// service record; main never picks one from a pointer.
+import { makeServiceCustody } from './serviceCustody';
 import { getMachineId } from './machineId';
 import { normalizeSelfHostedUrl, probeSelfHostedServer } from './selfHostedProbe';
 import { consumeCeremonyToken } from './selfHostedCeremonyBudget';
@@ -88,6 +76,7 @@ import {
   isValidatedSelfHostedApiBase,
   loadApprovedSelfHostedOrigins,
 } from './selfHostedProfile';
+import { isServerUserId } from '../shared/serverUserId';
 import { resolveForDisplay, type ResolveForDisplayResult } from './guardedRequest';
 import type { EgressDecision } from './egressPolicy';
 import {
@@ -111,7 +100,6 @@ import {
   runDeferredCleanup,
   type SentinelResult,
 } from './updateSafety';
-import { resolveAppProtocolPath } from './appProtocol';
 import {
   resolveSpaSource,
   isUnexpectedBundled,
@@ -123,14 +111,20 @@ import {
   type SpaLoadDecision,
 } from './spaLoader';
 import { CONFIG_TIMEOUT_MS, SPA_RETRY_DELAYS_MS } from './spaTiming';
-import { handleCacheProtocolRequest } from './spaCache/cacheProtocol';
 import { getLiveDir } from './spaCache/cacheStore';
 import { populateCacheFromRemote } from './spaCache/populateCache';
 import { resolveCachedSpa } from './spaCache/resolveCachedSpa';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './spaCache/manifestSchema';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
-import { consumePipOpenToken, isPipOpenOptions, MAX_PIP_WINDOWS } from './pipOpenPolicy';
+import {
+  consumePipOpenToken,
+  isPipId,
+  isPipOpenOptions,
+  MAX_PIP_WINDOWS,
+  MAX_PIP_WINDOWS_PER_CONNECTION,
+  releasePipOpenBudget,
+} from './pipOpenPolicy';
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
@@ -142,13 +136,55 @@ import {
   getRemoteSpaBaseUrl,
   getRemoteSpaUrl,
   getSpaHash,
+  onSpaStateChange,
   setRemoteSpaState,
 } from './spaState';
 import {
-  isPermittedFrameUrl,
-  isTrustedMainWindowSender,
-  requireTrustedSender,
-} from './ipc/frameValidation';
+  bindingFor,
+  boundRecordFor,
+  foreground,
+  getService,
+  liveConnections,
+  onGenerationAdvanced,
+  pipSpaOriginFor,
+  recordFor,
+  refOf,
+  registerService,
+  type RegisterServiceDeps,
+  type ServiceRecord,
+} from './connectionRegistry';
+import { isOwnerCurrent } from './connectionCapability';
+import {
+  configureConnectionSession,
+  installNavigationGate,
+  sessionForService,
+  type ConnectionSessionDeps,
+} from './connectionSession';
+import {
+  activateConnection,
+  broadcastToPrimaries,
+  createPipWindow,
+  createShellWindow,
+  destroyPip,
+  foregroundWebContents,
+  installDevConnectionMenu,
+  openConnectionView,
+  initPersistedConnections,
+  persistAddedConnections,
+  restorePersistedConnections,
+  saasPrimary,
+  sendToConnection,
+  shellWindow,
+  showSaasForDeepLink,
+} from './shellWindow';
+import { runConnectionMigration } from './connectionMigration';
+import { readApprovalsFile } from './selfHostedApprovals';
+import {
+  SAAS_SERVICE_ID,
+  type ConnectionId,
+  type ConnectionRef,
+  type ServiceId,
+} from '../shared/connectionIdentity';
 import {
   IPC_CONTRACT_VERSION,
   type CredentialOwner,
@@ -175,6 +211,13 @@ migrateUserData();
 // Hydrate the in-memory validated-origin set from the durable approval store (#2354).
 // Trust is minted only by the native ceremony below; this replays prior decisions.
 loadApprovedSelfHostedOrigins();
+
+// #86 §3.6: P0/P1 once, read-only on the legacy files; then connections.json alone.
+// After the approvals load (a self-hosted entry needs the ledger) and before any
+// window or custody restore. It never throws: a malformed entry is dropped.
+const startupConnections = runConnectionMigration(app.getPath('userData'), {
+  isValidatedSelfHostedApiBase,
+}).entries;
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -275,7 +318,7 @@ function contentProtectionSupported(): boolean {
 // visible, while failing to apply `true` leaves it UNPROTECTED while the stored
 // preference says otherwise. Only the second is a privacy downgrade.
 function applyContentProtectionAtCreation(
-  window: BrowserWindow,
+  window: BaseWindow,
   enabled: boolean,
   label: string
 ): void {
@@ -297,8 +340,9 @@ function applyContentProtectionAtCreation(
   }
 }
 
-function getContentProtectionWindows(): BrowserWindow[] {
-  const windows = mainWindow ? [mainWindow] : [];
+function getContentProtectionWindows(): BaseWindow[] {
+  const shell = shellWindow();
+  const windows: BaseWindow[] = shell ? [shell] : [];
   for (const { window } of pipWindows.values()) windows.push(window);
   return windows.filter((window) => !window.isDestroyed());
 }
@@ -374,7 +418,8 @@ if (app.isPackaged) {
   ]);
 }
 
-let mainWindow: BrowserWindow | null = null;
+// #86 Task 4: there is no `mainWindow`. The shell is a `BaseWindow` (`shellWindow()`)
+// and each connection is a view; see the consumer table at the top of shellWindow.ts.
 // Two INDEPENDENT readiness flags, never one shared flag: a pre-22 SPA signals
 // only 'invite:renderer-ready', and a shared flag would make main believe the
 // friend subscription is live when it is not (#945).
@@ -773,12 +818,18 @@ let deepLinkOwner: CredentialOwner | null = null;
 // because drainPendingDeepLinks takes a `queue.splice(0)` snapshot first: a
 // forget from inside the loop empties the live queue while the snapshot it is
 // iterating survives, and every retained code delivers anyway.
+// #86: deep links are saas-only (§3.7), so the owner that fences them is the saas
+// custody's, never another connection's.
+function liveCredentialOwner(): CredentialOwner | null {
+  return getService(SAAS_SERVICE_ID)?.custody.getCredentialCustodyState().credentialOwner ?? null;
+}
+
 function fenceDeepLinksOnOwnerChange(atArrival = false, known?: CredentialOwner | null): void {
   // `known` lets a caller that has ALREADY read custody pass its reading in.
   // auth:restoreSession is the one that must: it re-verifies the owner across an
   // await for its own reasons, and an extra read here would both be redundant and
   // change how many times it observes custody.
-  const current = known === undefined ? getCredentialCustodyState().credentialOwner : known;
+  const current = known === undefined ? liveCredentialOwner() : known;
   if (deepLinkOwner === null || current === deepLinkOwner) return;
   // `current === null` means credentials are gone with no successor. At a DRAIN
   // or FLUSH that is the login-side carve-out above and the queue must survive.
@@ -801,7 +852,7 @@ function fenceDeepLinksOnOwnerChange(atArrival = false, known?: CredentialOwner 
 // stay null-tagged so the carve-out above still applies to it at sign-in, and
 // resetting it would extend that exemption to a retained code (see the test).
 function noteDeepLinkOwner(known?: CredentialOwner | null): void {
-  const current = known === undefined ? getCredentialCustodyState().credentialOwner : known;
+  const current = known === undefined ? liveCredentialOwner() : known;
   if (current !== null) deepLinkOwner = current;
 }
 
@@ -883,11 +934,20 @@ function sendDeepLink(kind: DeepLinkKind, code: string): void {
   }
   gate.lastCode = code;
   gate.lastAt = Date.now();
+  // Deep links are saas-only (§3.7): never delivered to a self-hosted view.
+  const saas = saasPrimary();
+  if (!saas) return;
   if (kind === 'friend') {
-    mainWindow?.webContents.send('deeplink:friend-code', { code });
+    sendToConnection(refOf(saas), 'deeplink:friend-code', { code });
     return;
   }
-  mainWindow?.webContents.send('invite:received', { code });
+  sendToConnection(refOf(saas), 'invite:received', { code });
+}
+
+/** The saas view's contents while it is live; deep-link delivery's only target. */
+function saasDeliveryTarget(): WebContents | null {
+  const contents = saasPrimary()?.webContents;
+  return contents && !contents.isDestroyed() ? contents : null;
 }
 
 /** Window edge: deliver whatever the window held back, newest only. */
@@ -903,7 +963,7 @@ function flushDeepLinkGate(kind: DeepLinkKind): void {
     gate.timer = setTimeout(() => flushDeepLinkGate(kind), DEEP_LINK_EMIT_WINDOW_MS);
   }
   if (code === gate.lastCode) return;
-  if (!mainWindow || mainWindow.isDestroyed() || !isRendererReadyFor(kind)) {
+  if (!saasDeliveryTarget() || !isRendererReadyFor(kind)) {
     // The renderer went away inside the window — hand the code back to its
     // queue instead of dropping it; the next drain delivers it.
     queueDeepLink({ kind, code });
@@ -914,7 +974,7 @@ function flushDeepLinkGate(kind: DeepLinkKind): void {
 
 /** True once the entry is accounted for: sent, or held for the window edge. */
 function emitDeepLink(entry: PendingDeepLink): boolean {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!saasDeliveryTarget()) return false;
   if (!isRendererReadyFor(entry.kind)) return false;
 
   const gate = deepLinkEmitGates[entry.kind];
@@ -1027,8 +1087,8 @@ function drainPendingDeepLinks(): void {
 }
 
 // Only result.reason is logged. Invite and friend codes are bearer material and
-// never reach a log line.
-function handleInviteDeepLink(raw: string | undefined, source: string): void {
+// never reach a log line. True only for a link that parsed and was queued.
+function handleInviteDeepLink(raw: string | undefined, source: string): boolean {
   const result = normalizeInviteDeepLink(raw);
   if (result.ok) {
     // The only place a code ENTERS main. queueDeepLink is not it — resetDeepLinkGate
@@ -1037,11 +1097,15 @@ function handleInviteDeepLink(raw: string | undefined, source: string): void {
     fenceDeepLinksOnOwnerChange(true);
     noteDeepLinkOwner();
     queueDeepLink({ kind: result.kind, code: result.code });
-    return;
+    // #86 C8: the link is delivered to the saas view alone, so put that view on
+    // screen. After the queue: showing is layout, and must never cost the delivery.
+    showSaasForDeepLink();
+    return true;
   }
   if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link', 'source', source, 'reason', result.reason);
   }
+  return false;
 }
 
 function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, source: string): void {
@@ -1063,6 +1127,7 @@ function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, sour
     // if sendDeepLink's bind were ever narrowed.
     noteDeepLinkOwner();
     queueDeepLink({ kind: result.kind, code: result.code });
+    showSaasForDeepLink(); // #86 C8, as in handleInviteDeepLink
   } else if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link argv', 'source', source, 'reason', result.reason);
   }
@@ -1084,7 +1149,7 @@ let isQuitting = false;
  * createWindow to keep cognitive complexity in check.
  */
 async function loadDevRendererWithFallback(
-  window: BrowserWindow,
+  contents: WebContents,
   bundledPath: string
 ): Promise<void> {
   const devServerUrl = 'http://localhost:3001';
@@ -1102,9 +1167,9 @@ async function loadDevRendererWithFallback(
         reject(new Error('timeout'));
       });
     });
-    await window.loadURL(devServerUrl);
+    await contents.loadURL(devServerUrl);
   } catch {
-    await window.loadFile(bundledPath);
+    await contents.loadFile(bundledPath);
   }
 }
 
@@ -1117,18 +1182,18 @@ type SpaLoadOutcome = 'remote' | 'cache' | 'bundled';
  * layer, so a failure here leaves a blank window with no further fallback —
  * surface it to the splash error overlay. Always clears remote-SPA state first.
  */
-async function loadBundledFallback(window: BrowserWindow): Promise<'bundled'> {
+async function loadBundledFallback(contents: WebContents): Promise<'bundled'> {
   // Clear state so PiP and origin-only consumers see a consistent "not in
   // remote-SPA mode" signal even on re-entry.
   setRemoteSpaState(null);
   try {
-    await window.loadURL('app://concord/index.html');
+    await contents.loadURL('app://concord/index.html');
     // Covers genuine bundled mode AND the remote→bundled fallback, so the
     // effective mode is always reflected accurately. Best-effort: never throws.
     await captureSpaHash('bundled');
   } catch (err) {
     console.error('[SpaLoader] bundled app:// loadURL failed:', (err as Error).message);
-    revealLoadFailure(window, 'Could not load application — please reinstall');
+    revealLoadFailure(shellWindow(), 'Could not load application — please reinstall');
   }
   return 'bundled';
 }
@@ -1141,14 +1206,14 @@ async function loadBundledFallback(window: BrowserWindow): Promise<'bundled'> {
  * and treat it like bundled for origin/attestation purposes (captureSpaHash
  * fetches the cache's index.html via the protocol handler, which serves it).
  */
-async function tryCacheLoad(window: BrowserWindow): Promise<'cache' | null> {
+async function tryCacheLoad(contents: WebContents): Promise<'cache' | null> {
   const cached = resolveCachedSpa();
   if (!cached) {
     return null;
   }
   try {
     setRemoteSpaState(null);
-    await window.loadURL(cached.url);
+    await contents.loadURL(cached.url);
     await captureSpaHash('bundled');
     console.debug('[SpaLoader] served signed last-known-good cache');
     return 'cache';
@@ -1179,13 +1244,13 @@ async function tryCacheLoad(window: BrowserWindow): Promise<'cache' | null> {
  * mode actually loaded.
  */
 async function applySpaDecision(
-  window: BrowserWindow,
+  contents: WebContents,
   decision: SpaLoadDecision
 ): Promise<SpaLoadOutcome> {
   if (decision.mode === 'remote' && decision.url) {
     try {
       setRemoteSpaState(decision.url);
-      await window.loadURL(decision.url, SPA_NO_CACHE_LOAD_OPTIONS);
+      await contents.loadURL(decision.url, SPA_NO_CACHE_LOAD_OPTIONS);
       // Capture the entry HTML hash for client attestation (#677). Best-effort:
       // captureSpaHash never throws, so this cannot break the load path.
       await captureSpaHash('remote', decision.url);
@@ -1203,11 +1268,11 @@ async function applySpaDecision(
       setRemoteSpaState(null);
       // The remote loadURL threw — a genuine remote failure, so the cache may
       // bridge the gap (#1870).
-      const cacheMode = await tryCacheLoad(window);
+      const cacheMode = await tryCacheLoad(contents);
       if (cacheMode) {
         return cacheMode;
       }
-      return loadBundledFallback(window);
+      return loadBundledFallback(contents);
     }
   }
 
@@ -1215,13 +1280,13 @@ async function applySpaDecision(
   // failure (config fetch failed / 5xx) — never for expected-bundled reasons or
   // an IPC-mismatch (those must not be masked by a stale cache).
   if (isTransientRemoteFailure(decision.reason)) {
-    const cacheMode = await tryCacheLoad(window);
+    const cacheMode = await tryCacheLoad(contents);
     if (cacheMode) {
       return cacheMode;
     }
   }
 
-  return loadBundledFallback(window);
+  return loadBundledFallback(contents);
 }
 
 // ponytail: a wrapper rather than an exported arm/disarm pair — a caller that
@@ -1232,12 +1297,12 @@ async function applySpaDecision(
 // the paths where applySpaDecision resolves without navigating at all. Fail-closed
 // by construction: forgetting to disarm is not expressible at a call site.
 async function applySpaDecisionCarryingDeepLink(
-  window: BrowserWindow,
+  contents: WebContents,
   decision: SpaLoadDecision
 ): Promise<SpaLoadOutcome> {
   const releaseCarry = carryDeepLinkAcrossNextLoad();
   try {
-    return await applySpaDecision(window, decision);
+    return await applySpaDecision(contents, decision);
   } finally {
     releaseCarry();
   }
@@ -1255,14 +1320,14 @@ async function applySpaDecisionCarryingDeepLink(
 // (SPA_RETRY_DELAYS_MS is declared beside DEEP_LINK_CARRY_MAX_AGE_MS, which is
 // derived from it.)
 
-function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
+function scheduleSpaSourceRetry(contents: WebContents, attempt = 0): void {
   if (attempt >= SPA_RETRY_DELAYS_MS.length) return;
   setTimeout(() => {
     void (async () => {
       // Abort if the window is gone, or if we are already in remote mode (a
       // prior retry or a manual reload succeeded — getRemoteSpaUrl is non-null
       // only when the remote SPA is loaded).
-      if (window.isDestroyed() || getRemoteSpaUrl() !== null) return;
+      if (contents.isDestroyed() || getRemoteSpaUrl() !== null) return;
       const decision = await resolveSpaSource();
       if (decision.mode === 'remote' && decision.url) {
         console.debug('[SpaLoader/retry] remote SPA reachable on warm network — switching');
@@ -1272,10 +1337,10 @@ function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
         // when we actually reached remote; otherwise keep retrying.
         // Main initiated this swap, so a code already delivered to the outgoing
         // document is carried into its successor (#2363).
-        const mode = await applySpaDecisionCarryingDeepLink(window, decision);
+        const mode = await applySpaDecisionCarryingDeepLink(contents, decision);
         if (mode === 'remote') return;
       }
-      scheduleSpaSourceRetry(window, attempt + 1);
+      scheduleSpaSourceRetry(contents, attempt + 1);
     })();
   }, SPA_RETRY_DELAYS_MS[attempt]);
 }
@@ -1284,10 +1349,10 @@ function scheduleSpaSourceRetry(window: BrowserWindow, attempt = 0): void {
  * Load the packaged renderer: try the remote SPA first (Tier 3), fall back
  * to the bundled file on any failure. Extracted to keep createWindow simple.
  */
-async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string): Promise<void> {
+async function loadPackagedRenderer(contents: WebContents): Promise<void> {
   const decision = await resolveSpaSource();
   console.debug(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
-  await applySpaDecision(window, decision);
+  await applySpaDecision(contents, decision);
 
   // #830 Option C: surface a non-blocking diagnostic event if the bundled
   // fallback fired for an unexpected reason (config fetch failed, network
@@ -1306,29 +1371,202 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
   // banner may be retracted; see SpaFallbackKind in shared/spaIpcTypes.ts.
   if (decision.mode === 'bundled' && isUnexpectedBundled(decision.reason)) {
     const kind = classifyFallbackReason(decision.reason);
+    // The document this load produced; a push to a successor is dropped (#86 §3.7).
+    const binding = bindingFor(contents);
+    const record = binding ? recordFor(binding.connectionId) : undefined;
+    const ref = record ? refOf(record) : null;
     setTimeout(() => {
-      // Guard against window destroyed during the 2s delay (rapid quit, crash).
-      if (window.isDestroyed()) return;
-      window.webContents.send('app:configFetchFailed', {
+      if (ref === null) return;
+      sendToConnection(ref, 'app:configFetchFailed', {
         reason: SPA_FALLBACK_MESSAGE[kind],
         kind,
       });
     }, 2000);
     // Self-heal the cold-start race: retry on a warm network and switch to
     // remote if it becomes reachable (#1742 follow-up launch-time retry).
-    scheduleSpaSourceRetry(window);
+    scheduleSpaSourceRetry(contents);
   }
 }
 
+const DEV_SERVER_URL = 'http://localhost:3001';
+const bundledRendererPath = path.join(__dirname, '../renderer/index.html');
+
+/** What every connection session is configured from (connectionSession.ts). */
+const connectionSessionDeps: ConnectionSessionDeps = {
+  // Read at each use, as the pre-#86 gates did, rather than snapshotted at import.
+  get isPackaged(): boolean {
+    return app.isPackaged;
+  },
+  bundleRoot: path.resolve(__dirname, '../renderer'),
+  getLiveDir,
+  remoteSpaOrigin: getRemoteSpaBaseUrl,
+  bindingFor,
+  recordFor,
+  getService,
+  foreground,
+};
+
+/** `saas` keeps `defaultSession`; a self-hosted service gets its own `fromPath` session. */
+const connectionServiceDeps: RegisterServiceDeps = {
+  makeSession: (base) => sessionForService(base.kind, base.dirKey, app.getPath('userData')),
+  // Proactive token refresh (#254): a refresh this custody makes (timer or
+  // sleep/wake) reaches this service's own view only, so its authStore stays
+  // current and no other connection ever sees the token.
+  makeCustody: (serviceId, origin) =>
+    makeServiceCustody(serviceId, origin, (owner, accessToken, sessionId, previousSessionId) => {
+      for (const record of liveConnections()) {
+        if (record.serviceId !== owner) continue;
+        sendToConnection(refOf(record), 'auth:token-refreshed', {
+          accessToken,
+          sessionId,
+          previousSessionId,
+        });
+      }
+    }),
+  isValidatedSelfHostedApiBase,
+};
+
+function prepareConnectionSession(service: ServiceRecord): void {
+  configureConnectionSession(service.session, service, connectionSessionDeps);
+}
+
+/**
+ * Register (or find) the service for `origin` and configure its session (#86 §3.3).
+ * Null, with a fixed warning, when it is refused or its session cannot be created
+ * (Review Focus 2: a profile directory that cannot be created must not stop `saas`).
+ */
+function registerConnectionService(origin: string): ServiceRecord | null {
+  try {
+    const result = registerService(origin, connectionServiceDeps);
+    if (!result.ok) {
+      console.warn(`[connections] service not registered (${result.reason})`);
+      return null;
+    }
+    prepareConnectionSession(result.service);
+    return result.service;
+  } catch {
+    // Fixed text: the error can carry a path under the user's profile.
+    console.warn('[connections] service session unavailable; service not registered');
+    return null;
+  }
+}
+
+/**
+ * main.ts's own listeners on every connection view. shellWindow.ts runs this before
+ * the view's first load (its invariant 1), with the view already bound.
+ */
+function wireConnectionView(contents: WebContents, service: ServiceRecord): void {
+  // A RENDERER CREATED OR RELOADED AFTER THE SNAPSHOT SETTLED HEARS NOTHING FROM THE
+  // change listener in the ready path — the push already happened. Re-send on every load:
+  // the value is a machine fact, identical on every hello, so a duplicate is idempotent
+  // and ordering-insensitive. Without this, an SPA-loader swap leaves the renderer on the
+  // pre-addon rungs for the life of the session (spec §4.1 delivery). `null` sends
+  // nothing: absence IS the fail-closed state, and the renderer's initial store value
+  // already represents it.
+  //
+  // GUARDED WITH `isDestroyed()`. #3198's Phase-8 pass measured on real Electron that a
+  // `?.` null check does not cover a destroyed object; the try/catch stays as the
+  // backstop for the state no synchronous check can exclude, and swallowing is safe
+  // because the next load re-pushes. `contents`, not a module-scope variable: this
+  // listener belongs to THIS view.
+  contents.on('did-finish-load', () => {
+    const capability = audiocapMachineCapability();
+    if (capability === null) return;
+    if (contents.isDestroyed()) return;
+    try {
+      contents.send('audiocap:capability', { perProcessAudio: capability });
+    } catch {
+      /* destroyed between the check and the send; the next load re-pushes. See above. */
+    }
+  });
+
+  // Cmd/Ctrl+Opt+I toggles DevTools when Developer Mode is enabled.
+  // (TEMPORARY — remove before BETA along with Developer Mode feature.)
+  // `detach`: a view has no BrowserWindow to dock DevTools into.
+  contents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const isToggleCombo =
+      input.key.toLowerCase() === 'i' && input.alt && (input.meta || input.control);
+    if (!isToggleCombo) return;
+    if (!readDeveloperModePref()) return;
+    if (contents.isDevToolsOpened()) {
+      contents.closeDevTools();
+    } else {
+      contents.openDevTools({ mode: 'detach' });
+    }
+  });
+
+  // Log renderer crashes to diagnose voice join segfaults. Deep links are saas-only.
+  contents.on('render-process-gone', (_event, details) => {
+    if (service.kind === 'saas') resetDeepLinkDelivery();
+    console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
+  });
+}
+
+// Client Behavior [X] close intercept (#806). When the user clicks the
+// native close button, route based on the cached Client Behavior:
+//   - 'tray'    -> hide() (stays running, accessed from system tray, #1099)
+//   - 'toolbar' -> minimize() (stays running in the OS taskbar)
+//   - 'quit'    -> app.quit() (graceful full-app shutdown)
+// event.preventDefault() suppresses the default close -> destroy path so the
+// hide/minimize fall-throughs can take over. The 'quit' branch also calls
+// preventDefault so app.quit can run its before-quit hooks without racing
+// a window-destroy mid-shutdown.
+//
+// isQuitting guard (#1383): createShellWindow's 'close' listener returns before
+// calling this once a genuine quit is underway — before-quit has already set
+// isQuitting = true — so this close proceeds (no preventDefault) and Electron's own
+// app.quit() sequence is never vetoed. This also resolves the 'quit' branch's
+// re-entrancy: app.quit() -> before-quit sets the flag -> re-fired close ->
+// early return -> window destroys -> quit completes.
+//
+// Trayless fallback (#1099): if action='tray' but the tray failed to
+// initialize (sandboxed env, missing StatusNotifier host, etc.),
+// hide() would strand an invisible, unrecoverable resident
+// process on Windows/Linux (macOS still has Dock activate). Quit instead so
+// a trayless session degrades to a recoverable state. window-all-closed's
+// !isTrayActive() branch alone is not enough: preventDefault()+hide() means
+// the window never actually closes, so window-all-closed never fires.
+function interceptShellClose(event: Electron.Event): void {
+  const win = shellWindow();
+  if (!win) return;
+  const action = deriveCloseAction(getCachedClientBehavior());
+
+  if (action === 'tray') {
+    event.preventDefault();
+    if (isTrayActive()) {
+      win.hide();
+    } else {
+      app.quit();
+    }
+  } else if (action === 'toolbar') {
+    event.preventDefault();
+    win.minimize();
+  } else {
+    // action === 'quit'
+    event.preventDefault();
+    app.quit();
+  }
+}
+
+/** TRANSITIONAL (#86 Task 4 → 7B): updater and SPA-version pushes reach every primary. */
+const broadcastPushTarget = {
+  isDestroyed: (): boolean => false,
+  webContents: { send: broadcastToPrimaries },
+};
+
 const createWindow = async (): Promise<void> => {
-  // Build the per-platform BrowserWindow config (#806). Pure factory so
+  // Build the per-platform window config (#806). Pure factory so
   // each platform gets the correct titleBarStyle / titleBarOverlay shape:
   //   - darwin → hiddenInset (preserves traffic-light controls)
   //   - win32 / linux → hidden + titleBarOverlay (native min/max/close)
-  const baseConfig = buildBrowserWindowConfig({
+  // #86: the chrome options go to the BaseWindow; `webPreferences` go, unchanged,
+  // to every connection view (plus that service's session).
+  const preloadPath = path.join(__dirname, '../preload/preload.js');
+  const { webPreferences, ...windowConfig } = buildBrowserWindowConfig({
     platform: process.platform,
     isWayland: isWayland(),
-    preloadPath: path.join(__dirname, '../preload/preload.js'),
+    preloadPath,
     isPackaged: app.isPackaged,
   });
 
@@ -1338,167 +1576,56 @@ const createWindow = async (): Promise<void> => {
   const savedState = loadWindowState();
   const contentProtectionEnabled = readContentProtectionPref();
 
-  mainWindow = new BrowserWindow({
-    ...baseConfig,
-    x: savedState.x,
-    y: savedState.y,
-    width: savedState.width,
-    height: savedState.height,
+  // Content protection is applied inside createShellWindow, before any view exists.
+  const win = createShellWindow({
+    windowOptions: {
+      ...windowConfig,
+      x: savedState.x,
+      y: savedState.y,
+      width: savedState.width,
+      height: savedState.height,
+    },
+    preloadPath,
+    webPreferences,
+    viewBackgroundColor: windowConfig.backgroundColor,
+    contentProtectionEnabled,
+    applyContentProtectionAtCreation,
+    // #3394 C15: wired by openConnectionView BEFORE the first load — the renderer is
+    // live long before the awaited load resolves, and a wire registered later sees
+    // only future events. `killAudiocapCapture` spares the windowless probe.
+    wireAudiocapRendererLoss,
+    // Status-aware tray (tray-status spec §3/§4): a renderer reload / crash / hang
+    // drops the tray back to neutral (R17).
+    attachTrayResetHooks,
+    resetDeepLinkDelivery,
+    prepareSession: prepareConnectionSession,
+    isQuitting: () => isQuitting,
+    onClose: interceptShellClose,
+    onClosed: () => {
+      // #974/#975: a window-less SSO flow (apple or google) has no UI to deliver
+      // its result to — tear both down so the loopback listener and 5-minute
+      // deadline don't outlive the renderer (teardown trigger (b) in each flow's
+      // documented lifecycle).
+      cancelActiveAppleFlow();
+      cancelActiveGoogleFlow();
+      resetDeepLinkDelivery();
+    },
+    wireView: wireConnectionView,
+    // X1 (#86): a packaged build restores views onto the bundled app, never the dev server.
+    devConnectionUrl: app.isPackaged ? 'app://concord/index.html' : DEV_SERVER_URL,
   });
-  applyContentProtectionAtCreation(mainWindow, contentProtectionEnabled, 'main window');
-  resetDeepLinkDelivery();
 
   if (savedState.isMaximized) {
-    mainWindow.maximize();
+    win.maximize();
   }
-
-  mainWindow.webContents.on('did-start-loading', () => {
-    resetDeepLinkDelivery();
-  });
-
-  // #3394 C15: a reload or renderer crash must not leave the capture child's OS tap running.
-  // WIRED BEFORE THE FIRST LOAD, not after it: the renderer is live, shown and able to invoke
-  // `audiocap:start` long before the awaited load below resolves (`did-finish-load`, plus up
-  // to CONFIG_TIMEOUT_MS of `captureSpaHash` in remote mode), and a loss inside that window
-  // reached no listener at all -- a wire registered later sees only FUTURE events. The initial
-  // load's own `did-navigate` is harmless: no capture exists yet, and `killAudiocapCapture`
-  // spares the windowless app-start probe, which overlaps the first load by design.
-  wireAudiocapRendererLoss(mainWindow.webContents);
-
-  // A RENDERER CREATED OR RELOADED AFTER THE SNAPSHOT SETTLED HEARS NOTHING FROM THE
-  // change listener in the ready path — the push already happened. Re-send on every load:
-  // the value is a machine fact, identical on every hello, so a duplicate is idempotent
-  // and ordering-insensitive. Without this, an SPA-loader swap leaves the renderer on the
-  // pre-addon rungs for the life of the session (spec §4.1 delivery). Registered here,
-  // with the window's first webContents listener, because the initial load is issued
-  // further down this same function.
-  //
-  // `null` sends nothing: absence IS the fail-closed state, and the renderer's initial
-  // store value already represents it.
-  //
-  // GUARDED WITH `isDestroyed()`, NOT `mainWindow?.`, AND THE MECHANISM IS NOT THE ONE THIS
-  // PR FIRST WROTE DOWN. #3198's Phase-8 adversarial pass measured it on real Electron
-  // 44.1.1 (10 scenarios, `redteam/poc/electron-send-throw-probe.js`) and the result
-  // corrects us: reading `.webContents` off a DESTROYED `BrowserWindow` throws
-  // `Object has been destroyed` on the PROPERTY ACCESS, before `.send` is reached, and a
-  // `?.` null check does not cover it. A disposed render FRAME does not throw at all --
-  // neither a crashed renderer nor a saved `webContents` handle used after destroy. So the
-  // check that matters is `isDestroyed()`, which is what `main.ts:885`/`:896`/`:1291`
-  // already use. The try/catch stays as the backstop for the state no synchronous check can
-  // exclude, and swallowing is safe because the value is a machine fact the next load
-  // re-pushes.
-  //
-  // `win`, not the module-scope `mainWindow`: this listener belongs to THIS window's
-  // webContents, and the same pass measured a second-window case where the module variable
-  // had already been nulled while this window was alive -- the push was dropped silently.
-  const win = mainWindow;
-  win.webContents.on('did-finish-load', () => {
-    const capability = audiocapMachineCapability();
-    if (capability === null) return;
-    if (win.isDestroyed()) return;
-    try {
-      win.webContents.send('audiocap:capability', { perProcessAudio: capability });
-    } catch {
-      /* destroyed between the check and the send; the next load re-pushes. See above. */
-    }
-  });
 
   // Wire resize/move/maximize/unmaximize/close listeners that persist
   // bounds to window-state.json with 500ms debounce (#806).
-  attachWindowState(mainWindow);
+  attachWindowState(win);
 
-  // Register the window-control + version-info IPC surfaces (#806). The
-  // factory closures defer the window lookup so the late-bind window
-  // reference is always current (handles the brief teardown window).
-  registerWindowControlsIpc(() => mainWindow, getRemoteSpaBaseUrl);
-  registerVersionInfoIpc(() => mainWindow);
-
-  const bundledPath = path.join(__dirname, '../renderer/index.html');
-
-  // Register before loading any URL — ready-to-show fires during loadURL
-  // and the listener must be attached first to avoid a race condition where
-  // the event fires before the handler is registered (window never shows).
-  mainWindow.once('ready-to-show', () => {
-    closeSplash();
-    mainWindow?.show();
-  });
-
-  if (app.isPackaged) {
-    await loadPackagedRenderer(mainWindow, bundledPath);
-  } else {
-    await loadDevRendererWithFallback(mainWindow, bundledPath);
-    // Always open DevTools in dev mode regardless of load path
-    if (process.env.DEVTOOLS !== '0') {
-      mainWindow.webContents.openDevTools();
-    }
-  }
-
-  // Open DevTools at startup if Developer Mode preference is enabled.
-  // Applies to packaged builds (bundled or remote SPA) and to dev fallback.
-  if (readDeveloperModePref() && !mainWindow.webContents.isDevToolsOpened()) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
-
-  // Cmd/Ctrl+Opt+I toggles DevTools when Developer Mode is enabled.
-  // (TEMPORARY — remove before BETA along with Developer Mode feature.)
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.type !== 'keyDown') return;
-    const isToggleCombo =
-      input.key.toLowerCase() === 'i' && input.alt && (input.meta || input.control);
-    if (!isToggleCombo) return;
-    if (!readDeveloperModePref()) return;
-    if (mainWindow?.webContents.isDevToolsOpened()) {
-      mainWindow.webContents.closeDevTools();
-    } else {
-      mainWindow?.webContents.openDevTools({ mode: 'detach' });
-    }
-  });
-
-  // Client Behavior [X] close intercept (#806). When the user clicks the
-  // native close button, route based on the cached Client Behavior:
-  //   - 'tray'    -> hide() (stays running, accessed from system tray, #1099)
-  //   - 'toolbar' -> minimize() (stays running in the OS taskbar)
-  //   - 'quit'    -> app.quit() (graceful full-app shutdown)
-  // event.preventDefault() suppresses the default close -> destroy path so the
-  // hide/minimize fall-throughs can take over. The 'quit' branch also calls
-  // preventDefault so app.quit can run its before-quit hooks without racing
-  // a window-destroy mid-shutdown.
-  //
-  // isQuitting guard (#1383): once a genuine quit is underway, before-quit has
-  // already fired and set isQuitting = true. We MUST let this close proceed
-  // (no preventDefault) or we veto Electron's own app.quit() sequence and the
-  // app becomes unquittable. This also resolves the 'quit' branch's
-  // re-entrancy: app.quit() -> before-quit sets the flag -> re-fired close ->
-  // early return here -> window destroys -> quit completes.
-  //
-  // Trayless fallback (#1099): if action='tray' but the tray failed to
-  // initialize (sandboxed env, missing StatusNotifier host, etc.),
-  // mainWindow.hide() would strand an invisible, unrecoverable resident
-  // process on Windows/Linux (macOS still has Dock activate). Quit instead so
-  // a trayless session degrades to a recoverable state. window-all-closed's
-  // !isTrayActive() branch alone is not enough: preventDefault()+hide() means
-  // the window never actually closes, so window-all-closed never fires.
-  mainWindow.on('close', (event) => {
-    if (!mainWindow) return;
-    if (isQuitting) return;
-    const action = deriveCloseAction(getCachedClientBehavior());
-
-    if (action === 'tray') {
-      event.preventDefault();
-      if (isTrayActive()) {
-        mainWindow.hide();
-      } else {
-        app.quit();
-      }
-    } else if (action === 'toolbar') {
-      event.preventDefault();
-      mainWindow.minimize();
-    } else {
-      // action === 'quit'
-      event.preventDefault();
-      app.quit();
-    }
-  });
+  // The window-control + version-info IPC surfaces (#806) are registered once, in the
+  // ready path, not here: the dock 'activate' path re-runs createWindow, and a second
+  // registration throws in registerIpc (and in ipcMain.handle before #86).
 
   // Client Behavior [-] minimize intercept (#806). When the user clicks the
   // native minimize button AND their Client Behavior config routes minimize
@@ -1510,39 +1637,73 @@ const createWindow = async (): Promise<void> => {
   // would strand the window invisibly with no taskbar entry. Skip the
   // redirect so the native minimize stands and the window stays recoverable
   // from the taskbar.
-  mainWindow.on('minimize', () => {
-    if (!mainWindow) return;
+  win.on('minimize', () => {
     const action = deriveMinimizeAction(getCachedClientBehavior());
     if (action === 'tray' && isTrayActive()) {
-      mainWindow.restore();
-      mainWindow.hide();
+      win.restore();
+      win.hide();
     }
     // else: leave native minimize -> toolbar as-is
   });
 
-  // Status-aware tray (tray-status spec §3/§4): window focus gates the mention
-  // burst, and a renderer reload / crash / hang drops the tray back to neutral
-  // (R17) so it never keeps live voice controls for a session that is gone.
-  mainWindow.on('focus', () => setTrayWindowFocused(true));
-  mainWindow.on('blur', () => setTrayWindowFocused(false));
-  attachTrayResetHooks(mainWindow.webContents);
+  // Status-aware tray (tray-status spec §3/§4): window focus gates the mention burst.
+  win.on('focus', () => setTrayWindowFocused(true));
+  win.on('blur', () => setTrayWindowFocused(false));
+  // #86 RT7: the window coming back answers every connection's flash request.
+  win.on('focus', answerFlashRequests);
 
-  mainWindow.on('closed', () => {
-    // #974/#975: a window-less SSO flow (apple or google) has no UI to deliver
-    // its result to — tear both down so the loopback listener and 5-minute
-    // deadline don't outlive the renderer (teardown trigger (b) in each flow's
-    // documented lifecycle).
-    cancelActiveAppleFlow();
-    cancelActiveGoogleFlow();
-    mainWindow = null;
-    resetDeepLinkDelivery();
-  });
+  installDevConnectionMenu();
 
-  // Log renderer crashes to diagnose voice join segfaults
-  mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    resetDeepLinkDelivery();
-    console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
-  });
+  // The splash closes and the window shows on the saas view's first finished load.
+  // A BaseWindow has no 'ready-to-show' (BrowserWindow alone declares it), so the
+  // view's own `did-finish-load` stands in. A bundled load that fails reveals the
+  // window through revealLoadFailure instead.
+  const loadSaasView = async (contents: WebContents): Promise<void> => {
+    contents.once('did-finish-load', () => {
+      closeSplash();
+      shellWindow()?.show();
+    });
+    if (app.isPackaged) {
+      await loadPackagedRenderer(contents);
+    } else {
+      await loadDevRendererWithFallback(contents, bundledRendererPath);
+    }
+  };
+
+  const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(pinFirstPartyApiOrigin());
+  // #86 C9: before the saas view exists. Its renderer can call connection:create while
+  // the loader below is still awaiting, before restorePersistedConnections runs.
+  initPersistedConnections(app.getPath('userData'), startupConnections);
+  const opened = saas
+    ? await openConnectionView(saas.serviceId, 'app://concord/index.html', loadSaasView)
+    : null;
+  if (!opened?.ok) {
+    console.error('[MAIN] the saas connection could not be opened');
+    revealLoadFailure(win, 'Could not load application — please reinstall');
+    return;
+  }
+  const contents = opened.record.webContents;
+  // A quit during the saas load closed the window under it: there is nothing left to
+  // restore views into, and its contents can no longer take DevTools.
+  if (shellWindow() === null || contents.isDestroyed()) return;
+
+  // One view per other persisted connection, then the last-foreground one is shown.
+  void restorePersistedConnections(
+    app.getPath('userData'),
+    startupConnections,
+    registerConnectionService
+  );
+
+  // Always open DevTools in dev mode regardless of load path.
+  if (!app.isPackaged && process.env.DEVTOOLS !== '0') {
+    contents.openDevTools({ mode: 'detach' });
+  }
+
+  // Open DevTools at startup if Developer Mode preference is enabled.
+  // Applies to packaged builds (bundled or remote SPA) and to dev fallback.
+  if (readDeveloperModePref() && !contents.isDevToolsOpened()) {
+    contents.openDevTools({ mode: 'detach' });
+  }
 };
 
 // Track rollback result so we can notify the renderer after window creation
@@ -1564,37 +1725,44 @@ app.whenReady().then(async () => {
   // rather than merely tidying a duplicate.
   registerInviteProtocolClient();
 
-  // app:// protocol handler (#830) — serves the bundled SPA from the asar
-  // bundle root. The pure resolver in appProtocol.ts validates the URL,
-  // rejects path-traversal, and returns the absolute file path. Here we
-  // wrap that with net.fetch which handles asar bundle paths transparently.
-  if (app.isPackaged) {
-    const bundleRoot = path.resolve(__dirname, '../renderer');
-    protocol.handle('app', async (request) => {
-      const result = resolveAppProtocolPath(request.url, bundleRoot);
-      if (!result.ok || !result.absolutePath) {
-        return new Response(null, { status: result.status });
-      }
-      // pathToFileURL is the canonical cross-platform-safe path→file://
-      // transformation. String concat (`'file://' + absolutePath`) works
-      // on macOS/Linux but produces malformed URLs on Windows where
-      // path.resolve emits drive-letter paths like C:\app\...
-      return net.fetch(pathToFileURL(result.absolutePath).href);
-    });
-
-    // spa-cache:// protocol handler (#1870) — serves the VERIFIED last-known-good
-    // SPA cache from the live cache dir. The pure resolver in cacheProtocol.ts
-    // mirrors appProtocol.ts's path-traversal rejection; getLiveDir resolves the
-    // pinned userData path lazily at request time.
-    protocol.handle(SPA_CACHE_SCHEME, (request) => handleCacheProtocolRequest(request, getLiveDir));
+  // #86 §3.3: every session — `saas`'s `defaultSession` and each self-hosted
+  // service's `fromPath` session — is configured by configureConnectionSession when
+  // its service is registered: `app://` (#830) and, for `saas` only, `spa-cache://`
+  // (#1870), the permission/device/HID handlers and the KLIPY injector (#626).
+  // Registering `saas` here configures `defaultSession` before any window exists.
+  // Its origin is the first-party API base main pins now, once (Task 7B ruling):
+  // production when packaged, the dev base when not. No renderer input reaches it.
+  registerConnectionService(pinFirstPartyApiOrigin());
+  // Development builds only: every approved self-hosted origin, so the dev
+  // Connections menu can open it. Packaged builds open nothing but `saas` until the
+  // connections file restores more (#86 Task 6).
+  if (!app.isPackaged) {
+    for (const { origin } of readApprovalsFile()) registerConnectionService(origin);
   }
 
-  registerOpenExternalHandler(getRemoteSpaBaseUrl);
+  registerOpenExternalHandler();
   // #1729 — native Save-As for decrypted image attachments. Lazy window provider
   // (mirrors registerPermissionHandlers) so the dialog parents to the live window.
-  registerSaveImageHandler(() => mainWindow, getRemoteSpaBaseUrl);
-  registerSSOIPC(getRemoteSpaBaseUrl);
-  registerAttestationIpc(getRemoteSpaBaseUrl);
+  registerSaveImageHandler(shellWindow);
+  registerSSOIPC();
+  registerAttestationIpc();
+  // Window-control + version-info IPC (#806), once per process. Their getters are
+  // late-bound, so a window re-created by 'activate' is the one they act on.
+  registerWindowControlsIpc(shellWindow);
+  registerVersionInfoIpc(() => broadcastPushTarget);
+  // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
+  // connection:whoAmI/create/activate and the connection:generation push. Before
+  // createWindow, so the first view's preload finds its whoAmI handler.
+  setRemoteSpaOriginSource(getRemoteSpaBaseUrl);
+  registerConnectionIpc({
+    openConnectionView,
+    activateConnection,
+    probe: probeConnectionOrigin,
+    ceremony: runConnectionCeremony,
+    writeConnections: persistAddedConnections,
+    serviceDeps: connectionServiceDeps,
+    viewUrl: () => (app.isPackaged ? 'app://concord/index.html' : DEV_SERVER_URL),
+  });
   // A LIVE per-process capture ended without the user asking (#3394 PR 2, contract 30):
   // the tap faulted mid-share, the child crashed, or it broke protocol after `started`.
   // `audiocapHost`'s `retire()` is the only caller, and it never calls this for a stop, a
@@ -1614,9 +1782,12 @@ app.whenReady().then(async () => {
   // (`retire()` treats `null` as "nobody to tell"), and a start with no port sink
   // retires the session. Both setters only capture the late-bound `mainWindow` and guard
   // it, so registering them first costs nothing and no later `await` can reorder them.
-  setAudiocapInterruptListener((interrupt) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('audiocap:interrupted', {
+  setAudiocapInterruptListener((interrupt, owner) => {
+    // #86 Task 7B: owner-only. The share is bound to the connection that started it;
+    // sendToConnection no-ops unless that ref is still the record's current generation,
+    // so another connection, or the owner's next document, never hears of it.
+    if (!owner) return;
+    sendToConnection(owner.ref, 'audiocap:interrupted', {
       generation: interrupt.generation,
       reason: interrupt.reason,
     });
@@ -1636,11 +1807,14 @@ app.whenReady().then(async () => {
   // nothing, so the host retires the session instead of reporting a started share. That
   // is the opposite of the capability push (below), which swallows because its value is
   // monotone and re-pushed on the next `did-finish-load`. A port is neither.
-  setAudiocapPortSink((generation, port) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      throw new Error('audiocap port sink: no live window');
+  setAudiocapPortSink((generation, port, owner) => {
+    // #86 Task 7B: owner-only, and only while the owner binding is current. Throwing
+    // retires the session, so a stale or foreign owner gets no capture at all.
+    const record = owner && isOwnerCurrent(owner) ? recordFor(owner.ref.connectionId) : undefined;
+    if (!record || record.state === 'disposed' || record.webContents.isDestroyed()) {
+      throw new Error('audiocap port sink: no live owner');
     }
-    mainWindow.webContents.postMessage('audiocap:port', { generation }, [port]);
+    record.webContents.postMessage('audiocap:port', { generation }, [port]);
   });
 
   // #3198 PR 3 — the `audiocap:start` invoke. This is the ONE audiocap handler the
@@ -1651,60 +1825,15 @@ app.whenReady().then(async () => {
   // The window provider (#3394 PR 1, R5) narrows admission from "a permitted origin" to
   // "the main window's own main frame" -- a PiP shares the origin. Late-bound like
   // `registerWindowControlsIpc(() => mainWindow)`: `createWindow` has not run yet here, and
-  // the `closed` handler nulls the variable.
-  registerAudiocapIpc(getRemoteSpaBaseUrl, () => mainWindow);
+  // the `closed` handler nulls the variable. #86 Task 4: "the main window" is the saas
+  // view until Task 7B binds the share's owner connection.
+  registerAudiocapIpc();
   // Billing launcher (#1305): sender-fenced, Stripe-host-validated, opens a modal sheet.
-  registerBillingIpc(getRemoteSpaBaseUrl, () => mainWindow);
-  // Status-aware tray (tray-status spec §4): trusted frame + the main window's own
-  // main frame (a PiP shares the origin) + 20/s bucket + exact closed-enum shape.
-  registerTrayStatusIpc(getRemoteSpaBaseUrl, () => mainWindow);
-  // Permission request handler: explicitly allow app-required permissions, deny risky ones.
-  // Notifications are allowed (JIT-managed by permissionManager #197).
-  const canAccessWebClipboard = (
-    contents: WebContents | null,
-    details: { isMainFrame: boolean; requestingUrl?: string }
-  ): boolean => {
-    try {
-      return (
-        !!mainWindow &&
-        !mainWindow.isDestroyed() &&
-        contents === mainWindow.webContents &&
-        details?.isMainFrame === true &&
-        isPermittedFrameUrl(details.requestingUrl ?? '', getRemoteSpaBaseUrl())
-      );
-    } catch {
-      return false;
-    }
-  };
-  session.defaultSession.setPermissionRequestHandler(
-    (webContents, permission, callback, details) => {
-      if (permission === 'clipboard-sanitized-write' || permission === 'clipboard-read') {
-        callback(canAccessWebClipboard(webContents, details));
-        return;
-      }
-      const denied = ['geolocation'];
-      if (denied.includes(permission)) {
-        callback(false);
-        return;
-      }
-      callback(true);
-    }
-  );
-
-  // Permission check handler: Chromium queries this synchronously to verify grants.
-  // Default to true so internal checks (e.g. WebAuthn/FIDO2) aren't silently blocked.
-  session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
-    if (permission === 'clipboard-sanitized-write' || permission === 'clipboard-read')
-      return canAccessWebClipboard(webContents, details);
-    const denied = ['geolocation'];
-    return !denied.includes(permission);
-  });
-
-  // Device permission handler: allow camera, microphone, speaker, and HID (security keys)
-  session.defaultSession.setDevicePermissionHandler((details) => {
-    return ['camera', 'microphone', 'speaker', 'hid'].includes(details.deviceType ?? '');
-  });
-
+  registerBillingIpc(shellWindow);
+  // Status-aware tray (tray-status spec §4): any binding-admitted primary main frame + a
+  // 20/s bucket per connection + exact shape; each connection's snapshot is kept, and the
+  // tray shows trayOwner()'s or, with none, the foreground connection's (#86 B1).
+  registerTrayStatusIpc();
   // NO TLS certificate pinning on api.concordvoice.chat — deliberate, do not
   // re-add (#658 reverted). Cloudflare serves that host from a MANAGED edge
   // certificate that it rotates on its own schedule with a NEW keypair. The pin
@@ -1723,52 +1852,15 @@ app.whenReady().then(async () => {
   // of bricking the fleet. Only ever pin a keypair Concord controls end to end.
   // See docs/policies/api-tls-trust-model.md.
 
-  // HID device selection: auto-select for WebAuthn hardware security keys
-  session.defaultSession.on('select-hid-device', (event, details, callback) => {
-    event.preventDefault();
-    if (details.deviceList && details.deviceList.length > 0) {
-      callback(details.deviceList[0].deviceId);
-    } else {
-      callback('');
-    }
-  });
-
   // OS permission management (#197) — JIT prompting replaces proactive startup requests.
   // Camera/mic/screen/notifications are requested when the feature is first used.
-  registerPermissionHandlers(() => mainWindow, getRemoteSpaBaseUrl);
-
-  // KLIPY media proxy auth injection (#626): <img>/<video> src attributes
-  // send plain GETs without Authorization headers. This interceptor injects
-  // the cached JWT so the authenticated media proxy returns 200 instead of 401.
-  // Origin-restricted: only injects when the request targets the known API base.
-  session.defaultSession.webRequest.onBeforeSendHeaders(
-    { urls: ['*://*/api/v1/klipy/media*'] },
-    (details, callback) => {
-      const token = getCachedAccessToken();
-      const apiOrigin = getApiBaseOrigin();
-      if (token && apiOrigin) {
-        try {
-          const requestOrigin = new URL(details.url).origin;
-          if (requestOrigin === apiOrigin) {
-            details.requestHeaders['Authorization'] = `Bearer ${token}`;
-            const clientVersion = app.getVersion();
-            if (isSupportedDesktopClientVersion(clientVersion)) {
-              details.requestHeaders['X-Concord-Client-Version'] = clientVersion;
-            }
-          }
-        } catch {
-          // Malformed URL — skip injection
-        }
-      }
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
+  registerPermissionHandlers(sendToConnection);
 
   // ─── Update safety: startup validation (#384) ─────────────────────
   // Must run before createWindow() so we can stash rollback info,
   // but after initAutoUpdater() so the logger is available.
   initAutoUpdater(
-    () => mainWindow,
+    () => broadcastPushTarget,
     () => {
       isQuitting = true;
     },
@@ -1854,14 +1946,15 @@ app.whenReady().then(async () => {
   // handler has a window to reveal. Init failure is non-fatal — the app runs
   // trayless and window-all-closed keeps its quit (see handler below).
   // Open/Quit and the two update rows are main-direct (spec §4); everything that
-  // changes client state goes to the renderer as a closed-enum `tray:action`.
+  // changes client state goes to the renderer as a closed-enum `tray:action`, and only
+  // to the connection whose snapshot the tray shows (#86 B1: `trayActionTarget`).
   setTrayActionSender((action) => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send(TRAY_ACTION, action);
+    const contents = trayActionTarget();
+    if (!contents) return;
+    contents.send(TRAY_ACTION, action);
   });
   initTray({
-    getMainWindow: () => mainWindow,
+    getMainWindow: shellWindow,
     createWindow,
     downloadUpdate,
     installUpdate: safeQuitAndInstall,
@@ -1873,7 +1966,7 @@ app.whenReady().then(async () => {
     const rollback = rollbackResult;
     // Delay slightly to ensure renderer IPC listeners are registered
     setTimeout(() => {
-      mainWindow?.webContents.send('update:rollback', {
+      broadcastToPrimaries('update:rollback', {
         fromVersion: rollback.fromVersion,
         toVersion: rollback.toVersion,
         message: `Update to v${rollback.toVersion} failed. You are still on v${rollback.fromVersion}.`,
@@ -1881,25 +1974,25 @@ app.whenReady().then(async () => {
     }, 2000);
   }
 
-  // Proactive token refresh (#254): notify renderer when main process
-  // refreshes the token (timer or sleep/wake), so authStore stays current.
-  setProactiveRefreshCallback((accessToken, sessionId, previousSessionId) => {
-    mainWindow?.webContents.send('auth:token-refreshed', {
-      accessToken,
-      sessionId,
-      previousSessionId,
-    });
-  });
-
   // Refresh token immediately on system wake — main process timers may have
   // drifted past the token's expiry window during sleep (#248).
+  // #86: every live service's custody refreshes its own token, once per service.
   powerMonitor.on('resume', () => {
-    onSystemResume();
+    const resumed = new Set<ServiceRecord['serviceId']>();
+    for (const record of liveConnections()) {
+      if (resumed.has(record.serviceId)) continue;
+      resumed.add(record.serviceId);
+      try {
+        getService(record.serviceId)?.custody.onSystemResume();
+      } catch {
+        console.warn('[powerMonitor] a connection custody failed to resume');
+      }
+    }
   });
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (shellWindow() === null) {
       void createWindow();
     }
   });
@@ -1911,11 +2004,9 @@ app.whenReady().then(async () => {
   // reason (see that comment). `audiocapHost.ts` already wraps its call to this listener in
   // a try/catch, so a throw here cannot wedge the handshake -- but relying on the CALLER's
   // catch is what left the two copies asymmetric in the first place, and the check is one
-  // line. Here the module-scope `mainWindow` IS the right target: this runs once in
-  // `whenReady`, not per window.
+  // line. #86: a machine fact grants nothing, so it reaches every live view.
   setAudiocapCapabilityListener((perProcessAudio) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('audiocap:capability', { perProcessAudio });
+    broadcastToPrimaries('audiocap:capability', { perProcessAudio });
   });
 
   // ─── concord-audiocap capability probe (#3195, ADR-0043) ──────────
@@ -2005,57 +2096,70 @@ process.on('uncaughtException', (error) => {
   setImmediate(() => app.exit(1));
 });
 
-// IPC Handlers
-ipcMain.handle('app:getVersion', () => {
-  return app.getVersion();
+// IPC Handlers. #86: every channel goes through registerIpc (ipc/registry.ts), which
+// admits the sender by its CHANNEL_CLASSES class before the handler runs. A refused
+// call answers the channel's own fail-closed value, never the payload it asked for.
+registerIpc('app:getVersion', 'pip-scoped', () => app.getVersion(), {
+  refusal: () => '',
 });
 
-ipcMain.handle('app:getPlatform', () => {
-  return process.platform;
+registerIpc('app:getPlatform', 'app-global-read', (): string => process.platform, {
+  refusal: () => '',
 });
 
-ipcMain.handle('app:getIpcContract', () => {
-  return IPC_CONTRACT_VERSION;
+registerIpc('app:getIpcContract', 'app-global-read', (): number | null => IPC_CONTRACT_VERSION, {
+  refusal: () => null,
 });
 
 // Forensic build-tag observability (#920 §5.13, #939). Returns the CI
 // build tag baked into the packaged app (via forge extraResource
 // buildtag.json) or 'unknown' for local dev builds. Read-only,
 // information-only — knowing the tag does not unlock any capability.
-ipcMain.handle('app:getBuildTag', () => {
-  return getBuildTag();
+registerIpc('app:getBuildTag', 'app-global-read', () => getBuildTag(), {
+  refusal: () => 'unknown',
 });
 
 // Screen capture sources for voice/video screen share picker (#44)
-ipcMain.handle('media:getDesktopSources', async (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  const sources = await desktopCapturer.getSources({
-    types: ['window', 'screen'],
-    thumbnailSize: { width: 320, height: 180 },
-    // Load-bearing, NOT a nicety: DesktopCapturerSource exposes no application name
-    // and no PID, so the picker's Applications tab groups windows by appIcon identity
-    // (groupDesktopSources). With this false every appIcon is null and grouping silently
-    // degrades to a title-suffix heuristic. Do not remove it to save thumbnail work.
-    fetchWindowIcons: true,
-  });
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    thumbnail: s.thumbnail.toDataURL(),
-    appIcon: s.appIcon?.toDataURL() || null,
-  }));
-});
+registerIpc(
+  'media:getDesktopSources',
+  'app-global-mutate',
+  async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 320, height: 180 },
+      // Load-bearing, NOT a nicety: DesktopCapturerSource exposes no application name
+      // and no PID, so the picker's Applications tab groups windows by appIcon identity
+      // (groupDesktopSources). With this false every appIcon is null and grouping silently
+      // degrades to a title-suffix heuristic. Do not remove it to save thumbnail work.
+      fetchWindowIcons: true,
+    });
+    return sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      thumbnail: s.thumbnail.toDataURL(),
+      appIcon: s.appIcon?.toDataURL() || null,
+    }));
+  },
+  // A hidden view must not read thumbnails of every window (#86 Task 7B ruling).
+  { refusal: async () => [] }
+);
 
-// A denied write must reject: cutSelection deletes text only after a successful copy.
-ipcMain.handle('clipboard:writeText', (event, text: unknown) => {
-  if (
-    !isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl) ||
-    typeof text !== 'string'
-  ) {
-    throw new Error('Clipboard write denied');
+// #199: a denied write must REJECT — cutSelection deletes text only after a successful
+// copy. app-global-mutate: only the foreground connection's bound primary main frame;
+// a PiP, a background view and a subframe are refused, and so is a non-string payload.
+registerIpc(
+  'clipboard:writeText',
+  'app-global-mutate',
+  (_sender, _event, text: unknown) => {
+    if (typeof text !== 'string') throw new Error('Clipboard write denied');
+    return clipboard.writeText(text);
+  },
+  {
+    refusal: () => {
+      throw new Error('Clipboard write denied');
+    },
   }
-  return clipboard.writeText(text);
-});
+);
 
 // GPU info
 const GPU_VENDORS: Record<number, string> = {
@@ -2098,107 +2202,138 @@ function extractEncodeProfiles(info: unknown): string[] {
   return [...mimes];
 }
 
-ipcMain.handle('gpu:getInfo', async () => {
-  try {
-    // Read-only GPU metadata: no filesystem/network/keychain/OS mutation, bounded
-    // shape parsing below, so this fits internal-reference's low-stakes IPC exception.
-    const info = await app.getGPUInfo('complete');
-    const gpu = (
-      info as {
-        gpuDevice?: Array<{
-          vendorId: number;
-          deviceId: number;
-          driverVendor?: string;
-          driverDescription?: string;
-        }>;
+registerIpc(
+  'gpu:getInfo',
+  'app-global-read',
+  async () => {
+    try {
+      // Read-only GPU metadata: no filesystem/network/keychain/OS mutation, bounded
+      // shape parsing below, so this fits internal-reference's low-stakes IPC exception.
+      const info = await app.getGPUInfo('complete');
+      const gpu = (
+        info as {
+          gpuDevice?: Array<{
+            vendorId: number;
+            deviceId: number;
+            driverVendor?: string;
+            driverDescription?: string;
+          }>;
+        }
+      ).gpuDevice?.[0];
+      if (gpu) {
+        // driverVendor on macOS often contains the hex vendorId as a string — skip it
+        const driverName =
+          gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
+        const vendor =
+          driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
+        const device =
+          gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
+        return { vendor, device, encodeProfiles: extractEncodeProfiles(info) };
       }
-    ).gpuDevice?.[0];
-    if (gpu) {
-      // driverVendor on macOS often contains the hex vendorId as a string — skip it
-      const driverName =
-        gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
-      const vendor =
-        driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
-      const device =
-        gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
-      return { vendor, device, encodeProfiles: extractEncodeProfiles(info) };
+      return null;
+    } catch {
+      return null;
     }
-    return null;
-  } catch {
-    return null;
-  }
-});
+  },
+  { refusal: async () => null }
+);
 
 // Display info for resolution/refresh rate awareness
-ipcMain.handle('screen:getDisplayInfo', () => {
-  const displays = screen.getAllDisplays();
-  const primary = screen.getPrimaryDisplay();
-  return displays.map((d) => ({
-    width: d.size.width * d.scaleFactor,
-    height: d.size.height * d.scaleFactor,
-    refreshRate: d.displayFrequency,
-    scaleFactor: d.scaleFactor,
-    isPrimary: d.id === primary.id,
-    colorDepth: d.colorDepth, // 24 = SDR, 30/48 = HDR
-    colorSpace: d.colorSpace, // "srgb" = SDR, "p3"/"rec2020" = wide gamut
-  }));
-});
+registerIpc(
+  'screen:getDisplayInfo',
+  'app-global-read',
+  () => {
+    const displays = screen.getAllDisplays();
+    const primary = screen.getPrimaryDisplay();
+    return displays.map((d) => ({
+      width: d.size.width * d.scaleFactor,
+      height: d.size.height * d.scaleFactor,
+      refreshRate: d.displayFrequency,
+      scaleFactor: d.scaleFactor,
+      isPrimary: d.id === primary.id,
+      colorDepth: d.colorDepth, // 24 = SDR, 30/48 = HDR
+      colorSpace: d.colorSpace, // "srgb" = SDR, "p3"/"rec2020" = wide gamut
+    }));
+  },
+  { refusal: () => [] }
+);
 
 // Hardware acceleration preference
-ipcMain.handle('app:getHardwareAcceleration', () => readHwAccelPref());
+registerIpc(
+  'app:getHardwareAcceleration',
+  'app-global-read',
+  (): boolean | null => readHwAccelPref(),
+  { refusal: () => null }
+);
 
-ipcMain.handle('app:setHardwareAcceleration', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
-});
+registerIpc(
+  'app:setHardwareAcceleration',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => {
+    fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
+  },
+  { refusal: () => undefined }
+);
 
-ipcMain.handle('app:getContentProtection', async (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return false;
-  // Off-platform the effective protection is OFF whatever the file says, so
-  // report the truth rather than a preference that cannot take effect.
-  if (!contentProtectionSupported()) return false;
-  return readContentProtectionPref();
-});
+registerIpc(
+  'app:getContentProtection',
+  'app-global-read',
+  async () => {
+    // Off-platform the effective protection is OFF whatever the file says, so
+    // report the truth rather than a preference that cannot take effect.
+    if (!contentProtectionSupported()) return false;
+    return readContentProtectionPref();
+  },
+  { refusal: async () => false }
+);
 
-ipcMain.handle('app:setContentProtection', async (event, enabled: unknown): Promise<boolean> => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl()) || typeof enabled !== 'boolean') {
-    return false;
-  }
-  // Reporting success for a no-op is the one outcome worse than refusing: it
-  // tells the caller a screen-capture protection is in force when nothing is.
-  if (!contentProtectionSupported()) return false;
+registerIpc(
+  'app:setContentProtection',
+  'app-global-mutate',
+  async (_sender, _event, enabled: unknown): Promise<boolean> => {
+    if (typeof enabled !== 'boolean') return false;
+    // Reporting success for a no-op is the one outcome worse than refusing: it
+    // tells the caller a screen-capture protection is in force when nothing is.
+    if (!contentProtectionSupported()) return false;
 
-  const previous = readContentProtectionPref();
-  if (!writeContentProtectionPref({ enabled, previousEnabled: previous, staged: true })) {
-    return false;
-  }
-
-  const updated: BrowserWindow[] = [];
-  try {
-    for (const window of getContentProtectionWindows()) {
-      window.setContentProtection(enabled);
-      updated.push(window);
+    const previous = readContentProtectionPref();
+    if (!writeContentProtectionPref({ enabled, previousEnabled: previous, staged: true })) {
+      return false;
     }
-    if (!writeContentProtectionPref({ enabled })) throw new Error('content protection preference');
-    return true;
-  } catch {
-    for (const window of updated) {
-      try {
-        window.setContentProtection(previous);
-      } catch {
-        // Preserve rollback attempts for every previously updated window.
+
+    const updated: BaseWindow[] = [];
+    try {
+      for (const window of getContentProtectionWindows()) {
+        window.setContentProtection(enabled);
+        updated.push(window);
       }
+      if (!writeContentProtectionPref({ enabled }))
+        throw new Error('content protection preference');
+      return true;
+    } catch {
+      for (const window of updated) {
+        try {
+          window.setContentProtection(previous);
+        } catch {
+          // Preserve rollback attempts for every previously updated window.
+        }
+      }
+      return false;
     }
-    return false;
-  }
-});
+  },
+  { refusal: async () => false }
+);
 
 // Relaunch (for hardware acceleration toggle)
-ipcMain.handle('app:relaunch', (event) => {
-  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
-  app.relaunch();
-  app.quit();
-});
+registerIpc(
+  'app:relaunch',
+  'app-global-mutate',
+  () => {
+    app.relaunch();
+    app.quit();
+  },
+  { refusal: () => undefined }
+);
 
 // Hot SPA reload — main process re-runs the spaLoader safety chain and points
 // the live window at the freshly-resolved remote SPA URL (or bundled on
@@ -2209,32 +2344,44 @@ ipcMain.handle('app:relaunch', (event) => {
 // the authenticated /api/v1/client/config fetch). NO URL is accepted from the
 // renderer, so a compromised renderer cannot choose the origin. Reuses
 // applySpaDecision so launch and runtime cannot drift.
-ipcMain.handle('spa:reloadLatest', async (event) => {
-  // Privileged: this reaches a top-frame navigation. Reject an untrusted sender
-  // frame FIRST — before any window/packaged state check — so a compromised
-  // frame is refused regardless of state. isPermittedFrameUrl accepts both
-  // states this feature spans: app://concord (the stranded bundled state) and
-  // the active remote origin.
-  if (!isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())) {
-    console.warn('[SpaLoader/reload] rejected spa:reloadLatest from untrusted frame');
-    return { mode: 'bundled', changed: false, rejected: true };
+type SpaReloadResult = { mode: 'remote' | 'bundled'; changed: boolean; rejected?: true };
+
+registerIpc(
+  'spa:reloadLatest',
+  'saas-only',
+  // Privileged: this reaches a top-frame navigation. registerIpc admits only the
+  // saas primary's own document (#86 §3.4: the remote SPA runs only there) BEFORE
+  // any window/packaged state check, so a compromised or self-hosted frame is
+  // refused regardless of state. Its document set spans both states this feature
+  // covers: app://concord (the stranded bundled state) and the active remote origin.
+  async (): Promise<SpaReloadResult> => {
+    const saasContents = saasPrimary()?.webContents;
+    if (!saasContents || saasContents.isDestroyed() || !app.isPackaged) {
+      return { mode: 'bundled', changed: false };
+    }
+    const before = getSpaHash();
+    const decision = await resolveSpaSource();
+    console.debug(`[SpaLoader/reload] ${decision.mode}: ${decision.reason}`);
+    // Main initiated this swap (the renderer only TRIGGERED it), so a code already
+    // delivered to the outgoing document is carried into its successor (#2363).
+    const outcome = await applySpaDecisionCarryingDeepLink(saasContents, decision);
+    // Collapse the internal 'cache' outcome to 'bundled' for the renderer-facing
+    // IPC contract (#1870): the signed LKG cache is a local fallback origin, not a
+    // remote SPA, and no renderer consumer distinguishes it — checkForUpdate's
+    // currentMode already reports 'bundled' when serving from cache (remote-SPA
+    // state is null). Keeps the preload `mode: 'remote' | 'bundled'` type honest
+    // without leaking the internal selection detail to the renderer.
+    const mode: 'remote' | 'bundled' = outcome === 'remote' ? 'remote' : 'bundled';
+    return { mode, changed: getSpaHash() !== before };
+  },
+  {
+    refusal: async (): Promise<SpaReloadResult> => ({
+      mode: 'bundled',
+      changed: false,
+      rejected: true,
+    }),
   }
-  if (!mainWindow || !app.isPackaged) return { mode: 'bundled', changed: false };
-  const before = getSpaHash();
-  const decision = await resolveSpaSource();
-  console.debug(`[SpaLoader/reload] ${decision.mode}: ${decision.reason}`);
-  // Main initiated this swap (the renderer only TRIGGERED it), so a code already
-  // delivered to the outgoing document is carried into its successor (#2363).
-  const outcome = await applySpaDecisionCarryingDeepLink(mainWindow, decision);
-  // Collapse the internal 'cache' outcome to 'bundled' for the renderer-facing
-  // IPC contract (#1870): the signed LKG cache is a local fallback origin, not a
-  // remote SPA, and no renderer consumer distinguishes it — checkForUpdate's
-  // currentMode already reports 'bundled' when serving from cache (remote-SPA
-  // state is null). Keeps the preload `mode: 'remote' | 'bundled'` type honest
-  // without leaking the internal selection detail to the renderer.
-  const mode: 'remote' | 'bundled' = outcome === 'remote' ? 'remote' : 'bundled';
-  return { mode, changed: getSpaHash() !== before };
-});
+);
 
 // SPA (UI) update check — the SECOND update axis, distinct from the
 // electron-updater desktop-binary axis (update:*). Reports whether the renderer
@@ -2243,43 +2390,58 @@ ipcMain.handle('spa:reloadLatest', async (event) => {
 // build id and the SPA URL is constant post-#976, so there is no version number
 // to show, only "newer bytes available"). Read-only and best-effort (never
 // throws); the network target is server-derived, not renderer-supplied.
-ipcMain.handle('spa:checkForUpdate', async (event) => {
-  // Read-only, but validate the sender frame for parity with spa:reloadLatest
-  // and defense-in-depth — closes the (minor) redundant-self-fetch surface a
-  // compromised/sandboxed frame could otherwise trigger.
-  if (!isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())) {
-    return {
+type SpaUpdateCheck = {
+  currentMode: 'remote' | 'bundled';
+  remoteAvailable: boolean;
+  newerBytesAvailable: boolean | null;
+  reason: string;
+};
+
+registerIpc(
+  'spa:checkForUpdate',
+  'saas-only',
+  // Read-only, but admitted like spa:reloadLatest (the saas primary only) for
+  // defense-in-depth — closes the (minor) redundant-self-fetch surface a
+  // compromised, sandboxed or self-hosted frame could otherwise trigger.
+  async (): Promise<SpaUpdateCheck> => {
+    if (!app.isPackaged) {
+      return {
+        currentMode: 'remote',
+        remoteAvailable: false,
+        newerBytesAvailable: null,
+        reason: 'dev mode',
+      };
+    }
+    const currentMode = getRemoteSpaUrl() === null ? 'bundled' : 'remote';
+    const decision = await resolveSpaSource();
+    const remoteAvailable = decision.mode === 'remote' && !!decision.url;
+    let newerBytesAvailable: boolean | null = null;
+    if (remoteAvailable && decision.url) {
+      const available = await hashEntryHtml(decision.url);
+      // null (re-fetch failed) → unknown; the UI degrades to an unconditional offer.
+      newerBytesAvailable = available === null ? null : available !== getSpaHash();
+    }
+    return { currentMode, remoteAvailable, newerBytesAvailable, reason: decision.reason };
+  },
+  {
+    refusal: async (): Promise<SpaUpdateCheck> => ({
       currentMode: 'bundled',
       remoteAvailable: false,
       newerBytesAvailable: null,
       reason: 'rejected',
-    };
+    }),
   }
-  if (!app.isPackaged) {
-    return {
-      currentMode: 'remote',
-      remoteAvailable: false,
-      newerBytesAvailable: null,
-      reason: 'dev mode',
-    };
-  }
-  const currentMode = getRemoteSpaUrl() === null ? 'bundled' : 'remote';
-  const decision = await resolveSpaSource();
-  const remoteAvailable = decision.mode === 'remote' && !!decision.url;
-  let newerBytesAvailable: boolean | null = null;
-  if (remoteAvailable && decision.url) {
-    const available = await hashEntryHtml(decision.url);
-    // null (re-fetch failed) → unknown; the UI degrades to an unconditional offer.
-    newerBytesAvailable = available === null ? null : available !== getSpaHash();
-  }
-  return { currentMode, remoteAvailable, newerBytesAvailable, reason: decision.reason };
-});
+);
 
 // Clean app exit (preserves persisted auth/remember-me state)
-ipcMain.handle('app:quit', (event) => {
-  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
-  app.quit();
-});
+registerIpc(
+  'app:quit',
+  'app-global-mutate',
+  () => {
+    app.quit();
+  },
+  { refusal: () => undefined }
+);
 
 // ─── Desktop Notification Helpers (#175) ────────────────────────────
 
@@ -2287,78 +2449,155 @@ ipcMain.handle('app:quit', (event) => {
 // the payload shape. Each refusal is a silent no-op, as before for bad input.
 const MAX_BADGE_COUNT = 9999;
 
-ipcMain.handle('app:setBadgeCount', (event, count: unknown) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return;
+// #86: one count per connection, shown as their sum, so a connection's badge is only
+// ever its own share. A disposed connection's share leaves the sum with it.
+const badgeByConnection = new Map<ConnectionRef['connectionId'], number>();
+
+function applyBadgeTotal(): void {
+  let sum = 0;
+  for (const count of badgeByConnection.values()) sum += count;
   // A real total can exceed the cap (it sums every channel and DM); clamp, don't drop.
-  app.setBadgeCount(Math.min(count, MAX_BADGE_COUNT));
+  app.setBadgeCount(Math.min(sum, MAX_BADGE_COUNT));
+}
+
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason !== 'disposed' || !badgeByConnection.delete(id)) return;
+  applyBadgeTotal();
 });
 
-ipcMain.handle('app:flashFrame', (event, flash: unknown) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (typeof flash !== 'boolean') return;
-  mainWindow?.flashFrame(flash);
+registerIpc(
+  'app:setBadgeCount',
+  'connection-bound',
+  (sender, _event, count: unknown) => {
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return;
+    badgeByConnection.set(sender.ref.connectionId, Math.min(count, MAX_BADGE_COUNT));
+    applyBadgeTotal();
+  },
+  { refusal: () => undefined }
+);
+
+// #86 RT7: one flash request per connection. The window flashes while any connection
+// has one outstanding, so a connection's `false` withdraws only its own request and
+// cannot stop another connection's flash. main calls `flashFrame` only when that
+// aggregate changes, so the window sees one start and one stop however many ask.
+// The window's focus answers every request (Electron's own pairing: stop on focus),
+// and a disposed connection's request leaves with it.
+const flashRequests = new Set<ConnectionRef['connectionId']>();
+
+function updateFlashRequests(change: () => void): void {
+  const wasFlashing = flashRequests.size > 0;
+  change();
+  const flashing = flashRequests.size > 0;
+  if (flashing !== wasFlashing) shellWindow()?.flashFrame(flashing);
+}
+
+function answerFlashRequests(): void {
+  updateFlashRequests(() => flashRequests.clear());
+}
+
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason !== 'disposed' || !flashRequests.has(id)) return;
+  updateFlashRequests(() => flashRequests.delete(id));
 });
 
-ipcMain.handle('app:focusWindow', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
-});
+registerIpc(
+  'app:flashFrame',
+  'connection-bound',
+  (sender, _event, flash: unknown) => {
+    if (typeof flash !== 'boolean') return;
+    const id = sender.ref.connectionId;
+    if (!flash) {
+      updateFlashRequests(() => flashRequests.delete(id));
+      return;
+    }
+    // A request while the window is focused is dropped, as the renderer drops its own
+    // (a hidden view cannot see the focus): the focus that would answer it has already
+    // happened, so it would stay outstanding and swallow the next real flash.
+    const win = shellWindow();
+    if (!win || win.isFocused()) return;
+    updateFlashRequests(() => flashRequests.add(id));
+  },
+  { refusal: () => undefined }
+);
+
+// #86 RT6: foreground only. A background view focusing the window would pull the
+// user's keystrokes into the foreground connection's document at a time it chose.
+registerIpc(
+  'app:focusWindow',
+  'app-global-mutate',
+  () => {
+    const win = shellWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  },
+  { refusal: () => undefined }
+);
 
 // ─── Auto-Update IPC ──────────────────────────────────────────────────
 
-ipcMain.handle('update:check', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return checkForUpdates();
+const NO_RESULT = { refusal: () => undefined };
+
+registerIpc('update:check', 'app-global-mutate', () => checkForUpdates(), NO_RESULT);
+registerIpc('update:download', 'app-global-mutate', () => downloadUpdate(), NO_RESULT);
+registerIpc('update:install', 'app-global-mutate', () => safeQuitAndInstall(), NO_RESULT);
+registerIpc('update:getAllowPrerelease', 'app-global-read', () => getAllowPrerelease(), {
+  refusal: () => false,
 });
-ipcMain.handle('update:download', (event) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return downloadUpdate();
+registerIpc(
+  'update:setAllowPrerelease',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => setAllowPrerelease(enabled),
+  NO_RESULT
+);
+registerIpc('update:getLogPath', 'app-global-read', () => getUpdateLogPath(), {
+  refusal: () => null,
 });
-ipcMain.handle('update:install', (event) => {
-  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
-  return safeQuitAndInstall();
-});
-ipcMain.handle('update:getAllowPrerelease', () => getAllowPrerelease());
-ipcMain.handle('update:setAllowPrerelease', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  return setAllowPrerelease(enabled);
-});
-ipcMain.handle('update:getLogPath', () => getUpdateLogPath());
-ipcMain.handle(
+registerIpc(
   'updater:force-check',
-  (event, reason: 'attestation_required' | 'user_triggered') => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    return forceCheckForUpdates(reason);
-  }
+  'app-global-mutate',
+  (_sender, _event, reason: 'attestation_required' | 'user_triggered') =>
+    forceCheckForUpdates(reason),
+  NO_RESULT
 );
 
 // Developer Mode (gates DevTools in packaged builds — REMOVE BEFORE BETA)
-ipcMain.handle('app:getDeveloperMode', () => readDeveloperModePref());
-ipcMain.handle('app:setDeveloperMode', (event, enabled: boolean) => {
-  if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-  writeDeveloperModePref(enabled);
-  if (!mainWindow) return;
-  if (enabled) {
-    if (!mainWindow.webContents.isDevToolsOpened()) {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
-  } else if (mainWindow.webContents.isDevToolsOpened()) {
-    mainWindow.webContents.closeDevTools();
-  }
+registerIpc('app:getDeveloperMode', 'app-global-read', () => readDeveloperModePref(), {
+  refusal: () => false,
 });
+registerIpc(
+  'app:setDeveloperMode',
+  'app-global-mutate',
+  (_sender, _event, enabled: boolean) => {
+    writeDeveloperModePref(enabled);
+    // app-global-mutate (#86 §3.7): the foreground view's DevTools.
+    const contents = foregroundWebContents();
+    if (!contents) return;
+    if (enabled) {
+      if (!contents.isDevToolsOpened()) {
+        contents.openDevTools({ mode: 'detach' });
+      }
+    } else if (contents.isDevToolsOpened()) {
+      contents.closeDevTools();
+    }
+  },
+  NO_RESULT
+);
 
 // System info for About page (#155 Tier 4)
-ipcMain.handle('app:getSystemInfo', () => ({
-  platform: process.platform,
-  arch: process.arch,
-  electronVersion: process.versions.electron,
-  chromiumVersion: process.versions.chrome,
-  nodeVersion: process.versions.node,
-}));
+registerIpc(
+  'app:getSystemInfo',
+  'app-global-read',
+  () => ({
+    platform: process.platform,
+    arch: process.arch,
+    electronVersion: process.versions.electron,
+    chromiumVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+  }),
+  { refusal: () => null }
+);
 
 // ─── Secure Auth Token Management (safeStorage) ──────────────────────
 
@@ -2395,7 +2634,7 @@ export function buildApprovalDialogCopy(p: ApprovalDialogParams): {
 
 const defaultShowMessageBox = (w: unknown, o: unknown): Promise<{ response: number }> =>
   w
-    ? dialog.showMessageBox(w as BrowserWindow, o as Electron.MessageBoxOptions)
+    ? dialog.showMessageBox(w as BaseWindow, o as Electron.MessageBoxOptions)
     : dialog.showMessageBox(o as Electron.MessageBoxOptions);
 
 /** Exported for unit test. showMessageBox is injected (the applicationsFolderGate pattern). */
@@ -2420,38 +2659,80 @@ export async function requestSelfHostedApproval(
   return response === 1;
 }
 
-// The native dialog and probe are process-wide, regardless of the renderer sender.
+// One probe at a time PROCESS-WIDE (#195), whichever connection asks; never keyed on
+// anything the renderer supplies. This is a REJECTING single-flight, not the
+// promise-sharing kind used by the restoreSession dedupe / spaSelfHeal: two concurrent
+// probes of DIFFERENT urls must never share one result.
+//
+// It gates the whole handler because the native approval dialog is process-wide and
+// resolveForDisplay's dns.lookup is a libuv-threadpool job that cannot be cancelled:
+// queued getaddrinfo jobs head-of-line-block every async fs operation in the main
+// process — credential IO and the approvals-file read included. guardedRequest.ts
+// also holds a process-wide DNS permit until each lookup calls back. A per-connection
+// bound would let N connections queue N lookups, so it is not used. ServerInput
+// already disables Connect while busy, so the refused concurrency has no legitimate
+// caller.
 let probeInFlight = false;
 
-ipcMain.handle('selfHosted:probeServer', async (event, url: unknown) => {
-  if (
-    !mainWindow ||
-    mainWindow.isDestroyed() ||
-    event.sender !== mainWindow.webContents ||
-    !event.senderFrame ||
-    event.senderFrame.frameTreeNodeId !== mainWindow.webContents.mainFrame.frameTreeNodeId ||
-    !isTrustedAuthSender(event)
-  ) {
-    console.warn('[selfHosted:probeServer] rejected — sender is not the active main frame');
-    return {
-      status: 'error',
-      code: 'rejected',
-      message: 'Self-hosted server probing is not available from this frame.',
-    };
-  }
-  if (probeInFlight) {
-    console.warn('[selfHosted:probeServer] refused — probe already in flight');
-    return { status: 'error', code: 'busy', message: '' };
-  }
-  probeInFlight = true;
-  try {
-    return await handleProbeSelfHostedServer(url);
-  } finally {
-    probeInFlight = false;
-  }
-});
+function probeRejected(): SelfHostedProbeResult {
+  return {
+    status: 'error',
+    code: 'rejected',
+    message: 'Self-hosted server probing is not available from this frame.',
+  };
+}
 
-async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProbeResult> {
+// #195 re-expressed for #86: "the active main window's main frame" is the FOREGROUND
+// connection's bound primary main frame (app-global-mutate). A background connection,
+// a PiP or a subframe is refused before any side effect: a probe can raise the native
+// approval ceremony and open + activate another connection.
+registerIpc(
+  'selfHosted:probeServer',
+  'app-global-mutate',
+  async (sender, _event, url: unknown): Promise<SelfHostedProbeResult> => {
+    // Set synchronously, before the handler's first await, so a burst dispatched in
+    // one tick cannot all observe a free slot.
+    if (probeInFlight) {
+      console.warn('[selfHosted:probeServer] refused — probe already in flight');
+      return { status: 'error', code: 'busy', message: '' };
+    }
+    probeInFlight = true;
+    try {
+      return await handleProbeSelfHostedServer(url, sender);
+    } finally {
+      probeInFlight = false;
+    }
+  },
+  { refusal: async () => probeRejected() }
+);
+
+/**
+ * #86: a probe of the sender's OWN service returns as before. A successful probe of
+ * any OTHER origin opens that origin in its own connection and activates it, so the
+ * probing view (saas included) is never re-homed and receives no apiBase to load.
+ */
+async function settleProbe(
+  sender: ConnectionSender,
+  apiBase: string,
+  result: SelfHostedProbeResult
+): Promise<SelfHostedProbeResult> {
+  if (result?.status !== 'ok') return result;
+  const origin = new URL(apiBase).origin;
+  if (origin === sender.service.origin) return result;
+  if (!isSenderCurrent(sender)) return probeRejected();
+  const opened = await openApprovedConnection(sender, origin);
+  if (opened.status !== 'opened') {
+    // Closed enum only: never the origin.
+    console.warn(`[selfHosted:probeServer] not opened in a connection (${opened.reason})`);
+    return probeRejected();
+  }
+  return { status: 'opened-in-connection', serviceId: opened.serviceId };
+}
+
+async function handleProbeSelfHostedServer(
+  url: unknown,
+  sender: ConnectionSender
+): Promise<SelfHostedProbeResult> {
   if (typeof url !== 'string') {
     return {
       status: 'error',
@@ -2467,17 +2748,7 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
 
   const parsed = new URL(normalized.apiBase);
   const resolved: ResolveForDisplayResult = await resolveForDisplay(parsed.hostname);
-  if (!resolved.ok) {
-    switch (resolved.kind) {
-      case 'busy':
-        return { status: 'error', code: 'busy', message: '' };
-      case 'tier1':
-        // Reason token only; the renderer owns the user-facing copy.
-        return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
-      default:
-        return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
-    }
-  }
+  if (!resolved.ok) return unresolvedProbeResult(resolved);
 
   // Consent is scoped to the address class the ceremony displayed. An origin approved
   // against a public address has NOT authorized a tier-2 dial under that name, so a
@@ -2489,61 +2760,157 @@ async function handleProbeSelfHostedServer(url: unknown): Promise<SelfHostedProb
     approvalTier === null || (resolved.decision.tier === 'tier2' && approvalTier !== 'tier2');
 
   if (needsApproval) {
-    // Rations the DIALOG, not the probe: an approved origin never reaches this
-    // branch, so re-probing it stays unthrottled. The token is taken before the
-    // modal opens because a declined ceremony cost the user the same interruption
-    // an approved one did.
-    if (!consumeCeremonyToken()) {
-      console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
-      return { status: 'error', code: 'too_many_prompts', message: '' };
-    }
-    // `mainWindow` is read HERE, at ceremony time — not at handler registration,
-    // when the auth window does not yet exist.
-    const approved = await requestSelfHostedApproval(mainWindow, {
-      host: parsed.hostname,
-      // Every resolved address, not just the representative: the user consents to the
-      // whole set the name answers with, so the whole set is what the dialog states.
-      address: resolved.addresses.join(', '),
-      decision: resolved.decision,
-    });
-    if (!approved) {
-      return { status: 'error', code: 'approval_declined', message: 'Connection cancelled.' };
-    }
-    // Consent is not proof. The grant is PROVISIONAL until the probe shows this origin
-    // answers like a Concord server: beginPendingApproval authorizes only the dial the
-    // probe itself needs, and the durable record is written after. Committing first meant
-    // any post-consent failure — non-Concord server, TLS, ECONNREFUSED, HTTP 500 — still
-    // left a permanent grant gating auth:storeRefreshToken and the SSO exchange.
-    beginPendingApproval(normalized.apiBase, resolved.address);
-    let result: SelfHostedProbeResult;
-    try {
-      result = await probeSelfHostedServer(normalized.apiBase);
-    } finally {
-      clearPendingApproval();
-    }
-    if (result?.status !== 'ok') return result;
-    if (!commitSelfHostedApproval(normalized.apiBase, resolved.address)) {
-      return {
-        status: 'error',
-        code: 'approval_not_saved',
-        message: "Concord couldn't save your choice.",
-      };
-    }
-    return result;
+    return probeWithApprovalCeremony(sender, normalized.apiBase, parsed.hostname, resolved);
   }
 
-  return probeSelfHostedServer(normalized.apiBase);
+  return settleProbe(sender, normalized.apiBase, await probeSelfHostedServer(normalized.apiBase));
 }
 
-ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeRefreshToken');
+/** The probe's answer for a name `resolveForDisplay` did not resolve to a dialable set. */
+function unresolvedProbeResult(
+  resolved: Extract<ResolveForDisplayResult, { ok: false }>
+): SelfHostedProbeResult {
+  switch (resolved.kind) {
+    case 'busy':
+      return { status: 'error', code: 'busy', message: '' };
+    case 'tier1':
+      // Reason token only; the renderer owns the user-facing copy.
+      return { status: 'error', code: 'address_not_allowed', message: resolved.reason };
+    default:
+      return { status: 'error', code: 'unreachable', message: 'Could not reach the server.' };
+  }
+}
+
+/**
+ * `handleProbeSelfHostedServer`'s branch for an origin that needs the user's consent:
+ * the native ceremony, a probe under a PROVISIONAL grant, then the durable record.
+ * Every step runs in the order it always has; each `isSenderCurrent` re-check sits
+ * after the await it guards.
+ */
+async function probeWithApprovalCeremony(
+  sender: ConnectionSender,
+  apiBase: string,
+  host: string,
+  resolved: Extract<ResolveForDisplayResult, { ok: true }>
+): Promise<SelfHostedProbeResult> {
+  // The dialog speaks for the view the user is looking at: a hidden connection's
+  // view never raises it (#86).
+  if (!isForegroundSender(sender)) return probeRejected();
+  // Rations the DIALOG, not the probe: an approved origin never reaches this
+  // branch, so re-probing it stays unthrottled. The token is taken before the
+  // modal opens because a declined ceremony cost the user the same interruption
+  // an approved one did.
+  if (!consumeCeremonyToken()) {
+    console.warn('[selfHosted:probeServer] refused — approval prompt budget exhausted');
+    return { status: 'error', code: 'too_many_prompts', message: '' };
+  }
+  // The shell window is read HERE, at ceremony time — not at handler registration,
+  // when the auth window does not yet exist.
+  const approved = await requestSelfHostedApproval(shellWindow(), {
+    host,
+    // Every resolved address, not just the representative: the user consents to the
+    // whole set the name answers with, so the whole set is what the dialog states.
+    address: resolved.addresses.join(', '),
+    decision: resolved.decision,
+  });
+  // After every await: the view that asked must still be the one that is live.
+  if (!isSenderCurrent(sender)) return probeRejected();
+  if (!approved) {
+    return { status: 'error', code: 'approval_declined', message: 'Connection cancelled.' };
+  }
+  // Consent is not proof. The grant is PROVISIONAL until the probe shows this origin
+  // answers like a Concord server: beginPendingApproval authorizes only the dial the
+  // probe itself needs, and the durable record is written after. Committing first meant
+  // any post-consent failure — non-Concord server, TLS, ECONNREFUSED, HTTP 500 — still
+  // left a permanent grant gating auth:storeRefreshToken and the SSO exchange.
+  beginPendingApproval(apiBase, resolved.address);
+  let result: SelfHostedProbeResult;
+  try {
+    result = await probeSelfHostedServer(apiBase);
+  } finally {
+    clearPendingApproval();
+  }
+  if (result?.status !== 'ok') return result;
+  if (!isSenderCurrent(sender)) return probeRejected();
+  if (!commitSelfHostedApproval(apiBase, resolved.address)) {
+    return {
+      status: 'error',
+      code: 'approval_not_saved',
+      message: "Concord couldn't save your choice.",
+    };
+  }
+  return settleProbe(sender, apiBase, result);
+}
+
+/** `connection:create`'s pre-ceremony step (#86 §3.7): what the dialog will state. */
+type ConnectionOriginProbe =
+  | { readonly status: 'error' }
+  | {
+      readonly status: 'ok';
+      readonly needsApproval: boolean;
+      readonly apiBase: string;
+      readonly address: string;
+      readonly dialog: Parameters<typeof requestSelfHostedApproval>[1];
+    };
+
+/**
+ * The same normalisation, resolution and tier rule as `handleProbeSelfHostedServer`,
+ * stopping before the dialog. `origin` is already canonical; a value the self-hosted
+ * normaliser would change is refused rather than silently re-homed.
+ */
+async function probeConnectionOrigin(origin: string): Promise<ConnectionOriginProbe> {
+  const normalized = normalizeSelfHostedUrl(origin);
+  if (!normalized.ok || new URL(normalized.apiBase).origin !== origin) return { status: 'error' };
+  const host = new URL(origin).hostname;
+  const resolved: ResolveForDisplayResult = await resolveForDisplay(host);
+  if (!resolved.ok) return { status: 'error' };
+  const approvalTier = approvalTierForApiBase(normalized.apiBase);
+  const needsApproval =
+    approvalTier === null || (resolved.decision.tier === 'tier2' && approvalTier !== 'tier2');
+  return {
+    status: 'ok',
+    needsApproval,
+    apiBase: normalized.apiBase,
+    address: resolved.address,
+    dialog: { host, address: resolved.addresses.join(', '), decision: resolved.decision },
+  };
+}
+
+/**
+ * The native ceremony, then the provisional probe it authorises (the same
+ * consent-is-not-proof rule as `handleProbeSelfHostedServer`). `connection.ts` spends
+ * the ceremony budget before calling this and commits the approval after it.
+ */
+async function runConnectionCeremony(
+  _origin: string,
+  probe: ConnectionOriginProbe
+): Promise<ConnectionCeremonyVerdict> {
+  if (probe.status !== 'ok') return { approved: false };
+  if (!(await requestSelfHostedApproval(shellWindow(), probe.dialog))) return { approved: false };
+  beginPendingApproval(probe.apiBase, probe.address);
+  let result: SelfHostedProbeResult;
+  try {
+    result = await probeSelfHostedServer(probe.apiBase);
+  } finally {
+    clearPendingApproval();
+  }
+  return result?.status === 'ok' ? { approved: true, address: probe.address } : { approved: false };
+}
+
+registerIpc('auth:storeRefreshToken', 'connection-bound', (sender, _event, data: unknown) => {
+  // D3 (#86): a supplied apiBase may only NAME the sender's own service. It is refused
+  // before any custody call; the custody and the stored origin come from the binding.
+  if (isRecord(data) && !crossCheckApiBase(sender, data.apiBase)) {
+    return rejectWrongOwner('auth:storeRefreshToken');
   }
   if (!isStoreRefreshTokenPayload(data)) {
     return rejectInvalidAuthPayload('auth:storeRefreshToken');
   }
 
-  const credentialOwner = storeRefreshToken(data);
+  const credentialOwner = sender.custody.storeRefreshToken({
+    ...data,
+    apiBase: sender.service.origin,
+  });
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -2551,18 +2918,19 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
   // tag stayed null for the life of the process and the pre-login exemption never
   // expired (CODEX P2). Fence first: if a PREVIOUS owner's codes are still
   // retained they must go rather than be adopted by whoever just signed in.
-  fenceDeepLinksOnOwnerChange();
-  noteDeepLinkOwner();
+  // Deep links reach the saas connection only, so only its owner tags them (#86).
+  if (sender.service.serviceId === SAAS_SERVICE_ID) {
+    fenceDeepLinksOnOwnerChange(false, credentialOwner);
+    noteDeepLinkOwner(credentialOwner);
+  }
   // Clear any cached restore result so subsequent restoreSession calls
   // (e.g. after HMR or renderer reload) use the fresh token, not a stale
   // 'refresh_failed' from a previous attempt.
-  restoreSessionPromise = null;
+  restoreSessionByConnection.delete(sender.ref.connectionId);
 
   // Activate auto-updater now that we have an API base
   // (first-launch users won't have this until login)
-  if (data.apiBase) {
-    setUpdateFeedUrl(data.apiBase);
-  }
+  setUpdateFeedUrl(sender.service.origin);
   return credentialOwner;
 });
 
@@ -2570,7 +2938,7 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
 // useEffect twice, causing two IPC calls.  Without dedup each call would
 // trigger a separate token rotation, wasting rotations and widening the
 // window for race conditions.
-let restoreSessionPromise: Promise<{
+type RestoreSessionResult = {
   status: string;
   accessToken?: string;
   sessionId?: string;
@@ -2578,15 +2946,35 @@ let restoreSessionPromise: Promise<{
   rememberMe?: boolean;
   credentialOwner?: CredentialOwner;
   pendingE2EEUnlock?: boolean;
-}> | null = null;
+};
+// Keyed by connection (#86): a shared promise would hand one connection's restored
+// access token to another connection's renderer. Each entry also carries the generation
+// that started it, and only a caller at that same generation joins it: a document that
+// reloads mid-restore is a new generation, and the old restore it would otherwise join
+// is already doomed to 'refresh_failed' by its own currentness checks.
+const restoreSessionByConnection = new Map<
+  ConnectionRef['connectionId'],
+  { generation: ConnectionRef['generation']; promise: Promise<RestoreSessionResult> }
+>();
 
-function isTrustedAuthSender(event: Electron.IpcMainInvokeEvent): boolean {
-  return isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl());
+function rejectWrongOwner(channel: string): { status: 'rejected'; reason: 'wrong-owner' } {
+  console.warn(`[${channel}] rejected — apiBase names a different service`);
+  return { status: 'rejected', reason: 'wrong-owner' };
 }
 
-function rejectUntrustedAuthSender(channel: string): { status: 'rejected' } {
-  console.warn(`[${channel}] rejected — sender frame validation failed`);
-  return { status: 'rejected' };
+/** #86: the sender's connection is still live at the generation it was admitted at. */
+function isSenderCurrent(sender: ConnectionSender): boolean {
+  const record = recordFor(sender.ref.connectionId);
+  return (
+    record !== undefined &&
+    record.state !== 'disposed' &&
+    record.generation === sender.ref.generation
+  );
+}
+
+/** ...and it is the foreground connection. */
+function isForegroundSender(sender: ConnectionSender): boolean {
+  return isSenderCurrent(sender) && foreground() === recordFor(sender.ref.connectionId);
 }
 
 function rejectInvalidAuthPayload(channel: string): { status: 'rejected' } {
@@ -2647,6 +3035,7 @@ function isStoreRefreshTokenPayload(data: unknown): data is {
   rememberMe: boolean;
   apiBase: string;
   accessToken?: string;
+  serverUserId?: string;
 } {
   return (
     isRecord(data) &&
@@ -2654,7 +3043,9 @@ function isStoreRefreshTokenPayload(data: unknown): data is {
     typeof data.rememberMe === 'boolean' &&
     isValidApiBase(data.apiBase) &&
     (data.accessToken === undefined ||
-      (typeof data.accessToken === 'string' && data.accessToken.length <= MAX_TOKEN_LENGTH))
+      (typeof data.accessToken === 'string' && data.accessToken.length <= MAX_TOKEN_LENGTH)) &&
+    // #86 T9: renderer-supplied, so bounded and control-free; only ever hashed.
+    (data.serverUserId === undefined || isServerUserId(data.serverUserId))
   );
 }
 
@@ -2681,19 +3072,24 @@ function isCredentialOwner(value: unknown): value is CredentialOwner {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
-ipcMain.handle('auth:restoreSession', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:restoreSession');
-  }
+registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
+  const connectionId = sender.ref.connectionId;
+  const inFlight = restoreSessionByConnection.get(connectionId);
+  if (inFlight?.generation === sender.ref.generation) return inFlight.promise;
 
-  if (restoreSessionPromise) return restoreSessionPromise;
-
-  restoreSessionPromise = (async () => {
-    const restored = await restoreRefreshToken();
+  const isSaas = sender.service.serviceId === SAAS_SERVICE_ID;
+  const restore: Promise<RestoreSessionResult> = (async () => {
+    // The sender's own custody (#86), and every read below stays on it. Each await
+    // is followed by a check that the connection is still at the generation that
+    // asked, so a reload or a dispose in between abandons the restore.
+    const custody = sender.custody;
+    const ownerIfActive = (): CredentialOwner | null =>
+      isSenderCurrent(sender) ? custody.getCredentialCustodyState().credentialOwner : null;
+    const restored = await custody.restoreRefreshToken();
     if (restored.status !== 'ok') {
       return { status: restored.status };
     }
-    const restoreOwner = getCredentialCustodyState().credentialOwner;
+    const restoreOwner = ownerIfActive();
     if (restoreOwner === null) {
       return { status: 'refresh_failed' };
     }
@@ -2708,26 +3104,27 @@ ipcMain.handle('auth:restoreSession', (event) => {
     // leaves the suite green. It stays because the two auth points must behave
     // identically — an asymmetry between them is a trap, and this is the ordering
     // whose inverse is a cross-account leak on the login path (covered there).
-    fenceDeepLinksOnOwnerChange(false, restoreOwner);
-    noteDeepLinkOwner(restoreOwner);
+    if (isSaas) {
+      fenceDeepLinksOnOwnerChange(false, restoreOwner);
+      noteDeepLinkOwner(restoreOwner);
+    }
     // Token restored from disk or main-process memory — refresh it to get a
     // fresh access token.
-    const refreshResult = await performRefresh();
+    const refreshResult = await custody.performRefresh();
     if (refreshResult.status === 'ok' && refreshResult.accessToken) {
       // A fresh login may have replaced the restored credential after refresh
       // resolved but before this continuation resumed. Verify the owner before
       // reading keys so an old access token can never be paired with a
       // successor's E2EE custody.
-      const ownerCheck = getCredentialCustodyState();
-      if (ownerCheck.credentialOwner !== restoreOwner) {
+      if (ownerIfActive() !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
       // Also restore E2EE keys if available. The restore awaits a decrypt, so a
       // login can land inside it: the owner re-check after it is what keeps
       // these keys paired with the access token above.
-      const e2eeKeys = await restoreE2EEKeys();
-      const custody = getCredentialCustodyState();
-      if (custody.credentialOwner !== restoreOwner) {
+      const e2eeKeys = await custody.restoreE2EEKeys();
+      const state = custody.getCredentialCustodyState();
+      if (!isSenderCurrent(sender) || state.credentialOwner !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
       return {
@@ -2736,78 +3133,81 @@ ipcMain.handle('auth:restoreSession', (event) => {
         sessionId: refreshResult.sessionId,
         e2eeKeys,
         rememberMe: restored.rememberMe,
-        credentialOwner: custody.credentialOwner,
-        pendingE2EEUnlock: custody.pendingE2EEUnlock,
+        credentialOwner: state.credentialOwner,
+        pendingE2EEUnlock: state.pendingE2EEUnlock,
       };
     }
     return { status: 'refresh_failed' };
   })().finally(() => {
-    restoreSessionPromise = null;
+    if (restoreSessionByConnection.get(connectionId)?.promise === restore) {
+      restoreSessionByConnection.delete(connectionId);
+    }
   });
-
-  return restoreSessionPromise;
+  restoreSessionByConnection.set(connectionId, {
+    generation: sender.ref.generation,
+    promise: restore,
+  });
+  return restore;
 });
 
-ipcMain.handle('auth:storeE2EEKeys', (event, data: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeE2EEKeys');
-  }
+registerIpc('auth:storeE2EEKeys', 'connection-bound', (sender, _event, data: unknown) => {
   if (!isStoreE2EEKeysPayload(data)) {
     return rejectInvalidAuthPayload('auth:storeE2EEKeys');
   }
 
   // Surface persistence success/failure to the renderer (#1288) — a genuine
   // keychain/disk write failure returns false rather than being swallowed.
-  return storeE2EEKeys(data);
+  // Staged in the SENDER's custody (#86 S2), so keys staged by one connection can only
+  // ever be adopted by that connection's own next credential, never by another's.
+  return sender.custody.storeE2EEKeys(data);
 });
 
-ipcMain.handle('auth:storeE2EEKeysIfOwner', (event, data: unknown, owner: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:storeE2EEKeysIfOwner');
-  }
-  if (!isStoreE2EEKeysPayload(data) || !isCredentialOwner(owner)) {
-    return rejectInvalidAuthPayload('auth:storeE2EEKeysIfOwner');
-  }
+registerIpc(
+  'auth:storeE2EEKeysIfOwner',
+  'connection-bound',
+  (sender, _event, data: unknown, owner: unknown) => {
+    if (!isStoreE2EEKeysPayload(data) || !isCredentialOwner(owner)) {
+      return rejectInvalidAuthPayload('auth:storeE2EEKeysIfOwner');
+    }
 
-  return storeE2EEKeysIfOwner(data, owner);
+    // S3 (#86): owner numbers are not unique across custodies, so the number is checked
+    // only against the sender's own custody and a colliding number reaches no other.
+    return sender.custody.storeE2EEKeysIfOwner(data, owner);
+  }
+);
+
+registerIpc('auth:refreshToken', 'connection-bound', async (sender) => {
+  return sender.custody.performRefresh();
 });
 
-ipcMain.handle('auth:refreshToken', async (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:refreshToken');
+registerIpc(
+  'auth:logout',
+  'connection-bound',
+  async (sender, _event, data?: { accessToken?: string }) => {
+    if (!isLogoutPayload(data)) {
+      return rejectInvalidAuthPayload('auth:logout');
+    }
+
+    // The renderer's real logout path is userStore.logout() -> electron.logout(),
+    // which lands HERE and never reaches the auth:clearTokens handler. It happens
+    // to reach it later, through nuclearReset()'s optional-chained
+    // `globalThis.electron?.clearTokens?.()` (resetService.ts) — a renderer-side
+    // call ordering that no main-process test can observe and that a refactor
+    // could drop silently. The §5.2 fence therefore holds at THIS edge on its own.
+    //
+    // BEFORE the await, not after: performLogout clears the credentials on its
+    // first line and only then issues an unbounded network POST, so anything after
+    // the await leaves the clear open for the width of that request.
+    //
+    // Deep links are saas-only (#86), so only a saas logout forgets them: a self-hosted
+    // connection signing out must not wipe the saas connection's pending invite.
+    if (sender.service.serviceId === SAAS_SERVICE_ID) forgetDeliveredDeepLinks();
+    await sender.custody.performLogout(data?.accessToken);
+    return undefined;
   }
+);
 
-  return performRefresh();
-});
-
-ipcMain.handle('auth:logout', async (event, data?: { accessToken?: string }) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:logout');
-  }
-  if (!isLogoutPayload(data)) {
-    return rejectInvalidAuthPayload('auth:logout');
-  }
-
-  // The renderer's real logout path is userStore.logout() -> electron.logout(),
-  // which lands HERE and never reaches the auth:clearTokens handler. It happens
-  // to reach it later, through nuclearReset()'s optional-chained
-  // `globalThis.electron?.clearTokens?.()` (resetService.ts) — a renderer-side
-  // call ordering that no main-process test can observe and that a refactor
-  // could drop silently. The §5.2 fence therefore holds at THIS edge on its own.
-  //
-  // BEFORE the await, not after: performLogout clears the credentials on its
-  // first line and only then issues an unbounded network POST, so anything after
-  // the await leaves the clear open for the width of that request.
-  forgetDeliveredDeepLinks();
-  await performLogout(data?.accessToken);
-  return undefined;
-});
-
-ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:clearTokens');
-  }
-
+registerIpc('auth:clearTokens', 'connection-bound', (sender, _event, opts: unknown) => {
   // Renderer-supplied, so read strictly: only the exact literal `true` opts OUT,
   // and anything else — absent, malformed, truthy-but-not-true — forgets.
   //
@@ -2844,8 +3244,14 @@ ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
   // `rememberMe === false`, documented in resetService as "ends the authenticated
   // lifecycle", which reaches this handler through gracefulReset and never calls
   // `auth:logout`.
-  clearTokens();
-  if (!keepDeepLinks) forgetDeliveredDeepLinks();
+  // Only the sender's own custody: an owner-blind wipe never reaches another
+  // connection's profile, nor one chosen from disk or by default (the double-clear
+  // class above, #86).
+  sender.custody.clearTokens();
+  // Saas-only, as in `auth:logout`: another connection's clear never reaches saas's links.
+  if (!keepDeepLinks && sender.service.serviceId === SAAS_SERVICE_ID) {
+    forgetDeliveredDeepLinks();
+  }
   return undefined;
 });
 
@@ -2864,20 +3270,13 @@ ipcMain.handle('auth:clearTokens', (event, opts: unknown) => {
 // direction — the worst a hostile caller achieves is losing its own pending invite
 // — but a renderer-reachable channel that mutates main's delivery state gets the
 // same guard as its neighbours regardless, rather than an argument for why it does
-// not need one.
-ipcMain.handle('deeplink:forget', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('deeplink:forget');
-  }
-
+// not need one. #86: deep links are saas-only, so only the saas primary may forget.
+registerIpc('deeplink:forget', 'saas-only', () => {
   forgetDeliveredDeepLinks();
   return undefined;
 });
 
-ipcMain.handle('auth:clearTokensIfOwner', (event, owner: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    return rejectUntrustedAuthSender('auth:clearTokensIfOwner');
-  }
+registerIpc('auth:clearTokensIfOwner', 'connection-bound', (sender, _event, owner: unknown) => {
   if (!isCredentialOwner(owner)) {
     return rejectInvalidAuthPayload('auth:clearTokensIfOwner');
   }
@@ -2892,33 +3291,40 @@ ipcMain.handle('auth:clearTokensIfOwner', (event, owner: unknown) => {
   // window exists — main holds the ONLY copy — so an SSO sign-in that aborts
   // would erase it and the retry would land with the invite silently gone.
   // That is #2363's own symptom on a new path.
-  return clearTokensIfOwner(owner);
+  // S3 (#86): checked only against the sender's own custody, as for E2EE keys above.
+  return sender.custody.clearTokensIfOwner(owner);
 });
 
-ipcMain.handle('auth:getCapabilities', (event) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[auth:getCapabilities] rejected — sender frame validation failed');
-    // Fail closed with this handler's own shape (not the {status:'rejected'}
-    // reject shape) so callers always get a valid, safe default.
-    return { persistAvailable: false };
-  }
-  return getCapabilities();
-});
+registerIpc(
+  'auth:getCapabilities',
+  'app-global-read',
+  // A machine fact (is OS-protected storage available), the same from any custody.
+  (sender) => sender.custody.getCapabilities(),
+  // Fail closed with this handler's own shape (not the {status:'rejected'}
+  // reject shape) so callers always get a valid, safe default.
+  { refusal: async () => ({ persistAvailable: false }) }
+);
 
-ipcMain.handle('auth:getMachineId', (event, apiBase?: unknown) => {
-  if (!isTrustedAuthSender(event)) {
-    console.warn('[auth:getMachineId] rejected — sender frame validation failed');
-    return '';
-  }
-
-  if (apiBase === undefined) return getMachineId();
-  if (!isValidApiBase(apiBase)) return '';
-  return getMachineId(apiBase);
-});
+registerIpc(
+  'auth:getMachineId',
+  'connection-bound',
+  (sender, _event, apiBase?: unknown) => {
+    // The id is per service (#1618), so it is the sender's own whatever apiBase names.
+    // A supplied apiBase is only a cross-check, refused before any id is read or minted.
+    if (!crossCheckApiBase(sender, apiBase)) {
+      console.warn('[auth:getMachineId] rejected — apiBase names a different service');
+      return '';
+    }
+    return getMachineId(sender.service.origin);
+  },
+  { refusal: () => '' }
+);
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
 type PipWindowEntry = {
   window: BrowserWindow;
+  /** The opener's document when the PiP opened; its pushes go there or nowhere. */
+  ownerRef: ConnectionRef;
   ownerFrameTreeNodeId: number;
   remoteSpaUrl: string | null;
   /**
@@ -2930,8 +3336,37 @@ type PipWindowEntry = {
    */
   sessionToken: string;
 };
+/**
+ * #86 RT4: the PiP namespace is per connection. Invariant: every entry is keyed
+ * `<owner connectionId>:<renderer id>`, and every lookup builds its key from the
+ * SENDER's own connectionId (`pipKey`), so a connection can neither collide with,
+ * address nor observe another connection's PiP: a foreign id is exactly an absent
+ * one. The key is injective because neither half can contain ':' (connection ids
+ * are base64url; a PiP id must pass `isPipId`), and an id that fails `isPipId`
+ * names no PiP at all. Iterating `values()` (quit, content protection, stale-origin
+ * teardown) is process-wide on purpose.
+ */
 const pipWindows = new Map<string, PipWindowEntry>();
 let lastPipOpenRejectionLog = -Infinity;
+
+function pipKey(connectionId: ConnectionId, id: unknown): string | null {
+  return isPipId(id) ? `${connectionId}:${id}` : null;
+}
+
+/** #86 RT5: the live PiPs one connection holds, counted against its own cap. */
+function livePipCountFor(connectionId: ConnectionId): number {
+  let count = 0;
+  for (const entry of pipWindows.values()) {
+    if (entry.ownerRef.connectionId === connectionId) count += 1;
+  }
+  return count;
+}
+
+// #86 RT5: a disposed connection's PiPs are destroyed by its teardown, whose 'closed'
+// runs forgetWindow; its open-rate history is dropped here.
+onGenerationAdvanced((id, _from, _to, reason) => {
+  if (reason === 'disposed') releasePipOpenBudget(id);
+});
 
 /** Force-close PiP children during full-app shutdown so renderer unload guards cannot veto quit. */
 function destroyPipWindowsForQuit(): void {
@@ -2941,28 +3376,67 @@ function destroyPipWindowsForQuit(): void {
 }
 
 /**
+ * Invariant: after every remote-SPA state write, no open PiP is pinned to a remote
+ * origin other than the current one. Admission refuses such a PiP on every
+ * pip-scoped channel, its own `pip:close` included, and the window is frameless,
+ * so leaving it open would strand it until quit. The predicate is admission's own
+ * (`pipSpaOriginFor` against the current origin), so a PiP is torn down exactly
+ * when it would be refused: one that pinned nothing (bundled, cached, self-hosted)
+ * is never touched, and one whose pin is still current (same origin, new hash)
+ * stays open. Teardown is `destroyPip`, the path `disposeConnectionView` uses:
+ * destroy() cannot be vetoed by a renderer beforeunload guard, and the 'closed'
+ * it guarantees pushes `pip:closed` and drops the registry membership once.
+ */
+function closePipsPinnedToStaleOrigin(): void {
+  const current = getRemoteSpaBaseUrl();
+  for (const { window: pip } of [...pipWindows.values()]) {
+    if (pip.isDestroyed()) continue;
+    const pinned = pipSpaOriginFor(pip.webContents);
+    if (pinned !== null && pinned !== current) destroyPip(pip.webContents);
+  }
+}
+// setRemoteSpaState is the only writer of the remote-SPA origin, and runs this.
+onSpaStateChange(closePipsPinnedToStaleOrigin);
+
+/**
  * Resolve the PiP `id` names together with WHICH of the two permitted
  * relationships the sender holds. `pip:close` / `pip:setAlwaysOnTop` accept
  * either; `pip:session` accepts only the PiP's own main frame, because the
  * token it returns is a working capability rather than a window mutation.
  */
+type PipIpcEvent = Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>;
+
+/**
+ * The remote-SPA URL a PiP opener of `serviceId` runs on: the current one for `saas`,
+ * and null for any other service, which never loads the remote SPA (C7). An unknown
+ * service gets null, which admits only the bundled and cached documents.
+ */
+function remoteSpaUrlForService(serviceId: ServiceId | undefined): string | null {
+  return serviceId === SAAS_SERVICE_ID ? getRemoteSpaUrl() : null;
+}
+
 function resolvePipSender(
-  event: IpcMainInvokeEvent,
+  event: PipIpcEvent,
+  connectionId: ConnectionId,
   id: unknown
 ): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
-  if (typeof id !== 'string' || id.length === 0) return null;
+  const key = pipKey(connectionId, id);
+  if (key === null) return null;
   const senderFrame = event.senderFrame;
   if (!senderFrame) return null;
-  const entry = pipWindows.get(id);
+  const entry = pipWindows.get(key);
   if (!entry || entry.window.isDestroyed()) return null;
   const isPipMainFrame =
     event.sender === entry.window.webContents &&
     senderFrame.frameTreeNodeId === entry.window.webContents.mainFrame.frameTreeNodeId;
+  // An owner frame is checked against its OWN service's remote origin, as at pip:open: a
+  // self-hosted owner stays on app://concord when the saas remote SPA turns on.
+  const ownerService = recordFor(entry.ownerRef.connectionId)?.serviceId;
   if (
     !isValidPipOpenSender(
       senderFrame.url,
       app.isPackaged,
-      isPipMainFrame ? entry.remoteSpaUrl : getRemoteSpaUrl()
+      isPipMainFrame ? entry.remoteSpaUrl : remoteSpaUrlForService(ownerService)
     )
   ) {
     return null;
@@ -2972,134 +3446,210 @@ function resolvePipSender(
   return { entry, isPipMainFrame };
 }
 
-function getOwnedPipWindow(event: IpcMainInvokeEvent, id: string): BrowserWindow | null {
-  return resolvePipSender(event, id)?.entry.window ?? null;
+/**
+ * #86: the PiP `id` names, looked up in the sender's own connection's namespace
+ * (RT4) and resolved as above. The binding is main-held, so a document of
+ * connection B can never reach a PiP connection A opened, whatever ids or frame
+ * ids the two happen to share. The owner re-check is defence in depth.
+ */
+function resolveOwnedPip(
+  sender: ConnectionSender,
+  event: PipIpcEvent,
+  id: unknown
+): { entry: PipWindowEntry; isPipMainFrame: boolean } | null {
+  const resolved = resolvePipSender(event, sender.ref.connectionId, id);
+  if (resolved?.entry.ownerRef.connectionId !== sender.ref.connectionId) return null;
+  return resolved;
 }
 
-function isMainPipSender(
-  event: IpcMainInvokeEvent,
-  senderFrame: NonNullable<IpcMainInvokeEvent['senderFrame']>,
-  remoteUrl: string | null
-): boolean {
-  return (
-    !!mainWindow &&
-    !mainWindow.isDestroyed() &&
-    event.sender === mainWindow.webContents &&
-    senderFrame.frameTreeNodeId === mainWindow.webContents.mainFrame.frameTreeNodeId &&
-    isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl)
-  );
+/** The origin of the remote-SPA URL a PiP loads, or null (none, unparseable, opaque). */
+function pipSpaOriginOf(url: string | null): string | null {
+  if (url === null) return null;
+  try {
+    const { origin } = new URL(url);
+    return origin === 'null' ? null : origin;
+  } catch {
+    return null;
+  }
 }
 
-function getPipLoadUrl(id: string, remoteUrl: string | null): string {
+/** Log a refused pip:open at most once per 5 s, then reject (#178). */
+function rejectPipOpen(): never {
+  const now = performance.now();
+  if (now - lastPipOpenRejectionLog >= 5_000) {
+    lastPipOpenRejectionLog = now;
+    console.warn('[pip:open] rejected — sender or options validation failed');
+  }
+  throw new Error('PiP could not be opened');
+}
+
+function getPipLoadUrl(id: string, pipRemoteUrl: string | null, openerOnCache: boolean): string {
   if (!app.isPackaged) return `http://localhost:3001#/pip/${id}`;
-  // Keep the remote SPA path; origin-only URLs can reach the marketing site (#802).
-  if (remoteUrl) return buildRemotePipUrl(remoteUrl, id);
-  // A signed cache main window needs a child on the same cache origin (#1870).
-  if (
-    (mainWindow?.webContents.getURL() ?? '').startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`)
-  )
-    return `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${id}`;
+  // Tier 3: keep the remote SPA's `/spa/<sha>/` path; origin-only URLs fall through to
+  // nginx's catch-all and can reach the marketing site (#802).
+  if (pipRemoteUrl) return buildRemotePipUrl(pipRemoteUrl, id);
+  // #1870: a saas opener serving from the signed last-known-good cache needs a child on
+  // the SAME cache origin, not the possibly-older bundled asset. Derived from the live
+  // opener URL (stateless) so it cannot drift from the effective mode.
+  if (openerOnCache) return `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html#/pip/${id}`;
+  // #830: PiP bundled mode loads via app:// for consistent origin.
   return `app://concord/index.html#/pip/${id}`;
 }
 
-function focusExistingPip(existing: PipWindowEntry, senderFrameId: number): void {
-  if (existing.ownerFrameTreeNodeId !== senderFrameId || existing.window.isDestroyed())
+/** Re-focus an existing PiP only for the frame (and connection) that opened it (#178). */
+function focusExistingPip(
+  existing: PipWindowEntry,
+  ownerRef: ConnectionRef,
+  senderFrameId: number
+): void {
+  if (
+    existing.ownerFrameTreeNodeId !== senderFrameId ||
+    existing.ownerRef.connectionId !== ownerRef.connectionId ||
+    existing.window.isDestroyed()
+  )
     throw new Error('PiP could not be opened');
   existing.window.focus();
 }
 
-ipcMain.handle('pip:open', async (event: IpcMainInvokeEvent, opts: unknown): Promise<void> => {
-  // Only the main window's main frame may create native child windows.
-  const senderFrame = event.senderFrame;
-  const remoteUrl = getRemoteSpaUrl();
-  if (!senderFrame || !isMainPipSender(event, senderFrame, remoteUrl) || !isPipOpenOptions(opts)) {
-    const now = performance.now();
-    if (now - lastPipOpenRejectionLog >= 5_000) {
-      lastPipOpenRejectionLog = now;
-      console.warn('[pip:open] rejected — sender or options validation failed');
+registerIpc(
+  'pip:open',
+  'app-global-mutate',
+  async (sender, event, opts: unknown): Promise<void> => {
+    // #178 re-expressed for #86: registerIpc admitted only the FOREGROUND connection's
+    // bound primary main frame (never a PiP, a subframe or a hidden view, which must
+    // not raise an always-on-top window); the PiP belongs to that opener connection.
+    // Defense-in-depth on top: the frame must also be a PiP-opener document and the
+    // options must match the closed schema.
+    const senderFrame = sender.frame;
+    const opener = sender.record;
+    // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener runs on
+    // app://concord whatever the remote-SPA state says, so it is validated, and its PiP
+    // loaded, with no remote origin. Checking it against the saas origin refused it.
+    const remoteUrl = remoteSpaUrlForService(opener.serviceId);
+    if (
+      !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl) ||
+      !isPipOpenOptions(opts)
+    )
+      return rejectPipOpen();
+
+    const ownerRef = refOf(opener);
+    // #86 RT4: the opener's own namespace, so another connection's PiP of the same id
+    // is invisible here: no refusal, no focus, a fresh window.
+    const key = pipKey(ownerRef.connectionId, opts.id);
+    if (key === null) return rejectPipOpen();
+    const existing = pipWindows.get(key);
+    if (existing) return focusExistingPip(existing, ownerRef, senderFrame.frameTreeNodeId);
+
+    // Failed loads spend a token so retries cannot bypass the window-churn limit.
+    // #86 RT5: the token bucket and a window cap are per connection, so one connection
+    // cannot spend another's budget; the 12-window ceiling stays process-wide.
+    if (
+      pipWindows.size >= MAX_PIP_WINDOWS ||
+      livePipCountFor(ownerRef.connectionId) >= MAX_PIP_WINDOWS_PER_CONNECTION ||
+      !consumePipOpenToken(ownerRef.connectionId)
+    )
+      throw new Error('PiP could not be opened');
+
+    // Already null for a self-hosted opener (above): its PiP loads the bundled renderer.
+    const pipRemoteUrl = remoteUrl;
+    const openerOnCache =
+      opener.serviceId === SAAS_SERVICE_ID &&
+      opener.webContents.getURL().startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`);
+    const contentProtectionEnabled = readContentProtectionPref();
+    const sessionToken = mintPipSessionToken();
+    // #86 R8: built by shellWindow on the OPENER's session and bound 'pip' to its
+    // connection.
+    const pip = createPipWindow(
+      event.sender,
+      {
+        width: opts.width || 320,
+        height: opts.height || 240,
+        minWidth: 160,
+        minHeight: 120,
+        frame: false,
+        // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
+        // visually reads as "floating glass" rather than "compact app window".
+        // On macOS this drops the standard window shadow; on Wayland and X11
+        // the compositor decides regardless. Safe on Windows (no-op).
+        hasShadow: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: true,
+        title: opts.title || 'Concord Voice PiP',
+        webPreferences: {
+          preload: path.join(__dirname, '../preload/preload.js'),
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        },
+        backgroundColor: '#000',
+      },
+      // Pinned on the PiP's binding: its own frame keeps pip-scoped admission for
+      // the remote SPA only while this is still the current origin.
+      pipSpaOriginOf(pipRemoteUrl)
+    );
+    if (!pip) throw new Error('PiP could not be opened');
+    applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
+
+    // A synchronous load failure must not leave an untracked native window.
+    let ready: Promise<void>;
+    try {
+      ready = pip.loadURL(getPipLoadUrl(opts.id, pipRemoteUrl, openerOnCache));
+    } catch {
+      if (!pip.isDestroyed()) pip.destroy();
+      throw new Error('PiP could not be opened');
     }
-    throw new Error('PiP could not be opened');
-  }
 
-  const existing = pipWindows.get(opts.id);
-  if (existing) return focusExistingPip(existing, senderFrame.frameTreeNodeId);
+    pipWindows.set(key, {
+      window: pip,
+      ownerRef,
+      ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
+      remoteSpaUrl: pipRemoteUrl,
+      sessionToken,
+    });
 
-  // Failed loads spend a token so retries cannot bypass the window-churn limit.
-  if (pipWindows.size >= MAX_PIP_WINDOWS || !consumePipOpenToken())
-    throw new Error('PiP could not be opened');
+    const forgetWindow = () => {
+      if (pipWindows.get(key)?.window !== pip) return;
+      pipWindows.delete(key);
+      sendToConnection(ownerRef, 'pip:closed', { id: opts.id });
+    };
+    pip.on('closed', forgetWindow);
 
-  const contentProtectionEnabled = readContentProtectionPref();
-  const sessionToken = mintPipSessionToken();
-  const pip = new BrowserWindow({
-    width: opts.width || 320,
-    height: opts.height || 240,
-    minWidth: 160,
-    minHeight: 120,
-    frame: false,
-    // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
-    // visually reads as "floating glass" rather than "compact app window".
-    // On macOS this drops the standard window shadow; on Wayland and X11
-    // the compositor decides regardless. Safe on Windows (no-op).
-    hasShadow: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: true,
-    title: opts.title || 'Concord Voice PiP',
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-    backgroundColor: '#000',
-  });
-  applyContentProtectionAtCreation(pip, contentProtectionEnabled, 'PiP window');
+    // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
+    // opener's signaling proxy must already know the capability when the
+    // PiP's own renderer finishes booting and issues its first RPC; a pull would
+    // race that boot. The PiP window gets its copy by pulling 'pip:session'.
+    try {
+      sendToConnection(ownerRef, 'pip:opened', { id: opts.id, token: sessionToken });
+      await ready;
+      if (pip.isDestroyed()) throw new Error('PiP closed during load');
+    } catch {
+      if (!pip.isDestroyed()) pip.destroy();
+      forgetWindow();
+      throw new Error('PiP could not be opened');
+    }
+  },
+  // A refused sender rejects like every other refused open (#178): never a silent resolve.
+  { refusal: () => Promise.reject(new Error('PiP could not be opened')) }
+);
 
-  // A synchronous load failure must not leave an untracked native window.
-  let ready: Promise<void>;
-  try {
-    ready = pip.loadURL(getPipLoadUrl(opts.id, remoteUrl));
-  } catch {
-    if (!pip.isDestroyed()) pip.destroy();
-    throw new Error('PiP could not be opened');
-  }
+registerIpc(
+  'pip:close',
+  'pip-scoped',
+  (sender, event, opts: { id: string }) => {
+    resolveOwnedPip(sender, event, opts.id)?.entry.window.close();
+  },
+  { refusal: () => undefined }
+);
 
-  pipWindows.set(opts.id, {
-    window: pip,
-    ownerFrameTreeNodeId: senderFrame.frameTreeNodeId,
-    remoteSpaUrl: remoteUrl,
-    sessionToken,
-  });
-
-  const forgetWindow = () => {
-    if (pipWindows.get(opts.id)?.window !== pip) return;
-    pipWindows.delete(opts.id);
-    mainWindow?.webContents.send('pip:closed', { id: opts.id });
-  };
-  pip.on('closed', forgetWindow);
-
-  // #3104 D6 — deliberately a PUSH, symmetric with 'pip:closed' above. The
-  // main renderer's signaling proxy must already know the capability when the
-  // PiP's own renderer finishes booting and issues its first RPC; a pull would
-  // race that boot. The PiP window gets its copy by pulling 'pip:session'.
-  try {
-    mainWindow?.webContents.send('pip:opened', { id: opts.id, token: sessionToken });
-    await ready;
-    if (pip.isDestroyed()) throw new Error('PiP closed during load');
-  } catch {
-    if (!pip.isDestroyed()) pip.destroy();
-    forgetWindow();
-    throw new Error('PiP could not be opened');
-  }
-});
-
-ipcMain.handle('pip:close', (event, opts: { id: string }) => {
-  getOwnedPipWindow(event, opts.id)?.close();
-});
-
-ipcMain.handle('pip:setAlwaysOnTop', (event, opts: { id: string; flag: boolean }) => {
-  getOwnedPipWindow(event, opts.id)?.setAlwaysOnTop(opts.flag);
-});
+registerIpc(
+  'pip:setAlwaysOnTop',
+  'pip-scoped',
+  (sender, event, opts: { id: string; flag: boolean }) => {
+    resolveOwnedPip(sender, event, opts.id)?.entry.window.setAlwaysOnTop(opts.flag);
+  },
+  { refusal: () => undefined }
+);
 
 /**
  * #3104 D6 — disclose one PiP's session capability to that PiP alone.
@@ -3121,39 +3671,69 @@ ipcMain.handle('pip:setAlwaysOnTop', (event, opts: { id: string; flag: boolean }
  * The token is never logged — the private reply channel is NAMED from it, so
  * printing it is equivalent to publishing it.
  */
-ipcMain.handle('pip:session', (event, opts: unknown) => {
-  const resolved = resolvePipSender(event, (opts as { id?: unknown } | null | undefined)?.id);
-  if (!resolved?.isPipMainFrame) return null;
-  return { token: resolved.entry.sessionToken };
-});
+registerIpc(
+  'pip:session',
+  'pip-scoped',
+  (sender, event, opts: unknown): { token: string } | null => {
+    const id = (opts as { id?: unknown } | null | undefined)?.id;
+    const resolved = resolveOwnedPip(sender, event, id);
+    if (!resolved?.isPipMainFrame) return null;
+    return { token: resolved.entry.sessionToken };
+  },
+  { refusal: () => null }
+);
 
-ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
-  // Thin adapter: unpack Electron's event-args, delegate to the pure-data
-  // handler body. The handler itself does sender-frame validation,
-  // payload validation, and dispatches to attemptSelfHeal. Extracted for
-  // unit-testability per #753 reconciliation finding TA3.
-  await handleSpaRequestSelfHeal({
-    senderFrameUrl: event.senderFrame?.url ?? '',
-    payload,
-    remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
-    remoteSpaBaseDir: getRemoteSpaBaseDir(),
-  });
-});
+registerIpc(
+  'spa:requestSelfHeal',
+  'connection-bound',
+  async (_sender, event, payload: unknown) => {
+    // Thin adapter: unpack Electron's event-args, delegate to the pure-data
+    // handler body. The handler itself does sender-frame validation,
+    // payload validation, and dispatches to attemptSelfHeal. Extracted for
+    // unit-testability per #753 reconciliation finding TA3.
+    await handleSpaRequestSelfHeal({
+      senderFrameUrl: event.senderFrame?.url ?? '',
+      payload,
+      remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+      remoteSpaBaseDir: getRemoteSpaBaseDir(),
+      requester: event.sender,
+    });
+  },
+  { refusal: async () => undefined }
+);
 
-ipcMain.on('invite:renderer-ready', (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) return;
-  inviteRendererReady = true;
-  drainPendingDeepLinks();
-});
+// Deep links are saas-only (#86 §3.7): registerIpc admits only the saas primary, so
+// a self-hosted view can neither arm delivery nor drain the queue. A link that came
+// in while no saas view was live waits in `pendingDeepLinks` for this signal.
+function saasRendererReady(sender: ConnectionSender): boolean {
+  const saasContents = saasDeliveryTarget();
+  return saasContents !== null && sender.record.webContents === saasContents;
+}
+
+registerIpc(
+  'invite:renderer-ready',
+  'saas-only',
+  (sender) => {
+    if (!saasRendererReady(sender)) return;
+    inviteRendererReady = true;
+    drainPendingDeepLinks();
+  },
+  { method: 'on' }
+);
 
 // #945: the friend arm's own readiness signal. Deliberately separate from
 // 'invite:renderer-ready' so an SPA that only knows the invite channel can never
 // arm the friend one — see emitDeepLink above.
-ipcMain.on('deeplink:renderer-ready', (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) return;
-  friendRendererReady = true;
-  drainPendingDeepLinks();
-});
+registerIpc(
+  'deeplink:renderer-ready',
+  'saas-only',
+  (sender) => {
+    if (!saasRendererReady(sender)) return;
+    friendRendererReady = true;
+    drainPendingDeepLinks();
+  },
+  { method: 'on' }
+);
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -3161,127 +3741,51 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (gotTheLock) {
   handleInviteDeepLinksFromArgv(process.argv, 'argv');
 
+  // Bring the shell window forward (restore a minimized one, then focus).
+  const focusShellWindow = (): void => {
+    const win = shellWindow();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  };
+
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    handleInviteDeepLink(url, 'open-url');
+    // #86 C8: a valid link has switched to the saas view; bring the window with it.
+    // A rejected or empty link changes nothing, focus included.
+    if (handleInviteDeepLink(url, 'open-url')) focusShellWindow();
   });
 
   app.on('second-instance', (_event, argv: string[]) => {
     handleInviteDeepLinksFromArgv(argv, 'second-instance');
     // Someone tried to run a second instance, focus our window
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    focusShellWindow();
   });
 } else {
   app.quit();
 }
 
 /**
- * Packaged-mode same-origin navigation allowlist for the `will-navigate` gate.
- * Returns true when `parsedUrl` is a permitted in-window navigation target:
- *   - the active remote SPA origin (origin-equality), OR
- *   - the bundled `app://concord` origin, OR
- *   - the signed last-known-good cache `spa-cache://concord` origin (#1870).
- *
- * For the two non-special schemes, compare protocol + host (WHATWG `URL.origin`
- * is the literal "null" for non-special schemes — same gotcha as
- * pipUrl.ts:isValidPipOpenSender). A remote/compromised page cannot reach
- * `app://` or `spa-cache://` here: no branch matches a remote-origin frame, and
- * Chromium scheme-gating blocks remote→privileged navigation independently.
- *
- * Extracted from the will-navigate handler so that handler stays within the
- * cognitive-complexity budget (S3776) as origins are added.
+ * Whether `contents` is the live saas connection's own primary view (#86 RT3). A
+ * did-fail-load is evidence about its own contents only, and self-heal reloads the
+ * saas view and can clear the app-wide remote-SPA origin, so a self-hosted view, a
+ * PiP or an unbound contents must not reach it. Resolved at each event.
  */
-function isPermittedPackagedNavTarget(parsedUrl: URL, spaOrigin: string | null): boolean {
-  if (spaOrigin && parsedUrl.origin === spaOrigin) {
-    return true;
-  }
-  if (parsedUrl.protocol === 'app:' && parsedUrl.host === 'concord') {
-    return true;
-  }
-  return parsedUrl.protocol === `${SPA_CACHE_SCHEME}:` && parsedUrl.host === SPA_CACHE_HOST;
+function isLiveSaasPrimary(contents: WebContents): boolean {
+  const bound = boundRecordFor(contents);
+  return bound?.role === 'primary' && bound.record.serviceId === SAAS_SERVICE_ID;
 }
 
-// Security: validate navigation. After #754: extends with externalization
-// safety net — bare <a href="https://..."> clicks (or programmatic
-// navigation) route to the OS browser via shell.openExternal instead of
-// silently failing. https-only, symmetric with setWindowOpenHandler.
-// See internal-reference
-// and internal-reference "External-link scheme policy".
-//
-// Window-open policy: every in-app window.open / target=_blank is denied, and
-// https: is handed to the OS browser. https-only after #754 tightening (passive
-// nav is held to a stricter scheme set than the user-clicked Markdown-link IPC
-// path). Registered below on EVERY web contents, not per window: the PiP window
-// once had no handler at all, so its window.open created an app-owned child.
-function externalizeWindowOpen({ url }: { url: string }): { action: 'deny' } {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol === 'https:') {
-      // Fire-and-forget — main process can't surface a result here. .catch
-      // suppresses unhandled-rejection if the OS denies (sandbox, no handler).
-      // Symmetric with the IPC handler at src/main/ipc/openExternal.ts.
-      shell.openExternal(url).catch(() => {});
-    }
-    // http: intentionally rejected — Electron app externalization is
-    // https-only. Markdown-rendered chat links keep http: via
-    // the open-external IPC handler (different consent model).
-  } catch {
-    // Invalid URL — ignore (no externalization, deny in-app open).
-  }
-  return { action: 'deny' };
-}
-
+// Security: validate navigation and window.open on EVERY web contents (#754, #86 §3.3).
+// installNavigationGate resolves the contents' connection binding at each event:
+// a bound view may navigate only to the targets of its connection kind (packaged:
+// `app://concord` for every kind, the remote SPA origin and `spa-cache://concord`
+// for `saas` only; dev: any localhost), an https: target goes to the OS browser,
+// every in-app window.open is denied, and an unbound contents fails closed. The
+// billing sheet's own Stripe-only gate stays first (billing/billingWindow.ts).
 app.on('web-contents-created', (_, contents) => {
-  contents.setWindowOpenHandler(externalizeWindowOpen);
-
-  contents.on('will-navigate', (event, navigationUrl) => {
-    // The billing view runs its own Stripe-only gate (billing/billingWindow.ts).
-    if (isBillingWebContents(contents)) return;
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(navigationUrl);
-    } catch {
-      // Malformed URL — fail closed. Do not navigate, do not externalize.
-      event.preventDefault();
-      return;
-    }
-
-    if (app.isPackaged) {
-      // Packaged release: allow same-origin SPA navigation within the active
-      // remote SPA origin, the bundled `app://concord` origin, or the signed
-      // last-known-good cache `spa-cache://concord` origin (#1870). This permits
-      // in-window navigations these origins legitimately perform — chunk reloads,
-      // programmatic location.assign, and full-page reloads from the error-
-      // boundary "Reload" / resetService.softRestart() crash-recovery paths
-      // (load-bearing for the cache, which is exactly the degraded-network state
-      // where recovery matters). See isPermittedPackagedNavTarget for the
-      // protocol+host comparison rationale and why a remote page cannot reach the
-      // privileged schemes here.
-      if (isPermittedPackagedNavTarget(parsedUrl, getRemoteSpaBaseUrl())) {
-        return;
-      }
-      // Block in-window navigation to anything else.
-      event.preventDefault();
-      // Drift safety net: route https: navigations to OS browser so a
-      // future bare-<a> link or SPA-driven redirect doesn't silently fail.
-      // .catch suppresses unhandled-rejection (OS deny) — symmetric with
-      // setWindowOpenHandler and the IPC handler.
-      if (parsedUrl.protocol === 'https:') {
-        shell.openExternal(navigationUrl).catch(() => {});
-      }
-      // Other schemes (javascript:, data:, file:, http:, vbscript:, ...)
-      // are silently dropped after preventDefault — fail-closed posture.
-    } else if (parsedUrl.hostname !== 'localhost') {
-      // Dev mode: allow any localhost port (HMR), block everything else.
-      event.preventDefault();
-      if (parsedUrl.protocol === 'https:') {
-        shell.openExternal(navigationUrl).catch(() => {});
-      }
-    }
-  });
+  installNavigationGate(contents, connectionSessionDeps);
 
   // SPA self-heal main-process detection (#753, ADR-0001) — runs outside
   // the renderer bundle, so it survives renderer-side corruption that
@@ -3291,15 +3795,18 @@ app.on('web-contents-created', (_, contents) => {
   contents.on(
     'did-fail-load',
     (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
-      void handleDidFailLoad({
-        errorCode,
-        validatedURL,
-        isMainFrame,
-        remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
-        remoteSpaBaseDir: getRemoteSpaBaseDir(),
-      });
+      if (isLiveSaasPrimary(contents)) {
+        void handleDidFailLoad({
+          errorCode,
+          validatedURL,
+          isMainFrame,
+          remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+          remoteSpaBaseDir: getRemoteSpaBaseDir(),
+          requester: contents,
+        });
+      }
       if (isMainFrame && validatedURL === 'app://concord/index.html' && errorCode !== -3) {
-        revealLoadFailure(mainWindow, 'Could not load application — please reinstall');
+        revealLoadFailure(shellWindow(), 'Could not load application — please reinstall');
       }
     }
   );

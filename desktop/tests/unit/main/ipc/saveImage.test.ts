@@ -17,7 +17,9 @@ vi.mock('node:fs/promises', () => {
 
 import { dialog, ipcMain } from 'electron';
 import { writeFile } from 'node:fs/promises';
+import { setForeground } from '@/main/connectionRegistry';
 import { registerSaveImageHandler, safeImageName } from '@/main/ipc/saveImage';
+import { bindTestSender, type BoundSenderFixture } from './boundSenderFixture';
 
 const mockDialog = dialog as unknown as { showSaveDialog: ReturnType<typeof vi.fn> };
 const mockIpcMain = ipcMain as unknown as { handle: ReturnType<typeof vi.fn> };
@@ -32,7 +34,9 @@ type Handler = (
   name: unknown
 ) => Promise<{ ok: boolean; canceled?: boolean; reason?: string }>;
 
-const TRUSTED: FakeEvent = { senderFrame: { url: 'http://localhost:3001' } };
+// #86 Task 7B: events come from a bound saas primary; only the frame URL varies.
+let fx: BoundSenderFixture;
+const trusted = (): FakeEvent => fx.event('http://localhost:3001');
 
 describe('image:saveAs IPC handler', () => {
   let handler: Handler;
@@ -40,6 +44,7 @@ describe('image:saveAs IPC handler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWriteFile.mockResolvedValue(undefined);
+    fx = bindTestSender();
     registerSaveImageHandler(() => null);
     expect(mockIpcMain.handle).toHaveBeenCalledWith('image:saveAs', expect.any(Function));
     handler = mockIpcMain.handle.mock.calls[0][1];
@@ -47,7 +52,7 @@ describe('image:saveAs IPC handler', () => {
 
   it('writes the bytes to the user-chosen path on success', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/pic.png' });
-    const result = await handler(TRUSTED, new Uint8Array([1, 2, 3, 4]).buffer, 'image-1.png');
+    const result = await handler(trusted(), new Uint8Array([1, 2, 3, 4]).buffer, 'image-1.png');
     expect(result).toEqual({ ok: true });
     expect(mockWriteFile).toHaveBeenCalledWith('/tmp/pic.png', expect.any(Buffer));
     expect([...(mockWriteFile.mock.calls[0][1] as Buffer)]).toEqual([1, 2, 3, 4]);
@@ -55,21 +60,21 @@ describe('image:saveAs IPC handler', () => {
 
   it('accepts a typed-array view payload', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/v.png' });
-    const result = await handler(TRUSTED, new Uint8Array([9, 8, 7]), 'v.png');
+    const result = await handler(trusted(), new Uint8Array([9, 8, 7]), 'v.png');
     expect(result.ok).toBe(true);
     expect([...(mockWriteFile.mock.calls[0][1] as Buffer)]).toEqual([9, 8, 7]);
   });
 
   it('treats a user cancel as a no-op success (no write)', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined });
-    const result = await handler(TRUSTED, new Uint8Array([1]).buffer, 'x.png');
+    const result = await handler(trusted(), new Uint8Array([1]).buffer, 'x.png');
     expect(result).toEqual({ ok: true, canceled: true });
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
 
   it('rejects an untrusted sender frame without opening a dialog', async () => {
     const result = await handler(
-      { senderFrame: { url: 'https://attacker.example' } },
+      fx.event('https://attacker.example'),
       new Uint8Array([1]).buffer,
       'x.png'
     );
@@ -79,20 +84,20 @@ describe('image:saveAs IPC handler', () => {
   });
 
   it('rejects a non-buffer payload', async () => {
-    const result = await handler(TRUSTED, 'not-bytes', 'x.png');
+    const result = await handler(trusted(), 'not-bytes', 'x.png');
     expect(result).toEqual({ ok: false, reason: 'invalid-args' });
     expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
   });
 
   it('rejects an empty payload', async () => {
-    const result = await handler(TRUSTED, new ArrayBuffer(0), 'x.png');
+    const result = await handler(trusted(), new ArrayBuffer(0), 'x.png');
     expect(result).toEqual({ ok: false, reason: 'invalid-args' });
   });
 
   it('rejects a payload over the size cap', async () => {
     // 100 MB + 1. ArrayBuffer allocation is lazy and Buffer.from(ArrayBuffer) is a
     // view, so no bytes are paged in — the guard rejects on byteLength alone.
-    const result = await handler(TRUSTED, new ArrayBuffer(100 * 1024 * 1024 + 1), 'x.png');
+    const result = await handler(trusted(), new ArrayBuffer(100 * 1024 * 1024 + 1), 'x.png');
     expect(result).toEqual({ ok: false, reason: 'too-large' });
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
@@ -102,11 +107,11 @@ describe('image:saveAs IPC handler', () => {
     const smallView = new Uint8Array(backing, 1, 2);
     smallView.set([9, 8]);
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/view.png' });
-    expect(await handler(TRUSTED, smallView, 'view.png')).toEqual({ ok: true });
+    expect(await handler(trusted(), smallView, 'view.png')).toEqual({ ok: true });
     expect([...(mockWriteFile.mock.calls[0][1] as Buffer)]).toEqual([9, 8]);
     mockDialog.showSaveDialog.mockClear();
     const largeView = new DataView(backing, 1, 100 * 1024 * 1024 + 1);
-    expect(await handler(TRUSTED, largeView, 'view.png')).toEqual({
+    expect(await handler(trusted(), largeView, 'view.png')).toEqual({
       ok: false,
       reason: 'too-large',
     });
@@ -115,7 +120,7 @@ describe('image:saveAs IPC handler', () => {
 
   it('accepts the exact size limit', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
-    expect(await handler(TRUSTED, new ArrayBuffer(100 * 1024 * 1024), 'limit.png')).toEqual({
+    expect(await handler(trusted(), new ArrayBuffer(100 * 1024 * 1024), 'limit.png')).toEqual({
       ok: true,
       canceled: true,
     });
@@ -124,8 +129,55 @@ describe('image:saveAs IPC handler', () => {
   it('returns write-failed when the disk write throws', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/x.png' });
     mockWriteFile.mockRejectedValue(new Error('ENOSPC'));
-    const result = await handler(TRUSTED, new Uint8Array([1]).buffer, 'x.png');
+    const result = await handler(trusted(), new Uint8Array([1]).buffer, 'x.png');
     expect(result).toEqual({ ok: false, reason: 'write-failed' });
+  });
+
+  // #86: the dialog is modal over the shared window and the path the user picks gets the
+  // SENDER's bytes, so a hidden connection must not raise it over the foreground one.
+  describe('foreground connection only (app-global-mutate)', () => {
+    let background: BoundSenderFixture;
+    beforeEach(() => {
+      background = bindTestSender({
+        origin: 'https://voice.example',
+        id: 9,
+        reset: false,
+        foreground: false,
+      });
+      mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: '/tmp/pic.png' });
+    });
+
+    it('refuses a background connection before any dialog or write', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const result = await handler(background.event(), new Uint8Array([6, 6]).buffer, 'cat.png');
+      expect(result).toEqual({ ok: false, reason: 'untrusted-sender' });
+      expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(warn.mock.calls.flat().join(' ')).toContain('image:saveAs refused (not-foreground)');
+      warn.mockRestore();
+    });
+
+    it('still saves for the foreground connection while a background one is open', async () => {
+      expect(await handler(trusted(), new Uint8Array([1, 2]).buffer, 'a.png')).toEqual({
+        ok: true,
+      });
+      expect(mockWriteFile).toHaveBeenCalledWith('/tmp/pic.png', expect.any(Buffer));
+    });
+
+    it('follows the foreground: the switched-to connection saves, the old one is refused', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      setForeground(background.connectionId);
+      expect(await handler(background.event(), new Uint8Array([3]).buffer, 'b.png')).toEqual({
+        ok: true,
+      });
+      mockDialog.showSaveDialog.mockClear();
+      expect(await handler(trusted(), new Uint8Array([4]).buffer, 'c.png')).toEqual({
+        ok: false,
+        reason: 'untrusted-sender',
+      });
+      expect(mockDialog.showSaveDialog).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });
 

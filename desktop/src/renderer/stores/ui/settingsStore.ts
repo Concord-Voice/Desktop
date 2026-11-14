@@ -349,6 +349,13 @@ function applyFontLayers(layers: FontLayers) {
   d.fontBrand = layers.brand;
 }
 
+// Fire-and-forget push to main's close/minimize intercepts. Best-effort: a stale value
+// costs one fallback click. .catch silences unhandled-rejection if the IPC bridge is
+// absent (e.g. in unit tests that mock partial electron).
+function pushClientBehavior(value: ClientBehavior): void {
+  void globalThis.electron?.window?.setClientBehavior?.(value)?.catch?.(() => {});
+}
+
 function isTrayIconStyle(v: unknown): v is TrayIconStyle {
   return typeof v === 'string' && (TRAY_ICON_STYLES as readonly string[]).includes(v);
 }
@@ -471,11 +478,7 @@ export const useSettingsStore = wrapStore(
         setClientBehavior: (value: ClientBehavior) => {
           set({ clientBehavior: value });
           // Push to main so the close/minimize intercepts see the new value.
-          // Fire-and-forget — the main-side cache is best-effort; on a stale
-          // value the worst case is one fallback click before the next renderer
-          // mount re-pushes. .catch silences unhandled-rejection if the IPC
-          // bridge is absent (e.g. in unit tests that mock partial electron).
-          void globalThis.electron?.window?.setClientBehavior?.(value)?.catch?.(() => {});
+          pushClientBehavior(value);
         },
       })),
       {
@@ -491,6 +494,13 @@ export const useSettingsStore = wrapStore(
         // a preference: persisting it would hand the next launch a stale factor
         // the applier then trusts as the page's zoom.
         partialize: ({ appliedUiZoom: _appliedUiZoom, ...rest }) => rest,
+        // #86 C7: main keeps one close/minimize value per connection and reads the
+        // visible one's, so every view pushes its stored value once it is restored,
+        // not only when the setting changes. Without it main used the default (or, with
+        // several views, another connection's value) until the user touched the setting.
+        onRehydrateStorage: () => (state) => {
+          if (state) pushClientBehavior(state.clientBehavior);
+        },
         merge: (persisted, current) => {
           const p = persisted as Partial<SettingsState> | undefined;
           const appearance = { ...defaultAppearance, ...p?.appearance };

@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { appendApprovalRecord, findApprovalRecord, readApprovalsFile } from './selfHostedApprovals';
 import { classifyAddress } from './egressPolicy';
+import { firstPartyApiOrigin } from './firstPartyOrigin';
+import type { ServiceId } from '../shared/connectionIdentity';
 
 const SAAS_API_ORIGIN = 'https://api.concordvoice.chat';
 
@@ -29,8 +31,26 @@ function userDataRoot(): string {
 
 export function profileIdForApiBase(apiBase: string): string {
   const origin = originForApiBase(apiBase);
-  if (origin === SAAS_API_ORIGIN) return 'saas';
+  // The main-pinned first-party origin is `saas` too (#86 Task 7B, DEV-BUILD ORIGIN).
+  // It equals production in packaged builds; an unpackaged build pins its dev base.
+  // Storage stays origin-keyed (dirKeyForApiBase), so dev tokens keep their pre-#86
+  // `profiles/<hash>` home. Only one of the two can register: the second collides.
+  if (origin === SAAS_API_ORIGIN || origin === firstPartyApiOrigin()) return 'saas';
   return `selfhost-${hashOrigin(origin).slice(0, 16)}`;
+}
+
+/** {@link profileIdForApiBase}, branded. 64-bit truncated: never a storage key (spec R2). */
+export function serviceIdForApiBase(apiBase: string): ServiceId {
+  return profileIdForApiBase(apiBase) as ServiceId;
+}
+
+/**
+ * Full sha256 hex of the canonical origin — the `profiles/<dirKey>/` directory
+ * profilePathsForApiBase already uses — or `''` for SaaS, whose files live at the root.
+ */
+export function dirKeyForApiBase(apiBase: string): string {
+  const origin = originForApiBase(apiBase);
+  return origin === SAAS_API_ORIGIN ? '' : hashOrigin(origin);
 }
 
 export function profilePathsForApiBase(apiBase: string): ProfilePaths {
