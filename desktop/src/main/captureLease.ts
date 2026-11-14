@@ -677,6 +677,21 @@ function onForeground(prev: ConnectionRecord | null, next: ConnectionRecord | nu
   ) {
     beginHandoff(d, entry, null, 'backgrounded', null); // R12
   }
+  // A device-test-only holder mid-navigation is not `holder` (the hold set it aside), but its
+  // document is alive with live tracks: it is told to stop just like a plain holder, and its
+  // release ends the hold (a hold that never gets one still ends at its own timer).
+  const hold = handoff?.navHeld;
+  if (
+    prev !== null &&
+    handoff !== null &&
+    hold !== undefined &&
+    handoff.from.connectionId === prev.connectionId &&
+    hold.claims.size === 1 &&
+    hold.claims.has('device-test')
+  ) {
+    const survivor = liveRecord(d, prev.connectionId);
+    if (survivor) push(d, refOf(survivor), CAPTURE_LEASE_REVOKED_PUSH, { reason: 'backgrounded' });
+  }
   if (next === null || next.state === 'disposed') return;
   const nextRef = refOf(next);
   const mine = holder !== null && sameRef(holder.ref, nextRef);

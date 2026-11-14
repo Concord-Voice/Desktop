@@ -773,6 +773,34 @@ describe('a revocation ack survives the holder starting a navigation (sweep F2)'
   });
 });
 
+describe('foreground loss during a navigation hold (Codex Security P3)', () => {
+  it('a device-test-only holder that navigates and is backgrounded is told to stop', async () => {
+    const a = connect(ORIGIN_A);
+    const b = connect(ORIGIN_B);
+    front(a);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document'); // the hold sets the holder aside
+    clearSpies();
+    front(b);
+    expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([{ reason: 'backgrounded' }]);
+    // Its stop releases the test claim, which ends the hold.
+    expect(rel(a, TEST)).toBe(true);
+    expect(isFree()).toBe(true);
+  });
+
+  it('a hold that also carries a call is not revoked (a call survives the switch)', async () => {
+    const a = connect(ORIGIN_A);
+    const b = connect(ORIGIN_B);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document');
+    clearSpies();
+    front(b);
+    expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([]);
+  });
+});
+
 describe('a navigation hold still reads as held (sweep F4)', () => {
   it('a connection coming to the front during the hold is told the lease is held', async () => {
     const { a, b } = await heldByAWithBInFront();

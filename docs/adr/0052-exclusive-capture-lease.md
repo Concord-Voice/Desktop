@@ -96,7 +96,9 @@ user to move capture there. There is no simultaneous publication and no cloned c
     (not a hold) re-keys that handoff's `from` to the advanced generation, so the document's ack
     is recognised under the generation it now speaks. The navigation bookkeeping belongs to the
     navigation, not the handoff: ending a hold by release does not forget it, and a leftover mark
-    never hides the next start (a holder with nothing pending is held again). While a hold
+    never hides the next start (a holder with nothing pending is held again). A device-test-only
+    hold whose connection loses the foreground is sent the `backgrounded` push like a plain
+    holder; its release ends the hold. While a hold
     stands the lease reads as held to every other connection (pushes carry `held: true`), and a
     hold ended by release tells its non-foreground former document the lease is gone. A
     still-loading document re-arms the
