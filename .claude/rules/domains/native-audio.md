@@ -235,6 +235,18 @@ lists TWO lines for that one file because an asar listing carries the `concord-a
 DIRECTORY entry alongside it, and both are required — the two numbers describe different units,
 not a disagreement. This feature must never be the reason either moves.
 
+**The transport probe's temp stage is the only sanctioned place where the synthetic binary sits
+under the release file name `concord_audiocap.node`.** `desktop/scripts/audiocap-transport-probe/`
+copies `dist/`, the unmodified loader and the synthetic build, renamed, into a fresh directory under
+the OS temp directory, so the shipped loader's one development path reaches it. Never stage it
+inside the repository, and never reach it through a loader selector. The probe fails unless the
+stage's resolved path lies outside the repository's, compared case-insensitively on macOS and
+Windows, and the staged file's SHA-256 equals the synthetic build's and differs from the shipped
+one when that exists. The path check compares resolved spellings, so an alias the resolver does
+not see through, such as a `/System/Volumes/Data` firmlink spelling of the checkout, is not caught.
+It refuses to run when `app.isPackaged`, and it deletes the stage on every exit the probe controls;
+a hard kill of the probe itself can leave the temp directory behind.
+
 ## Non-negotiable, independent of JSF++
 
 - **The ring buffer is fuzzed.** It is the one component reachable across a trust boundary.
