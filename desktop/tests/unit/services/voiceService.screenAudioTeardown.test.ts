@@ -680,7 +680,7 @@ describe('screen-audio interrupt handling (#3394 PR 2 T5a)', () => {
     // remains, and the interrupt started no capture host, built no bridge and produced
     // nothing -- so no system-mix track can reach the share.
     expect(svc.producers.has('screen-audio')).toBe(false);
-    expect(svc.produceEncrypted.mock.calls.length).toBe(produceCallsBefore);
+    expect(svc.produceEncrypted).toHaveBeenCalledTimes(produceCallsBefore);
     expect(globalThis.electron.audiocap.start).toHaveBeenCalledTimes(hostStartsBefore);
     expect(createScreenAudioBridge).toHaveBeenCalledTimes(bridgesBuiltBefore);
   });
