@@ -110,7 +110,10 @@ expect_fail "AV 209 unsigned"           'unsigned n = 0u;'
 expect_fail "AV 209 cast to bare int"   'auto n = static_cast<int>(x);'
 # Every fixture wrote probe.h, so the guard scanning ONLY .h survived. rt/ holds
 # one header today; the first .cc added would have been invisible.
-expect_fail "a .cc file is scanned too"  'void f() { throw 1; }' cc
+# The AV 208 prefix pins each case to its rule: a guard that stops walking an
+# extension finds "no C++ sources" there and reads CAUGHT BY THE WRONG RULE.
+expect_fail "AV 208 throw in a .cc file" 'void f() { throw 1; }' cc
+expect_fail "AV 208 throw in a .mm file" 'void f() { throw 1; }' mm
 # AV 24's matcher is a token list, and `\bexit\s*\(` does not match `_exit(`
 # because `_` is a word character.
 expect_fail "AV 24 _exit()"             'void f() { _exit(1); }'

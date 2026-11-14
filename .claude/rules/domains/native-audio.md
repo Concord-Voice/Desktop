@@ -220,12 +220,17 @@ own.
 ## The compile-gated synthetic source (`CONCORD_AUDIOCAP_SYNTHETIC`)
 
 `rt/synthetic_source.h` provides a deterministic PCM waveform for testing the whole transport
-before a real platform backend exists, and it is **opt-in at `binding.gyp` CONFIGURE time**, not a
-runtime flag: `npx node-gyp rebuild -- -Daudiocap_synthetic=1` builds a *second*, separately-named
-target (`concord_audiocap_synthetic.node`). The default target — what `npm run build:native` ships
-— never defines the macro and has no producer at all; its `start()` unconditionally returns
-`{ ok: false, reason: 'NoBackend' }`, which the host resolves to video-only with a reason, never to
-a system mix (C9, ADR-0043 D6). `index.js` can only ever `require`-resolve `concord_audiocap.node`,
+without a real capture source, and it is **opt-in at `binding.gyp` CONFIGURE time**, not a
+runtime flag: `npm run build:native -- --synthetic` builds a *second*, separately-named target
+(`concord_audiocap_synthetic.node`). Do not call `node-gyp` directly. `desktop/scripts/build-native.mjs`
+passes `-Daudiocap_synthetic=1` itself, and a raw call drops the Electron runtime headers. The
+default target — what `npm run build:native` ships — never defines the macro. On darwin it has a
+producer, the Core Audio tap backend, and a `start()` with no target returns
+`{ ok: false, reason: 'NoTarget' }`; below the macOS 14.4 floor it has none and returns
+`NoBackend`. Elsewhere it has no producer and `start()` returns `{ ok: false, reason: 'NoBackend' }`,
+which the host resolves to video-only with a reason, never to a system mix (C9, ADR-0043 D6).
+CI asserts this split per OS (`.github/workflows/native-audiocap.yml`, shipped-vs-synthetic probe).
+`index.js` can only ever `require`-resolve `concord_audiocap.node`,
 so the synthetic binary is unreachable through the shipped loader even in a dev tree where both
 `.node` files happen to sit side by side. **If touching this ever requires editing
 `EXPECTED_NATIVE` in `scripts/verify-asar-payload.sh` or the `native/` lookahead in

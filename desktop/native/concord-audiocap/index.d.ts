@@ -109,12 +109,15 @@ export interface AudioCapStartOptions {
  * degrades a real outcome into "no recognised reason" at the moment a user's
  * share loses its audio.
  *
- * - `NoBackend`      — a release build. There is no producer compiled in at all.
- *                      The host resolves this to video-only WITH A REASON; it
- *                      never means fall back to a system mix (#2161, C9). An OS
- *                      below the capture floor collapses to this member too: from
- *                      the caller's side the outcome is identical, and
- *                      `capability()` is where the difference is reported.
+ * - `NoBackend`      — no producer for this platform: Windows and Linux builds
+ *                      have none compiled in, and on macOS the tap backend is
+ *                      withheld below the 14.4 floor. (On macOS 14.4 and above a
+ *                      release build has the Core Audio tap, and a start() with
+ *                      no target answers `NoTarget`.) The host resolves this to
+ *                      video-only WITH A REASON; it never means fall back to a
+ *                      system mix (C9). From the caller's side the causes are
+ *                      identical, and `capability()` is where the difference is
+ *                      reported.
  * - `BadOptions`     — the geometry did not match the compiled constants exactly,
  *                      or `targetPids`/`allowDescendants` was malformed.
  * - `BadArguments`   — no callback, or not a function.

@@ -515,8 +515,8 @@ const rt::HostServices kHostServices = {&hostSpawn, &hostJoin, &hostNowNs, &host
 // struct is the contract and it does not change shape between builds; a backend
 // that wants a thread reads the null and returns kDeviceError, which is the
 // fail-closed answer and the one SyntheticBackend already gives for it. There is
-// no such backend on this path today -- platformBackend() is nullptr in PR 1 --
-// and #3196 / PR 2 are both callback-driven.
+// no such backend on this path today: the one platformBackend() can return, the
+// macOS Core Audio tap, is callback-driven.
 //
 // sleepMs IS SUPPLIED IN BOTH BUILDS, unlike spawn/join: it is what a
 // callback-driven backend uses to prove its own quiescence, so a shipped binary
@@ -527,7 +527,7 @@ const rt::HostServices kHostServices = {nullptr, nullptr, &hostNowNs, &hostSleep
 #ifdef CONCORD_AUDIOCAP_SYNTHETIC
 
 // THE SYNTHETIC BACKEND. Compiled only into the CI/test target; a release binary
-// has no backend at all and its start() returns NoBackend.
+// gets whatever rt::platformBackend() returns instead (see selectBackend()).
 //
 // It is expressed against rt/capture_backend.h rather than as a bare thread
 // function so that the ONE backend PR 1 can run is the same shape #3196 and PR 2
@@ -627,8 +627,10 @@ SyntheticBackend g_syntheticBackend;
 
 // THE ONE PLACE A BACKEND IS CHOSEN, and there is exactly one candidate in each
 // binary: the synthetic target has the generator above, and every other build has
-// whatever rt/platformBackend() compiles in — which in PR 1 is nullptr on every
-// platform, and is what keeps a release build's start() at NoBackend.
+// whatever rt::platformBackend() returns. On macOS 14.4 and above that is the Core
+// Audio tap, so a release build's start() with no target answers NoTarget. Below
+// that floor, and on Windows and Linux, it is nullptr: no producer, so start()
+// answers NoBackend.
 rt::CaptureBackend* selectBackend() noexcept {
 #ifdef CONCORD_AUDIOCAP_SYNTHETIC
   return &g_syntheticBackend;
@@ -1158,12 +1160,12 @@ napi_value Start_JS(napi_env env, napi_callback_info info) {
     return result;
   }
 
-  // THE RELEASE ANSWER, and it is now a RUNTIME test rather than an #ifdef: PR 1
-  // compiles no platform backend on any platform, so rt::platformBackend() is
-  // nullptr and a release build still answers NoBackend. #3196 and PR 2 each fill
-  // that in, and neither has to touch this arm. The host resolves NoBackend to
-  // video-only with a reason — never to a system mix, which is constraint C9
-  // and #2161.
+  // THE RELEASE ANSWER, and it is a RUNTIME test rather than an #ifdef: on macOS
+  // 14.4 and above rt::platformBackend() is the Core Audio tap, and a start
+  // with no target answers NoTarget. Below that floor, and on Windows and Linux,
+  // it is nullptr and a release build answers NoBackend here. A backend added
+  // for another platform does not touch this arm. The host resolves NoBackend to
+  // video-only with a reason — never to a system mix, which is constraint C9.
   rt::CaptureBackend* const backend = selectBackend();
   if (backend == nullptr) {
     NAPI_CALL(env, makeStartResult(env, false, "NoBackend", &result));
