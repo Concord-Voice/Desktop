@@ -7,7 +7,12 @@ import {
   type StepUpSubmitOutcome,
 } from '../../hooks/auth/useStepUpFactor';
 import { apiRequestContextIsCurrent } from '../../services/system/requestContext';
-import { eraseAccount, PrivacyApiError, type AccountErasureResult } from '../../api/privacy';
+import {
+  eraseAccount,
+  PrivacyApiError,
+  type AccountErasureRequest,
+  type AccountErasureResult,
+} from '../../api/privacy';
 
 interface AccountErasureStepUpDialogProps {
   confirmedOwnedServerIds: string[];
@@ -15,6 +20,35 @@ interface AccountErasureStepUpDialogProps {
   onResult: (result: AccountErasureResult) => void;
   onStaleOwnedServers: () => void;
   onClose: () => void;
+}
+
+function erasureRequest(
+  password: string,
+  mfaCode: string | undefined,
+  confirmedOwnedServerIds: string[],
+  emailConfirmation: AccountErasureStepUpDialogProps['emailConfirmation']
+): AccountErasureRequest {
+  const request: AccountErasureRequest = {
+    password,
+    confirmed_owned_server_ids: confirmedOwnedServerIds,
+  };
+  if (mfaCode) request.mfa_code = mfaCode;
+  if (emailConfirmation) {
+    request.email_confirmation = {
+      request_id: emailConfirmation.requestId,
+      token: emailConfirmation.token,
+    };
+  }
+  return request;
+}
+
+function erasureErrorMessage(error: PrivacyApiError): string {
+  if (error.status === 429) return 'Too many attempts. Wait before trying again.';
+  if (error.status === 503) return 'Verification is temporarily unavailable. Try again.';
+  if (error.code === 'owned_server_confirmation_stale') {
+    return 'Your owned-server list changed. Review every acknowledgement again.';
+  }
+  return 'We could not confirm this request. Review and try again.';
 }
 
 /** The password and MFA factor are component-local and unmounted on close. */
@@ -40,19 +74,7 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
     setError(null);
     try {
       const result = await eraseAccount(
-        {
-          password,
-          ...(mfa ? { mfa_code: mfa } : {}),
-          confirmed_owned_server_ids: confirmedOwnedServerIds,
-          ...(emailConfirmation
-            ? {
-                email_confirmation: {
-                  request_id: emailConfirmation.requestId,
-                  token: emailConfirmation.token,
-                },
-              }
-            : {}),
-        },
+        erasureRequest(password, mfa, confirmedOwnedServerIds, emailConfirmation),
         context
       );
       if (apiRequestContextIsCurrent(context)) onResult(result);
@@ -64,15 +86,7 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
       if (err instanceof PrivacyApiError) {
         if (err.status === 403) return { kind: 'answered' };
         if (err.code === 'owned_server_confirmation_stale') onStaleOwnedServers();
-        setError(
-          err.status === 429
-            ? 'Too many attempts. Wait before trying again.'
-            : err.status === 503
-              ? 'Verification is temporarily unavailable. Try again.'
-              : err.code === 'owned_server_confirmation_stale'
-                ? 'Your owned-server list changed. Review every acknowledgement again.'
-                : 'We could not confirm this request. Review and try again.'
-        );
+        setError(erasureErrorMessage(err));
         return { kind: 'answered' };
       }
       setError("Couldn't reach the server. Check your connection and try again.");
