@@ -3788,7 +3788,7 @@ describe('main.ts', () => {
       }
       // A bound self-hosted primary on a localhost frame, which the unpackaged
       // isValidPipOpenSender admits exactly as it would app://concord in a packaged build.
-      function selfHostedOpener() {
+      function selfHostedOpener(frameUrl = 'http://localhost:3001/') {
         const svc = connectionRegistry.registerService(
           `https://pip-rt-${(nextRtOrigin += 1)}.example`,
           {
@@ -3799,7 +3799,7 @@ describe('main.ts', () => {
         );
         if (!svc.ok) throw new Error(svc.reason);
         const frameTreeNodeId = (nextRtFrame += 1);
-        const frame = { url: 'http://localhost:3001/', frameTreeNodeId, parent: null };
+        const frame = { url: frameUrl, frameTreeNodeId, parent: null };
         const wc = {
           id: frameTreeNodeId,
           send: vi.fn(),
@@ -3846,6 +3846,69 @@ describe('main.ts', () => {
       afterEach(() => {
         while (closers.length > 0) closers.pop()?.();
         connectionRegistry.setForeground(saasConnectionId() as never);
+      });
+
+      // Codex C3: a packaged self-hosted primary runs on app://concord whatever the saas
+      // remote-SPA state is, so its PiP must be validated without the saas remote origin.
+      describe('C3: a packaged self-hosted opener with the saas remote SPA active', () => {
+        const REMOTE = 'https://spa.example.test/spa/a/index.html';
+        async function packaged() {
+          const { app } = await import('electron');
+          const { setRemoteSpaState } = await import('../../../src/main/spaState');
+          const testApp = app as unknown as { isPackaged: boolean };
+          testApp.isPackaged = true;
+          return {
+            setRemoteSpaState,
+            restore: () => {
+              setRemoteSpaState(null);
+              testApp.isPackaged = false;
+            },
+          };
+        }
+
+        it('opens its PiP on the bundled renderer', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.loadURL.mockClear();
+            expect(await openAs(opener.connectionId, opener.event, 'sh-pip')).toBe('opened');
+            expect(mockPipWindow.loadURL).toHaveBeenLastCalledWith(
+              'app://concord/index.html#/pip/sh-pip'
+            );
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('its owner frame can still close the PiP after remote mode turns on', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            expect(await openAs(opener.connectionId, opener.event, 'sh-close')).toBe('opened');
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.close.mockClear();
+            await handlers.get('pip:close')!(opener.event, { id: 'sh-close' });
+            expect(mockPipWindow.close).toHaveBeenCalledTimes(1);
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('control: a saas primary on app://concord is still refused while remote mode is on', async () => {
+          const env = await packaged();
+          try {
+            env.setRemoteSpaState(REMOTE);
+            expect(await openAs(saasConnectionId(), saasAppFrameEvent, 'saas-app')).toBe('refused');
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            env.restore();
+          }
+        });
       });
 
       it("RT4 (PIP-1): another connection cannot squat the saas pop-out id 'controls-main'", async () => {
