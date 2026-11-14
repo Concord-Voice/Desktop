@@ -189,6 +189,7 @@ import {
   SAAS_SERVICE_ID,
   type ConnectionId,
   type ConnectionRef,
+  type ServiceId,
 } from '../shared/connectionIdentity';
 import {
   IPC_CONTRACT_VERSION,
@@ -3482,6 +3483,15 @@ onSpaStateChange(closePipsPinnedToStaleOrigin);
  */
 type PipIpcEvent = Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>;
 
+/**
+ * The remote-SPA URL a PiP opener of `serviceId` runs on: the current one for `saas`,
+ * and null for any other service, which never loads the remote SPA (C7). An unknown
+ * service gets null, which admits only the bundled and cached documents.
+ */
+function remoteSpaUrlForService(serviceId: ServiceId | undefined): string | null {
+  return serviceId === SAAS_SERVICE_ID ? getRemoteSpaUrl() : null;
+}
+
 function resolvePipSender(
   event: PipIpcEvent,
   connectionId: ConnectionId,
@@ -3496,11 +3506,14 @@ function resolvePipSender(
   const isPipMainFrame =
     event.sender === entry.window.webContents &&
     senderFrame.frameTreeNodeId === entry.window.webContents.mainFrame.frameTreeNodeId;
+  // An owner frame is checked against its OWN service's remote origin, as at pip:open: a
+  // self-hosted owner stays on app://concord when the saas remote SPA turns on.
+  const ownerService = recordFor(entry.ownerRef.connectionId)?.serviceId;
   if (
     !isValidPipOpenSender(
       senderFrame.url,
       app.isPackaged,
-      isPipMainFrame ? entry.remoteSpaUrl : getRemoteSpaUrl()
+      isPipMainFrame ? entry.remoteSpaUrl : remoteSpaUrlForService(ownerService)
     )
   ) {
     return null;
@@ -3585,14 +3598,17 @@ registerIpc(
     // Defense-in-depth on top: the frame must also be a PiP-opener document and the
     // options must match the closed schema.
     const senderFrame = sender.frame;
-    const remoteUrl = getRemoteSpaUrl();
+    const opener = sender.record;
+    // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener runs on
+    // app://concord whatever the remote-SPA state says, so it is validated, and its PiP
+    // loaded, with no remote origin. Checking it against the saas origin refused it.
+    const remoteUrl = remoteSpaUrlForService(opener.serviceId);
     if (
       !isValidPipOpenSender(senderFrame.url, app.isPackaged, remoteUrl) ||
       !isPipOpenOptions(opts)
     )
       return rejectPipOpen();
 
-    const opener = sender.record;
     const ownerRef = refOf(opener);
     // #86 RT4: the opener's own namespace, so another connection's PiP of the same id
     // is invisible here: no refusal, no focus, a fresh window.
@@ -3611,9 +3627,8 @@ registerIpc(
     )
       throw new Error('PiP could not be opened');
 
-    // The remote SPA and its LKG cache are saas-only (C7): a self-hosted opener's
-    // PiP loads the bundled renderer whatever the remote-SPA state says.
-    const pipRemoteUrl = opener.serviceId === SAAS_SERVICE_ID ? remoteUrl : null;
+    // Already null for a self-hosted opener (above): its PiP loads the bundled renderer.
+    const pipRemoteUrl = remoteUrl;
     const openerOnCache =
       opener.serviceId === SAAS_SERVICE_ID &&
       opener.webContents.getURL().startsWith(`${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/`);

@@ -448,6 +448,30 @@ describe('audiocap:start — renderer-loss and post-await sender re-check (#3394
     expect(startAudiocapHost).not.toHaveBeenCalled();
   });
 
+  // #86 Codex C2: every connection's view counts its own losses. A reload of ANOTHER
+  // connection during the enumeration is not this share's loss and must not refuse it.
+  it("A4 (#86 C2): another connection's loss during the pending enumeration does not refuse the owner's start", async () => {
+    const release = deferredSources();
+    const { handleAudiocapStart } = await loadIpc();
+    const reg = await import('../../../src/main/connectionRegistry');
+    const ownerId = reg.liveConnections()[0]?.connectionId;
+    expect(ownerId).toBeTypeOf('string');
+    let otherConnectionLosses = 0;
+    audiocapRendererLossEpoch.mockImplementation((id?: unknown) =>
+      id === ownerId ? 0 : otherConnectionLosses
+    );
+    const pending = handleAudiocapStart(
+      trustedEvent,
+      { sourceId: 'window:42:0' },
+      getRemoteSpaOrigin,
+      getMainWindow
+    );
+    otherConnectionLosses = 1; // another connection's view reloaded mid-enumeration
+    release();
+    await pending;
+    expect(startAudiocapHost).toHaveBeenCalledTimes(1);
+  });
+
   it('A3: senderFrame goes null during the pending enumeration with NO loss event refuses protocol-fault', async () => {
     const release = deferredSources();
     const { handleAudiocapStart } = await loadIpc();

@@ -58,7 +58,7 @@
 // | :879 `deeplink:friend-code` send               | saas-only push    | `sendToConnection(ref of saas primary)`       |
 // | :882 `invite:received` send                    | saas-only push    | `sendToConnection(ref of saas primary)`       |
 // | :1347 `did-start-loading` → deep-link reset    | view wiring       | `openConnectionView`, saas view only          |
-// | :1358 `wireAudiocapRendererLoss`               | view wiring       | `openConnectionView`, every view              |
+// | :1358 `wireAudiocapRendererLoss`               | view wiring       | `openConnectionView`, every view; owner only  |
 // | :1424 dev `openDevTools()`                     | view wiring       | saas view, `{ mode: 'detach' }`               |
 // | :1430/:1431 developer-mode `openDevTools`      | view wiring       | saas view, `{ mode: 'detach' }`               |
 // | :1436/:1442/:1443/:1445 DevTools key toggle    | view wiring       | per view (`wireView`), toggles that view      |
@@ -131,7 +131,8 @@ export interface ShellDeps {
   viewBackgroundColor?: string;
   contentProtectionEnabled: boolean;
   applyContentProtectionAtCreation(win: BaseWindow, enabled: boolean, label: string): void;
-  wireAudiocapRendererLoss(webContents: WebContents): void;
+  /** Per view; a loss ends a capture only when `connectionId` owns it (#86 C2). */
+  wireAudiocapRendererLoss(webContents: WebContents, connectionId: ConnectionId): void;
   /** Per view; the hooks move the shared tray only while it shows `connectionId` (#86 B2). */
   attachTrayResetHooks(webContents: WebContents, connectionId: ConnectionId): void;
   resetDeepLinkDelivery(): void;
@@ -278,7 +279,7 @@ export async function openConnectionView(
     return { ok: false, reason: 'session-unavailable' };
   }
 
-  d.wireAudiocapRendererLoss(contents);
+  d.wireAudiocapRendererLoss(contents, record.connectionId);
   d.attachTrayResetHooks(contents, record.connectionId);
   // Deep links are saas-only (§3.7): another view's load must not clear the saas
   // renderer's readiness, or links queue until the saas view itself reloads.
@@ -302,14 +303,27 @@ export async function openConnectionView(
 /** The restored `connections.json` entries, kept so a foreground change can be recorded. */
 let persisted: { root: string; entries: ConnectionsFileEntry[] } | null = null;
 
-/** Layout only: stamps `lastForegroundAt` on the entry, never adds or admits one. */
+/**
+ * Layout only: stamps `lastForegroundAt` on the entry. It adds one only for `saas`, whose
+ * view is always open but which migration leaves out when the root holds no Remember-Me
+ * sign-in (`[X]` alone); without it a saas foreground was never recorded and every launch
+ * showed X. A saas entry admits nothing: restore skips it and the file admits saas without
+ * an approval. No other service is ever added here.
+ */
 function recordForeground(serviceId: ServiceId): void {
   const state = persisted;
   if (!state) return;
+  const now = new Date().toISOString();
   const index = state.entries.findIndex((e) => e.serviceId === serviceId);
-  if (index < 0) return;
-  const entries = [...state.entries];
-  entries[index] = { ...entries[index], lastForegroundAt: new Date().toISOString() };
+  let entries: ConnectionsFileEntry[];
+  if (index >= 0) {
+    entries = [...state.entries];
+    entries[index] = { ...entries[index], lastForegroundAt: now };
+  } else {
+    const origin = serviceId === SAAS_SERVICE_ID ? getService(serviceId)?.origin : undefined;
+    if (origin === undefined) return;
+    entries = [...state.entries, { serviceId, origin, addedAt: now, lastForegroundAt: now }];
+  }
   state.entries = entries;
   writeConnectionsFile(state.root, entries).catch(() => {
     console.warn('[shellWindow] connections.json was not updated');
@@ -565,6 +579,9 @@ export function createPipWindow(
     pip.destroy();
     return null;
   }
+  // D1: the caller loads the PiP in the tick that creates it, so its preload's whoAmI
+  // can arrive before the commit is recorded. Track before returning, as for a primary.
+  trackMainFrameNavigation(pipContents);
   pipWindows.set(pipContents, pip);
   pip.on('closed', () => {
     pipWindows.delete(pipContents);

@@ -3948,7 +3948,7 @@ describe('main.ts', () => {
       }
       // A bound self-hosted primary on a localhost frame, which the unpackaged
       // isValidPipOpenSender admits exactly as it would app://concord in a packaged build.
-      function selfHostedOpener() {
+      function selfHostedOpener(frameUrl = 'http://localhost:3001/') {
         const svc = connectionRegistry.registerService(
           `https://pip-rt-${(nextRtOrigin += 1)}.example`,
           {
@@ -3959,7 +3959,7 @@ describe('main.ts', () => {
         );
         if (!svc.ok) throw new Error(svc.reason);
         const frameTreeNodeId = (nextRtFrame += 1);
-        const frame = { url: 'http://localhost:3001/', frameTreeNodeId, parent: null };
+        const frame = { url: frameUrl, frameTreeNodeId, parent: null };
         const wc = {
           id: frameTreeNodeId,
           send: vi.fn(),
@@ -4006,6 +4006,69 @@ describe('main.ts', () => {
       afterEach(() => {
         while (closers.length > 0) closers.pop()?.();
         connectionRegistry.setForeground(saasConnectionId() as never);
+      });
+
+      // Codex C3: a packaged self-hosted primary runs on app://concord whatever the saas
+      // remote-SPA state is, so its PiP must be validated without the saas remote origin.
+      describe('C3: a packaged self-hosted opener with the saas remote SPA active', () => {
+        const REMOTE = 'https://spa.example.test/spa/a/index.html';
+        async function packaged() {
+          const { app } = await import('electron');
+          const { setRemoteSpaState } = await import('../../../src/main/spaState');
+          const testApp = app as unknown as { isPackaged: boolean };
+          testApp.isPackaged = true;
+          return {
+            setRemoteSpaState,
+            restore: () => {
+              setRemoteSpaState(null);
+              testApp.isPackaged = false;
+            },
+          };
+        }
+
+        it('opens its PiP on the bundled renderer', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.loadURL.mockClear();
+            expect(await openAs(opener.connectionId, opener.event, 'sh-pip')).toBe('opened');
+            expect(mockPipWindow.loadURL).toHaveBeenLastCalledWith(
+              'app://concord/index.html#/pip/sh-pip'
+            );
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('its owner frame can still close the PiP after remote mode turns on', async () => {
+          const env = await packaged();
+          const opener = selfHostedOpener('app://concord/index.html');
+          try {
+            expect(await openAs(opener.connectionId, opener.event, 'sh-close')).toBe('opened');
+            env.setRemoteSpaState(REMOTE);
+            mockPipWindow.close.mockClear();
+            await handlers.get('pip:close')!(opener.event, { id: 'sh-close' });
+            expect(mockPipWindow.close).toHaveBeenCalledTimes(1);
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            opener.dispose();
+            env.restore();
+          }
+        });
+
+        it('control: a saas primary on app://concord is still refused while remote mode is on', async () => {
+          const env = await packaged();
+          try {
+            env.setRemoteSpaState(REMOTE);
+            expect(await openAs(saasConnectionId(), saasAppFrameEvent, 'saas-app')).toBe('refused');
+          } finally {
+            while (closers.length > 0) closers.pop()?.();
+            env.restore();
+          }
+        });
       });
 
       it("RT4 (PIP-1): another connection cannot squat the saas pop-out id 'controls-main'", async () => {
@@ -7495,7 +7558,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as
@@ -7511,7 +7580,7 @@ describe('main.ts', () => {
         'no did-navigate listener was registered before the initial load resolved'
       ).toBeTypeOf('function');
       didNavigateHandler!({}, 'https://example.invalid/', 200, 'OK');
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
 
       // Release the held load so this import does not leave a permanently-pending
       // promise hanging off the shared mock past this test.
@@ -7527,7 +7596,13 @@ describe('main.ts', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const host = await import('../../../src/main/audiocapHost');
-      const epochBefore = host.audiocapRendererLossEpoch();
+      // #86 C2: the epoch is per connection; the view under test is the saas primary's.
+      const { liveConnections } = await import('../../../src/main/connectionRegistry');
+      const viewConnection = liveConnections().find(
+        (r) => r.webContents === (mockWebContents as never)
+      )?.connectionId;
+      expect(viewConnection).toBeTypeOf('string');
+      const epochBefore = host.audiocapRendererLossEpoch(viewConnection as never);
 
       const newOnCalls = mockWebContents.on.mock.calls.slice(onCallsBefore);
       const didNavigateHandler = newOnCalls.find((c) => c[0] === 'did-navigate')?.[1] as (
@@ -7537,7 +7612,7 @@ describe('main.ts', () => {
       didNavigateHandler({}, 'https://example.invalid/', 200, 'OK');
       // Proves the harness itself can observe an epoch bump when the wire IS registered --
       // so the RED case above is a genuine finding, not a broken assertion.
-      expect(host.audiocapRendererLossEpoch()).toBe(epochBefore + 1);
+      expect(host.audiocapRendererLossEpoch(viewConnection as never)).toBe(epochBefore + 1);
     });
   });
 });

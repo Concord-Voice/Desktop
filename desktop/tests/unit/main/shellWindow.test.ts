@@ -300,7 +300,7 @@ describe('openConnectionView', () => {
   it('wires audiocap loss and tray hooks before loadURL, with the view bound as primary', async () => {
     const saas = register(SAAS_ORIGIN);
     const rec = await mustOpen(saas.serviceId);
-    expect(deps.wireAudiocapRendererLoss).toHaveBeenCalledWith(rec.webContents);
+    expect(deps.wireAudiocapRendererLoss).toHaveBeenCalledWith(rec.webContents, rec.connectionId);
     // #86 B2: the hooks act only for the connection the tray belongs to.
     expect(deps.attachTrayResetHooks).toHaveBeenCalledWith(rec.webContents, rec.connectionId);
     expect(calls.indexOf('wire')).toBeLessThan(calls.indexOf('loadURL'));
@@ -643,6 +643,32 @@ describe('createPipWindow', () => {
     expect(rec.pips.has(pipWc)).toBe(true);
   });
 
+  // D1 for PiP windows (Codex C1): main.ts issues pip.loadURL in the tick that creates
+  // the window, so the PiP preload's whoAmI can arrive before its commit is recorded.
+  // Without the tracker the uncommitted PiP is refused and boots ConnectionUnavailable.
+  it('tracks the PiP main-frame navigation, so its uncommitted first whoAmI is admitted', async () => {
+    const rec = await mustOpen(register(SELF_A).serviceId);
+    const pip = createPipWindow(rec.webContents as never, { width: 320, height: 240 });
+    expect(pip).not.toBeNull();
+    const pipWc = h.state.pips[0].webContents;
+    const frame = { processId: 9, routingId: 2 };
+    pipWc.emit('did-start-navigation', {
+      url: 'app://concord/index.html#/pip/p1',
+      isMainFrame: true,
+      isSameDocument: false,
+      frame,
+    });
+    const admitted = requireConnectionSender(
+      {
+        sender: pipWc,
+        senderFrame: { url: '', parent: null, frameTreeNodeId: 1, detached: false, ...frame },
+      } as never,
+      { admitUncommitted: true }
+    );
+    expect(admitted).not.toBeNull();
+    expect(admitted?.role).toBe('pip');
+  });
+
   it('refuses an opener that is not a bound primary and builds no window', () => {
     const stranger = h.makeWc(h.defaultSession);
     expect(createPipWindow(stranger as never, { width: 1, height: 1 })).toBeNull();
@@ -742,6 +768,62 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(written.find((e) => e.serviceId === a.serviceId)?.lastForegroundAt).toBe(at(3));
     activateConnection(saas.serviceId); // already the foreground
     expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+  });
+
+  // Codex C4: migration writes `[X]` alone when the root holds no Remember-Me saas
+  // sign-in, so the always-open saas view had no entry and its foreground was never
+  // recorded: every relaunch showed X again, even when the user last used saas.
+  it('a saas foreground with no saas entry adds one, and the next launch shows saas', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(a, at(3))],
+      (origin) => register(origin) as never
+    );
+    expect(foreground()?.serviceId).toBe(a.serviceId);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, saas.serviceId]);
+    const saasEntry = written.find((e) => e.serviceId === saas.serviceId);
+    expect(saasEntry?.origin).toBe(SAAS_ORIGIN);
+    expect(saasEntry?.lastForegroundAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(saasEntry?.addedAt).toBe(saasEntry?.lastForegroundAt);
+
+    // The next launch, from what was written.
+    (shellWindow() as unknown as Any).emit('closed');
+    _resetPersistedConnectionsForTesting();
+    createShellWindow(deps as never);
+    await mustOpen(saas.serviceId);
+    await restorePersistedConnections('/user-data', written as never, (o) => register(o) as never);
+    expect(foreground()?.serviceId).toBe(saas.serviceId);
+  });
+
+  // The dev menu opens and activates a self-hosted connection that is deliberately never
+  // persisted; only saas may be appended when it has no entry.
+  it('an unpersisted self-hosted foreground is never added to connections.json', async () => {
+    const saas = register(SAAS_ORIGIN);
+    await mustOpen(saas.serviceId);
+    const a = register(SELF_A);
+    await restorePersistedConnections(
+      '/user-data',
+      [entryFor(a, at(3))],
+      (origin) => register(origin) as never
+    );
+    const b = register(SELF_B);
+    await mustOpen(b.serviceId);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(b.serviceId)).toBe(true);
+    expect(foreground()?.serviceId).toBe(b.serviceId);
+    expect(writeConnectionsFile).not.toHaveBeenCalled();
+
+    // A later write keeps the restored list as it was, without b.
+    activateConnection(a.serviceId);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId]);
   });
 
   // #86 PR 206 review row 5: macOS keeps the app alive with no window, and the dock
