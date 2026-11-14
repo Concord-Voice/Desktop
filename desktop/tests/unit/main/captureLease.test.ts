@@ -749,6 +749,34 @@ describe('releasing the call from a background connection (Codex P2)', () => {
   });
 });
 
+describe('releasing during a navigation hold (Codex P2)', () => {
+  it('a release from the surviving document ends the lease: the timeout does not restore it', async () => {
+    const { a, b } = await heldByAWithBInFront();
+    advanceGeneration(a.record.connectionId, 'document'); // started, will be cancelled
+    expect(rel(a)).toBe(true); // under the advanced generation
+    expect(isFree()).toBe(true);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS * 2);
+    expect(isFree()).toBe(true);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+    await expect(acq(b)).resolves.toEqual(GRANTED);
+  });
+
+  it('one of two claims released during the hold: only the other is restored', async () => {
+    const a = connect(ORIGIN_A);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document');
+    expect(rel(a, TEST)).toBe(true);
+    expect(isFree()).toBe(false);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS);
+    expect(isHolder(ref(a))).toBe(true);
+    expect(rel(a, TEST)).toBe(false); // already gone
+    expect(rel(a, VOICE)).toBe(true);
+    expect(isFree()).toBe(true);
+  });
+});
+
 describe('navigation hold: a cancelled navigation restores the lease (Gitar)', () => {
   it('a cancelled navigation gives the lease back to the same document without a crash', async () => {
     const { a, b } = await heldByAWithBInFront();

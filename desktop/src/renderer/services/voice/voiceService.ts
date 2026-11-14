@@ -2504,7 +2504,10 @@ class VoiceService {
     useVoiceStore.getState().setDynamicGateStatus(null);
     const replacement = this.micReplaceTrackQueue
       .catch(() => {})
-      .then(() => this.liveReplaceAudioTrackQueued(replaceSeq));
+      // The whole replacement is in the settlement barrier, not just its getUserMedia: the new
+      // stream is local to this operation (graph init, replaceTrack) until it is adopted, so
+      // teardown cannot stop it and a revocation must not acknowledge before it is done.
+      .then(() => trackDeviceCapture(this.liveReplaceAudioTrackQueued(replaceSeq)));
     this.micReplaceTrackQueue = replacement.catch(() => {});
     return replacement;
   }
@@ -5272,14 +5275,22 @@ class VoiceService {
 
     await this.awaitMicrophonePermission(captureGeneration, sendTransport);
     for (;;) {
-      const capture = await this.acquireCurrentMicrophone(
-        captureGeneration,
-        sendTransport,
-        deviceId
+      // Capture AND publication form one tracked operation (see liveReplaceAudioTrack): the
+      // resolved stream is unadopted, and so invisible to teardown, until the graph is built.
+      const published = await trackDeviceCapture(
+        this.acquireAndProduceMicrophone(captureGeneration, sendTransport, deviceId)
       );
-      if (await this.produceAudioCapture(capture, captureGeneration, sendTransport, deviceId))
-        return;
+      if (published) return;
     }
+  }
+
+  private async acquireAndProduceMicrophone(
+    captureGeneration: number,
+    sendTransport: mediasoupTypes.Transport,
+    deviceId?: string
+  ): Promise<boolean> {
+    const capture = await this.acquireCurrentMicrophone(captureGeneration, sendTransport, deviceId);
+    return this.produceAudioCapture(capture, captureGeneration, sendTransport, deviceId);
   }
 
   private async produceAudioCapture(

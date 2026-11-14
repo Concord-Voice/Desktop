@@ -18,9 +18,14 @@ vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) =
 }));
 
 interface Internals {
+  sendTransport: unknown;
+  device: unknown;
+  produceAudio: (deviceId?: string) => Promise<void>;
+  awaitMicrophonePermission: (...args: unknown[]) => Promise<void>;
+  acquireCurrentMicrophone: (...args: unknown[]) => Promise<unknown>;
+  produceAudioCapture: (...args: unknown[]) => Promise<boolean>;
   releaseVoiceLease: () => void;
   voiceLeaseClaim: number;
-  acquireCurrentMicrophone: (gen: number, transport: unknown) => Promise<unknown>;
   requireCurrentMicCapture: (...args: unknown[]) => void;
   microphoneSettingsChanged: (...args: unknown[]) => boolean;
 }
@@ -92,5 +97,31 @@ describe('call-owned capture joins the settlement barrier', () => {
     vi.mocked(release).mockClear();
     internals.releaseVoiceLease();
     expect(release).toHaveBeenCalledWith('voice-join');
+  });
+
+  it('the barrier covers graph build and publication after the capture resolved (Codex P2)', async () => {
+    internals.sendTransport = { closed: false };
+    internals.device = {};
+    vi.spyOn(internals, 'awaitMicrophonePermission').mockResolvedValue(undefined);
+    vi.spyOn(internals, 'acquireCurrentMicrophone').mockResolvedValue({});
+    let finish: (v: boolean) => void = () => undefined;
+    vi.spyOn(internals, 'produceAudioCapture').mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finish = resolve;
+        })
+    );
+    try {
+      const done = internals.produceAudio();
+      await vi.waitFor(() => expect(internals.produceAudioCapture).toHaveBeenCalled());
+      // getUserMedia is long resolved; the stream is still unadopted, so the barrier holds.
+      await expect(settleDeviceCaptures(20)).resolves.toBe(false);
+      finish(true);
+      await done;
+      await expect(settleDeviceCaptures(20)).resolves.toBe(true);
+    } finally {
+      internals.sendTransport = null;
+      internals.device = null;
+    }
   });
 });

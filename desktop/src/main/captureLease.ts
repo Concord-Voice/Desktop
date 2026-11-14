@@ -429,6 +429,19 @@ export function release(
     completeHandoff(d, h, null);
     return true;
   }
+  if (h?.navHeld !== undefined && sender.ref.connectionId === h.from.connectionId) {
+    // A navigation hold keeps the PRE-navigation ref, but the surviving document speaks under
+    // the generation the navigation start advanced to: its releases apply to the held claims
+    // instead of being rejected and then undone by the restore (Codex P2). The sender is this
+    // connection's current primary, admitted by the registry, which is all the hold needs.
+    const held = h.navHeld;
+    if (!held.claims.delete(input.intent)) return false;
+    if (held.claims.size === 0) {
+      effect(() => d.revokeAudiocapShare());
+      completeHandoff(d, h, null);
+    }
+    return true;
+  }
   const entry = holder;
   if (entry === null || !sameRef(sender.ref, entry.ref)) return false;
   if (!ownedBy(event, entry.binding, sender) || !entry.claims.delete(input.intent)) return false;
