@@ -14,10 +14,16 @@
 //   - the runs of one consent cell share a label (C1 twice, C2 twice, ...);
 //   - the cell labelled C1 is the both-granted control;
 //   - a row carries `seconds`, the length of its run, or a revoke row cannot be judged
-//     and reads `other`;
+//     and reads `other` (`fault` when it carries a fault stage);
 //   - every consent and revoke run measures one window, the rule's rows come from one
 //     OS build and one Electron version, and each row carries the runner's `runId`: two
-//     rows with one id are one run pasted twice, and a row with none stops the rule.
+//     identical rows with one id are one run pasted twice, and a row with none, or one
+//     that reuses an earlier row's id with other values, stops the rule;
+//   - a consent or revoke row with no OS build (null, which main.js prints when it cannot
+//     read one, or any other shape) stops the rule, because its evidence cannot be tied to
+//     one build; so does one holding a value main.js never prints (a length outside 1 to
+//     600 s, counters of the wrong shape, ...), and no row value reaches the output unless
+//     it is a plain token that a runner label could be, and never at the start of a line.
 // --never-requested names the grants the app never prompts for. It defaults to both,
 // so a silent cell reading `not-determined` stops the rule unless the lead says
 // otherwise. `--never-requested ''` names none.
@@ -33,6 +39,39 @@ const NUMERIC_FIELDS = [
   'overrunTotal',
   'destroyFailures',
 ];
+const FLAG_FIELDS = ['silentSinceStart', 'faulted', 'poisoned', 'quiesceProved'];
+// What main.js prints, so a row holding anything else did not come from it: a run id from
+// crypto.randomUUID(); an OS build read from SystemVersion.plist, or null when unread; the
+// Electron version; a window id that is a CGWindowID; --seconds from 1 to 600.
+const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const OS_BUILD = /^[0-9A-Za-z]+$/;
+const ELECTRON_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const MAX_WINDOW_ID = 0xff_ff_ff_ff;
+const MAX_SECONDS = 600;
+// The addon sets every counter as a u32 (napi/addon.cc, setUint32Prop).
+const MAX_COUNTER = 0xff_ff_ff_ff;
+// main.js's --label rule (parseArgs, LABEL).
+const RUNNER_LABEL = /^[A-Za-z0-9._-]{1,64}$/;
+// AudiocapFaultStage (desktop/src/shared/audiocapProtocol.ts), the only stages the child
+// posts, and the runner's `unknown` for a fault that names no string stage.
+const FAULT_STAGES = new Set([
+  'guard',
+  'load',
+  'capability',
+  'start',
+  'target',
+  'run',
+  'protocol',
+  'unknown',
+]);
+// Every row string an output line carries goes through here, so no row can forge a line
+// (a label holding a newline could print `rule A`): only a string the runner accepts as a
+// label (1 to 64 letters, digits, `.`, `_` or `-`) is printed, and anything else prints as
+// the placeholder. Numbers (window ids, counts, the R1 length) print only as whole numbers
+// in range. A line never starts with a row value: `rule` and `predicate` are valid labels.
+const UNPRINTABLE = '(unprintable)';
+const shown = (value) =>
+  typeof value === 'string' && RUNNER_LABEL.test(value) ? value : UNPRINTABLE;
 const CONSENT_CLASSES = new Set(['fault', 'carries', 'silent', 'dead', 'other']);
 const GRANTS = ['screen', 'microphone'];
 const CONTROL_LABEL = 'C1';
@@ -55,8 +94,9 @@ const RESET_CELL = 'C5';
 const REVOKE_SECONDS = 60;
 const NOT_HELD = new Set(['denied', 'restricted', 'not-determined']);
 // Every value Electron's getMediaAccessStatus returns. The runner prints all four
-// readings, before and after, on every row, so a consent row without a known one
-// stops the rule.
+// readings, before and after, on every row, so a consent row missing one, or holding a
+// value not listed here, stops the rule. `unknown` is listed so a reason can print it,
+// not because it can decide the rule: a consent run that reads it stops the rule too.
 const GRANT_VALUES = new Set(['granted', 'unknown', ...NOT_HELD]);
 // A reason prints a grant pair only when both readings are values the runner can
 // print. Anything else came from somewhere else and is not echoed.
@@ -224,14 +264,19 @@ export function incompleteCells(cells, revokeRuns) {
   const runs = Array.isArray(revokeRuns) ? revokeRuns : [];
   if (runs.length === 0) reasons.push('the revoke run R1 has no row');
   for (const run of runs) {
-    const id = run.label ?? 'R1';
+    // No default: a revoke row with no label is a Rule C reason in mixedRows.
+    const id = shown(run.label);
     if (run.screen !== 'granted' || run.microphone !== 'granted') {
       reasons.push(
         `${id} starts reading ${pairText(run.screen, run.microphone)}; expected granted, granted`
       );
     }
     if (!(run.seconds >= REVOKE_SECONDS)) {
-      const ran = Number.isFinite(run.seconds) ? `${run.seconds} s` : 'for an unrecorded time';
+      // Only a length main.js prints is shown; any other number (-1e+21, 59.5) is not.
+      const ran =
+        Number.isInteger(run.seconds) && run.seconds >= 1 && run.seconds <= MAX_SECONDS
+          ? `${run.seconds} s`
+          : 'for an unrecorded time';
       reasons.push(`${id} ran ${ran}; expected at least ${REVOKE_SECONDS} s`);
     }
     // The runner reads both grants again after the run. If macOS does not report a
@@ -239,6 +284,9 @@ export function incompleteCells(cells, revokeRuns) {
     // revoke, and the rule fails closed to C.
     if (!NOT_HELD.has(run.screenAfter) && !NOT_HELD.has(run.microphoneAfter)) {
       reasons.push(`${id} shows no revoke`);
+    } else if (!GRANT_VALUES.has(run.screenAfter) || !GRANT_VALUES.has(run.microphoneAfter)) {
+      // One grant reads off, but the other reads a value the runner never prints.
+      reasons.push(`${id} ends with an unrecognised grant reading`);
     }
   }
   return reasons;
@@ -249,37 +297,103 @@ export function incompleteCells(cells, revokeRuns) {
  * more than one OS build or Electron version, or a consent run whose grants read after
  * it differ from those read before it (it measured two states, not its cell), or a
  * consent run with a missing or unrecognised reading before or after it (it cannot show
- * its grants held). Each is a Rule C reason.
+ * its grants held), or one that reads `unknown` before or after it (macOS did not say
+ * whether the grant is held), or a consent run labelled anything but C1 to C5, or a
+ * consent or revoke run with no OS build (null, which main.js prints when it cannot read
+ * one, or any other shape: its evidence cannot be tied to one build), or one holding a
+ * value main.js never prints: a window id, Electron version, length, counters, fault
+ * stage, enumeration flags or (revoke) label of another shape. Each is a Rule C reason.
  */
 function mixedRows(rows) {
   const ruled = rows.filter((r) => r.kind === 'consent' || r.kind === 'revoke');
   const distinct = (list, key) => new Set(list.map((r) => JSON.stringify(r[key] ?? null))).size;
   const reasons = [];
-  if (ruled.some((r) => !Number.isInteger(r.windowId))) {
+  if (
+    ruled.some(
+      (r) => !(Number.isInteger(r.windowId) && r.windowId >= 1 && r.windowId <= MAX_WINDOW_ID)
+    )
+  ) {
     reasons.push('a consent or revoke run has no window id');
   }
   const windows = distinct(ruled, 'windowId');
   if (windows > 1) {
     reasons.push(`the consent and revoke runs measured ${windows} different windows`);
   }
+  // Rows that all read a null build are not shown to be one build.
+  if (ruled.some((r) => typeof r.osBuild !== 'string' || !OS_BUILD.test(r.osBuild))) {
+    reasons.push('a consent or revoke run has no OS build');
+  }
+  if (ruled.some((r) => typeof r.electron !== 'string' || !ELECTRON_VERSION.test(r.electron))) {
+    reasons.push('a consent or revoke run has no Electron version');
+  }
   const builds = distinct(ruled, 'osBuild');
   if (builds > 1) reasons.push(`the rows span ${builds} OS builds`);
   const versions = distinct(ruled, 'electron');
   if (versions > 1) reasons.push(`the rows span ${versions} Electron versions`);
   for (const r of ruled) {
-    if (r.kind !== 'consent') continue;
+    const label = shown(r.label);
+    // `seconds` sets the control's callback rate, so a string '20' or a 1e9 would skew
+    // the revoke run's class.
+    if (!(Number.isInteger(r.seconds) && r.seconds >= 1 && r.seconds <= MAX_SECONDS)) {
+      reasons.push(
+        `${label} has a run whose length is not a whole number of seconds from 1 to ${MAX_SECONDS}`
+      );
+    }
+    const c = r.counters;
+    // Each counter is a u32, and the IOProc notes a callback before it submits one, which
+    // bumps signalTotal at most once (tap_backend.h ioProcEntry, quantum_pump.h submit).
+    const printed =
+      c === null ||
+      (typeof c === 'object' &&
+        NUMERIC_FIELDS.every((k) => Number.isInteger(c[k]) && c[k] >= 0 && c[k] <= MAX_COUNTER) &&
+        FLAG_FIELDS.every((k) => typeof c[k] === 'boolean') &&
+        c.signalTotal <= c.callbackTotal);
+    if (!printed) reasons.push(`${label} has a run with counters the runner does not print`);
+    if (r.faultStage !== null && !FAULT_STAGES.has(r.faultStage)) {
+      reasons.push(`${label} has a run with a fault stage the runner does not print`);
+    }
+    // The enumeration flags decide whether a silent cell is excused. The runner prints
+    // both as booleans on every row, and a failed enumeration is never enumerable.
+    if (
+      typeof r.enumerable !== 'boolean' ||
+      typeof r.enumerationFailed !== 'boolean' ||
+      (r.enumerationFailed && r.enumerable)
+    ) {
+      reasons.push(`${label} has a run with enumeration flags the runner does not print`);
+    }
+    if (r.kind !== 'consent') {
+      if (typeof r.label !== 'string' || !RUNNER_LABEL.test(r.label)) {
+        reasons.push('a revoke run has a label the runner does not print');
+      }
+      continue;
+    }
+    // A consent row joins the cell its label names, and applyRule counts every cell, so a
+    // silent C6 could add a pair to Rule B or turn Rule A into B.
+    if (!REQUIRED_CELLS.includes(r.label)) {
+      reasons.push(`a consent run is labelled ${label}, not one of C1 to C5`);
+    }
     for (const grant of GRANTS) {
       const before = r[grant];
       const after = r[`${grant}After`];
       // An unrecognised value is not echoed: it did not come from the runner.
       if (!GRANT_VALUES.has(before)) {
-        reasons.push(`${r.label} has a run with no valid ${grant} reading before it`);
+        reasons.push(`${label} has a run with no valid ${grant} reading before it`);
       }
       if (!GRANT_VALUES.has(after)) {
-        reasons.push(`${r.label} has a run with no valid ${grant} reading after it`);
+        reasons.push(`${label} has a run with no valid ${grant} reading after it`);
       } else if (GRANT_VALUES.has(before) && after !== before) {
         reasons.push(
-          `${r.label} has a run that read ${grant} ${before} before it and ${after} after it`
+          `${label} has a run that read ${grant} ${before} before it and ${after} after it`
+        );
+      }
+      // C1 to C4 fail on an `unknown` read before a run through their pairs; one read after
+      // a run fails here (and on the before-and-after check above). A label outside C1 to C5
+      // fails above. C5 is held only to not reading the control's pair, so this is the one check
+      // that stops a C5 whose runs read `unknown` alike, in both runs and before and after
+      // (runs that differ are already `other`); without it that C5 could decide Rule A or B.
+      if (before === 'unknown' || after === 'unknown') {
+        reasons.push(
+          `${label} has a run that read ${grant} unknown; an unreadable grant cannot decide the rule`
         );
       }
     }
@@ -307,7 +421,7 @@ export function applyRule(cells, revoke, neverRequested) {
   const reasons = [];
 
   for (const cell of classed) {
-    if (cell.cls === 'other') reasons.push(`${cell.id} is other`);
+    if (cell.cls === 'other') reasons.push(`${shown(cell.id)} is other`);
   }
   // `carries` is measured against the both-granted control (spec section 3), so a
   // missing or non-carrying C1 leaves every silent cell unjudgeable.
@@ -318,11 +432,13 @@ export function applyRule(cells, revoke, neverRequested) {
   const silent = classed.filter((c) => !excused(c) && (c.cls === 'silent' || c.cls === 'dead'));
   for (const cell of silent) {
     if (carrying.has(pairKey(cell))) {
-      reasons.push(`${cell.id} is ${cell.cls} on a pair a carrying cell also has`);
+      reasons.push(`${shown(cell.id)} is ${cell.cls} on a pair a carrying cell also has`);
     }
     for (const grant of neverRequested) {
       if (GRANTS.includes(grant) && cell[grant] === 'not-determined') {
-        reasons.push(`${cell.id} reads not-determined for ${grant}, which the app never requests`);
+        reasons.push(
+          `${shown(cell.id)} reads not-determined for ${grant}, which the app never requests`
+        );
       }
     }
   }
@@ -365,7 +481,8 @@ function readRows(file) {
   }
   const rows = [];
   const gaps = [];
-  const seen = new Set();
+  // run id -> the first row with it: its line number and its values.
+  const seen = new Map();
   text.split('\n').forEach((line, i) => {
     const trimmed = line.trim().replace(/^ROW /, '');
     if (trimmed === '') return;
@@ -379,14 +496,23 @@ function readRows(file) {
       fail(`line ${i + 1} has an unknown kind`);
     }
     // Only the run id tells a pasted copy from a second run: two runs that fault or read
-    // dead print the same counters.
+    // dead print the same counters. The runner mints an id per run, so a row that reuses
+    // one with other values did not come from it: it is left out of the cells, and it is
+    // a gap (Rule C), so dropping it cannot hide what it holds.
     if (typeof row.runId !== 'string' || row.runId === '') {
       gaps.push(`line ${i + 1} has no run id`);
     } else if (seen.has(row.runId)) {
-      console.log(`line ${i + 1} repeats the run id of an earlier row: counted once`);
+      const first = seen.get(row.runId);
+      if (first.values === JSON.stringify(row)) {
+        console.log(`line ${i + 1} repeats the run id of an earlier row: counted once`);
+      } else {
+        gaps.push(`line ${i + 1} repeats the run id of line ${first.line} with other values`);
+      }
       return;
     } else {
-      seen.add(row.runId);
+      if (!RUN_ID.test(row.runId))
+        gaps.push(`line ${i + 1} has a run id the runner does not print`);
+      seen.set(row.runId, { line: i + 1, values: JSON.stringify(row) });
     }
     rows.push(row);
   });
@@ -400,6 +526,9 @@ function usable(row) {
 function ratioText(counters) {
   if (!counters) return 'no counters';
   const { signalTotal, callbackTotal } = counters;
+  if (!Number.isSafeInteger(signalTotal) || !Number.isSafeInteger(callbackTotal)) {
+    return 'unrecognised counters';
+  }
   const ratio = callbackTotal > 0 ? (signalTotal / callbackTotal).toFixed(3) : 'n/a';
   return `${signalTotal} of ${callbackTotal} (${ratio})`;
 }
@@ -470,11 +599,14 @@ function main(argv) {
     } else {
       cls = classifyMatrix(r.kind, r.counters, r.faultStage);
     }
-    const fault = r.faultStage ? `, fault ${r.faultStage}` : '';
+    const fault = r.faultStage ? `, fault ${shown(r.faultStage)}` : '';
+    const flag = (v) => (typeof v === 'boolean' ? v : UNPRINTABLE);
+    const windowId = Number.isSafeInteger(r.windowId) ? r.windowId : UNPRINTABLE;
     console.log(
-      `${r.label}\t${r.kind}\t${cls}\tscreen=${r.screen} microphone=${r.microphone} ` +
-        `enumerable=${r.enumerable} enumerationFailed=${r.enumerationFailed} ` +
-        `window=${r.windowId}\t${ratioText(r.counters)}${fault}`
+      `row ${shown(r.label)}\t${r.kind}\t${cls}\t` +
+        `screen=${shown(r.screen)} microphone=${shown(r.microphone)} ` +
+        `enumerable=${flag(r.enumerable)} enumerationFailed=${flag(r.enumerationFailed)} ` +
+        `window=${windowId}\t${ratioText(r.counters)}${fault}`
     );
   }
 
@@ -482,9 +614,9 @@ function main(argv) {
     if (excused(cell)) {
       const why = cell.enumerationFailed
         ? 'the enumeration failed'
-        : `Screen Recording reads ${cell.screen}`;
+        : `Screen Recording reads ${shown(cell.screen)}`;
       console.log(
-        `${cell.id} is not enumerable (${why}): reported, not counted (${cell.runs.join(', ')})`
+        `cell ${shown(cell.id)} is not enumerable (${why}): reported, not counted (${cell.runs.join(', ')})`
       );
     }
   }
@@ -509,7 +641,7 @@ function main(argv) {
   console.log(`rule ${out.rule}`);
   if (out.rule === 'B') {
     for (const p of out.predicate) {
-      console.log(`predicate screen=${p.screen} microphone=${p.microphone}`);
+      console.log(`predicate screen=${shown(p.screen)} microphone=${shown(p.microphone)}`);
     }
   }
   if (out.rule === 'C') {

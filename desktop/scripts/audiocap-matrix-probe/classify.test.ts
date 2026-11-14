@@ -354,7 +354,7 @@ describe('applyRule', () => {
     expect(applyRule(cells, null, []).rule).toBe('C');
   });
 
-  it('an unknown reading is a distinct pair, never held', () => {
+  it('an unrecognised reading is a distinct pair, never held', () => {
     const cells = carryingCells();
     cells.push(cell('C5', 'granted', 'somethingnew', ['silent', 'silent']));
     // 'somethingnew' is not 'granted', so the pair is its own and is not
@@ -482,7 +482,8 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     faultStage: null,
   };
   let runs = 0;
-  const runId = () => `run-${++runs}`;
+  // A lowercase v4 UUID, the form crypto.randomUUID() prints.
+  const runId = () => `00000000-0000-4000-8000-${String(++runs).padStart(12, '0')}`;
   const consent = (label: string, screen: string, microphone: string, cb: number, sig: number) => ({
     ...session,
     runId: runId(),
@@ -579,6 +580,22 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     expect(out).toContain('reason R1 ran for an unrecorded time; expected at least 60 s');
   });
 
+  it.each([
+    ['-1e21', -1e21, '1e+21'],
+    ['59.5', 59.5, '59.5'],
+  ])('gives Rule C for an R1 length of %s and does not print the raw value', (_, seconds, raw) => {
+    const out = classify([...consentRows(), revoke(9000, 9000, { seconds })]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason R1 ran for an unrecorded time; expected at least 60 s');
+    expect(out).not.toContain(raw);
+  });
+
+  it('prints a whole-number R1 length of 30 as 30 s', () => {
+    const out = classify([...consentRows(), revoke(9000, 9000, { seconds: 30 })]);
+    expect(out).toMatch(/^rule C$/m);
+    expect(out).toContain('reason R1 ran 30 s; expected at least 60 s');
+  });
+
   // The toggles reached another identity: every cell reads the control's pair and carries.
   it('gives Rule C when all five cells read granted, granted and carry', () => {
     const rows = consentRows().map((r) => ({ ...r, screen: 'granted', microphone: 'granted' }));
@@ -613,6 +630,329 @@ describe('classify.mjs CLI, a whole session through main()', () => {
     const out = classify([...rows, revoke(9000, 9000)]);
     expect(out).toMatch(/^rule C$/m);
     expect(out).toMatch(/reason line \d+ has no run id/);
+  });
+
+  describe('repeated run ids', () => {
+    it('gives Rule C when a repeated run id carries other values', () => {
+      const rows = consentRows();
+      rows[3] = { ...rows[3], runId: rows[2].runId };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toContain('reason line 4 repeats the run id of line 3 with other values');
+    });
+
+    it('still counts an exact repeat once and keeps Rule A', () => {
+      const rows = consentRows();
+      const out = classify([...rows, rows[8], revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule A$/m);
+      expect(out).toContain('repeats the run id of an earlier row: counted once');
+      expect(out).not.toContain('with other values');
+    });
+  });
+
+  // Rule C is the safe outcome: any value the runner never prints must reach it.
+  describe('values the runner never prints', () => {
+    const withRows = (over: (r: Record<string, unknown>) => Record<string, unknown>) =>
+      consentRows().map(over);
+    const ruleLines = (out: string) => out.split(/\r\n|[\n\r\u2028\u2029]/);
+    const expectC = (out: string, reason: string) => {
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toContain(`reason ${reason}`);
+    };
+
+    it('gives Rule C for a run id that is not a v4 UUID', () => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], runId: 'run-5' };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toMatch(/reason line \d+ has a run id the runner does not print/);
+    });
+
+    it('gives Rule C for an OS build that is null on every row', () => {
+      const rows = withRows((r) => ({ ...r, osBuild: null }));
+      const out = classify([...rows, revoke(9000, 9000, { osBuild: null })]);
+      expectC(out, 'a consent or revoke run has no OS build');
+    });
+
+    it('gives Rule C for an Electron version that is null', () => {
+      const rows = withRows((r) => ({ ...r, electron: null }));
+      const out = classify([...rows, revoke(9000, 9000, { electron: null })]);
+      expectC(out, 'a consent or revoke run has no Electron version');
+    });
+
+    it.each([0, -3, 1.5, 4294967296, '7'])('gives Rule C for window id %j', (windowId) => {
+      const out = classify([...consentRows(), revoke(9000, 9000, { windowId })]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toContain('reason a consent or revoke run has no window id');
+    });
+
+    it.each([
+      ['"20"', '20'],
+      ['1e9', 1e9],
+      ['700', 700],
+      ['0', 0],
+    ])('gives Rule C for seconds %s on C1', (_, seconds) => {
+      const rows = consentRows();
+      rows[0] = { ...rows[0], seconds };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C1 has a run whose length is not a whole number of seconds from 1 to 600');
+    });
+
+    it('gives Rule C for seconds on a revoke run that is not a number', () => {
+      const out = classify([...consentRows(), revoke(9000, 9000, { seconds: '60' })]);
+      expectC(out, 'R1 has a run whose length is not a whole number of seconds from 1 to 600');
+    });
+
+    it.each([
+      ['a string count', { signalTotal: '3000' }],
+      ['a missing flag', { poisoned: undefined }],
+      ['a negative count', { overrunTotal: -1 }],
+      ['an unsafe count', { callbackTotal: 2 ** 60 }],
+    ])('gives Rule C for counters with %s', (_, over) => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], counters: { ...counters(3000, 3000), ...over } };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C3 has a run with counters the runner does not print');
+    });
+
+    it.each([
+      ['callbackTotal', { callbackTotal: 4294967296, quantaTotal: 4294967296 }],
+      ['signalTotal', { callbackTotal: 4294967296, signalTotal: 4294967296 }],
+    ])('gives Rule C for %s above 4294967295', (_, over) => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], counters: { ...counters(3000, 3000), ...over } };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C3 has a run with counters the runner does not print');
+    });
+
+    it('accepts counters at 4294967295', () => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], counters: counters(4294967295, 4294967295) };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expect(out).not.toContain('counters the runner does not print');
+    });
+
+    it('gives Rule C when signalTotal is above callbackTotal', () => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], counters: counters(3000, 3001) };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C3 has a run with counters the runner does not print');
+    });
+
+    it('gives Rule C for a revoke row with a newline label', () => {
+      const out = classify([...consentRows(), revoke(9000, 9000, { label: 'R1\nrule A' })]);
+      expectC(out, 'a revoke run has a label the runner does not print');
+      expect(ruleLines(out).filter((l) => l.startsWith('rule '))).toEqual(['rule C']);
+    });
+
+    it.each([
+      ['enumerable', { enumerable: 'true' }],
+      ['enumerationFailed', { enumerationFailed: 1 }],
+      ['both true', { enumerable: true, enumerationFailed: true }],
+    ])('gives Rule C for a revoke row with non-boolean enumeration flags: %s', (_, over) => {
+      const out = classify([...consentRows(), revoke(9000, 9000, over)]);
+      expectC(out, 'R1 has a run with enumeration flags the runner does not print');
+    });
+
+    it('gives Rule C for counters that are missing', () => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], counters: undefined };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C3 has a run with counters the runner does not print');
+    });
+
+    it('gives Rule C for counters on a revoke run with a string count', () => {
+      const bad = { ...counters(9000, 9000), quantaTotal: '1' };
+      const out = classify([...consentRows(), revoke(9000, 9000, { counters: bad })]);
+      expectC(out, 'R1 has a run with counters the runner does not print');
+    });
+
+    it.each([
+      ['a number', 5],
+      ['bogus', 'bogus'],
+      ['missing', undefined],
+    ])('gives Rule C for a fault stage that is %s', (_, faultStage) => {
+      const rows = consentRows();
+      rows[4] = { ...rows[4], faultStage };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C3 has a run with a fault stage the runner does not print');
+    });
+
+    it('accepts a fault stage the runner prints', () => {
+      const rows = consentRows().map((r) =>
+        r.label === 'C3' ? { ...r, faultStage: 'unknown', counters: null } : r
+      );
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expect(out).not.toContain('fault stage the runner does not print');
+    });
+
+    it("gives Rule C, not Rule B, for enumerable 'false' on a silent cell", () => {
+      const rows = consentRows().map((r) =>
+        r.label === 'C4' ? { ...r, enumerable: 'false', counters: counters(3000, 0) } : r
+      );
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C4 has a run with enumeration flags the runner does not print');
+      expect(out).not.toMatch(/^rule B$/m);
+    });
+
+    it('gives Rule C when a run is enumerable and its enumeration failed', () => {
+      const rows = consentRows();
+      rows[6] = { ...rows[6], enumerable: true, enumerationFailed: true };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C4 has a run with enumeration flags the runner does not print');
+    });
+
+    it('gives Rule C for a missing enumerationFailed flag', () => {
+      const rows = consentRows();
+      rows[0] = { ...rows[0], enumerationFailed: undefined };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expectC(out, 'C1 has a run with enumeration flags the runner does not print');
+    });
+
+    it('gives Rule C when a revoke run reads one grant off and the other unrecognised', () => {
+      const out = classify([
+        ...consentRows(),
+        revoke(9000, 9000, { screenAfter: 'bogus', microphoneAfter: 'denied' }),
+      ]);
+      expectC(out, 'R1 ends with an unrecognised grant reading');
+      expect(out).not.toContain('bogus');
+    });
+
+    it('gives Rule C when a revoke run reads one grant off and the other missing', () => {
+      const out = classify([
+        ...consentRows(),
+        revoke(9000, 9000, { screenAfter: 'denied', microphoneAfter: undefined }),
+      ]);
+      expectC(out, 'R1 ends with an unrecognised grant reading');
+    });
+
+    describe('output cannot be forged by a row value', () => {
+      const forged = '\nrule A\npredicate screen=denied microphone=denied';
+      const expectNoForgery = (out: string) => {
+        const lines = ruleLines(out);
+        expect(lines).not.toContain('rule A');
+        expect(lines.filter((l) => l.startsWith('rule '))).toEqual(['rule C']);
+        expect(lines.some((l) => l.startsWith('predicate'))).toBe(false);
+        expect(out).not.toMatch(/[^\x00-\x7f]/);
+      };
+
+      it('prints a runner-valid label with a dot, such as C5.retry, as given', () => {
+        const rows = consentRows();
+        rows[8] = { ...rows[8], label: 'C5.retry' };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectC(out, 'a consent run is labelled C5.retry, not one of C1 to C5');
+        expect(out).not.toContain('(unprintable)');
+      });
+
+      it('prints a dotted label longer than 16 characters as given', () => {
+        const long = 'C5.retry.attempt-2.x';
+        const rows = consentRows();
+        rows[8] = { ...rows[8], label: long };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectC(out, `a consent run is labelled ${long}, not one of C1 to C5`);
+        expect(out).not.toContain('(unprintable)');
+      });
+
+      it.each(['rule', 'predicate'])(
+        'gives no extra rule or predicate line for a matrix row labelled %s',
+        (label) => {
+          const matrix = { ...consentRows()[0], kind: 'include', label };
+          const out = classify([...consentRows(), revoke(9000, 9000), matrix]);
+          const lines = ruleLines(out);
+          expect(lines.filter((l) => l.startsWith('rule '))).toEqual(['rule A']);
+          expect(lines.some((l) => l.startsWith('predicate'))).toBe(false);
+        }
+      );
+
+      it.each(['rule', 'predicate'])(
+        'gives no extra rule line, and no predicate line outside Rule B, for a consent label %s',
+        (label) => {
+          const rows = consentRows();
+          rows[8] = { ...rows[8], label };
+          const out = classify([...rows, revoke(9000, 9000)]);
+          const lines = ruleLines(out);
+          expect(lines.filter((l) => l.startsWith('rule '))).toEqual(['rule C']);
+          expect(lines.some((l) => l.startsWith('predicate'))).toBe(false);
+        }
+      );
+
+      it.each(['rule', 'predicate'])(
+        'gives no extra rule or predicate line for a revoke label %s',
+        (label) => {
+          const out = classify([...consentRows(), revoke(9000, 9000, { label })]);
+          const lines = ruleLines(out);
+          expect(lines.filter((l) => l.startsWith('rule '))).toHaveLength(1);
+          expect(lines.some((l) => l.startsWith('predicate'))).toBe(false);
+        }
+      );
+
+      it('starts every row line with "row " and every not-enumerable line with "cell "', () => {
+        const rows = consentRows().map((r) =>
+          r.label === 'C4'
+            ? { ...r, enumerable: false, enumerationFailed: true, counters: counters(2000, 0) }
+            : r
+        );
+        const lines = ruleLines(classify([...rows, revoke(9000, 9000)]));
+        expect(lines.some((l) => l.startsWith('row C1\t'))).toBe(true);
+        expect(lines.some((l) => l.startsWith('cell C4'))).toBe(true);
+      });
+
+      it('does not let a consent label inject a rule or predicate line', () => {
+        const rows = consentRows();
+        rows[8] = { ...rows[8], label: forged };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectC(out, 'a consent run is labelled (unprintable), not one of C1 to C5');
+        expectNoForgery(out);
+      });
+
+      it('does not let U+2028 or a carriage return in a label split a line', () => {
+        const rows = consentRows();
+        rows[8] = { ...rows[8], label: 'x\u2028rule A\rrule A\u2029rule A' };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectNoForgery(out);
+      });
+
+      it('does not let a revoke label inject a line', () => {
+        const out = classify([...consentRows(), revoke(9000, 9000, { label: forged })]);
+        expectC(out, 'a revoke run has a label the runner does not print');
+        expectNoForgery(out);
+        expect(out).toContain('(unprintable)');
+      });
+
+      it('does not let a screen reading inject a line', () => {
+        const rows = consentRows();
+        rows[4] = { ...rows[4], screen: forged };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectNoForgery(out);
+      });
+
+      it('does not let a fault stage inject a line', () => {
+        const rows = consentRows();
+        rows[4] = { ...rows[4], faultStage: forged };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectNoForgery(out);
+      });
+
+      it('prints unrecognised counters on the control line for a string signal count', () => {
+        const rows = consentRows();
+        rows[0] = { ...rows[0], counters: { ...counters(2000, 2000), signalTotal: forged } };
+        const out = classify([...rows, revoke(9000, 9000)]);
+        expectNoForgery(out);
+        expect(out).toContain('unrecognised counters');
+      });
+
+      it('survives a matrix row whose value cannot be stringified', () => {
+        const matrix = {
+          ...consentRows()[0],
+          kind: 'include',
+          label: 'include',
+          enumerable: { toString: 5 },
+        };
+        const out = classify([...consentRows(), revoke(9000, 9000), matrix]);
+        expect(out).toMatch(/^rule A$/m);
+        expect(out).toContain('(unprintable)');
+      });
+    });
   });
 
   it('says why a non-enumerable cell is excused', () => {
@@ -784,6 +1124,97 @@ describe('classify.mjs CLI, a whole session through main()', () => {
       expect(out).toContain('never requested: none');
     });
   });
+
+  // Codex P2: an unreadable grant fails closed, even though unknown is a known value.
+  describe('C5 unknown grant readings', () => {
+    const unknownC5 = (
+      over: Record<string, unknown> = {},
+      counts: [number, number] = [3000, 3000]
+    ) =>
+      consentRows().map((r) =>
+        r.label === 'C5'
+          ? {
+              ...r,
+              screen: 'unknown',
+              microphone: 'unknown',
+              screenAfter: 'unknown',
+              microphoneAfter: 'unknown',
+              counters: counters(counts[0], counts[1]),
+              ...over,
+            }
+          : r
+      );
+
+    it('gives Rule C, not Rule A, when both C5 runs read unknown before and after', () => {
+      const out = classify([...unknownC5(), revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).not.toMatch(/^rule A$/m);
+      expect(out).toContain('C5 has a run that read');
+      expect(out).toContain('an unreadable grant cannot decide the rule');
+    });
+
+    it('does not give Rule B with an unknown predicate for a silent enumerable C5', () => {
+      const out = classify(
+        [...unknownC5({}, [3000, 0]), revoke(9000, 9000)],
+        ['--never-requested', '']
+      );
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).not.toMatch(/^rule B$/m);
+      expect(out).not.toContain('predicate screen=unknown');
+    });
+
+    it('gives Rule C for an excused silent C5 that reads unknown', () => {
+      const out = classify([
+        ...unknownC5({ enumerable: false, enumerationFailed: true }, [2000, 0]),
+        revoke(9000, 9000),
+      ]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).not.toMatch(/^rule A$/m);
+      expect(out).toContain('C5 has a run that read');
+    });
+
+    const c6Runs = (screen: string, microphone: string) =>
+      [3000, 3001].map((cb) => ({
+        ...consentRows()[0],
+        runId: `00000000-0000-4000-8000-${String(cb).padStart(12, '0')}`,
+        label: 'C6',
+        screen,
+        microphone,
+        screenAfter: screen,
+        microphoneAfter: microphone,
+        counters: counters(cb, 0),
+      }));
+
+    it('gives Rule C, not Rule B, for a silent extra-labelled cell that reads unknown', () => {
+      const out = classify([...consentRows(), ...c6Runs('unknown', 'unknown'), revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).not.toMatch(/^rule B$/m);
+      expect(out).not.toContain('predicate screen=unknown');
+      expect(out).toContain('reason a consent run is labelled C6, not one of C1 to C5');
+      expect(out).not.toContain('run id the runner does not print');
+    });
+
+    it('gives Rule C with the label reason for an extra-labelled cell with known readings', () => {
+      const out = classify([
+        ...consentRows(),
+        ...c6Runs('restricted', 'denied'),
+        revoke(9000, 9000),
+      ]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).not.toMatch(/^rule B$/m);
+      expect(out).toContain('a consent run is labelled C6, not one of C1 to C5');
+      expect(out).not.toContain('run id the runner does not print');
+    });
+
+    it('gives Rule C when one C5 run reads microphone unknown after only', () => {
+      const rows = consentRows();
+      rows[8] = { ...rows[8], microphoneAfter: 'unknown' };
+      const out = classify([...rows, revoke(9000, 9000)]);
+      expect(out).toMatch(/^rule C$/m);
+      expect(out).toContain('C5 has a run that read microphone unknown');
+    });
+  });
+
   // Argument and input errors all exit 2 with a FAIL line on stderr.
   describe('argument and input errors', () => {
     it('exits 2 for a flag with no value', () => {

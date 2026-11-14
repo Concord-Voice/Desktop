@@ -16,15 +16,15 @@ only. No audio is stored anywhere.
 
 ## 2. Status of each acceptance criterion
 
-| # | Criterion | Status | What closes it |
-|---|---|---|---|
-| 1 | JSF++ profile, `.mm` files in scope | Met. The self-test has no `.mm` case | One self-test case (section 6) |
-| 2 | ASAN, UBSAN and fuzz green in the nightly | Met as written. `tap_backend.mm` itself is never sanitized, and `macos_partial_handle_test.mm` runs only locally | Cite the nightly runs; record the gap in the ADR |
-| 3 | Below 14.4 `capability()` returns false with a reason | Met (scouted; lines re-checked when the ADR text is written) | Nothing |
-| 4 | Consent refused or revoked degrades to video-only with an explanation | **Open, contradicted by measurement** | Section 3 |
-| 5 | Real-machine app matrix | Partly: 2 of 6 rows recorded | Section 4 |
-| 6 | ADR-0043 floor and consent findings | Met for what exists | Addendum (section 7) |
-| 7 | Quality gate | No gate covers `desktop/native/**` (`sonar-project.properties:14`) | Lead decision 9 |
+| #   | Criterion                                                             | Status                                                                                                           | What closes it                                   |
+| --- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1   | JSF++ profile, `.mm` files in scope                                   | Met. The self-test has no `.mm` case                                                                             | One self-test case (section 6)                   |
+| 2   | ASAN, UBSAN and fuzz green in the nightly                             | Met as written. `tap_backend.mm` itself is never sanitized, and `macos_partial_handle_test.mm` runs only locally | Cite the nightly runs; record the gap in the ADR |
+| 3   | Below 14.4 `capability()` returns false with a reason                 | Met (scouted; lines re-checked when the ADR text is written)                                                     | Nothing                                          |
+| 4   | Consent refused or revoked degrades to video-only with an explanation | **Open, contradicted by measurement**                                                                            | Section 3                                        |
+| 5   | Real-machine app matrix                                               | Partly: 2 of 6 rows recorded                                                                                     | Section 4                                        |
+| 6   | ADR-0043 floor and consent findings                                   | Met for what exists                                                                                              | Addendum (section 7)                             |
+| 7   | Quality gate                                                          | No gate covers `desktop/native/**` (`sonar-project.properties:14`)                                               | Lead decision 9                                  |
 
 ### Found during the issue 73 measurement review (verified)
 
@@ -66,24 +66,24 @@ Which grant states are reachable inside Electron, and which are silent, has not 
 
 ### Options
 
-| Option | What it is | Assessment |
-|---|---|---|
-| A1 | Amend the criterion to the measured behaviour. No product code | Right only if no reachable state is silent |
-| A2 | A synchronous grant read in main at share start that refuses with a reason | Right only for states measured silent. A wrong predicate removes app sound for every macOS user |
-| A3 | A content-based silence detector | Rejected. ADR-0043 removed it (lines 1753 to 1763) and a quiet app trips it |
+| Option | What it is                                                                 | Assessment                                                                                      |
+| ------ | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| A1     | Amend the criterion to the measured behaviour. No product code             | Right only if no reachable state is silent                                                      |
+| A2     | A synchronous grant read in main at share start that refuses with a reason | Right only for states measured silent. A wrong predicate removes app sound for every macOS user |
+| A3     | A content-based silence detector                                           | Rejected. ADR-0043 removed it (lines 1753 to 1763) and a quiet app trips it                     |
 
 ### Decision: measure first, then apply a rule that is fixed before measuring
 
 Each consent cell (section 5) runs twice while a constant tone plays in the target. Every run
 gets exactly one class:
 
-| Class | Definition |
-|---|---|
-| `fault` | The start or the run reports a fault stage. A refusal with a reason is an acceptable outcome |
-| `carries` | `callbackTotal` above 0, and `signalTotal / callbackTotal` at least half the ratio of the both-granted control |
-| `silent` | `callbackTotal` above 0 and `signalTotal` equal to 0 |
-| `dead` | `callbackTotal` equal to 0 and no fault. The renderer sees a live silent track, so this counts as silent |
-| `other` | Anything else: a ratio above 0 but under half the control, the OS ending the process, no liveness block with no fault stage, a teardown that latched `poisoned` or reported a destroy failure (added in PR 1 review), two runs that disagree |
+| Class     | Definition                                                                                                                                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fault`   | The start or the run reports a fault stage. A refusal with a reason is an acceptable outcome                                                                                                                                                 |
+| `carries` | `callbackTotal` above 0, and `signalTotal / callbackTotal` at least half the ratio of the both-granted control                                                                                                                               |
+| `silent`  | `callbackTotal` above 0 and `signalTotal` equal to 0                                                                                                                                                                                         |
+| `dead`    | `callbackTotal` equal to 0 and no fault. The renderer sees a live silent track, so this counts as silent                                                                                                                                     |
+| `other`   | Anything else: a ratio above 0 but under half the control, the OS ending the process, no liveness block with no fault stage, a teardown that latched `poisoned` or reported a destroy failure (added in PR 1 review), two runs that disagree |
 
 - **Rule A.** No enumerable cell is `silent`, `dead` or `other`. Ship A1. No product code.
 - **Rule B.** Every enumerable `silent` or `dead` cell has a pair of grant readings that no
@@ -101,12 +101,27 @@ the evidence cannot be trusted:
 - A cell's grant readings do not match its pair in the section 5 table.
 - R1 ran under 60 s, did not start granted/granted, or shows no grant that is no longer granted
   after the run (`screenAfter`, `microphoneAfter`).
-- The consent and revoke runs do not share one window id, or a run has none (added in PR 1
-  review).
+- The consent and revoke runs do not share one window id, or a run has none, or has one that
+  is not a whole number from 1 to 4294967295, the only window ids the runner prints (added in
+  PR 1 review).
 - A consent run's grants read after it (`screenAfter`, `microphoneAfter`) differ from those
   read before it, or a reading before or after it is missing or is not one of the values
-  `getMediaAccessStatus` returns; a missing or unknown one fails closed, and a reason line
-  never prints an unknown value (added in PR 1 review).
+  `getMediaAccessStatus` returns; a missing or unrecognised one fails closed, and a reason
+  line never prints an unrecognised value (added in PR 1 review).
+- A consent run is labelled anything but C1 to C5. Every consent run joins the cell its label
+  names and the rule counts every cell, so a silent `C6` could add a pair to Rule B or turn
+  Rule A into Rule B. Like every output line, the reason names the label only when the runner
+  would accept it as a `--label`: 1 to 64 letters, digits, `.`, `_` or `-` (added in PR 1
+  review).
+- A consent run reads `unknown` for either grant, before or after it. `unknown` is one of the
+  values `getMediaAccessStatus` returns, so a reason line prints it, but it fails closed like
+  an unrecognised value: an unreadable grant cannot decide the rule. A cell's pair comes from
+  its first run, so C1 to C4 fail on an `unknown` read before their first run through their
+  pairs; one read before a later run, or after any run, fails through this check (and the
+  runs-disagree or before-and-after check). A run labelled outside C1 to C5 fails on its label.
+  C5 is held only to not reading the control's pair, and two C5 runs that read different
+  grants already make it `other`, so this is the only check that stops a C5 whose runs all
+  read `unknown` for a grant, before and after (added in PR 1 review).
 - A run's liveness block reads `poisoned` not `false`, or `destroyFailures` above 0: its
   counters are unreadable. Only a printed `false` reads as not poisoned. A run with a fault
   stage is `fault` whatever its counters say. With no fault stage, a consent run is `other`,
@@ -114,8 +129,38 @@ the evidence cannot be trusted:
   Either gives Rule C. A matrix run is a `finding` instead (an exclude run with any signal is
   a `leak` first); matrix rows are printed for the lead and do not enter the rule (added in
   PR 1 review).
-- The rows file holds more than one OS build or Electron version.
-- A row has no `runId`. Two rows with one `runId` are one run pasted twice and count once.
+- The consent and revoke runs span more than one OS build or Electron version, or one of them
+  has no OS build (the runner prints null when it cannot read one, so rows that all read null
+  are not shown to be one build) or an Electron version of another form. These checks, like
+  the window id checks above, apply to consent and revoke rows only: matrix rows do not feed
+  the rule. An honest session whose rows all read a null OS build therefore gives Rule C and
+  stops for the lead; this is deliberate, since its evidence cannot be tied to one build
+  (added in PR 1 review).
+- A row has no `runId`, or one that is not a version 4 UUID as `crypto.randomUUID()` prints
+  it. Two identical rows with one `runId` are one run pasted twice and count once. A row that
+  reuses an earlier row's `runId` with any value changed did not come from the runner, which
+  mints an id per run; it is left out of the cells, as a pasted copy is, and also gives Rule C,
+  and its reason names only the two line numbers (added in PR 1 review).
+- A consent or revoke run holds another value the runner never prints (added in PR 1 review):
+  a length (`seconds`) that is not a whole number from 1 to 600, which would skew the
+  control's callback rate (C1 rows reading `'20'` or `1e9` turned a stopped revoke run into
+  no-effect); counters that are neither null nor the five counts as whole numbers from 0 to
+  4294967295 (the addon sets each as a u32) with `signalTotal` no more than `callbackTotal`
+  (the IOProc notes each callback before submitting it, and a submit adds at most one to
+  `signalTotal`) and the four flags as booleans; a fault stage that is neither null nor one of
+  the child's stages or the runner's `unknown`; an `enumerable` or `enumerationFailed` that is
+  not a boolean, or one that is enumerable although the enumeration failed; for a revoke run,
+  a label the runner would not accept as a `--label` (a missing one included), or one grant
+  read off after the run while the other reads a value that is missing or not one
+  `getMediaAccessStatus` returns.
+- No output line prints a row value as given, so no row can forge a `rule` or `predicate`
+  line (a label holding a newline could). A label, cell id, grant reading or fault stage is
+  printed only when the runner would accept it as a `--label` (1 to 64 letters, digits, `.`,
+  `_` or `-`), a flag only when it is a boolean, and a window id, count or R1 length only when
+  it is a whole number in range; anything else prints as `(unprintable)`, `unrecognised
+  counters` or `for an unrecorded time`. A row's
+  line starts with `row` and an unenumerable cell's line with `cell`, so a valid label such as
+  `rule` or `predicate` never starts a line (added in PR 1 review).
 
 A cell where the window is not enumerable is refused today by an existing fence with the
 reason `target-unresolved`. It is recorded, and whether that message is an adequate
@@ -152,14 +197,14 @@ Equivalent to the six rows of the Windows run sheet (ADR-0043 lines 724 to 725).
 an include run (the target plays; expect `carries`) and an exclude run (the target is silent
 while `afplay` plays a tone; expect 0 signal callbacks).
 
-| Row | Rendering shape | Recorded today | Who runs it |
-|---|---|---|---|
-| Chromium browser tab | Child audio service | 1163 of 1671 on macOS 26.6.2 | Agent. Re-run as the anchor between OS versions |
-| Multi-process Electron app | Same shape as this client | A third-party comms app, 856 of 2315 | Agent, with a stock Electron window |
-| Music player | Vendor mixer | None | Human presses play |
-| Media player | Direct Core Audio path | None | Agent if playback starts unattended, else human |
-| Windowed 3D game | Low-latency engine path | None | Human |
-| Java app | JVM audio stack | None | Human |
+| Row                        | Rendering shape           | Recorded today                       | Who runs it                                     |
+| -------------------------- | ------------------------- | ------------------------------------ | ----------------------------------------------- |
+| Chromium browser tab       | Child audio service       | 1163 of 1671 on macOS 26.6.2         | Agent. Re-run as the anchor between OS versions |
+| Multi-process Electron app | Same shape as this client | A third-party comms app, 856 of 2315 | Agent, with a stock Electron window             |
+| Music player               | Vendor mixer              | None                                 | Human presses play                              |
+| Media player               | Direct Core Audio path    | None                                 | Agent if playback starts unattended, else human |
+| Windowed 3D game           | Low-latency engine path   | None                                 | Human                                           |
+| Java app                   | JVM audio stack           | None                                 | Human                                           |
 
 Carried forward and not re-run: the refusal of a launchd-parented browser (`target-unresolved`,
 recorded). The host-subtree exclusion check (0 of 2984 on 26.6.2) protects against echoing the
@@ -198,17 +243,17 @@ and never reads audio: it keeps the port but attaches no listener.
 The check that this identity is the one being toggled: the runner's reading must change after
 each toggle, otherwise stop.
 
-| Cell | Screen Recording | Microphone | Needed to close |
-|---|---|---|---|
-| C1 | granted | granted | Yes: the control |
-| C2 | granted | denied | Yes |
-| C3 | denied | granted | Yes |
-| C4 | denied | denied | Yes: replaces the unrecorded claim at ADR line 593 |
-| C5 | after a reset | after a reset | Yes: record the prompts seen |
-| R1 | 60 s run; the human turns each gating grant off at about 20 s | | Recommended (lead decision 4) |
-| P1 | Locally packaged build, grants held, in a call | | Recommended under every rule (lead decision 2) |
-| P2 | Packaged build, the refusal message visible in one light and one dark theme | | Rule B only |
-| D1 | Runner launched from a terminal, no toggling | | Rule B only |
+| Cell | Screen Recording                                                            | Microphone    | Needed to close                                    |
+| ---- | --------------------------------------------------------------------------- | ------------- | -------------------------------------------------- |
+| C1   | granted                                                                     | granted       | Yes: the control                                   |
+| C2   | granted                                                                     | denied        | Yes                                                |
+| C3   | denied                                                                      | granted       | Yes                                                |
+| C4   | denied                                                                      | denied        | Yes: replaces the unrecorded claim at ADR line 593 |
+| C5   | after a reset                                                               | after a reset | Yes: record the prompts seen                       |
+| R1   | 60 s run; the human turns each gating grant off at about 20 s               |               | Recommended (lead decision 4)                      |
+| P1   | Locally packaged build, grants held, in a call                              |               | Recommended under every rule (lead decision 2)     |
+| P2   | Packaged build, the refusal message visible in one light and one dark theme |               | Rule B only                                        |
+| D1   | Runner launched from a terminal, no toggling                                |               | Rule B only                                        |
 
 P1 cannot produce counters: a packaged build discards the child's liveness line
 (`desktop/src/main/audiocapChild.ts`, near line 979). Its evidence is a person hearing the app
@@ -220,6 +265,7 @@ hardware; a Developer-ID-signed build; the audio-only grant as a third factor (n
 from System Settings, since Electron cannot read it).
 
 **Procedure.**
+
 1. `cd desktop && npm run build:main && npm run build:native`. No `npm install` until the
    session ends: it re-signs the bundle and resets its grants.
 2. The human grants Screen Recording and Microphone to the Electron bundle.
@@ -239,18 +285,18 @@ shared by every Electron checkout on the machine, so a grant reset affects those
 
 ## 6. Test strategy
 
-| What | Type | Where | Who |
-|---|---|---|---|
-| `.mm` self-test case, named with its `AV` rule number so it cannot pass on the wrong diagnosis; the existing `.cc` case gets the same name fix | Shell self-test | CI, the JSF++ profile job | Test agent |
-| Removing `.mm` from the checker's walk turns the named case red | Mutation, local | Developer machine | Test agent |
-| The runner prints one row with no PID and no title | Local run | Developer machine | Agent |
-| Consent cells, R1 | Hardware measurement, recorded once | Developer machine | Agent runs, human toggles |
-| Matrix rows | Hardware measurement, recorded once | Developer machine | Agent and human |
-| Rule B: the predicate for every status pair and for non-darwin | Vitest unit, injected reader | CI | Test agent |
-| Rule B: a refusal does not fork, returns the new reason, ignores a `null` handle; a later start with grants held forks | Vitest unit | CI | Test agent |
-| Rule B: the copy map is exhaustive, with no remedy suffix | Vitest unit | CI | Test agent |
-| Rule B: deleting the check turns a test red | Mutation, local | Developer machine | Test agent |
-| P1, P2 | Manual, in a call | Packaged build | Human |
+| What                                                                                                                                           | Type                                | Where                     | Who                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------- | ------------------------- |
+| `.mm` self-test case, named with its `AV` rule number so it cannot pass on the wrong diagnosis; the existing `.cc` case gets the same name fix | Shell self-test                     | CI, the JSF++ profile job | Test agent                |
+| Removing `.mm` from the checker's walk turns the named case red                                                                                | Mutation, local                     | Developer machine         | Test agent                |
+| The runner prints one row with no PID and no title                                                                                             | Local run                           | Developer machine         | Agent                     |
+| Consent cells, R1                                                                                                                              | Hardware measurement, recorded once | Developer machine         | Agent runs, human toggles |
+| Matrix rows                                                                                                                                    | Hardware measurement, recorded once | Developer machine         | Agent and human           |
+| Rule B: the predicate for every status pair and for non-darwin                                                                                 | Vitest unit, injected reader        | CI                        | Test agent                |
+| Rule B: a refusal does not fork, returns the new reason, ignores a `null` handle; a later start with grants held forks                         | Vitest unit                         | CI                        | Test agent                |
+| Rule B: the copy map is exhaustive, with no remedy suffix                                                                                      | Vitest unit                         | CI                        | Test agent                |
+| Rule B: deleting the check turns a test red                                                                                                    | Mutation, local                     | Developer machine         | Test agent                |
+| P1, P2                                                                                                                                         | Manual, in a call                   | Packaged build            | Human                     |
 
 Nothing measured here becomes a standing CI test: it needs real grants and real applications.
 
@@ -258,6 +304,7 @@ Nothing measured here becomes a standing CI test: it needs real grants and real 
 
 **PR 1, one native product change (decision 11).** It references the issue and does not close
 it; its branch name must not start with the issue number.
+
 - New `desktop/scripts/audiocap-matrix-probe/main.js`, `package.json`, `classify.mjs` and
   `classify.test.ts`.
 - `desktop/native/concord-audiocap/rt/platform/macos/tap_backend.mm`: the clock-domain fix in
@@ -269,6 +316,7 @@ it; its branch name must not start with the issue number.
   producer and a start with no target returns `NoTarget`; elsewhere it returns `NoBackend`.
 
 **PR 2, after the measurement and the lead's decisions.**
+
 - `docs/adr/0043-per-process-screen-share-audio-capture.md`: a new addendum with the macOS
   verification table (rows, OS build, counters), the consent table (readings, `enumerable`,
   class), the rule and the branch that fired, the R1 result, the residual list, and the CI gap
@@ -283,6 +331,7 @@ the file header, as for the existing probes).
 ## 8. Decisions that belong to the project lead
 
 Before the measurement:
+
 1. Approve the outcome classes and Rules A, B and C as written.
 2. P1 is required to close under every rule (recommended), or is a residual.
 3. Re-run the host-subtree exclusion check on this OS in the same in-call session as P1
@@ -290,34 +339,28 @@ Before the measurement:
 4. Run R1 (recommended), or record the Screen Recording and Microphone revoke as a residual.
 5. Whether "not run, with a reason" is acceptable for the game and Java rows.
 
-After the measurement:
-6. The wording of criterion 4. Proposed under Rule B: "A per-process share started in a grant
-   state measured to deliver silence is refused to video-only with an explanation. Revoking a
-   grant mid-share has the measured effect recorded in ADR-0043. Unmeasured states are listed
-   there as residuals." Under Rule A the first sentence becomes "No reachable grant state was
-   measured to deliver a silent live track."
-7. Whether the existing `target-unresolved` message ("share a whole screen to include sound")
-   is an adequate explanation when the cause is a denied grant. The whole-screen path may need
-   the same grant (inferred, not measured).
-8. Rule B: the copy, and the edit to `desktop/src/main/ipcContract.ts` (a protected path).
-9. Criterion 7: native code is outside the configured quality gate. Proposed: the pull request
-   records coverage for the merged TypeScript that is in scope, states the native gap, and the
-   criterion is narrowed in those words.
-10. Follow-up issues: the partial-handle test in CI (needs a workflow push), and the
-    whole-screen loopback path under the same grant states. The stale lines in the issue body.
-11. The tap's clock-domain mismatch (section 2): fix in PR 1 (recommended) or as its own issue.
-    Taken: fix in PR 1.
+After the measurement: 6. The wording of criterion 4. Proposed under Rule B: "A per-process share started in a grant
+state measured to deliver silence is refused to video-only with an explanation. Revoking a
+grant mid-share has the measured effect recorded in ADR-0043. Unmeasured states are listed
+there as residuals." Under Rule A the first sentence becomes "No reachable grant state was
+measured to deliver a silent live track." 7. Whether the existing `target-unresolved` message ("share a whole screen to include sound")
+is an adequate explanation when the cause is a denied grant. The whole-screen path may need
+the same grant (inferred, not measured). 8. Rule B: the copy, and the edit to `desktop/src/main/ipcContract.ts` (a protected path). 9. Criterion 7: native code is outside the configured quality gate. Proposed: the pull request
+records coverage for the merged TypeScript that is in scope, states the native gap, and the
+criterion is narrowed in those words. 10. Follow-up issues: the partial-handle test in CI (needs a workflow push), and the
+whole-screen loopback path under the same grant states. The stale lines in the issue body. 11. The tap's clock-domain mismatch (section 2): fix in PR 1 (recommended) or as its own issue.
+Taken: fix in PR 1.
 
 ## 9. Risks
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| The grant check refuses wrongly on packaged builds | Medium until measured | Predicate limited to measured cells; P1 and P2 |
-| `open` does not give the runner its own identity | Medium | The reading must change after each toggle, else stop |
-| New rows are on a newer OS than the recorded ones | Certain | The anchor row is re-run; the OS build is on every row |
-| Rule C fires and the issue cannot close | Low to medium | Stated up front as the lead's decision |
-| A reading is stale until the app restarts | Medium | The copy says to restart; D1 and P2 check it |
-| Human-only rows are never run | Medium | Lead decision 5 |
+| Risk                                               | Likelihood            | Mitigation                                             |
+| -------------------------------------------------- | --------------------- | ------------------------------------------------------ |
+| The grant check refuses wrongly on packaged builds | Medium until measured | Predicate limited to measured cells; P1 and P2         |
+| `open` does not give the runner its own identity   | Medium                | The reading must change after each toggle, else stop   |
+| New rows are on a newer OS than the recorded ones  | Certain               | The anchor row is re-run; the OS build is on every row |
+| Rule C fires and the issue cannot close            | Low to medium         | Stated up front as the lead's decision                 |
+| A reading is stale until the app restarts          | Medium                | The copy says to restart; D1 and P2 check it           |
+| Human-only rows are never run                      | Medium                | Lead decision 5                                        |
 
 ## 10. Not in this work
 
