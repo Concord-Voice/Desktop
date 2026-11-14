@@ -89,11 +89,11 @@ const SettingsOverlayHost: React.FC = () => {
 
   useEffect(() => {
     if (accountErasureConfirmation === null) return undefined;
-    const timeout = window.setTimeout(
+    const timeout = globalThis.setTimeout(
       clearAccountErasureConfirmation,
       Math.max(0, accountErasureConfirmation.expiresAt - Date.now())
     );
-    return () => window.clearTimeout(timeout);
+    return () => globalThis.clearTimeout(timeout);
   }, [accountErasureConfirmation, clearAccountErasureConfirmation]);
 
   // Drive the native <dialog> open state from the store
