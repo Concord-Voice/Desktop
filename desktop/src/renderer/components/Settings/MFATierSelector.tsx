@@ -1,7 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import ToggleSwitch from './ToggleSwitch';
 import StepUpCredentials, { stepUpActivation } from '../Auth/StepUpCredentials';
-import { isPlainEnter } from '../Auth/MFAFactorPicker';
 import type { StepUpPurpose } from '../Auth/stepUpPurpose';
 import RecoveryApprovalModal from '../Auth/RecoveryApprovalModal';
 import RecoveryCircle from './RecoveryCircle';
@@ -25,7 +24,6 @@ import {
 import { apiFetch } from '../../services/system/apiClient';
 import {
   apiRequestContextIsCurrent,
-  captureApiRequestContext,
   type ApiRequestContext,
 } from '../../services/system/requestContext';
 import {
@@ -35,7 +33,6 @@ import {
 } from '../../hooks/auth/useStepUpFactor';
 import {
   isStepUpLocked,
-  passwordOnlyBanner,
   stepUpBanner,
   stepUpPasswordError,
   toStepUpSubmitOutcome,
@@ -244,14 +241,13 @@ function renderActionBody(
 /**
  * The step-up purpose of the request an action's code is sent with, which is
  * the one route a WebAuthn inline token minted in its prompt can be spent on.
- * Revoking a key sends the password alone, so it has none.
  */
 function actionPurpose(type: ActionType): StepUpPurpose | null {
   switch (type) {
     case 'reset-totp':
       return 'mfa_settings.totp_disable';
     case 'revoke-webauthn':
-      return null;
+      return 'mfa_settings.webauthn_delete';
     case 'disable-emailsms':
       return 'mfa_settings.email_sms_disable';
     case 'set-backup-email':
@@ -363,51 +359,6 @@ function primaryLabel(modal: ActionModalState, phase: StepUpPhase, busy: boolean
   return busy ? 'Processing...' : getActionConfirmLabel(modal);
 }
 
-interface ActionPasswordFieldProps {
-  value: string;
-  onChange: (value: string) => void;
-  error: string | undefined;
-  disabled: boolean;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  /** A plain Enter presses the host's primary, as in `StepUpCredentials`. */
-  onEnter: () => void;
-}
-
-/**
- * The password field of an action that verifies the password alone, where the
- * factor hook has no leg to show (revoke-webauthn, D10).
- */
-const ActionPasswordField: React.FC<ActionPasswordFieldProps> = ({
-  value,
-  onChange,
-  error,
-  disabled,
-  inputRef,
-  onEnter,
-}) => (
-  <div className="mfa-verify-field">
-    <label htmlFor="mfa-action-password">Password</label>
-    <input
-      id="mfa-action-password"
-      ref={inputRef}
-      type="password"
-      autoComplete="current-password"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (!isPlainEnter(e)) return;
-        e.preventDefault();
-        onEnter();
-      }}
-      placeholder="Enter your password"
-      disabled={disabled}
-      aria-invalid={error !== undefined}
-      aria-describedby={error ? 'mfa-action-password-error' : undefined}
-    />
-    {error && <FieldError id="mfa-action-password-error">{error}</FieldError>}
-  </div>
-);
-
 interface ActionModalProps {
   modal: ActionModalState;
   backupEmail: string | undefined;
@@ -438,39 +389,19 @@ const ActionModal: React.FC<ActionModalProps> = ({
   // they cannot disagree. The lock clears only when the modal is reopened
   // (handoff §1.1 / §5).
   const [result, setResult] = useState<MfaStepUpResult | null>(null);
-  const [revoking, setRevoking] = useState(false);
-  // The account and server this modal opened under. The password typed here
-  // belongs to them, so a switch before the click sends nothing anywhere:
-  // revoke-webauthn runs no factor hook, whose own open-time capture covers
-  // the other actions (picker PR 3 review).
-  const [openedContext] = useState(captureApiRequestContext);
-  // The password-only revoke's single-flight latch. `revoking` is state, so two
-  // activations in one tick (a double click, Enter then a click) both read it
-  // false; the ref is set before the first await.
-  const revokeInFlightRef = useRef(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
 
-  const passwordOnly = modal.type === 'revoke-webauthn';
   const factor = useStepUpFactor({
-    enabled: !passwordOnly,
+    enabled: true,
     purpose: actionPurpose(modal.type),
     passwordLeg: 'always', // pragma: allowlist secret
     readFailure: 'passwordOnly',
     allowBackup: true,
     floorMethods: modal.type === 'reset-totp' ? RESET_TOTP_FLOOR : undefined,
   });
-  const submitting = revoking || factor.phase === 'submitting';
+  const submitting = factor.phase === 'submitting';
   const locked = isStepUpLocked(result);
-  const passwordError = passwordOnly ? stepUpPasswordError(result) : undefined;
-
-  // Focus the password field once a password refusal has rendered AND the
-  // field is enabled again. Focusing inside the submit handler ran while the
-  // input was still `disabled` for loading, so the call was a no-op (F4). The
-  // factor hook's credentials place their own focus.
-  useEffect(() => {
-    if (passwordError !== undefined && !revoking) passwordRef.current?.focus();
-  }, [passwordError, revoking, result]);
 
   /** Applies an answer, unless the account or server changed since `context`:
    * an answer for the old one is neither shown nor acted on. Only a refused
@@ -488,35 +419,12 @@ const ActionModal: React.FC<ActionModalProps> = ({
     return toStepUpSubmitOutcome(answer);
   };
 
-  const revoke = async () => {
-    if (revokeInFlightRef.current) return;
-    if (password === '') {
-      setResult({ kind: 'passwordRequired' });
-      return;
-    }
-    if (!apiRequestContextIsCurrent(openedContext)) {
-      setPassword('');
-      setResult({ kind: 'sessionExpired' });
-      return;
-    }
-    revokeInFlightRef.current = true;
-    const context = openedContext;
-    setRevoking(true);
-    try {
-      settle(await executeAction(modal, handlers, password, undefined, context), context);
-    } finally {
-      revokeInFlightRef.current = false;
-      setRevoking(false);
-    }
-  };
-
   const { ariaDisabled, activate } = stepUpActivation(factor, password, submit);
   const onPrimary = () => {
     if (locked || submitting) return;
-    if (passwordOnly) void revoke();
-    else activate();
+    activate();
   };
-  const primaryDisabled = locked || (passwordOnly ? submitting || password === '' : ariaDisabled);
+  const primaryDisabled = locked || ariaDisabled;
 
   return (
     <Modal
@@ -530,26 +438,15 @@ const ActionModal: React.FC<ActionModalProps> = ({
       <div className="mfa-action-body">
         {renderActionBody(modal, backupEmail)}
 
-        {passwordOnly ? (
-          <ActionPasswordField
-            value={password}
-            onChange={setPassword}
-            error={passwordError}
-            disabled={revoking}
-            inputRef={passwordRef}
-            onEnter={() => primaryRef.current?.click()}
-          />
-        ) : (
-          <StepUpCredentials
-            factor={factor}
-            password={password}
-            onPasswordChange={setPassword}
-            primaryRef={primaryRef}
-            passwordRef={passwordRef}
-          />
-        )}
+        <StepUpCredentials
+          factor={factor}
+          password={password}
+          onPasswordChange={setPassword}
+          primaryRef={primaryRef}
+          passwordRef={passwordRef}
+        />
 
-        <ErrorBanner error={(passwordOnly ? passwordOnlyBanner : stepUpBanner)(result) ?? ''} />
+        <ErrorBanner error={stepUpBanner(result) ?? ''} />
 
         <div className="mfa-setup-actions">
           <button
