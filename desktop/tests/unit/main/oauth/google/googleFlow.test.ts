@@ -73,6 +73,22 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cancelActiveGoogleFlow());
 
 describe('runGoogleSignIn', () => {
+  it('uses a fresh client binding on each sign-in attempt', async () => {
+    const bindings: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const lo = makeLoopback();
+      lo.resolveCb({ code: 'CODE', state: 'STATE' });
+      const deps = makeDeps(lo);
+      expect((await runGoogleSignIn(deps)).kind).toBe('tokens');
+      bindings.push(
+        new Headers(vi.mocked(deps.controlPlaneFetch).mock.calls[0][1]?.headers).get(
+          'X-Concord-SSO-Client-Binding'
+        )!
+      );
+    }
+    expect(bindings[0]).not.toBe(bindings[1]);
+  });
+
   it('installs the initiated state before opening the browser', async () => {
     const lo = makeLoopback();
     lo.resolveCb({ code: 'CODE', state: 'STATE' });
@@ -237,6 +253,12 @@ describe('runGoogleSignIn', () => {
       refreshToken: 'RT',
       sessionId: 'SID',
     });
+    const calls = vi.mocked(deps.controlPlaneFetch).mock.calls;
+    const binding = new Headers(calls[0][1]?.headers).get('X-Concord-SSO-Client-Binding');
+    expect(binding).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(new Headers(calls[1][1]?.headers).get('X-Concord-SSO-Client-Binding')).toBe(binding);
+    expect(String(calls[0][0])).not.toContain(binding!);
+    expect(String(calls[1][1]?.body)).not.toContain(binding!);
     expect(deps.googleTokenCall).toHaveBeenCalledWith(
       expect.objectContaining({ clientSecret: 'sek', clientId: 'gid' })
     );
