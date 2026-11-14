@@ -102,7 +102,7 @@ Any action that touches secrets, fetches code, or executes arbitrary scripts:
 In Phase 3.5 of `weekly-deps` (confidence assessment), after parsing the bumped package name(s) from the PR title:
 
 1. Compute the **effective list** = this universal default ∪ the repo's `.weekly_deps.security_sensitive_extra` (read via `rc_get '.weekly_deps.security_sensitive_extra | join(" ")' ''`).
-2. For grouped PRs (`chore: bump the X group ...`), fetch the dependabot summary body via `gh pr view $PR -R "$OWNER_REPO" --json body --jq '.body'` and extract individual package names from the bullet list.
+2. For grouped PRs (`chore: bump the X group ...`), fetch the dependabot summary body via `gh pr view $PR --json body --jq '.body'` and extract individual package names from the bullet list.
 3. For each bumped package, glob-match against the effective list (e.g., `ajv*` matches `ajv`, `ajv-formats`, `ajv-keywords`).
 4. If ANY bumped package matches → set confidence to LOW regardless of other signals.
 
