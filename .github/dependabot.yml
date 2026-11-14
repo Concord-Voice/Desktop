@@ -71,6 +71,21 @@ updates:
     labels:
       - "area: deps"
       - "area: dev-tooling"
+    groups:
+      vitest-pair:
+        dependency-type: "development"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      vitest-pair-security:
+        # Required beside the group above: see the `vitest-pair-security`
+        # comment in the Desktop entry below. A one-sided advisory still splits
+        # the pair; the Vitest Pair workflow fails that PR and names the fix.
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
 
   # ─── Desktop Client (Electron + React) ─────────────────────────────
   - package-ecosystem: "npm"
@@ -177,6 +192,10 @@ updates:
         # end to the exact-peer coupling — tracked in #3293, which carries the three
         # candidate mechanisms. Keep this group regardless: it costs nothing and it
         # does close the co-vulnerable case.
+        #
+        # The Vitest Pair workflow (`.github/workflows/vitest-pair.yml`) now fails
+        # such a one-sided PR with the half that is behind and the fix. It does
+        # not push the fix: CI never writes to a Dependabot branch.
         #
         # Deliberately scoped to the vitest pair and NOT mirrored for every
         # other group: `@vitest/coverage-istanbul` declares an EXACT peer pin on
