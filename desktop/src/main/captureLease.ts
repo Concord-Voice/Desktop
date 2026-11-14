@@ -432,7 +432,18 @@ export function release(
   const entry = holder;
   if (entry === null || !sameRef(sender.ref, entry.ref)) return false;
   if (!ownedBy(event, entry.binding, sender) || !entry.claims.delete(input.intent)) return false;
-  if (entry.claims.size > 0) return true;
+  if (entry.claims.size > 0) {
+    // A call ended on a connection that went to the background while a device test also ran:
+    // `onForeground` kept both claims then, but a hidden test alone does not survive (R12).
+    if (
+      entry.claims.size === 1 &&
+      entry.claims.has('device-test') &&
+      !isForeground(d, entry.ref)
+    ) {
+      beginHandoff(d, entry, null, 'backgrounded', null);
+    }
+    return true;
+  }
   holder = null;
   effect(() => d.setTrayOwner(null));
   // A share must not outlive the lease that admitted it: the renderer ends its own share

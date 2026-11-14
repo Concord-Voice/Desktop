@@ -719,6 +719,36 @@ describe('navigation hold (Codex Security: a cancelled navigation keeps the old 
   });
 });
 
+describe('releasing the call from a background connection (Codex P2)', () => {
+  it('leaves only a device-test claim on a hidden holder: it is revoked as backgrounded', async () => {
+    const a = connect(ORIGIN_A);
+    const b = connect(ORIGIN_B);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    front(b); // both claims survive the switch (a call is running)
+    clearSpies();
+    expect(isHolder(ref(a))).toBe(true);
+    expect(rel(a, VOICE)).toBe(true);
+    expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([{ reason: 'backgrounded' }]);
+    expect(holderRef()).toBeNull();
+    // The test's own release is the ack and frees the lease.
+    expect(rel(a, TEST)).toBe(true);
+    expect(isFree()).toBe(true);
+  });
+
+  it('a foreground holder keeps its remaining device-test claim', async () => {
+    const a = connect(ORIGIN_A);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    await expect(acq(a, TEST)).resolves.toEqual(GRANTED);
+    clearSpies();
+    expect(rel(a, VOICE)).toBe(true);
+    expect(pushes(a, CAPTURE_LEASE_REVOKED_PUSH)).toEqual([]);
+    expect(isHolder(ref(a))).toBe(true);
+  });
+});
+
 describe('navigation hold: a cancelled navigation restores the lease (Gitar)', () => {
   it('a cancelled navigation gives the lease back to the same document without a crash', async () => {
     const { a, b } = await heldByAWithBInFront();
