@@ -25,7 +25,7 @@
       "infrastructure/",
       "scripts/security/",
       "CODEOWNERS$",
-      "(^|/)\\.claude/(hooks/|settings\\.json|repo-config\\.json|\\.agentic-dev-tooling\\.lock$)",
+      "(^|/)\\.claude/(hooks/|settings\\.json|repo-config\\.json|\\.agentic-dev-tooling\\.lock$|state/hook-bypass/)",
       "scripts/repo-config\\.sh$"
     ]
   }
