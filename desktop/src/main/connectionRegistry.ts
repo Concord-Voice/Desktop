@@ -425,6 +425,7 @@ export function onForegroundChanged(listener: () => void): () => void {
 }
 
 function announceForeground(): void {
+  // Copied on purpose: a listener may subscribe or unsubscribe while this runs.
   for (const listener of [...foregroundListeners]) {
     try {
       listener();

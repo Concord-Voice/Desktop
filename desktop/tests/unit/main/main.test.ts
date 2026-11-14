@@ -7888,7 +7888,7 @@ describe('#86 review rows: connection-scoped auth and window lifecycle in main',
         status: 'opened-in-connection',
         serviceId: serviceIdForApiBase(origin),
       });
-      expect(refreshCalls.length).toBe(before + 1);
+      expect(refreshCalls).toHaveLength(before + 1);
       const refreshB = refreshCalls[before][0] as RefreshCb;
 
       mockWebContents.send.mockClear();

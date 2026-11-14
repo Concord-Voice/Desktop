@@ -187,7 +187,7 @@ function bucketFor(connectionId: ConnectionId): () => boolean {
 export function trayActionTarget(): WebContents | null {
   const shown = displayed;
   const fg = foreground();
-  if (shown === null || fg === null || fg.connectionId !== shown.connectionId) return null;
+  if (shown === null || fg?.connectionId !== shown.connectionId) return null;
   if (fg.state === 'disposed' || fg.webContents.isDestroyed()) return null;
   return fg.webContents;
 }
