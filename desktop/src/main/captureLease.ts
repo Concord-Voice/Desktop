@@ -517,10 +517,6 @@ function rekeyConnection(
   }
 }
 
-function holdsCapture(id: ConnectionId): boolean {
-  return holder?.ref.connectionId === id || handoff?.from.connectionId === id;
-}
-
 /**
  * The holder's document started navigating away. Its tracks may outlive a cancelled
  * navigation, so the lease is not freed yet: it stays reserved behind a handoff with no
@@ -635,7 +631,11 @@ function onAdvance(
         navigating.add(id);
         return;
       }
-      if (holdsCapture(id) && !navigating.has(id)) {
+      // A holder with nothing pending is held through the navigation whether or not this
+      // connection is still marked navigating: a hold ended by release (or a cancelled
+      // navigation) leaves the mark behind, and a stale mark must not hide the next start. The
+      // restore of a cancelled hold clears it.
+      if (holder?.ref.connectionId === id && handoff === null) {
         navigating.add(id);
         holdThroughNavigation(d);
         return;

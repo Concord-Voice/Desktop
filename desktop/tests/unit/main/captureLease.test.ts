@@ -745,6 +745,23 @@ describe('navigation events decide, not who holds now (sweep F1)', () => {
   });
 });
 
+describe('a stale navigation mark does not hide the next start (security review)', () => {
+  it('a hold ended by release, then a reacquire, is held again by the next start and restored if cancelled', async () => {
+    const a = connect(ORIGIN_A);
+    front(a);
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document'); // navigation 1 starts (never commits)
+    expect(rel(a)).toBe(true); // the hold ends by release; the mark remains
+    await expect(acq(a)).resolves.toEqual(GRANTED);
+    advanceGeneration(a.record.connectionId, 'document'); // navigation 2 starts
+    expect(holderRef()).toBeNull(); // held behind the hold, not left open
+    expect(isFree()).toBe(false);
+    vi.advanceTimersByTime(HANDOFF_ACK_TIMEOUT_MS); // cancelled: nothing loading
+    expect(isHolder(ref(a))).toBe(true);
+    expect(d.crashAndReload).not.toHaveBeenCalled();
+  });
+});
+
 describe('a revocation ack survives the holder starting a navigation (sweep F2)', () => {
   it('the document acks under its advanced generation: no crash, the grantee is admitted', async () => {
     const { a, pending } = await handoffFromAToB();
