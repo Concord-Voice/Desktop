@@ -14,12 +14,10 @@
 # A v2/v3 `packages` entry with no `resolved` at all fails too (unless it is
 # the root, a link, or bundled), since npm would resolve it from config.
 #
-# npm-shrinkwrap.json gets the same checks. In a tracked .npmrc, `registry`
-# and `@scope:registry` must name an approved https host, and
-# `replace-registry-host` may only be `npmjs` (the default) or `never`:
-# npm rewrites lockfile npmjs URLs to the configured registry, so a .npmrc
-# alone can move every fetch off the approved host. A tracked yarn.lock or
-# pnpm-lock.yaml fails as unsupported.
+# npm-shrinkwrap.json gets the same checks. A tracked .npmrc may not set any
+# registry: npm rewrites lockfile npmjs URLs to the configured registry, so a
+# .npmrc alone can move every fetch. A tracked yarn.lock or pnpm-lock.yaml
+# fails as unsupported.
 # In a go.mod or go.work, every `replace` directive fails: it points a module
 # at a source other than the module proxy's copy of it.
 #
@@ -47,12 +45,6 @@ approved="$(grep -vE '^[[:space:]]*(#|$)' "$CONFIG" | jq -Rnc '[inputs | gsub("\
 
 approved_list="$(jq -r 'join(", ")' <<<"$approved")"
 
-# https://<approved host>/… → prints nothing; anything else → prints why.
-url_problem() {
-  local u="$1" h
-  if [[ "$u" =~ ^https://([^/?#@]+)/ ]]; then h="${BASH_REMATCH[1]}"; else echo "not an https URL"; return; fi
-  jq -e --arg h "$h" 'index($h) != null' <<<"$approved" >/dev/null || echo "$h"
-}
 
 status=0
 for f in "$@"; do
@@ -96,41 +88,17 @@ for f in "$@"; do
       done <<<"$bad"
       ;;
     *.npmrc)
-      # npm's ini reader splits lines on CR as well as LF, takes the key as
-      # everything before the first `=`, and JSON-decodes a quoted key. Rather
-      # than copy that decoder, a key with a quote or a backslash fails closed.
-      # Any other key that mentions "registry" fails closed too; `//host/:…`
-      # lines are per-host auth settings and cannot move a fetch.
+      # Fail closed rather than copy npm's ini reader, which splits on bare CR,
+      # decodes quoted names and expands ${VAR} in them. Any setting whose name
+      # mentions "registry" or holds a quote, backslash or `$` fails. No
+      # tracked .npmrc sets a registry; allowing one means extending this first.
       while IFS= read -r line || [ -n "$line" ]; do
         [[ "$line" =~ ^[[:space:]]*[\#\;] ]] && continue
-        [[ "$line" =~ ^[[:space:]]*([^=]*[^=[:space:]])[[:space:]]*=[[:space:]]*(.*[^[:space:]])?[[:space:]]*$ ]] || continue
-        key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]:-}"
-        if [[ "$key" == *[\"\'\\]* ]]; then
-          echo "::error file=$f,title=off-registry npmrc::$f: quoted or escaped setting name '$key' is not supported here. Write the key bare."
-          status=1; continue
+        key="${line%%=*}"
+        if [[ "${key,,}" == *registry* || "$key" == *[\"\'\\\$]* ]]; then
+          echo "::error file=$f,title=off-registry npmrc::$f: setting '$key' can point npm at another registry. No registry settings are allowed in a tracked .npmrc; to allow one, extend check-lockfile-registries.sh first."
+          status=1
         fi
-        for q in '"' "'"; do
-          [[ "$val" == "$q"*"$q" ]] && val="${val:1:${#val}-2}"
-        done
-        case "$key" in
-          //*) ;;
-          registry|@*:registry)
-            why="$(url_problem "${val%/}/")"
-            if [ -n "$why" ]; then
-              echo "::error file=$f,title=off-registry npmrc::$f: $key=$val points npm at $why. Approved hosts: $approved_list — see .github/approved-registries.txt."
-              status=1
-            fi ;;
-          replace-registry-host)
-            if [ "$val" != npmjs ] && [ "$val" != never ]; then
-              echo "::error file=$f,title=off-registry npmrc::$f: replace-registry-host=$val lets npm rewrite lockfile URLs to another host. Use npmjs (the default) or never."
-              status=1
-            fi ;;
-          *)
-            if [[ "${key,,}" == *registry* ]]; then
-              echo "::error file=$f,title=off-registry npmrc::$f: unrecognised registry setting '$key'. Use registry= or @scope:registry= with an approved host."
-              status=1
-            fi ;;
-        esac
       done < <(tr '\r' '\n' < "$f")
       ;;
     *yarn.lock|*pnpm-lock.yaml)

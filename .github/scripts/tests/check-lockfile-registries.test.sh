@@ -76,25 +76,20 @@ npmrc() { # <want-exit> <name> <contents> [<substring>...]
   expect "$want" "$name" "$tmp/.npmrc" "$@"
 }
 npmrc 0 "npmrc without a registry passes" $'install-links=true\nmin-release-age=7'
-npmrc 0 "npmrc with the approved registry passes" 'registry=https://registry.npmjs.org/'
-npmrc 1 "npmrc registry override fails" 'registry = "https://npm.evil.example/"' "npm.evil.example"
-npmrc 1 "npmrc scoped registry fails" '@acme:registry=https://npm.evil.example' "@acme:registry"
-# shellcheck disable=SC2016  # the literal ${NPM_REGISTRY} is the input under test
-npmrc 1 "npmrc env-substituted registry fails" 'registry=${NPM_REGISTRY}' "not an https URL"
-npmrc 1 "npmrc replace-registry-host fails" 'replace-registry-host=always' "replace-registry-host=always"
 npmrc 0 "npmrc commented registry passes" '# registry=https://npm.evil.example/'
 npmrc 0 "npmrc semicolon comment passes" '; registry=https://npm.evil.example/'
-npmrc 1 "npmrc quoted key fails" '"registry" = https://npm.evil.example/' "quoted or escaped"
-npmrc 1 "npmrc quoted scoped key fails" "'@acme:registry'=https://npm.evil.example/" "quoted or escaped"
-npmrc 1 "npmrc JSON-escaped key fails" '"regis\u0074ry"=https://npm.evil.example/' "quoted or escaped"
-npmrc 0 "npmrc quoted approved value passes" 'registry="https://registry.npmjs.org/"' 
-npmrc 1 "npmrc odd registry key fails closed" 'REGISTRY=https://npm.evil.example/' "unrecognised registry setting"
-# shellcheck disable=SC2016  # the literal ${NPM_TOKEN} is the input under test
-npmrc 0 "npmrc per-host auth line passes" '//registry.npmjs.org/:_authToken=${NPM_TOKEN}'
+npmrc 1 "npmrc registry fails, even the approved host" 'registry=https://registry.npmjs.org/' "setting 'registry'"
+npmrc 1 "npmrc scoped registry fails" '@acme:registry=https://npm.evil.example' "@acme:registry"
+npmrc 1 "npmrc replace-registry-host fails" 'replace-registry-host=always' "replace-registry-host"
+npmrc 1 "npmrc odd-case registry fails" 'REGISTRY=https://npm.evil.example/' "REGISTRY"
+npmrc 1 "npmrc quoted key fails" '"registry" = https://npm.evil.example/' "can point npm"
+npmrc 1 "npmrc JSON-escaped key fails" '"registry"=https://npm.evil.example/' "can point npm"
+# shellcheck disable=SC2016  # the literal ${X} is the input under test
+npmrc 1 "npmrc env-expanded key fails" '${X}=https://npm.evil.example/' "can point npm"
 printf '# note\rregistry=https://npm.evil.example/\n' > "$tmp/.npmrc"
-expect 1 "npmrc bare CR splits a line" "$tmp/.npmrc" "npm.evil.example"
+expect 1 "npmrc bare CR splits a line" "$tmp/.npmrc" "setting 'registry'"
 printf 'install-links=true\nregistry=https://npm.evil.example/' > "$tmp/.npmrc"
-expect 1 "npmrc last line without newline is read" "$tmp/.npmrc" "npm.evil.example"
+expect 1 "npmrc last line without newline is read" "$tmp/.npmrc" "setting 'registry'"
 
 : > "$tmp/yarn.lock"
 expect 1 "yarn.lock is unsupported" "$tmp/yarn.lock" "npm lockfiles only"

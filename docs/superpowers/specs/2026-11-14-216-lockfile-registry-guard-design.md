@@ -14,10 +14,11 @@ it today. Fail such a PR.
   `https://` on an approved host. Name the file, the package and the host.
 - Fail on any `replace` directive in a tracked `go.mod` or `go.work`.
 - Keep the approved hosts in one small file: `.github/approved-registries.txt`.
-- Fail a tracked `.npmrc` whose `registry` or `@scope:registry` is not an
-  approved https host, or whose `replace-registry-host` is not `npmjs` or
-  `never`. npm rewrites lockfile npmjs URLs to the configured registry, so a
-  `.npmrc` alone can move every fetch (found in review).
+- Fail a tracked `.npmrc` that sets any registry. npm rewrites lockfile npmjs
+  URLs to the configured registry, so a `.npmrc` alone can move every fetch
+  (found in review). The rule is fail-closed: a setting name that mentions
+  `registry` or holds a quote, backslash or `$` fails. That avoids copying
+  npm's ini reader, which decodes quoted names and expands `${VAR}` in them.
 - Check `npm-shrinkwrap.json` like `package-lock.json`. Fail a tracked
   `yarn.lock` or `pnpm-lock.yaml` as unsupported.
 
