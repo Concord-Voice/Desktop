@@ -87,11 +87,12 @@ u64 hostTimeToNs(u64 hostTime) noexcept {
 /// READ ORDER IS THE GUARD'S FIRST HALF. At any one instant the continuous
 /// clock is at or ahead of the absolute one, and reading it SECOND can only
 /// move it further ahead, so `total >= awake` holds whenever both clocks are
-/// monotonic. The comparison is the second half: it keeps the subtraction from
-/// wrapping to ~2^64 if the kernel's commpage update ever breaks that
-/// argument, which rests on nothing this file controls. Its fallback, 0, is
-/// the pre-fix stamp (the absolute domain) -- wrong by the sleep time, which
-/// is the defect being fixed, but never a stamp centuries in the future.
+/// monotonic. The comparison is the second half: it keeps this helper's own
+/// return value from wrapping to ~2^64 if the kernel's commpage update ever
+/// breaks that argument, which rests on nothing this file controls. That is
+/// all it bounds -- nowStampNs's u64 sum would wrap back to mHostTime minus the
+/// skew anyway -- so its fallback, 0, only picks the pre-fix stamp (the
+/// absolute domain, wrong by the sleep time) over that one.
 ///
 /// Two commpage reads, no syscall, no allocation, no lock: safe on the IO
 /// thread.
@@ -116,14 +117,15 @@ u64 sleepOffsetTicks() noexcept {
 /// mach_absolute_time ticks (CoreAudioBaseTypes.h), so it is moved across by
 /// the sleep offset IN TICKS and converted ONCE: a 0 timebase then still yields
 /// 0, never a bare offset that would pass for a real stamp. The fallback has no
-/// host time to move and reads the continuous clock directly.
+/// host time to move and reads the continuous clock directly. mHostTime is
+/// moved rather than replaced by this callback's now because it is the first
+/// frame's capture instant, which QuantumPump carries into
+/// QuantumHeader.captureTimestampNs and the renderer into AudioData.timestamp.
 ///
 /// ponytail: the offset is read when the callback runs, not at mHostTime's
-/// instant. If the Mac slept between the two -- a buffer captured before sleep
-/// and delivered after wake -- the stamp is late by that sleep. For an input
-/// stamp, which is in the past, it is still no later than the continuous
-/// clock's now, and a buffer straddling a sleep is not worth a per-callback
-/// correction.
+/// instant, so a buffer captured before a sleep and delivered after wake is
+/// stamped late by that sleep -- still no later than the continuous clock's
+/// now, and not worth a per-callback correction.
 u64 nowStampNs(const AudioTimeStamp* inputTime) noexcept {
   const bool hostValid =
       (inputTime != nullptr &&

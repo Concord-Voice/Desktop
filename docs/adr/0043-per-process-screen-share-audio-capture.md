@@ -1890,6 +1890,8 @@ Caveats:
   percentile by more than one tick.
 - The real macOS tap stamps in a different clock domain on this runtime. That finding, its
   proposed fix, and the real-device figure belong to issue 75.
+  Record correction: issue 75's first PR moves the tap's stamp into the `mach_continuous_time`
+  domain that `uv_hrtime` reads; the real-device figure follows in the issue 75 addendum (PR 2).
 
 **Ruling (project lead, 2026-11-14):** criterion 2 is met with the synthetic source. The
 real-device figure is recorded under issue 75. Two runs under heavy host load are listed in

@@ -28,7 +28,7 @@ only. No audio is stored anywhere.
 
 ### Found during the issue 73 measurement review (verified)
 
-The macOS tap stamps each callback in the `mach_absolute_time` domain
+Before PR 1, the macOS tap stamped each callback in the `mach_absolute_time` domain
 (`desktop/native/concord-audiocap/rt/platform/macos/tap_backend.mm`, near lines 65 to 88),
 while the pump is seeded from `uv_hrtime()` (`desktop/native/concord-audiocap/napi/addon.cc`,
 near line 1175). On Electron 45, `uv_hrtime` calls `mach_continuous_time` (read from a
@@ -43,9 +43,13 @@ since boot. Effects:
 - The comment at `tap_backend.mm` line 65 ("the SAME domain uv_hrtime reports") is false on
   this runtime, and the obligation stated in `rt/quantum_pump.h` near line 281 is broken.
 
-Smallest fix: add the difference between `mach_continuous_time()` and `mach_absolute_time()`,
-read back to back and converted, to every stamp; correct both comments; add a test that seeds
-from the host clock and stamps through `nowStampNs`. It touches `rt/` and needs the JSF++
+The paragraphs above describe the code before PR 1.
+
+Fix (as built in PR 1): every stamp moves into the `mach_continuous_time` domain. The
+`mHostTime` branch of `nowStampNs` adds the sleep offset (continuous minus absolute, read back
+to back, `sleepOffsetTicks`) in host ticks and converts once, so an unreadable timebase still
+yields 0 rather than a bare offset. The fallback branch reads `mach_continuous_time` directly.
+The fix also corrects both comments and adds a test that seeds from the host clock and stamps through `nowStampNs`. It touches `rt/` and needs the JSF++
 profile run. Lead decision 11 was taken as "fix it in PR 1", because criterion 4's evidence
 reads these counters.
 
@@ -79,7 +83,7 @@ gets exactly one class:
 | `carries` | `callbackTotal` above 0, and `signalTotal / callbackTotal` at least half the ratio of the both-granted control |
 | `silent` | `callbackTotal` above 0 and `signalTotal` equal to 0 |
 | `dead` | `callbackTotal` equal to 0 and no fault. The renderer sees a live silent track, so this counts as silent |
-| `other` | Anything else: a ratio above 0 but under half the control, the OS ending the process, no liveness block with no fault stage, two runs that disagree |
+| `other` | Anything else: a ratio above 0 but under half the control, the OS ending the process, no liveness block with no fault stage, a teardown that latched `poisoned` or reported a destroy failure (added in PR 1 review), two runs that disagree |
 
 - **Rule A.** No enumerable cell is `silent`, `dead` or `other`. Ship A1. No product code.
 - **Rule B.** Every enumerable `silent` or `dead` cell has a pair of grant readings that no
@@ -97,7 +101,19 @@ the evidence cannot be trusted:
 - A cell's grant readings do not match its pair in the section 5 table.
 - R1 ran under 60 s, did not start granted/granted, or shows no grant that is no longer granted
   after the run (`screenAfter`, `microphoneAfter`).
-- The consent runs do not share one window id.
+- The consent and revoke runs do not share one window id, or a run has none (added in PR 1
+  review).
+- A consent run's grants read after it (`screenAfter`, `microphoneAfter`) differ from those
+  read before it, or a reading before or after it is missing or is not one of the values
+  `getMediaAccessStatus` returns; a missing or unknown one fails closed, and a reason line
+  never prints an unknown value (added in PR 1 review).
+- A run's liveness block reads `poisoned` not `false`, or `destroyFailures` above 0: its
+  counters are unreadable. Only a printed `false` reads as not poisoned. A run with a fault
+  stage is `fault` whatever its counters say. With no fault stage, a consent run is `other`,
+  so its cell is `other` (and a C1 run is left out of the control); a revoke run is `other`.
+  Either gives Rule C. A matrix run is a `finding` instead (an exclude run with any signal is
+  a `leak` first); matrix rows are printed for the lead and do not enter the rule (added in
+  PR 1 review).
 - The rows file holds more than one OS build or Electron version.
 - A row has no `runId`. Two rows with one `runId` are one run pasted twice and count once.
 
@@ -168,9 +184,10 @@ and never reads audio: it keeps the port but attaches no listener.
   `electron`, `buildKind`, `screen`, `microphone`, `windowId`, `enumerable`,
   `enumerationFailed`, `faultStage`, `counters`, `seconds`, `screenAfter`, `microphoneAfter`.
   `counters` is the child's liveness block (`callbackTotal`, `quantaTotal`, `signalTotal`,
-  `overrunTotal`, `destroyFailures`, `silentSinceStart`, `faulted`, `quiesceProved`), or `null`
-  when the child printed none; the classifier reads a run as usable only when `faulted` is
-  `false`. `screen` and `microphone` are read before the run; `screenAfter` and
+  `overrunTotal`, `destroyFailures`, `silentSinceStart`, `faulted`, `poisoned`,
+  `quiesceProved`), or `null` when the child printed none; the classifier reads a run as
+  usable only when `faulted` and `poisoned` are `false` and `destroyFailures` is 0 (added in
+  PR 1 review). `screen` and `microphone` are read before the run; `screenAfter` and
   `microphoneAfter` are read again after it. Never a PID, never a title. The runner's file
   header is the full reference.
 
@@ -208,6 +225,13 @@ from System Settings, since Electron cannot read it).
 2. The human grants Screen Recording and Microphone to the Electron bundle.
 3. The agent runs C1, the agent rows of the matrix, and the anchor row.
 4. The human runs the human rows, then toggles for C2, C3 and C4, resets for C5, and does R1.
+   During a consent run, C5's above all, leave any permission prompt unanswered until that
+   run has finished: in the `open -n -W` form, until `open` returns (the `ROW` or `FAIL`
+   line is then in the `--stdout` file). The runner reads both grants again when the capture
+   ends, just before it prints the row, so a prompt answered before then reads as grants
+   that differ before and after the run: Rule C. Record each prompt seen. Any answer, Allow
+   or Don't Allow, moves a not-determined grant, so reset again before C5's second run: two
+   runs of one cell that read different grants are `other`.
 5. The agent classifies every run and applies the rule.
 
 The human part is about 30 to 45 minutes at the Mac. The development bundle's identifier is
