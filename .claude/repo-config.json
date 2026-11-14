@@ -35,10 +35,7 @@
     "routing": {
       "desktop": "Concord-Voice/Desktop",
       "mobile": "Concord-Voice/Mobile",
-      "self-hosted": "Concord-Voice/Self-Hosted",
-      "hosted": "Concord-Voice/Hosted",
-      "release-ops": "Concord-Voice/Release-Ops",
-      "internal-tooling": "Concord-Voice/Internal-Dev-Tooling"
+      "self-hosted": "Concord-Voice/Self-Hosted"
     },
     "sentinel_prefix": "concord-feedback-triage"
   }
