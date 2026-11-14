@@ -26,27 +26,41 @@ function releaseAll(): void {
   useVoiceStore.getState().setCaptureLease('none');
 }
 
+/** True from the revocation until its call and device-test teardown have both finished. */
+let movedInFlight = false;
+
 async function handleMoved(): Promise<void> {
-  useVoiceStore.getState().setCaptureMovedNotice(true);
-  advanceVoiceActionGeneration();
-  useConnectionStore.getState().setPendingVoiceRejoin(null);
-  let tornDown = true;
+  // Any release from this document is the ack main reads, so none may leave before the call
+  // and the device tests have stopped. Withheld from the first line: the dynamic import
+  // below is a real gap in which a stopping mic test or a finished webcam probe would
+  // otherwise release on its own. The lease push that follows the revocation must not lift
+  // it either (see the subscriber).
+  movedInFlight = true;
+  withholdReleases(true);
   try {
-    // Lazy, like the other voice consumers: the voice chunk stays out of the boot graph.
-    const { voiceService } = await import('./voiceService');
-    // Keep the lease: a camera test running beside the call is stopped by the dispatch below,
-    // and the release (main's ack) must follow that, not precede it.
-    voiceService.emergencyCleanup({ keepCaptureLease: true });
-  } catch {
-    tornDown = false;
-    // Message-only: an error object can carry ids or tokens.
-    console.warn('[capture] call teardown after a moved revocation failed');
+    useVoiceStore.getState().setCaptureMovedNotice(true);
+    advanceVoiceActionGeneration();
+    useConnectionStore.getState().setPendingVoiceRejoin(null);
+    let tornDown = true;
+    try {
+      // Lazy, like the other voice consumers: the voice chunk stays out of the boot graph.
+      const { voiceService } = await import('./voiceService');
+      // Keep the lease: a camera test running beside the call is stopped by the dispatch
+      // below, and the release must follow that, not precede it.
+      voiceService.emergencyCleanup({ keepCaptureLease: true });
+    } catch {
+      tornDown = false;
+      // Message-only: an error object can carry ids or tokens.
+      console.warn('[capture] call teardown after a moved revocation failed');
+    }
+    dispatchCaptureRevoked('moved');
+    // After a failed teardown the withhold stays, so the releases below go nowhere and the
+    // 5 s crash ends this document.
+    if (tornDown) withholdReleases(false);
+    releaseAll();
+  } finally {
+    movedInFlight = false;
   }
-  // After a failed teardown no release may leave (main reads any as the ack), including the
-  // stopping device tests': the 5 s crash then ends this document instead.
-  if (!tornDown) withholdReleases(true);
-  dispatchCaptureRevoked('moved');
-  releaseAll();
 }
 
 function handleBackgrounded(): void {
@@ -57,7 +71,8 @@ function handleBackgrounded(): void {
 
 export function installCaptureRevocationHandler(): () => void {
   const stopLease = subscribeLeaseState((view) => {
-    withholdReleases(false);
+    // The push that follows a moved revocation arrives while its teardown is still running.
+    if (!movedInFlight) withholdReleases(false);
     useVoiceStore.getState().setCaptureLease(view);
   });
   const stopRevoked = subscribeLeaseRevoked(({ reason }) => {

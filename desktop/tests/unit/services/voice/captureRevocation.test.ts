@@ -130,6 +130,20 @@ describe('installCaptureRevocationHandler', () => {
     expect(useVoiceStore.getState().captureMovedNotice).toBe(false);
   });
 
+  it('withholds every release from the first line, through the teardown import, and the lease push does not lift it', async () => {
+    const { release } = await import('@/renderer/services/voice/captureLeaseClient');
+    log.length = 0;
+    revoke({ reason: 'moved' });
+    // The handler is now awaiting its dynamic import: a stopping device test releases here.
+    await release('device-test');
+    // And the lease push that follows the revocation arrives before the teardown ends.
+    pushLease({ held: false, mine: false });
+    await release('device-test');
+    expect(log).not.toContain('release:device-test');
+    // Once the teardown finished cleanly the acknowledgement does leave.
+    await vi.waitFor(() => expect(log).toContain('release:voice-join'));
+  });
+
   it('a throwing emergencyCleanup withholds every release (any release is the ack), then a lease push lifts it', async () => {
     vi.mocked(voiceService.emergencyCleanup).mockImplementationOnce(() => {
       throw new Error('cleanup failed');
