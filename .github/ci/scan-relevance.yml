@@ -298,12 +298,6 @@ production_docker:
 native:
   - 'desktop/native/**'
   - 'desktop/scripts/build-native.mjs'
-  - 'desktop/scripts/audiocap-transport-probe/**'
-  - 'desktop/src/main/audiocap*.ts'
-  - 'desktop/src/main/nativeAddonPath.ts'
-  - 'desktop/src/preload/audiocapRelay.ts'
-  - 'desktop/src/shared/audiocapProtocol.ts'
-  - 'desktop/src/renderer/services/voice/screenAudioBridge.ts'
   - 'desktop/package.json'
   - 'desktop/package-lock.json'
   - 'scripts/check-native-jsf-profile.sh'
