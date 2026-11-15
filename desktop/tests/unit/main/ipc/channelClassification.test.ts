@@ -80,7 +80,7 @@ describe('IPC channel classification audit', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('classifies the #87 capture lease invokes connection-bound (contract v35)', () => {
+  it('classifies the #87 capture lease invokes connection-bound (contract v36)', () => {
     // A primary may release from the background and a holder may re-acquire there; the
     // foreground-only rule for a FRESH acquire is the lease's (captureLease.ts), not the
     // admission's, so the rows are connection-bound rather than app-global-mutate.

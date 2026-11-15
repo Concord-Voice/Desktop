@@ -1,5 +1,7 @@
 # Connection Context Isolation (Desktop #86) Implementation Plan
 
+> **Contract number (as built):** this design calls the new contract v34. Main used v34 first, for the SSO MFA challenge, so this work shipped as `IPC_CONTRACT_VERSION` **35**. Every "v34" below means v35.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let CVNet (`saas`) and any number of self-hosted services run concurrently in one shell, each in its own sandboxed renderer document on its own Chromium `Session` with its own credential custody, so that no renderer, payload or service response can select another connection's origin, cookies, keys or privileged IPC authority.

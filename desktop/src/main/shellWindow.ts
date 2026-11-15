@@ -333,8 +333,9 @@ function recordForeground(serviceId: ServiceId): void {
 /**
  * Append the entries `connection:create` opened (#86 §3.7) to the restored list and
  * write the whole list. An entry whose serviceId is already listed is kept as it is.
- * Refuses (rejects, writing nothing) before startup restore has run: without the
- * restored list, a write would replace the user's other connections.
+ * Refuses (rejects, writing nothing) while no list is seeded (`initPersistedConnections`,
+ * which `createWindow` calls before the first view): without it, a write would replace
+ * the user's other connections.
  */
 export function persistAddedConnections(added: readonly ConnectionsFileEntry[]): Promise<void> {
   const state = persisted;
@@ -344,6 +345,11 @@ export function persistAddedConnections(added: readonly ConnectionsFileEntry[]):
   state.entries = [...state.entries, ...fresh];
   return writeConnectionsFile(state.root, state.entries);
 }
+
+/** A valid OS deep link arrived before this window's restore chose a view (#86 C8). */
+let saasForegroundRequested = false;
+/** This window's restore has chosen its first view; reset with every new window. */
+let restoreShown = false;
 
 function showConnection(serviceId: ServiceId, record: boolean): boolean {
   const target = liveConnections().find((r) => r.serviceId === serviceId && r.state !== 'disposed');
@@ -363,7 +369,11 @@ function showConnection(serviceId: ServiceId, record: boolean): boolean {
 
 /** The live connection of `serviceId` becomes the only visible view. */
 export function activateConnection(serviceId: ServiceId): boolean {
-  return showConnection(serviceId, true);
+  const shown = showConnection(serviceId, true);
+  // C8: a later switch to another connection (`connection:create` during the saas
+  // load) supersedes a deep link still waiting for restore.
+  if (shown && serviceId !== SAAS_SERVICE_ID) saasForegroundRequested = false;
+  return shown;
 }
 
 /**
@@ -399,10 +409,8 @@ export async function restorePersistedConnections(
   register: (origin: string) => ServiceRecord | null
 ): Promise<void> {
   if (shellWindow() === null) return;
-  if (persisted?.root !== userDataRoot) {
-    persisted = { root: userDataRoot, entries: [...startupEntries] };
-  }
-  const entries = persisted.entries;
+  initPersistedConnections(userDataRoot, startupEntries);
+  const entries = persisted?.entries ?? [];
   const url = deps?.devConnectionUrl ?? DEFAULT_CONNECTION_URL;
   const loads: Promise<void>[] = [];
   for (const entry of entries) {
@@ -423,13 +431,55 @@ export async function restorePersistedConnections(
     );
   }
   const first = entryToForeground(entries);
-  if (first) showConnection(first.serviceId, false);
+  const wantSaas = saasForegroundRequested;
+  saasForegroundRequested = false;
+  restoreShown = true;
+  if (wantSaas && showConnection(SAAS_SERVICE_ID, false)) {
+    recordForeground(SAAS_SERVICE_ID); // the view the link took the user to (C8)
+  } else if (first) {
+    showConnection(first.serviceId, false);
+  }
   await Promise.all(loads);
+}
+
+/**
+ * Seed the `connections.json` list before the first view can call `connection:create`
+ * (#86 C9). The saas renderer is shown and interactive while its loader still awaits the
+ * SPA hash fetch, before `restorePersistedConnections` runs; without the list there, a
+ * create in that window was refused and then missing from the file. Only a list for a
+ * different userData root is replaced: a re-created window keeps the live one.
+ */
+export function initPersistedConnections(
+  userDataRoot: string,
+  startupEntries: readonly ConnectionsFileEntry[]
+): void {
+  if (persisted?.root !== userDataRoot) {
+    persisted = { root: userDataRoot, entries: [...startupEntries] };
+  }
+}
+
+/**
+ * A valid OS deep link (#86 C8): deep links are delivered to the saas view only (§3.7),
+ * so that view must be the one on screen, or the modal opens in a hidden view and the
+ * click seems to do nothing. The saas view becomes the foreground now when it is live,
+ * which records it like any switch. Until this window's restore has chosen its first
+ * view, the request is also kept for it: a link queued at cold start, or one that
+ * arrives during the saas load or with no window, would otherwise be covered by the
+ * restored self-hosted foreground. Call only for a link that parsed; a rejected one
+ * must not move the view. An activation of another connection before restore retires
+ * the request (`activateConnection`). Breaks if restore ignores the request, or the
+ * request outlives the restore that consumed it or the user's later switch.
+ */
+export function showSaasForDeepLink(): void {
+  activateConnection(SAAS_SERVICE_ID);
+  if (!restoreShown) saasForegroundRequested = true;
 }
 
 /** Test-only: forget the restored `connections.json` list, as a fresh process would. */
 export function _resetPersistedConnectionsForTesting(): void {
   persisted = null;
+  saasForegroundRequested = false;
+  restoreShown = false;
 }
 
 /** Invariant 6. A no-op with no window; with no foreground every view is hidden. */
@@ -603,6 +653,7 @@ export function createShellWindow(shellDeps: ShellDeps): BaseWindow {
   deps = shellDeps;
   const win = new BaseWindow(shellDeps.windowOptions);
   shell = win;
+  restoreShown = false; // C8: this window's restore has not chosen a view yet
   shellDeps.applyContentProtectionAtCreation(
     win,
     shellDeps.contentProtectionEnabled,
@@ -617,7 +668,10 @@ export function createShellWindow(shellDeps: ShellDeps): BaseWindow {
   });
   win.on('closed', () => {
     disposeAll(); // invariant 4
-    if (shell === win) shell = null;
+    if (shell === win) {
+      shell = null;
+      restoreShown = false; // C8: a link with no window waits for the next restore
+    }
     shellDeps.onClosed?.();
   });
   const relayout = (): void => layoutViews();

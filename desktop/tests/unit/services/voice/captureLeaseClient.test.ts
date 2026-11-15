@@ -18,7 +18,7 @@ import {
 import type { CaptureAcquireResult, CaptureLeaseState } from '@/shared/captureLease';
 
 // The preload bridge is installed on the shared `window.electron` mock from
-// tests/setup.ts; a shell below contract 35 simply has no `capture` key.
+// tests/setup.ts; a shell below contract 36 simply has no `capture` key.
 function setBridge(bridge: Record<string, unknown> | undefined): void {
   const host = globalThis.electron as unknown as Record<string, unknown>;
   if (bridge === undefined) delete host.capture;

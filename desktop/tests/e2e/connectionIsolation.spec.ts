@@ -335,11 +335,11 @@ test('outage injected on A bumps no generation and leaves B untouched', async ({
 test('legacy SPA path', async ({ app, planes }) => {
   test.fixme(
     true,
-    'contextBridge exposes window.electron frozen, non-configurable and non-writable (measured after the preload: {frozen:true,configurable:false,writable:false}), so evaluateOnNewDocument cannot remove the connection key, and no production-safe switch boots a v34 preload without it'
+    'contextBridge exposes window.electron frozen, non-configurable and non-writable (measured after the preload: {frozen:true,configurable:false,writable:false}), so evaluateOnNewDocument cannot remove the connection key, and no production-safe switch boots a v35 preload without it'
   );
   const v = await views(app, planes);
   // Evaluated in A's main world on every new document, before any page script, after
-  // the preload: a pre-v34 shell is exactly a bridge without the `connection` key.
+  // the preload: a pre-v35 shell is exactly a bridge without the `connection` key.
   // contextBridge freezes the exposed object (measured: `delete` fails), so the probe
   // can only swap in a shallow copy without the key, and only if `window.electron`
   // is replaceable — measured: it is not.

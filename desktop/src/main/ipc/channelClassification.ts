@@ -12,12 +12,12 @@
 //
 // Changing a row is a security decision: a wider class lets a background or
 // self-hosted connection reach the channel. Record the reason in electron.md
-// § IPC contract v34.
+// § IPC contract v35.
 
 import type { AdmissionClass } from './registry';
 
 export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.freeze({
-  // connection:* (contract v34). `connection:whoAmI` is the one `ipcMain.on` +
+  // connection:* (contract v35). `connection:whoAmI` is the one `ipcMain.on` +
   // `returnValue` channel in ipc/connection.ts; it never goes through registerIpc,
   // and its row records who may read an identity (a bound PiP or primary).
   'connection:whoAmI': 'pip-scoped',
@@ -90,7 +90,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // trayOwner() when the #87 capture lease names one (a stale owner shows a neutral tray), else
   // the foreground primary (#86 B1).
   'tray:setStatus': 'connection-bound',
-  // #87 (contract v35): the capture lease. Connection-bound so a background primary can
+  // #87 (contract v36): the capture lease. Connection-bound so a background primary can
   // release, and a holder re-acquire, from where it is; a FRESH acquire and the consent
   // ceremony are foreground-only inside captureLease.ts. A PiP is refused at admission.
   'capture:acquire': 'connection-bound',
@@ -98,7 +98,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
 
   // Window chrome: the foreground primary, a silent no-op otherwise.
   'window:setTitleBarOverlayColor': 'exempt-low-stakes',
-  'window:setClientBehavior': 'exempt-low-stakes',
+  // #86 C7: connection-bound so each primary can push its own stored value while hidden;
+  // the handler keeps one value per service and the [X]/[-] intercepts read only the
+  // foreground service's (as for tray:setStatus), so a hidden view still cannot re-arm them.
+  'window:setClientBehavior': 'connection-bound',
 
   // Per connection: custody, credentials and documents come from the binding.
   'auth:storeRefreshToken': 'connection-bound',
@@ -122,7 +125,10 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'sso:appleCancel': 'connection-bound',
   'sso:googleCancel': 'connection-bound',
   'audiocap:stop': 'connection-bound',
-  'open-external': 'connection-bound',
+  // #86 (C6, accepted security finding): the OS browser opens over every connection, so a
+  // hidden view must not launch one behind the visible connection; the foreground primary
+  // only, like image:saveAs. A PiP stays refused, as it was under connection-bound.
+  'open-external': 'app-global-mutate',
   'image:saveAs': 'app-global-mutate',
   'app:setBadgeCount': 'connection-bound',
   'app:flashFrame': 'connection-bound',
@@ -141,5 +147,8 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'invite:renderer-ready': 'saas-only',
   'spa:reloadLatest': 'saas-only',
   'spa:checkForUpdate': 'saas-only',
+  // #86 (C10, accepted security finding): the billing sheet is a modal child over the
+  // shared shell, so ipc/billing.ts also narrows this row to the FOREGROUND connection; a
+  // hidden saas view behind a self-hosted one is refused. A PiP stays refused (primary only).
   'billing:open': 'saas-only',
 });

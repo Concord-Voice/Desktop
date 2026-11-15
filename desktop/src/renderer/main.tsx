@@ -105,7 +105,7 @@ const root = createRoot(container);
 if (isUnsupportedBrowser()) {
   root.render(<DesktopAppRequired />);
 } else if (bootConnection().mode === 'unavailable') {
-  // #86 §3.10: a v34 shell gave this document no valid connection identity. Fatal,
+  // #86 §3.10: a v35 shell gave this document no valid connection identity. Fatal,
   // and never the build-time server: App (and everything that fetches) stays unmounted.
   root.render(<ConnectionUnavailable />);
 } else {

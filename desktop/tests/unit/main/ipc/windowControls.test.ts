@@ -6,7 +6,11 @@ vi.mock('electron', () => ({
 }));
 
 import { app, ipcMain } from 'electron';
-import { registerWindowControlsIpc, getCachedClientBehavior } from '@/main/ipc/windowControls';
+import {
+  _resetWindowControlsForTesting,
+  registerWindowControlsIpc,
+  getCachedClientBehavior,
+} from '@/main/ipc/windowControls';
 import { DEFAULT_CLIENT_BEHAVIOR } from '@/shared/clientBehavior';
 import {
   _resetConnectionRegistryForTesting,
@@ -33,6 +37,7 @@ describe('registerWindowControlsIpc', () => {
     vi.clearAllMocks();
     _resetConnectionRegistryForTesting();
     _resetIpcRegistryForTesting();
+    _resetWindowControlsForTesting();
     const r = registerService('https://api.concordvoice.chat', {
       makeSession: () => ({}) as never,
       makeCustody: () => ({}) as never,
@@ -221,6 +226,7 @@ describe('window controls: binding-derived admission (#86 Task 7B)', () => {
   function boot() {
     _resetConnectionRegistryForTesting();
     _resetIpcRegistryForTesting();
+    _resetWindowControlsForTesting();
     const window = makeMockWindow();
     registerWindowControlsIpc(() => window as never);
     const fg = conn('https://api.concordvoice.chat', 21);
@@ -242,7 +248,9 @@ describe('window controls: binding-derived admission (#86 Task 7B)', () => {
     warn.mockRestore();
   });
 
-  it('setClientBehavior from a background primary is a silent no-op and keeps the cache', () => {
+  // #86 C7: each view has its own stored settings, so a background primary's value is
+  // kept as that connection's own. It never changes the foreground's [X]/[-].
+  it('setClientBehavior from a background primary does not change the foreground behaviour', () => {
     const { bg } = boot();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const before = getCachedClientBehavior();
@@ -254,6 +262,52 @@ describe('window controls: binding-derived admission (#86 Task 7B)', () => {
     expect(getCachedClientBehavior()).toEqual(before);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  // #86 C7 repro: A chose quit, B (whose settings say close-to-tray) is shown, and [X]
+  // used A's choice. The intercepts read getCachedClientBehavior().
+  it("the close/minimize behaviour follows the foreground connection's own value", () => {
+    const { fg, bg } = boot();
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'minimize' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+
+    // B has pushed nothing yet: its default, not A's quit.
+    setForeground(bg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
+
+    // B's own value, pushed while hidden (its startup rehydrate), applies once B is shown.
+    setForeground(fg.record.connectionId);
+    handlerFor('window:setClientBehavior')(ev(bg), { toTray: 'minimize', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+    setForeground(bg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
+    setForeground(fg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+  });
+
+  it('an unbound sender or a PiP writes nothing', () => {
+    const { fg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const set = handlerFor('window:setClientBehavior');
+    set(
+      {
+        sender: { id: 99, mainFrame: { frameTreeNodeId: 99 } },
+        senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: 99 },
+      } as never,
+      { toTray: 'none', toToolbar: 'close' }
+    );
+    const pip = { id: 23, mainFrame: { frameTreeNodeId: 23 } } as never;
+    bindSender(pip, fg.record.connectionId, 'pip');
+    set(ev({ wc: pip, id: 23 }), { toTray: 'none', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
+    warn.mockRestore();
+  });
+
+  it('with no foreground connection the default applies', () => {
+    const { fg } = boot();
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'close' });
+    setForeground(null);
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
   });
 
   it('both channels still work from the foreground primary', () => {

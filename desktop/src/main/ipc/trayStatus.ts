@@ -5,7 +5,7 @@
  * Fences, in this order; nothing here throws. The result is `false` only when the
  * rate limit dropped the snapshot (the renderer resends it); every other outcome,
  * refusals included, is `true`:
- *   1. Admission (since IPC contract v34, #86): `registerIpc` as `connection-bound`
+ *   1. Admission (since IPC contract v35, #86): `registerIpc` as `connection-bound`
  *      admits a bound PRIMARY main frame whose URL is permitted for its connection's
  *      kind (a PiP shares the origin and is refused there).
  *   2. A 20/s token bucket per connection, so one connection cannot spend another's.

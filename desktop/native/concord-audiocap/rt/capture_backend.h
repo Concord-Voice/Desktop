@@ -333,10 +333,11 @@ class CaptureBackend {
 
 /// nullptr on a platform with no backend compiled in -> start() = "NoBackend".
 ///
-/// PR 1 HAS NO PLATFORM BACKEND ON ANY PLATFORM, which is what keeps a release
-/// build's start() returning NoBackend and is asserted by the define-separation
-/// step in native-audiocap.yml. #3196 and PR 2 each replace this body with a
-/// platform-conditional one returning their own statically-stored singleton;
+/// ONE PLATFORM BACKEND IS COMPILED IN, the macOS Core Audio tap, so a release
+/// build's start() with no target answers NoTarget at or above macOS 14.4 and
+/// NoBackend below that floor and on Windows and Linux. The shipped-vs-synthetic
+/// probe in native-audiocap.yml asserts that split per OS. A backend for another
+/// platform replaces the #else body with its own statically-stored singleton;
 /// nothing here is ever heap-allocated (AV 206).
 #if defined(__APPLE__)
 /// DEFINED IN rt/platform/macos/tap_backend.mm. Returns the Core Audio tap

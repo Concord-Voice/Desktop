@@ -47,6 +47,8 @@ This release adds groundwork for verifying account keys and protects remembered 
 ### Fixed
 
 - **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
+- **Servers:** A server connection added while the app is still starting is now remembered at the next launch.
+- **Window:** Closing or minimizing the window now follows your setting from the moment the app starts, not only after you change it. With more than one server connection open, it follows the connection on screen.
 - **Chat:** Large or unknown-size images and videos now wait for a click before downloading.
 - **Privacy:** Profile and conversation images now stop downloading when they exceed a safety limit or take too long.
 - **Accessibility:** Reduce Animations and the system reduced-motion preference now stop animated server-bar scrolling and volume-slider thumb transitions.
@@ -58,11 +60,14 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Security
 
+- **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
+- **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
 - **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Sessions:** Session revocation and revocation-mode changes now require your password and configured verification method ([#224](https://github.com/Concord-Voice/Desktop/pull/224)).
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.

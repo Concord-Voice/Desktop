@@ -1,5 +1,5 @@
 /**
- * `capture:acquire` and `capture:release` (#87 spec §3.9, IPC contract 35).
+ * `capture:acquire` and `capture:release` (#87 spec §3.9, IPC contract 36).
  *
  * Both are `connection-bound`: the registry admits a bound PRIMARY main frame whose URL is
  * permitted for its connection's kind, and hands the lease the `ConnectionSender` it took

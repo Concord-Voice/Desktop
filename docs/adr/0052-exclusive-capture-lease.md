@@ -137,7 +137,7 @@ user to move capture there. There is no simultaneous publication and no cloned c
   `device-test` claim is refcounted in the client: overlapping mic and camera tests share one
   claim, and only the last stop releases it. `voiceStore` gains `captureLease`,
   `captureMovedNotice` (both preserved by `reset()`) and the transient `captureDeclinedSeq` (F3).
-- **IPC contract.** `IPC_CONTRACT_VERSION = 35`, `SPA_MIN_CONTRACT = 19` (`ipcContract.ts`).
+- **IPC contract.** `IPC_CONTRACT_VERSION = 36`, `SPA_MIN_CONTRACT = 19` (`ipcContract.ts`).
   New: `capture:acquire`, `capture:release` (both `connection-bound`), pushes `capture:lease` and
   `capture:leaseRevoked`, bridge `electron.capture.{acquire, release, onLeaseChanged,
   onLeaseRevoked}`. A `connection-bound` admission refusal is mapped explicitly to a
@@ -212,7 +212,7 @@ One line each; the spec §0 tables carry the full reasoning.
 - **F10** `superseded` copy is shown only when the document survives.
 - **F11** Live-region pattern from #3394; banner text set once the document is visible.
 - **F12** `normalizeAccessKeys` and `signal` both set.
-- **F13** The crash path loses the banner; declined for v35 (Accepted risks).
+- **F13** The crash path loses the banner; declined for v36 (Accepted risks).
 - **F14** No join watchdog exists around `acquire`; it is the first await.
 
 ## T0 results
@@ -326,7 +326,7 @@ body.
   A's ack or A's renderer is gone.
 - ADR-0043 per-process audio is preserved: the handoff and voluntary release kill only the
   capture child, never the probe.
-- An older SPA on shell 35 keeps working through the legacy gate; an older shell gives a
+- An older SPA on shell 36 keeps working through the legacy gate; an older shell gives a
   lease-aware SPA `granted` with no bridge (today's behaviour).
 - Capture tests and manual checks can no longer use `--use-fake-ui-for-media-stream`.
 - #90 edits `ipc/sso.ts` next; #87 changed only keying, supersede and logging there.

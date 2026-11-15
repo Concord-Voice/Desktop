@@ -173,6 +173,7 @@ import {
   disposeConnectionView,
   foregroundView,
   foregroundWebContents,
+  initPersistedConnections,
   installDevConnectionMenu,
   layoutViews,
   openConnectionView,
@@ -180,6 +181,7 @@ import {
   restorePersistedConnections,
   sendToConnection,
   shellWindow,
+  showSaasForDeepLink,
 } from '../../../src/main/shellWindow';
 
 const SAAS_ORIGIN = 'https://api.concordvoice.chat';
@@ -854,6 +856,153 @@ describe('restorePersistedConnections (#86 Task 6)', () => {
     expect(activateConnection(saas.serviceId)).toBe(true);
     const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
     expect(written.map((e) => e.serviceId)).toEqual([saas.serviceId, a.serviceId, b.serviceId]);
+  });
+
+  // #86 C9: the saas renderer is shown and interactive while its loader still awaits the
+  // SPA hash fetch, before restore runs. A connection:create then had no list to append
+  // to: the write was refused, and restore re-seeded from the startup snapshot without it.
+  it('a connection added before startup restore is written with the restored list and kept', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    const startup = [entryFor(a, at(3))];
+    initPersistedConnections('/user-data', startup);
+    await mustOpen(saas.serviceId);
+    const b = register(SELF_B);
+    await mustOpen(b.serviceId);
+    writeConnectionsFile.mockClear();
+    await persistAddedConnections([entryFor(b, null)]);
+    expect(writeConnectionsFile).toHaveBeenCalledTimes(1);
+    const [root, added] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(root).toBe('/user-data');
+    expect(added.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId]);
+
+    await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+    expect(liveConnections().map((r) => r.serviceId)).toEqual([
+      saas.serviceId,
+      b.serviceId,
+      a.serviceId,
+    ]);
+    writeConnectionsFile.mockClear();
+    expect(activateConnection(saas.serviceId)).toBe(true);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId, saas.serviceId]);
+  });
+
+  it('initPersistedConnections keeps the live list for the same root', async () => {
+    const saas = register(SAAS_ORIGIN);
+    const a = register(SELF_A);
+    const b = register(SELF_B);
+    initPersistedConnections('/user-data', [entryFor(a, at(3))]);
+    await mustOpen(saas.serviceId);
+    await persistAddedConnections([entryFor(b, null)]);
+    // A re-created window seeds again from the same startup snapshot.
+    initPersistedConnections('/user-data', [entryFor(a, at(3))]);
+    writeConnectionsFile.mockClear();
+    await persistAddedConnections([entryFor(b, null)]); // still listed: nothing to write
+    expect(writeConnectionsFile).not.toHaveBeenCalled();
+    await persistAddedConnections([entryFor(saas, null)]);
+    const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+    expect(written.map((e) => e.serviceId)).toEqual([a.serviceId, b.serviceId, saas.serviceId]);
+  });
+
+  // #86 C8: deep links are delivered to the saas view only, so a valid OS link must
+  // bring that view to the front, or its modal opens in a hidden view.
+  describe('showSaasForDeepLink (#86 C8)', () => {
+    it('brings the saas view in front of a self-hosted foreground and records it', async () => {
+      const saas = register(SAAS_ORIGIN);
+      const saasRecord = await mustOpen(saas.serviceId);
+      const a = register(SELF_A);
+      await restorePersistedConnections(
+        '/user-data',
+        [entryFor(a, at(3))],
+        (o) => register(o) as never
+      );
+      const aRecord = liveConnections().find((r) => r.serviceId === a.serviceId);
+      expect(foreground()?.serviceId).toBe(a.serviceId);
+      writeConnectionsFile.mockClear();
+
+      showSaasForDeepLink();
+
+      expect(foreground()?.serviceId).toBe(saas.serviceId);
+      expect(viewOf(saasRecord).setVisible).toHaveBeenLastCalledWith(true);
+      expect(viewOf(aRecord).setVisible).toHaveBeenLastCalledWith(false);
+      const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+      expect(written.find((e) => e.serviceId === saas.serviceId)?.lastForegroundAt).toBeTruthy();
+    });
+
+    it('a link queued before the saas view exists overrides the restored foreground', async () => {
+      const saas = register(SAAS_ORIGIN);
+      const a = register(SELF_A);
+      showSaasForDeepLink(); // cold-start argv: no view yet
+      await mustOpen(saas.serviceId);
+      writeConnectionsFile.mockClear();
+      await restorePersistedConnections(
+        '/user-data',
+        [entryFor(a, at(3))],
+        (o) => register(o) as never
+      );
+      expect(liveConnections().map((r) => r.serviceId)).toEqual([saas.serviceId, a.serviceId]);
+      expect(foreground()?.serviceId).toBe(saas.serviceId);
+      // Recorded, so the next launch shows the view the user was taken to.
+      const [, written] = writeConnectionsFile.mock.calls[0] as [string, Any[]];
+      expect(written.find((e) => e.serviceId === saas.serviceId)?.lastForegroundAt).toBeTruthy();
+    });
+
+    it('a link arriving with no window carries to the next window, and only to it', async () => {
+      const saas = register(SAAS_ORIGIN);
+      const a = register(SELF_A);
+      const startup = [entryFor(a, at(3))];
+      await mustOpen(saas.serviceId);
+      await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+      expect(foreground()?.serviceId).toBe(a.serviceId);
+
+      (shellWindow() as unknown as Any).emit('closed');
+      showSaasForDeepLink(); // macOS: the app is alive with no window
+      createShellWindow(deps as never);
+      await mustOpen(saas.serviceId);
+      await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+      expect(foreground()?.serviceId).toBe(saas.serviceId);
+
+      // Consumed: the window after that restores the recorded foreground.
+      activateConnection(a.serviceId);
+      (shellWindow() as unknown as Any).emit('closed');
+      createShellWindow(deps as never);
+      await mustOpen(saas.serviceId);
+      await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+      expect(foreground()?.serviceId).toBe(a.serviceId);
+    });
+
+    it('a switch to another connection before restore supersedes the waiting link', async () => {
+      const saas = register(SAAS_ORIGIN);
+      const a = register(SELF_A);
+      showSaasForDeepLink(); // cold-start argv: no view yet
+      await mustOpen(saas.serviceId);
+      // connection:create during the saas load opens and activates a self-hosted view.
+      await mustOpen(a.serviceId);
+      expect(activateConnection(a.serviceId)).toBe(true);
+      await restorePersistedConnections(
+        '/user-data',
+        [entryFor(a, at(3))],
+        (o) => register(o) as never
+      );
+      expect(foreground()?.serviceId).toBe(a.serviceId);
+    });
+
+    it('a link handled after restore does not reach a later restore', async () => {
+      const saas = register(SAAS_ORIGIN);
+      const a = register(SELF_A);
+      const startup = [entryFor(a, at(3))];
+      await mustOpen(saas.serviceId);
+      await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+      showSaasForDeepLink();
+      expect(foreground()?.serviceId).toBe(saas.serviceId);
+      activateConnection(a.serviceId);
+      (shellWindow() as unknown as Any).emit('closed');
+      createShellWindow(deps as never);
+      await mustOpen(saas.serviceId);
+      await restorePersistedConnections('/user-data', startup, (o) => register(o) as never);
+      expect(foreground()?.serviceId).toBe(a.serviceId);
+    });
   });
 
   // Review row 6: a quit during the saas load closes the window before restore runs.

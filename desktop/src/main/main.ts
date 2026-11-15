@@ -177,11 +177,13 @@ import {
   foregroundWebContents,
   installDevConnectionMenu,
   openConnectionView,
+  initPersistedConnections,
   persistAddedConnections,
   restorePersistedConnections,
   saasPrimary,
   sendToConnection,
   shellWindow,
+  showSaasForDeepLink,
 } from './shellWindow';
 import { runConnectionMigration } from './connectionMigration';
 import { readApprovalsFile } from './selfHostedApprovals';
@@ -1103,8 +1105,8 @@ function drainPendingDeepLinks(): void {
 }
 
 // Only result.reason is logged. Invite and friend codes are bearer material and
-// never reach a log line.
-function handleInviteDeepLink(raw: string | undefined, source: string): void {
+// never reach a log line. True only for a link that parsed and was queued.
+function handleInviteDeepLink(raw: string | undefined, source: string): boolean {
   const result = normalizeInviteDeepLink(raw);
   if (result.ok) {
     // The only place a code ENTERS main. queueDeepLink is not it — resetDeepLinkGate
@@ -1113,11 +1115,15 @@ function handleInviteDeepLink(raw: string | undefined, source: string): void {
     fenceDeepLinksOnOwnerChange(true);
     noteDeepLinkOwner();
     queueDeepLink({ kind: result.kind, code: result.code });
-    return;
+    // #86 C8: the link is delivered to the saas view alone, so put that view on
+    // screen. After the queue: showing is layout, and must never cost the delivery.
+    showSaasForDeepLink();
+    return true;
   }
   if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link', 'source', source, 'reason', result.reason);
   }
+  return false;
 }
 
 function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, source: string): void {
@@ -1139,6 +1145,7 @@ function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, sour
     // if sendDeepLink's bind were ever narrowed.
     noteDeepLinkOwner();
     queueDeepLink({ kind: result.kind, code: result.code });
+    showSaasForDeepLink(); // #86 C8, as in handleInviteDeepLink
   } else if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link argv', 'source', source, 'reason', result.reason);
   }
@@ -1682,6 +1689,9 @@ const createWindow = async (): Promise<void> => {
   };
 
   const saas = getService(SAAS_SERVICE_ID) ?? registerConnectionService(pinFirstPartyApiOrigin());
+  // #86 C9: before the saas view exists. Its renderer can call connection:create while
+  // the loader below is still awaiting, before restorePersistedConnections runs.
+  initPersistedConnections(app.getPath('userData'), startupConnections);
   const opened = saas
     ? await openConnectionView(saas.serviceId, 'app://concord/index.html', loadSaasView)
     : null;
@@ -1784,7 +1794,7 @@ app.whenReady().then(async () => {
   // late-bound, so a window re-created by 'activate' is the one they act on.
   registerWindowControlsIpc(shellWindow);
   registerVersionInfoIpc(() => broadcastPushTarget);
-  // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
+  // #86 §3.7, contract v35. The remote-SPA origin every registerIpc admission reads, then
   // connection:whoAmI/create/activate and the connection:generation push. Before
   // createWindow, so the first view's preload finds its whoAmI handler.
   setRemoteSpaOriginSource(getRemoteSpaBaseUrl);
@@ -3818,19 +3828,26 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (gotTheLock) {
   handleInviteDeepLinksFromArgv(process.argv, 'argv');
 
-  app.on('open-url', (event, url) => {
-    event.preventDefault();
-    handleInviteDeepLink(url, 'open-url');
-  });
-
-  app.on('second-instance', (_event, argv: string[]) => {
-    handleInviteDeepLinksFromArgv(argv, 'second-instance');
-    // Someone tried to run a second instance, focus our window
+  // Bring the shell window forward (restore a minimized one, then focus).
+  const focusShellWindow = (): void => {
     const win = shellWindow();
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
+  };
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    // #86 C8: a valid link has switched to the saas view; bring the window with it.
+    // A rejected or empty link changes nothing, focus included.
+    if (handleInviteDeepLink(url, 'open-url')) focusShellWindow();
+  });
+
+  app.on('second-instance', (_event, argv: string[]) => {
+    handleInviteDeepLinksFromArgv(argv, 'second-instance');
+    // Someone tried to run a second instance, focus our window
+    focusShellWindow();
   });
 } else {
   app.quit();

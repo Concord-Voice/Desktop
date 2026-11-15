@@ -1177,7 +1177,7 @@ half is `.claude/rules/media-plane.md` § "Media-rate policer (#2153)" — read 
 
 Spec §3.8 (`docs/superpowers/specs/2026-11-09-87-capture-lease-and-resource-budgets-design.md`).
 `services/voice/captureLeaseClient.ts` is a service, not a store. It wraps
-`globalThis.electron.capture` (contract 35). With no bridge, `acquire` answers `granted` and
+`globalThis.electron.capture` (contract 36). With no bridge, `acquire` answers `granted` and
 `release` does nothing, which is the pre-35 behaviour.
 
 - **Join acquires first.** The first await in `joinChannel` is `acquire('voice-join')`. It runs

@@ -80,6 +80,13 @@ Main is the trusted shell and the only authority. `desktop/src/main/shellWindow.
 - **Foreground.** Exactly one view is the foreground. `layoutViews` gives it the content area
   and calls `setVisible(false)` on every other view, after every geometry and foreground
   change.
+- **Deep links show the saas view (C8).** OS deep links (`concord://invite/…`,
+  `concord://friend/…`) are delivered to the saas primary only, so a valid one also makes the
+  saas connection the foreground through `activateConnection` (recorded in `connections.json`)
+  and `open-url` focuses the window. A rejected or empty link changes nothing. A link that
+  arrives before the window's startup restore has chosen a view makes that restore show saas
+  instead of the persisted foreground, unless another connection is activated first. Without
+  this, a link opened in front of a self-hosted connection opened its modal in a hidden view.
 - **PiP windows** are `BrowserWindow`s built on their opener's session, never on a session the
   caller names. Only the foreground connection's bound primary may open one (`pip:open` is `app-global-mutate`), so a hidden view cannot raise an always-on-top window.
   Each connection has its own PiP id namespace and open budget (RT4, RT5 below).
@@ -544,14 +551,18 @@ Each row is a security decision taken in review. The table of record is
 | `app:focusWindow` | `app-global-mutate` | RT6 |
 | `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
 | `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
+| `open-external` | `app-global-mutate` | the OS browser opens over every connection, so a hidden view must not launch phishing pages behind the visible one (C6); a PiP stays refused, as under `connection-bound` |
+| `window.open` and `will-navigate` externalization (navigation gate, no channel) | the foreground connection's bound primary only, the sender `open-external` admits; anything else is denied and nothing opens | both need no click, so without it a hidden view reached the OS browser by script after C6 closed the IPC (C6b) |
 | `media:getDesktopSources` | `app-global-mutate` | a hidden view must not enumerate capture sources |
 | `clipboard:writeText` | `app-global-mutate` | a hidden view must not replace the clipboard |
 | `tray:setStatus` | `connection-bound`; the handler keeps each connection's snapshot as its own and renders only the tray owner's, else the foreground primary's | a background snapshot is kept, not refused, because the renderer sends only on change; #87 only calls `setTrayOwner` |
+| `window:setClientBehavior` | `connection-bound`; the handler keeps one value per service and the close/minimize intercepts read the foreground service's, else the default | each view has its own stored setting, and one shared value made [X] follow whichever connection wrote last (C7); a hidden view's value applies only while it is in front |
 | `attestation:get-token`, `attestation:clear-token` | `connection-bound`, narrowed in the handler to `saas` | the token cache is minted for the `saas` control plane; a non-`saas` connection neither reads nor clears it |
 | `permission:changed` (push) | sent to the requesting connection only | a status change is not broadcast to other connections |
 | `window:getVersionString` | `app-global-read` | primaries only |
 | `app:getVersion` | `pip-scoped` | PiP documents are admitted as well as primaries |
-| `billing:open`, `spa:reloadLatest`, `spa:checkForUpdate`, `deeplink:*`, `invite:renderer-ready` | `saas-only` | first-party surfaces |
+| `spa:reloadLatest`, `spa:checkForUpdate`, `deeplink:*`, `invite:renderer-ready` | `saas-only` | first-party surfaces; none of them opens a window over the shell |
+| `billing:open` | `saas-only`, narrowed in the handler to the foreground connection; a refusal keeps the existing `untrusted sender` rejection | a first-party surface, and the billing sheet is a modal child over the shared shell window, so a hidden saas view behind a self-hosted one must not raise trusted-looking payment UI over the connection on screen (C10); a PiP stays refused (primary only) |
 | `connection:create`, `connection:activate` | `app-global-mutate` | only the foreground may open or switch a connection |
 
 ## Known gaps on this branch

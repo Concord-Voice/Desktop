@@ -65,6 +65,9 @@ server is listed, and CVNet is listed after it when the root `token-meta.json` h
 a Remember Me sign-in. Otherwise only CVNet is listed. Those older files are only
 read. Nothing is moved, rewritten or deleted.
 
+A connection added while the app is still starting, before the other views are
+restored, is written to the file with the rest.
+
 CVNet's view is always open, whether or not the file lists it. When CVNet is brought
 to the front and has no entry, an entry is added for it then, so the next launch can
 show it first. That entry decides only which view is shown first.

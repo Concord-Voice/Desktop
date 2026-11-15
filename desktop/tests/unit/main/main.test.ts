@@ -633,6 +633,24 @@ function createMockContents(): { on: Mock; setWindowOpenHandler: Mock } {
   return contents;
 }
 
+/**
+ * The saas primary's own contents, made the foreground (#86 C6b): the only document the
+ * navigation gate externalizes for. A `createMockContents()` fake is a PiP and opens
+ * nothing. Its handlers are re-installed, so read the LAST registration.
+ */
+function foregroundSaasContents(): { on: Mock; setWindowOpenHandler: Mock } {
+  const live = connectionRegistry.liveConnections().find((r) => r.serviceId === saasServiceId);
+  if (!live) throw new Error('foregroundSaasContents: no live saas connection');
+  connectionRegistry.setForeground(live.connectionId);
+  return live.webContents as never;
+}
+
+const lastWillNavigate = (contents: { on: Mock }) =>
+  contents.on.mock.calls.findLast((c: unknown[]) => c[0] === 'will-navigate')![1] as (
+    event: { preventDefault: () => void },
+    url: string
+  ) => void;
+
 // #2354: dialog calls attributable to main.ts's module load + init, captured before
 // any test can add its own. Order-independent, unlike reading the mock later.
 let dialogCallsAfterImport = -1;
@@ -6346,18 +6364,28 @@ describe('main.ts', () => {
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
       expect(webContentsCreated).toBeDefined();
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
 
-      const handlerCall = mockContents.setWindowOpenHandler.mock.calls[0];
+      const handlerCall = mockContents.setWindowOpenHandler.mock.calls.at(-1);
       expect(handlerCall).toBeDefined();
-      const handler = handlerCall[0] as (details: { url: string }) => { action: string };
+      const handler = handlerCall![0] as (details: { url: string }) => { action: string };
 
       // HTTPS opens external
       (shell.openExternal as Mock).mockClear();
       const result1 = handler({ url: 'https://example.com' });
       expect(shell.openExternal).toHaveBeenCalledWith('https://example.com');
       expect(result1.action).toBe('deny');
+
+      // #86 C6b: a PiP (not the foreground primary) is denied and opens nothing.
+      const pip = createMockContents();
+      webContentsCreated![1]({}, pip);
+      const pipHandler = pip.setWindowOpenHandler.mock.calls[0][0] as (details: {
+        url: string;
+      }) => { action: string };
+      (shell.openExternal as Mock).mockClear();
+      expect(pipHandler({ url: 'https://example.com' }).action).toBe('deny');
+      expect(shell.openExternal).not.toHaveBeenCalled();
 
       // Invalid URL is ignored
       (shell.openExternal as Mock).mockClear();
@@ -6465,11 +6493,9 @@ describe('main.ts', () => {
       const webContentsCreated = (app.on as Mock).mock.calls.find(
         (c: unknown[]) => c[0] === 'web-contents-created'
       );
-      const mockContents = createMockContents();
+      const mockContents = foregroundSaasContents();
       webContentsCreated![1]({}, mockContents);
-      const willNavigate = mockContents.on.mock.calls.find(
-        (c: unknown[]) => c[0] === 'will-navigate'
-      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+      const willNavigate = lastWillNavigate(mockContents);
 
       (shell.openExternal as Mock).mockClear();
       const event = { preventDefault: vi.fn() };
@@ -6571,11 +6597,9 @@ describe('main.ts', () => {
         const webContentsCreated = (app.on as Mock).mock.calls.find(
           (c: unknown[]) => c[0] === 'web-contents-created'
         );
-        const mockContents = createMockContents();
+        const mockContents = foregroundSaasContents();
         webContentsCreated![1]({}, mockContents);
-        const willNavigate = mockContents.on.mock.calls.find(
-          (c: unknown[]) => c[0] === 'will-navigate'
-        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+        const willNavigate = lastWillNavigate(mockContents);
 
         // Note: remoteSpaBaseUrl is null in test mock because the file-level
         // spaLoader mock returns {mode: 'bundled'} (see line ~224). With no
@@ -7877,6 +7901,64 @@ describe('#86 connection-isolated main semantics', () => {
   });
 
   describe('deep links are delivered to the saas connection only', () => {
+    // #86 C8: delivery goes to the saas view alone, so a valid OS link must also put
+    // that view on screen and bring the window forward; a rejected link changes nothing.
+    // The gate is reset on both sides: a delivered link holds the next one for
+    // DEEP_LINK_EMIT_WINDOW_MS, which would starve the tests after this one.
+    it.each(['open-url', 'second-instance'] as const)(
+      'a valid %s link brings the saas view in front of a self-hosted foreground; a rejected one changes nothing',
+      async (entry) => {
+        const { ipcMain } = await import('electron');
+        const readyCall = (ipcMain.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'invite:renderer-ready'
+        );
+        expect(readyCall, "ipcMain.on('invite:renderer-ready') was never registered").toBeDefined();
+        const reset = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const S = openFakeSelfHosted(`https://deeplink-fg-${entry}.lan`);
+        const deliver = (url: string): void => {
+          if (entry === 'open-url')
+            appOnCallbacks.get('open-url')!({ preventDefault: vi.fn() }, url);
+          else appOnCallbacks.get('second-instance')!({}, ['/app', url]);
+        };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          reset();
+          (readyCall![1] as CallbackFn)(saasEvent());
+          connectionRegistry.setForeground(S.record.connectionId);
+          mockView.setVisible.mockClear();
+          mockMainWindow.focus.mockClear();
+          mockWebContents.send.mockClear();
+
+          deliver('concord://invite/!!bad!!');
+          expect(connectionRegistry.foreground()?.connectionId).toBe(S.record.connectionId);
+          expect(mockView.setVisible).not.toHaveBeenCalled();
+          // second-instance focuses for any relaunch, link or not; open-url only for a link.
+          if (entry === 'open-url') expect(mockMainWindow.focus).not.toHaveBeenCalled();
+          expect(mockWebContents.send).not.toHaveBeenCalled();
+
+          deliver('concord://invite/MnPqRsTu');
+          expect(connectionRegistry.foreground()?.serviceId).toBe(saasServiceId);
+          expect(mockView.setVisible).toHaveBeenLastCalledWith(true);
+          expect(mockMainWindow.focus).toHaveBeenCalled();
+          expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', {
+            code: 'MnPqRsTu',
+          });
+          // The deep link is not delivered to the self-hosted view. A lease-state push (#87) is
+          // not a delivery: the former foreground is told the lease state on a switch.
+          expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual(
+            []
+          );
+        } finally {
+          warn.mockRestore();
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
+
     it('a self-hosted primary signalling ready neither receives nor drains a deep link', async () => {
       const { ipcMain } = await import('electron');
       const S = openFakeSelfHosted('https://deeplink-self.lan');
@@ -7898,13 +7980,13 @@ describe('#86 connection-isolated main semantics', () => {
         onCall('invite:renderer-ready')(S.event);
         onCall('deeplink:renderer-ready')(S.event);
         // Never to the self-hosted primary, and its signal must not count as saas readiness.
-        expect(S.wc.send).not.toHaveBeenCalled();
+        expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual([]);
         expect(mockWebContents.send).not.toHaveBeenCalledWith('invite:received', expect.anything());
 
         // The first saas primary load/ready drains the queued link to saas.
         onCall('invite:renderer-ready')(saasEvent());
         expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code: 'AbCdEfGj' });
-        expect(S.wc.send).not.toHaveBeenCalled();
+        expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual([]);
       } finally {
         connectionRegistry.disposeConnection(S.record.connectionId);
         reload_cleanup();
@@ -7958,7 +8040,9 @@ describe('#86 connection-isolated main semantics', () => {
           openUrl({ preventDefault: vi.fn() }, `concord://invite/${code}`);
           onCall('invite:renderer-ready')(S.event);
           onCall('deeplink:renderer-ready')(S.event);
-          expect(S.wc.send).not.toHaveBeenCalled();
+          expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual(
+            []
+          );
           expect(mockWebContents.send).not.toHaveBeenCalledWith(
             'invite:received',
             expect.anything()
@@ -7978,7 +8062,9 @@ describe('#86 connection-isolated main semantics', () => {
           onCall('invite:renderer-ready')(saasEvent());
 
           expect(mockWebContents.send).toHaveBeenCalledWith('invite:received', { code });
-          expect(S.wc.send).not.toHaveBeenCalled();
+          expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual(
+            []
+          );
         } finally {
           connectionRegistry.disposeConnection(S.record.connectionId);
           if (reopenedId) connectionRegistry.setForeground(reopenedId);

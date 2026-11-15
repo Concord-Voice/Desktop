@@ -2900,8 +2900,10 @@ static void test_silence_lateFirstSampleClearsAnAlreadyLatchedSilence() {
 // With captureStartNs_ == 0 the budget comparison reduces to
 // `timestampNs >= kSilenceBudgetNs`, so deleting `captureStartNs_ +` from it
 // changes nothing any of them can see -- a surviving mutant, and not a harmless
-// one. Production seeds reset(uv_hrtime()) and stamps from mach_absolute_time,
-// both ~1e13-1e14 ns since boot, so under that mutant EVERY capture latches on
+// one. Production seeds reset(uv_hrtime()) and stamps from mach_continuous_time
+// (the macOS tap moves Core Audio's mach_absolute_time host stamps into that
+// domain, the one uv_hrtime reads on Electron 45), both ~1e13-1e14 ns since
+// boot, so under that mutant EVERY capture latches on
 // its first callback and reports the exact opposite of reality for every user
 // on every share.
 //

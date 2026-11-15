@@ -5,7 +5,7 @@
  * is the mistake this module's existence is meant to prevent.
  *
  * FOUR FENCES, in this order, and the order is the design:
- *   1. sender frame   -- read on the FIRST statement (A4). Since IPC contract v34
+ *   1. sender frame   -- read on the FIRST statement (A4). Since IPC contract v35
  *                        (#86): `app-global-mutate` admission (the foreground
  *                        connection's primary), then `isOwnerPrimaryFrame` for the
  *                        connection the share is bound to, then the capture-lease holder

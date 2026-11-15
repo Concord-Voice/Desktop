@@ -331,7 +331,10 @@ import type {
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.traySetStatus === 'function'`, and a shell
  *        below 33 keeps its static Open/Quit tray. Capability, not demand.
- * - v34: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
+ * - v34: SSO `complete-link` may return an MFA challenge; the existing
+ *        `sso:completeMFA` bridge verifies it and keeps refresh custody in main.
+ *        No new channel or server SPA minimum is required.
+ * - v35: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
  *        registers through `registerIpc` behind an admission class. New:
  *        `connection:whoAmI` (sendSync, once at preload evaluation → the
  *        document's `ConnectionIdentity` or null), `connection:create` (foreground
@@ -349,7 +352,7 @@ import type {
  *        `electron.connection` bridge runs the legacy single-connection path, and
  *        only a bridge that answers null renders "connection unavailable".
  *        Capability, not demand.
- * - v35: Capture lease (#87, spec 2026-11-09 §3.9). Two invokes, both
+ * - v36: Capture lease (#87, spec 2026-11-09 §3.9). Two invokes, both
  *        `connection-bound` with an explicit refusal: `capture:acquire`
  *        (`{ intent }` -> `CaptureAcquireResult`; an admission refusal maps to
  *        `rejected` with `not-foreground` kept and every other reason
@@ -359,7 +362,7 @@ import type {
  *        until superseded) and `capture:leaseRevoked` (`CaptureLeaseRevoked`, to
  *        the holder only, no replay). Changed semantics, no shape change:
  *        `media:getDesktopSources` returns `[]` to a non-holder; `audiocap:start`
- *        uses the holder gate in place of v34's refuse-while-owned rule;
+ *        uses the holder gate in place of the refuse-while-owned rule;
  *        `tray:setStatus` is stored per connection and applied for the displayed
  *        one; `tray:action` routes to the displayed connection;
  *        `permission:changed` also goes to the holder; `sso:startLoopback`
@@ -367,9 +370,9 @@ import type {
  *
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell
- *        below 35 keeps today's behaviour. Capability, not demand.
+ *        below 36 keeps today's behaviour. Capability, not demand.
  */
-export const IPC_CONTRACT_VERSION = 35;
+export const IPC_CONTRACT_VERSION = 36;
 
 export type {
   CaptureAcquireResult,
@@ -474,7 +477,7 @@ export type SelfHostedProbeResult =
       code: string;
       message: string;
     }
-  // #86 (contract v34, additive): a probe from one connection's view of ANOTHER
+  // #86 (contract v35, additive): a probe from one connection's view of ANOTHER
   // approved origin opens that origin in its own connection and activates it. The
   // probing view is never re-homed, so it receives no apiBase to navigate to.
   | { status: 'opened-in-connection'; serviceId: ServiceId };

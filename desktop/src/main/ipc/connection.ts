@@ -1,4 +1,4 @@
-// connection:* channels, IPC contract v34 (spec 2026-11-09-86-connection-context-isolation
+// connection:* channels, IPC contract v35 (spec 2026-11-09-86-connection-context-isolation
 // §3.7, §3.9).
 //
 //   connection:whoAmI      sendSync, read ONCE at preload evaluation. A synchronous map

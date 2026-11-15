@@ -1,5 +1,7 @@
 # Connection Context Isolation (Desktop #86) — Final Spec
 
+> **Contract number (as built):** this design calls the new contract v34. Main used v34 first, for the SSO MFA challenge, so this work shipped as `IPC_CONTRACT_VERSION` **35**. Every "v34" below means v35.
+
 **Intended repo path:** `docs/superpowers/specs/2026-11-09-86-connection-context-isolation-design.md` (Desktop). Committed by the implementing agent; the architect's worktree was read-only.
 **Issue:** Concord-Voice/Desktop#86 — child of Self-Hosted#59. **Scope:** #86 only. UI is #88, unified projections #89, capture arbitration #87.
 **Status:** Final (Phase 2 reconciliation, 2026-11-09). ADR number 0051 provisional — re-grep `docs/adr` across every org checkout immediately before merge (highest in use on 2026-11-09: 0050).

@@ -1,7 +1,7 @@
 /**
  * Capture lease client (#87 §3.8) — a service, not a store.
  *
- * Wraps the preload bridge `globalThis.electron.capture` (contract 35). A shell below
+ * Wraps the preload bridge `globalThis.electron.capture` (contract 36). A shell below
  * 35 has no `capture` key: `acquire` then answers `granted` and `release` is a no-op,
  * which is today's behaviour. Main authorises everything; this module only forwards an
  * intent and maps the answers for the renderer.
@@ -81,7 +81,7 @@ interface CaptureBridge {
   onLeaseRevoked: (callback: (revoked: CaptureLeaseRevoked) => void) => () => void;
 }
 
-// Typed Partial: a shell below contract 35 lacks the key, whatever the static type says.
+// Typed Partial: a shell below contract 36 lacks the key, whatever the static type says.
 function bridge(): Partial<CaptureBridge> | undefined {
   return globalThis.electron?.capture as Partial<CaptureBridge> | undefined;
 }

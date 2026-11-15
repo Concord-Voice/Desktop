@@ -110,7 +110,7 @@ const GENERATION_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * #86 §3.7 (contract v34): which connection this document belongs to. ONE sendSync at
+ * #86 §3.7 (contract v35): which connection this document belongs to. ONE sendSync at
  * preload evaluation, before any renderer module runs. Main answers from its own sender
  * binding, never from anything the page sends, and the answer is re-validated with the
  * shared exact-key codec. Cached for the document's lifetime; only a NEWER generation
@@ -163,7 +163,7 @@ contextBridge.exposeInMainWorld('electron', {
   // here is acceptable because the read-only surface is bounded.
   getBuildTag: () => ipcRenderer.invoke('app:getBuildTag') as Promise<string>,
 
-  // #86 §3.7 (contract v34). Feature-detect the namespace: absent means a pre-34 shell
+  // #86 §3.7 (contract v35). Feature-detect the namespace: absent means a pre-35 shell
   // and the legacy single-connection path; `whoAmI() === null` means no connection.
   connection: {
     whoAmI: (): ConnectionIdentity | null => connectionIdentity,
@@ -587,8 +587,8 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
-   * The capture lease (#87 §3.9, contract 35). Feature-detect
-   * `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell below 35 keeps
+   * The capture lease (#87 §3.9, contract 36). Feature-detect
+   * `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell below 36 keeps
    * today's behaviour. The invokes AUTHORISE NOTHING here: they forward a fresh
    * `{ intent }` and nothing else, and main resolves the connection, the holder and every
    * refusal from its own binding.
@@ -929,9 +929,9 @@ export interface ElectronAPI {
   getBuildTag: () => Promise<string>;
 
   /**
-   * #86 §3.7 (contract v34). `whoAmI` is the identity main gave this document at preload
+   * #86 §3.7 (contract v35). `whoAmI` is the identity main gave this document at preload
    * evaluation; `onGenerationChanged` delivers only newer generations of that same
-   * connection. A pre-34 shell has no `connection` namespace at all.
+   * connection. A pre-35 shell has no `connection` namespace at all.
    */
   connection: {
     whoAmI: () => ConnectionIdentity | null;
@@ -1123,7 +1123,7 @@ export interface ElectronAPI {
   traySetStatus: (s: TrayStatusSnapshot) => Promise<boolean>;
   onTrayAction: (callback: (action: TrayAction) => void) => () => void;
 
-  // Capture lease (#87 §3.9, contract 35). `onLeaseChanged` replays the last validated
+  // Capture lease (#87 §3.9, contract 36). `onLeaseChanged` replays the last validated
   // state on subscribe; `onLeaseRevoked` does not.
   capture: {
     acquire: (input: CaptureAcquireInput) => Promise<CaptureAcquireResult>;
