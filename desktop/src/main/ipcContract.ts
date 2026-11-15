@@ -331,7 +331,10 @@ import type {
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.traySetStatus === 'function'`, and a shell
  *        below 33 keeps its static Open/Quit tray. Capability, not demand.
- * - v34: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
+ * - v34: SSO `complete-link` may return an MFA challenge; the existing
+ *        `sso:completeMFA` bridge verifies it and keeps refresh custody in main.
+ *        No new channel or server SPA minimum is required.
+ * - v35: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
  *        registers through `registerIpc` behind an admission class. New:
  *        `connection:whoAmI` (sendSync, once at preload evaluation → the
  *        document's `ConnectionIdentity` or null), `connection:create` (foreground
@@ -350,7 +353,7 @@ import type {
  *        only a bridge that answers null renders "connection unavailable".
  *        Capability, not demand.
  */
-export const IPC_CONTRACT_VERSION = 34;
+export const IPC_CONTRACT_VERSION = 35;
 
 /** `connection:create` reply (#86 §3.7). The renderer never learns more than the reason. */
 export type ConnectionCreateResult =
@@ -448,7 +451,7 @@ export type SelfHostedProbeResult =
       code: string;
       message: string;
     }
-  // #86 (contract v34, additive): a probe from one connection's view of ANOTHER
+  // #86 (contract v35, additive): a probe from one connection's view of ANOTHER
   // approved origin opens that origin in its own connection and activates it. The
   // probing view is never re-homed, so it receives no apiBase to navigate to.
   | { status: 'opened-in-connection'; serviceId: ServiceId };

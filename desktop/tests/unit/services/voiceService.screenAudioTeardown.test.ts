@@ -644,6 +644,14 @@ describe('screen-audio interrupt handling (#3394 PR 2 T5a)', () => {
   });
 
   it('an interrupt for the live generation retires audio only, closes zero audiocap hosts, and marks the share interrupted', async () => {
+    // Baselines taken AFTER beforeEach setup (which legitimately started a host, built a
+    // bridge and produced the audio track), so the post-interrupt assertions measure
+    // only what the interrupt itself caused.
+    const produceCallsBefore = svc.produceEncrypted.mock.calls.length;
+    const hostStartsBefore = (globalThis.electron.audiocap.start as ReturnType<typeof vi.fn>).mock
+      .calls.length;
+    const bridgesBuiltBefore = vi.mocked(createScreenAudioBridge).mock.calls.length;
+
     await deliverLiveInterrupt('child-crash');
 
     // The audio half was really retired -- so the "keeps the video live" and
@@ -655,6 +663,7 @@ describe('screen-audio interrupt handling (#3394 PR 2 T5a)', () => {
     expect(screenProducer.close).not.toHaveBeenCalled();
     expect(videoTrack.stop).not.toHaveBeenCalled();
     expect(stream.getVideoTracks()).toHaveLength(1);
+    expect(stream.getAudioTracks()).toHaveLength(0);
     // Zero audiocap:stop invokes: an interrupt releases the bridge, it does not run
     // the full `stopScreenAudioHost()` teardown -- that distinction is the whole
     // reason `releaseScreenAudioBridge()` exists as its own method in the plan.
@@ -666,6 +675,14 @@ describe('screen-audio interrupt handling (#3394 PR 2 T5a)', () => {
       generation: GENERATION,
       overrun: 0,
     });
+
+    // Video-only afterwards: nothing re-acquires system audio. No screen-audio producer
+    // remains, and the interrupt started no capture host, built no bridge and produced
+    // nothing -- so no system-mix track can reach the share.
+    expect(svc.producers.has('screen-audio')).toBe(false);
+    expect(svc.produceEncrypted).toHaveBeenCalledTimes(produceCallsBefore);
+    expect(globalThis.electron.audiocap.start).toHaveBeenCalledTimes(hostStartsBefore);
+    expect(createScreenAudioBridge).toHaveBeenCalledTimes(bridgesBuiltBefore);
   });
 
   it('an interrupt for an older generation changes nothing', async () => {

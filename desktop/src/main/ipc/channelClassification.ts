@@ -12,12 +12,12 @@
 //
 // Changing a row is a security decision: a wider class lets a background or
 // self-hosted connection reach the channel. Record the reason in electron.md
-// § IPC contract v34.
+// § IPC contract v35.
 
 import type { AdmissionClass } from './registry';
 
 export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.freeze({
-  // connection:* (contract v34). `connection:whoAmI` is the one `ipcMain.on` +
+  // connection:* (contract v35). `connection:whoAmI` is the one `ipcMain.on` +
   // `returnValue` channel in ipc/connection.ts; it never goes through registerIpc,
   // and its row records who may read an identity (a bound PiP or primary).
   'connection:whoAmI': 'pip-scoped',

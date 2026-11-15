@@ -204,7 +204,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         onConnect(result.apiBase);
         return;
       }
-      // #86 Task 7B (contract v34): main opened the approved server in its own
+      // #86 Task 7B (contract v35): main opened the approved server in its own
       // connection and activated it. This view is never re-homed, so it only settles.
       if (result.status === 'opened-in-connection') {
         setState({ k: 'idle' });

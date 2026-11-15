@@ -6,7 +6,7 @@ import {
 /**
  * #86 §3.10 renderer boot contract: which connection this document belongs to.
  *
- * - `legacy`: the shell exposes no `connection.whoAmI` (a pre-v34 shell). The
+ * - `legacy`: the shell exposes no `connection.whoAmI` (a pre-v35 shell). The
  *   single-connection path applies and `runtimeServerBase` stays mutable.
  * - `connection`: the preload's cached identity, re-validated with the shared
  *   exact-key codec. The document's server base is fixed to `identity.apiOrigin`.
@@ -24,7 +24,7 @@ export type BootConnection =
 let memo: BootConnection | undefined;
 
 function readBootConnection(): BootConnection {
-  // Typed as always present, but a pre-v34 shell has no `connection` namespace and
+  // Typed as always present, but a pre-v35 shell has no `connection` namespace and
   // a plain browser has no bridge at all. Only an absent method selects legacy.
   const bridge = globalThis.electron as { connection?: { whoAmI?: unknown } } | undefined;
   const whoAmI = bridge?.connection?.whoAmI;

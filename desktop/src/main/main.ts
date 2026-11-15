@@ -1750,7 +1750,7 @@ app.whenReady().then(async () => {
   // late-bound, so a window re-created by 'activate' is the one they act on.
   registerWindowControlsIpc(shellWindow);
   registerVersionInfoIpc(() => broadcastPushTarget);
-  // #86 §3.7, contract v34. The remote-SPA origin every registerIpc admission reads, then
+  // #86 §3.7, contract v35. The remote-SPA origin every registerIpc admission reads, then
   // connection:whoAmI/create/activate and the connection:generation push. Before
   // createWindow, so the first view's preload finds its whoAmI handler.
   setRemoteSpaOriginSource(getRemoteSpaBaseUrl);

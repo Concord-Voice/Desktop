@@ -301,7 +301,7 @@ export default [
           selector:
             'CallExpression[callee.type="MemberExpression"][callee.object.name="ipcMain"][callee.property.name=/^(handle|on|once|handleOnce)$/]',
           message:
-            'Register IPC channels with registerIpc (src/main/ipc/registry.ts), never raw ipcMain.handle/on/once/handleOnce: the registry admits the sender by its connection binding and the channel must be classified in ipc/channelClassification.ts. See electron.md § IPC contract v34.',
+            'Register IPC channels with registerIpc (src/main/ipc/registry.ts), never raw ipcMain.handle/on/once/handleOnce: the registry admits the sender by its connection binding and the channel must be classified in ipc/channelClassification.ts. See electron.md § IPC contract v35.',
         },
       ],
     },

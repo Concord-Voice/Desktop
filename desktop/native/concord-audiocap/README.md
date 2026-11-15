@@ -195,8 +195,11 @@ gitignored — it is per-platform build output, never committed.
 **The synthetic source is opt-in at CONFIGURE time, and that is constraint C10.**
 
 ```bash
-npx node-gyp rebuild -- -Daudiocap_synthetic=1   # adds concord_audiocap_synthetic.node
+npm run build:native -- --synthetic   # adds concord_audiocap_synthetic.node
 ```
+
+Do not call `node-gyp` directly. `desktop/scripts/build-native.mjs` passes
+`-Daudiocap_synthetic=1` itself, and a raw call drops the Electron runtime headers.
 
 A default build produces one target. The CI/test variant is a second `.node` with a
 second name, and `index.js` can only ever resolve `concord_audiocap.node` — so the
@@ -244,6 +247,12 @@ clang++ -std=c++17 -Wall -Wextra -Werror -fobjc-arc -pthread -I. \
     test/macos_partial_handle_test.mm -framework Foundation -framework CoreAudio \
     -o /tmp/macos_partial_handle_test && /tmp/macos_partial_handle_test
 ```
+
+The same file checks that the tap stamps callbacks in the `mach_continuous_time` domain, the one
+`uv_hrtime` reads on Electron 45. On a Mac that has not slept since boot the two clocks agree and
+that check reports VACUOUS. Add `-DCONCORD_TEST_SLEPT_SECONDS=5` to the command above to run it
+against a simulated 5 s of sleep, where it fails if either branch of `nowStampNs` is in the wrong
+domain.
 
 `rt_contract_test.cc` is the backend-contract, gate and teardown suite; it uses a bare
 `CHECK` macro and no framework, and **only its exit status is a signal**. Its printed
@@ -300,6 +309,54 @@ Two findings came out of it:
   deals in it returns an identical answer — UB under the standard, but not a
   behavioural defect. The wrap-safety property is genuinely broken by comparing
   _absolute_ values (`|| w < r`), and that is what the rollover test pins.
+
+## Transport probe
+
+`desktop/scripts/audiocap-transport-probe/` runs main, the capture utility process and a sandboxed
+renderer on production code, with the synthetic source, and checks that every quantum reaches the
+bridge's write bit-exact. It also proves that a slow consumer drops cleanly and that a killed
+capture child raises exactly one crash interrupt. Its isolation pass checks that the page's main
+world has no `require` or `process`, and, on macOS only, that `lsof` lists the staged addon in the
+capture process and in neither main nor the renderer. On other platforms that half is skipped and
+the pass prints `skip lsof`.
+
+Build, from `desktop/`:
+
+```bash
+npm run build:native -- --synthetic
+npm run build:main
+npm run build:preload
+```
+
+Run, from `desktop/`:
+
+```bash
+./node_modules/.bin/electron scripts/audiocap-transport-probe             # standing passes
+./node_modules/.bin/electron scripts/audiocap-transport-probe --measure   # adds latency and heap
+./node_modules/.bin/electron scripts/audiocap-transport-probe --measure --seconds=10
+```
+
+`--seconds=N` shortens each measured window for iteration. `N` is a positive integer, and the flag
+needs `--measure`; the record uses 60.
+
+Each `--inject=` value breaks one thing on purpose, so a pass that cannot fail is caught:
+
+| Value | What it does | What must fail |
+|---|---|---|
+| `bitflip` | Flips one bit in each quantum before the bit-exact check | The content check (exit 1) |
+| `nostall` | Makes the renderer stall return at once | The slow-consumer pass, which sees no drop (exit 1) |
+| `measuredrop` | Adds a 300 ms stall inside the latency window; needs `--measure` | The latency pass, which is void (exit 2) |
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Every invariant held |
+| 1 | An invariant or limit was violated |
+| 2 | The probe could not run, including a void measurement or a cleanup step that failed |
+
+`--measure` runs only on a developer Mac with the probe window visible and unobstructed. It prints
+one JSON block between `=== MEASURE JSON BEGIN ===` and `=== MEASURE JSON END ===`. It is never a
+CI gate. The recorded figures are in ADR-0043, "As-built addendum: issue 73 closeout (transport
+measurements)".
 
 ## Why the ring is slot-oriented
 

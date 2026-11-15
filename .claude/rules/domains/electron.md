@@ -959,7 +959,7 @@ Capability, not demand (#2967).
   `audiocap:stop` spares the windowless probe for the same reason the kill does: reaping it
   before its `hello` memoizes `child-crash` and leaves the capability snapshot `null` for the
   session, and nothing but a per-process share could ever re-set it.
-  **Since v34 (#86) every connection's view is wired, so a loss is scoped to its connection.**
+  **Since v35 (#86) every connection's view is wired, so a loss is scoped to its connection.**
   `openConnectionView` calls `wireAudiocapRendererLoss(contents, connectionId)`, and
   `killAudiocapCapture(connectionId)` ends the live capture only when the session's owner
   binding names that connection; an unowned capture (a host-level start) is ended by any loss,
@@ -971,7 +971,7 @@ Capability, not demand (#2967).
   window's main frame. Admission is now `requireTrustedSender` AND `event.sender` is
   `getMainWindow().webContents` AND the sender frame is that webContents' main frame (by
   `frameTreeNodeId`), in one helper both handlers share, so admission scope equals watch scope.
-  **Since v34 (#86) the owner is a connection, not the main window.** `audiocap:start` is
+  **Since v35 (#86) the owner is a connection, not the main window.** `audiocap:start` is
   `app-global-mutate` (the foreground connection's bound primary main frame); the handler binds
   the share to that connection (`bindOwner('audiocap', ref)`) and refuses `protocol-fault` while
   another connection owns a live share, so a start never supersedes it. `audiocap:stop` is
@@ -983,10 +983,10 @@ Capability, not demand (#2967).
   session exists — so a
   reload or crash inside it used to let the start fork a tap for a document that was gone. Every
   renderer-loss hook bumps `audiocapRendererLossEpoch(connectionId)` for its own view's connection
-  (one count per connection since v34, #86), and the handler reads the OWNER's count: it refuses
+  (one count per connection since v35, #86), and the handler reads the OWNER's count: it refuses
   `target-unresolved` if that moved (beside `shareOperationEpoch`), so another connection's reload
   during the enumeration does not refuse the start. It then re-runs the admission fence, since
-  `senderFrame` is `null` once the requesting document has navigated. Since v34 that re-run is
+  `senderFrame` is `null` once the requesting document has navigated. Since v35 that re-run is
   `isOwnerPrimaryFrame` and then `isOwnerForeground`, so a start whose connection went to the
   background during the enumeration is refused `protocol-fault`.
 
@@ -1073,8 +1073,8 @@ keeps its static Open/Quit tray. Capability, not demand.
   snapshot after 100 ms: the sender check; a 20/s token
   bucket (one per connection since #86); `firstInvalidField`, the exact-key guard (plain object, own keys exactly the expected
   set, data properties only, closed enums). A malformed snapshot is logged once per session
-  with the field NAME only. Through v33 the sender check was `requireTrustedSender` AND the
-  main window's `webContents` AND its main frame. **Since v34 (#86)** `tray:setStatus` is
+  with the field NAME only. Through v34 the sender check was `requireTrustedSender` AND the
+  main window's `webContents` AND its main frame. **Since v35 (#86)** `tray:setStatus` is
   `connection-bound`, so the registry admits only a bound primary main frame (a PiP is refused
   there). The handler keeps each connection's last accepted snapshot as that connection's own,
   and the tray renders only its SOURCE's: the bound owner's, sent at the generation
@@ -1115,7 +1115,7 @@ keeps its static Open/Quit tray. Capability, not demand.
   builds and sends a synthetic snapshot through the real channel. Main adds ` [dev]` to the
   tooltip when `!app.isPackaged`.
 
-### IPC contract v34 — connection context isolation (#86)
+### IPC contract v35 — connection context isolation (#86)
 
 `IPC_CONTRACT_VERSION` moved 33 → 34. `SPA_MIN_CONTRACT` stays **19**: a renderer that
 finds no `electron.connection` namespace runs the legacy single-connection path, and only a
@@ -1257,9 +1257,9 @@ gets no paid controls; there is no OS-browser fallback (spec R41). Capability, n
 - **One renderer → main invoke, `billing:open`.** Request `{ kind: 'checkout' | 'portal', url }`;
   reply `{ result }`, one of `success`, `cancel`, `already_subscribed`, `returned`, `closed`,
   `load_failed` or `busy`. The handler (`src/main/ipc/billing.ts`) checks the sender first (since
-  v34, #86: `billing:open` is `saas-only`, so only the `saas` connection's bound primary main
+  v35, #86: `billing:open` is `saas-only`, so only the `saas` connection's bound primary main
   frame is admitted, by `requireSaasPrimary`, and a refused sender rejects the invoke; through
-  v33 it was `requireTrustedSender`), then that the saas connection is the FOREGROUND one (#86
+  v34 it was `requireTrustedSender`), then that the saas connection is the FOREGROUND one (#86
   C10: the sheet is a modal child over the shared shell, so a hidden saas view behind a
   self-hosted connection must not raise payment UI over the one on screen; the check runs in the
   admission tick, `openBillingWindow` builds its window synchronously, and no `await` may come
@@ -1346,7 +1346,7 @@ this file's job is only to record the version number and point there, not to dup
 
 ### Sender-frame validation: who validates and who doesn't
 
-**Since contract v34 (#86), `registerIpc` is the only registration path and
+**Since contract v35 (#86), `registerIpc` is the only registration path and
 `requireConnectionSender` the only path to custody.** A handler receives the
 `ConnectionSender` the registry admitted, and the custody it may touch is
 `sender.custody`, taken from the main-held binding. A renderer-supplied `apiBase` is at most
@@ -1355,7 +1355,7 @@ invariant is `defaultSession` ⇒ `saas`: only the `saas` connection and its PiP
 `defaultSession`, `openConnectionView` refuses a non-saas connection that reaches it (R1),
 and every self-hosted service gets its own `fromPath` session. Every handler is admitted by
 `registerIpc` (#86 Task 7B); the frame checks described below are what that admission applies
-per service kind; see § "IPC contract v34".
+per service kind; see § "IPC contract v35".
 
 **Custody has no pointer path (#86 Task 7B, S1/S3).** The Task 5 shims (`liveCustody`,
 `restoreTargetCustody`, `custodyForApiBase`, and the module-level `setProactiveRefreshCallback`
@@ -1368,11 +1368,11 @@ custody from an explicit service record: `powerMonitor 'resume'` iterates the li
 not the custody's own `apiOrigin`, so a tampered profile directory cannot send its refresh token
 to another server.
 
-The rule "validate all IPC senders" applies primarily to handlers that reach a privileged side effect (filesystem, keychain, network, shell, OS notification, screen capture, OAuth flow). **The instruction is § "IPC contract v34": register the handler with `registerIpc` under its `CHANNEL_CLASSES` row and let the admission class decide the sender; do not hand-roll a frame check inside a handler.** The helpers in `desktop/src/main/ipc/frameValidation.ts` are now the internals of that admission, not a second way to validate a sender: `requireConnectionSender` (`ipc/connectionSender.ts`) reads the sender with `senderMainFrame` and checks its URL with `isPermittedFrameUrlForKind`, which applies the `isPermittedFrameUrl` allowlist below to a `saas` connection and only `app://concord` or the local dev server to a `selfhost` one. The one direct caller outside that path is `connectionSession.ts`, which uses `isPermittedFrameUrlForKind` for the web clipboard permissions. `requireTrustedSender` has no production caller left; only `tests/unit/main/frameValidation.test.ts` still imports it. `openExternal.ts`, `sso.ts`, `attestation.ts` and `saveImage.ts` (the #1729 `image:saveAs` native Save-As — the canonical filesystem-write example) all admit through `registerIpc`. Under #86 `image:saveAs` is `app-global-mutate`: only the foreground connection's bound primary may raise the Save dialog, because it is modal over the shared window and the path the user picks receives the sender's bytes. A refused sender, `not-foreground` included, gets the existing `untrusted-sender` result. `open-external` is `app-global-mutate` for the same reason (#86 C6): the OS browser opens over every connection, so only the foreground connection's bound primary may launch it, and a hidden connection cannot open phishing pages behind the visible one. A PiP is refused, as it was under `connection-bound` (primary only), and every refusal keeps the existing `{ ok: false, reason: 'untrusted-sender' }` result. The dedicated `isValidPipOpenSender` covers the PiP-creation surface. `isPermittedFrameUrl` accepts five frame origins — `file://`, `app://concord`, `spa-cache://concord`, `http://localhost:*`, and the validated remote-SPA origin; the bundled `app://concord` origin was added after the #806 deferral, and the signed-LKG-cache origin `spa-cache://concord` by #1880 (see § "app://" below).
+The rule "validate all IPC senders" applies primarily to handlers that reach a privileged side effect (filesystem, keychain, network, shell, OS notification, screen capture, OAuth flow). **The instruction is § "IPC contract v35": register the handler with `registerIpc` under its `CHANNEL_CLASSES` row and let the admission class decide the sender; do not hand-roll a frame check inside a handler.** The helpers in `desktop/src/main/ipc/frameValidation.ts` are now the internals of that admission, not a second way to validate a sender: `requireConnectionSender` (`ipc/connectionSender.ts`) reads the sender with `senderMainFrame` and checks its URL with `isPermittedFrameUrlForKind`, which applies the `isPermittedFrameUrl` allowlist below to a `saas` connection and only `app://concord` or the local dev server to a `selfhost` one. The one direct caller outside that path is `connectionSession.ts`, which uses `isPermittedFrameUrlForKind` for the web clipboard permissions. `requireTrustedSender` has no production caller left; only `tests/unit/main/frameValidation.test.ts` still imports it. `openExternal.ts`, `sso.ts`, `attestation.ts` and `saveImage.ts` (the #1729 `image:saveAs` native Save-As — the canonical filesystem-write example) all admit through `registerIpc`. Under #86 `image:saveAs` is `app-global-mutate`: only the foreground connection's bound primary may raise the Save dialog, because it is modal over the shared window and the path the user picks receives the sender's bytes. A refused sender, `not-foreground` included, gets the existing `untrusted-sender` result. `open-external` is `app-global-mutate` for the same reason (#86 C6): the OS browser opens over every connection, so only the foreground connection's bound primary may launch it, and a hidden connection cannot open phishing pages behind the visible one. A PiP is refused, as it was under `connection-bound` (primary only), and every refusal keeps the existing `{ ok: false, reason: 'untrusted-sender' }` result. The dedicated `isValidPipOpenSender` covers the PiP-creation surface. `isPermittedFrameUrl` accepts five frame origins — `file://`, `app://concord`, `spa-cache://concord`, `http://localhost:*`, and the validated remote-SPA origin; the bundled `app://concord` origin was added after the #806 deferral, and the signed-LKG-cache origin `spa-cache://concord` by #1880 (see § "app://" below).
 
 The registry admits before any side effect and refuses a missing, untrusted, detached or non-main frame. The capture, hardware-settings, update and developer-mode handlers in `main.ts` and every OS-permission handler in `permissionManager.ts` register through it too: the setters, `media:getDesktopSources`, `update:check`/`update:download` and `permission:request`/`permission:openSettings` are `app-global-mutate`, and the getters, `permission:check` and `permission:checkAll` are `app-global-read`. `clipboard:writeText` is `app-global-mutate` (#199 re-expressed for #86: the foreground connection's bound primary main frame) and REJECTS a refused sender or a non-string payload, so a failed Cut keeps its selection. The web clipboard permissions (`clipboard-sanitized-write`, `clipboard-read`) are decided in `connectionSession.ts` before the capture arbiter, which cannot widen them: only a bound primary of the foreground connection, from its main frame, at a URL permitted for its service kind; an off-document check denies them. Lifecycle actions (`window:quit`, `app:quit`, `app:relaunch`, and `update:install`) are `app-global-mutate` (#198 re-expressed for #86): only the foreground connection's bound primary main frame is admitted, so a PiP, a background view, a subframe and an unbound or replaced webContents fail closed. `pip:open` (#178) admits only the foreground connection's bound primary main frame (`app-global-mutate`, so a hidden view cannot raise an always-on-top window; the PiP belongs to that opener connection), accepts only its closed option schema, and rejects a refused or failed open instead of resolving. The opener's frame is checked with `isValidPipOpenSender` against its OWN service's remote origin (`remoteSpaUrlForService` in `main.ts`): the current remote SPA for `saas`, and `null` for a self-hosted opener, which runs on `app://concord` whatever the saas remote-SPA state is, so its PiP loads the bundled renderer. `resolvePipSender` checks an owner frame the same way. Checking every opener against the saas origin refused every self-hosted PiP in a packaged build while the remote SPA was active. Its budget is per connection under a process-wide ceiling (#86 RT5): at most 12 live PiP windows in the process, at most 6 held by any one connection (half the ceiling, so one connection can never leave a second without a PiP), and at most 8 new windows in 3 seconds per connection, whose rate history is dropped when the connection is disposed. The PiP id namespace is per connection too (#86 RT4): main keys each PiP `<owner connectionId>:<id>` and every lookup builds the key from the SENDER's own connectionId, so another connection's PiP of the same id is exactly an absent one: it cannot be squatted, focused, addressed or probed for. The key is unambiguous only because neither half can contain `:` (connection ids are base64url; a PiP id must pass `isPipId`, on every `pip:*` lookup as well as at open). Within a connection, PiP mutation binds each PiP ID to its creating `frameTreeNodeId`, so a second permitted frame cannot focus or mutate another frame's window. The PiP window's own validated main frame may close itself or change its always-on-top state. **`pip:session` (#3104 D6) is the strictest of the PiP handlers:** `resolvePipSender` performs the same checks and then requires `isPipMainFrame`, so the token that authenticates the renderer-side PiP RPC channel reaches only that PiP's own main frame — the OPENER frame is refused even though it passes the ownership test used by `pip:close`, because it already received the value on the `pip:opened` push. Every other outcome is `null`, which the renderer treats as "no PiP voice" and never as "proceed unauthenticated". The token is never logged: the private `BroadcastChannel` is NAMED from it (see [`frontend.md`](frontend.md) § "PiP channel authentication").
 
-**Tray and badge handlers (IPC contract v33).** `tray:setStatus` admits only the tray's owner, then a 20/s token bucket and the exact-shape guard; it is not a low-stakes exception. Through v33 the owner was the main window's own main frame (`requireTrustedSender` AND `event.sender === mainWindow.webContents` AND the sender frame is that webContents' main frame). Since v34 (#86) the channel is `connection-bound` and the handler admits the bound owner's current primary when one is named, else the foreground connection's primary (see § "IPC contract v33"). It resolves `false` only for a rate-limit drop, `true` otherwise. `app:setBadgeCount`, `app:flashFrame` and `app:focusWindow` were hardened in the same contract: each checks its sender first (`requireTrustedSender` through v33; since v34 its class, `connection-bound` for the badge and the flash and `app-global-mutate` for focus), and `app:setBadgeCount` rejects anything but a non-negative integer and clamps it to 9999, and `app:flashFrame` rejects anything but a boolean. Their refusals are silent no-ops, and their signatures are unchanged. Under #86, `app:focusWindow` is `app-global-mutate` (RT6): only the foreground connection's bound primary may restore and focus the window, so a background connection's notification click no longer focuses it. `app:flashFrame` keeps one flash request per connection (RT7), like the badge's per-connection count: `false` withdraws only the sender's own request, the window flashes while any request is outstanding, and main calls `flashFrame` only when that changes. The window's `focus` and a `disposed` generation clear requests. A `true` while the window is focused is dropped, or it would stay outstanding and swallow the next flash.
+**Tray and badge handlers (IPC contract v33).** `tray:setStatus` admits only the tray's owner, then a 20/s token bucket and the exact-shape guard; it is not a low-stakes exception. Through v33 the owner was the main window's own main frame (`requireTrustedSender` AND `event.sender === mainWindow.webContents` AND the sender frame is that webContents' main frame). Since v35 (#86) the channel is `connection-bound` and the handler admits the bound owner's current primary when one is named, else the foreground connection's primary (see § "IPC contract v33"). It resolves `false` only for a rate-limit drop, `true` otherwise. `app:setBadgeCount`, `app:flashFrame` and `app:focusWindow` were hardened in the same contract: each checks its sender first (`requireTrustedSender` through v33; since v35 its class, `connection-bound` for the badge and the flash and `app-global-mutate` for focus), and `app:setBadgeCount` rejects anything but a non-negative integer and clamps it to 9999, and `app:flashFrame` rejects anything but a boolean. Their refusals are silent no-ops, and their signatures are unchanged. Under #86, `app:focusWindow` is `app-global-mutate` (RT6): only the foreground connection's bound primary may restore and focus the window, so a background connection's notification click no longer focuses it. `app:flashFrame` keeps one flash request per connection (RT7), like the badge's per-connection count: `false` withdraws only the sender's own request, the window flashes while any request is outstanding, and main calls `flashFrame` only when that changes. The window's `focus` and a `disposed` generation clear requests. A `true` while the window is focused is dropped, or it would stay outstanding and swallow the next flash.
 
 **Low-stakes UI-state IPC may legitimately omit `isPermittedFrameUrl` validation when ALL of the following hold:**
 

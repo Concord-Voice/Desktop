@@ -31,7 +31,15 @@ import LoadingSpinner from './LoadingSpinner';
 import { useSSOStore } from '../../stores/auth/ssoStore';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { useE2EEStore } from '../../stores/auth/e2eeStore';
-import { completeSSOLink, abandonSSOReservation } from '../../services/system/ssoService';
+import { useMFAChallengeStore } from '../../stores/auth/mfaChallengeStore';
+import {
+  completeSSOLink,
+  abandonSSOReservation,
+  type SSOCompletionResult,
+  type SSOLinkCompletionResult,
+} from '../../services/system/ssoService';
+import { recordChallengeIssuer } from '../../services/system/challengeIssuer';
+import { methodsForOptions, webauthnOptionsOrNull } from '../../utils/webauthnOptions';
 import { revokeAbortedSession, type AbortedSessionRef } from '../../services/system/apiClient';
 import {
   captureRuntimeServerSelection,
@@ -108,6 +116,43 @@ const SSOAccountLinkConfirm: React.FC = () => {
       if (issuedSession) await revokeAbortedSession(issuedSession);
     };
 
+    const completeLinkMFA = async (
+      result: Extract<SSOLinkCompletionResult, { kind: 'mfa_required' }>
+    ): Promise<SSOCompletionResult | null> => {
+      credentialOwner = result.credentialOwner;
+      if (!requestIsCurrent()) {
+        await cleanupIssuedSession();
+        return null;
+      }
+      setSSOState({ phase: 'mfa_required', mfaChallengeToken: result.mfaChallengeToken });
+      recordChallengeIssuer(result.mfaChallengeToken, requestSelection);
+      const webauthnOptions = webauthnOptionsOrNull(
+        result.webauthnOptions,
+        requestSelection.apiBase
+      );
+      const mfaResult = await useMFAChallengeStore
+        .getState()
+        .showChallenge(
+          result.mfaChallengeToken,
+          methodsForOptions(result.methods, webauthnOptions),
+          'sso_login',
+          result.recoveryOnlyMethods,
+          { provider: state.provider, credentialOwner: result.credentialOwner },
+          webauthnOptions,
+          result.defaultMethod
+        );
+      if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
+        if (requestIsCurrent()) {
+          void abandonSSOReservation();
+          setSSOState({ phase: 'idle' });
+        } else {
+          await cleanupIssuedSession();
+        }
+        return null;
+      }
+      return mfaResult.ssoCompletion;
+    };
+
     try {
       const result = await completeSSOLink(
         {
@@ -117,12 +162,14 @@ const SSOAccountLinkConfirm: React.FC = () => {
         },
         requestSelection
       );
+      const completion = 'kind' in result ? await completeLinkMFA(result) : result;
+      if (!completion) return;
       issuedSession = {
-        accessToken: result.accessToken,
-        sessionId: result.sessionId,
+        accessToken: completion.accessToken,
+        sessionId: completion.sessionId,
         apiBase: requestSelection.apiBase,
       };
-      credentialOwner = result.credentialOwner;
+      credentialOwner = completion.credentialOwner;
       if (!requestIsCurrent()) {
         await cleanupIssuedSession();
         return;
@@ -134,7 +181,11 @@ const SSOAccountLinkConfirm: React.FC = () => {
       useE2EEStore.getState().setNeedsSSOUnlock(true, credentialOwner);
       admittedGeneration = useAuthStore
         .getState()
-        .beginAuthLifecycleIfCurrent(requestAuthGeneration, result.accessToken, result.sessionId);
+        .beginAuthLifecycleIfCurrent(
+          requestAuthGeneration,
+          completion.accessToken,
+          completion.sessionId
+        );
       if (admittedGeneration === null) {
         await cleanupIssuedSession();
         return;

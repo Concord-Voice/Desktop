@@ -151,12 +151,23 @@ interface Svc {
   sessionBody: Record<string, unknown>;
   sessionPosts: Array<{ url: string; body: unknown }>;
   mfaVerifyPosts: number;
+  /** #223: what `complete-link` and `mfa/verify` answer on this service. */
+  linkBody?: Record<string, unknown>;
+  mfaBody?: Record<string, unknown>;
+  /** #223: the SSO client binding each provider-flow request carried, in order. */
+  bindings: Array<{ path: string; binding: string | null }>;
 }
 
 function makeServiceFetch(tag: string, svc: Svc) {
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError');
     const u = new URL(url);
+    if (/^\/api\/v1\/auth\/sso\/(google|apple)(\/session)?$/.test(u.pathname)) {
+      svc.bindings.push({
+        path: u.pathname,
+        binding: new Headers(init?.headers).get('X-Concord-SSO-Client-Binding'),
+      });
+    }
     if (u.pathname === '/api/v1/auth/sso/google') {
       // A malicious server is free to name ANY client_id, including the Concord one.
       const q = new URLSearchParams({
@@ -195,7 +206,13 @@ function makeServiceFetch(tag: string, svc: Svc) {
       svc.sessionPosts.push({ url, body: JSON.parse(String(init?.body ?? 'null')) });
       return json(svc.sessionBody);
     }
-    if (u.pathname === '/api/v1/auth/mfa/verify') svc.mfaVerifyPosts += 1;
+    if (/^\/api\/v1\/auth\/sso\/(google|apple)\/complete-link$/.test(u.pathname)) {
+      return json(svc.linkBody ?? {});
+    }
+    if (u.pathname === '/api/v1/auth/mfa/verify') {
+      svc.mfaVerifyPosts += 1;
+      return json(svc.mfaBody ?? {});
+    }
     return json({});
   });
 }
@@ -235,7 +252,7 @@ function makeCustody() {
 
 let nextWcId = 600;
 function bindConnection(origin: string, tag: string, sessionBody: Record<string, unknown>) {
-  const svc: Svc = { sessionBody, sessionPosts: [], mfaVerifyPosts: 0 };
+  const svc: Svc = { sessionBody, sessionPosts: [], mfaVerifyPosts: 0, bindings: [] };
   const fetchFn = makeServiceFetch(tag, svc);
   const { custody, stored } = makeCustody();
   const r = registerService(origin, {
@@ -497,4 +514,99 @@ describe('#86 RT1/RT2: SSO sign-in authority across connections (real provider f
     ).resolves.toMatchObject({ kind: 'error', status: 400 });
     expect(A.fetchFn).not.toHaveBeenCalled();
   });
+
+  // ------------------------------------------------------------------- #223 port
+  /** Drive A's Google sign-in to an account-link branch, then answer complete-link with MFA. */
+  async function linkChallengeOnA(): Promise<{ kind: string; credentialOwner?: number }> {
+    A.svc.sessionBody = {
+      account_link_available: true,
+      sso_token: 'link-A',
+      masked_email: 'a***@example.com',
+    };
+    A.svc.linkBody = { mfa_challenge_token: 'link-mfa-A', methods: ['totp'] };
+    A.svc.mfaBody = tokensBody('A-linked', VICTIM_USER_ID, UUID_A);
+    const aResult = handler('sso:googleSignIn')(A.event(), A_ORIGIN) as Promise<unknown>;
+    await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledTimes(1));
+    mocked.fakeHandles[0].__resolve({ code: 'code-for-A', state: 'state-A' });
+    await expect(aResult).resolves.toMatchObject({ kind: 'sso_token', branch: 'account_link' });
+    const link = { provider: 'google', ssoToken: 'link-A', password: 'p' }; // pragma: allowlist secret
+    return (await handler('sso:completeLink')(A.event(), A_ORIGIN, link)) as {
+      kind: string;
+      credentialOwner?: number;
+    };
+  }
+
+  const linkProof = (credentialOwner: number | undefined) => ({
+    provider: 'google',
+    mfaChallengeToken: 'link-mfa-A',
+    credentialOwner,
+    method: 'totp',
+    code: '123456',
+  });
+
+  it("D6 (#223): A's account-link MFA continuation is A's alone and lands in A's custody", async () => {
+    const challenge = await linkChallengeOnA();
+    expect(challenge).toMatchObject({ kind: 'mfa_challenge', mfaChallengeToken: 'link-mfa-A' });
+    expect(A.stored).toHaveLength(0);
+    const proof = linkProof(challenge.credentialOwner);
+
+    await expect(
+      handler('sso:completeMFA')(B.event(), B_ORIGIN, proof) as Promise<unknown>
+    ).resolves.toMatchObject({ kind: 'error', status: 409 });
+    await expect(
+      handler('sso:completeMFA')(B.event(), A_ORIGIN, proof) as Promise<unknown>
+    ).resolves.toMatchObject({ kind: 'error', status: 400 });
+    expect(B.svc.mfaVerifyPosts + A.svc.mfaVerifyPosts).toBe(0);
+
+    const done = await (handler('sso:completeMFA')(A.event(), A_ORIGIN, proof) as Promise<unknown>);
+    expect(done).toMatchObject({ kind: 'tokens', credentialOwner: challenge.credentialOwner });
+    expect(JSON.stringify(done)).not.toContain('rt-A-linked');
+    expect(A.stored).toEqual([expect.objectContaining({ refreshToken: 'rt-A-linked' })]);
+    expect(B.stored).toHaveLength(0);
+    expect(B.custody.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+  });
+
+  it.each(['document', 'renderer-gone'] as const)(
+    "D7 (#223): an advance of A (%s) releases A's pending account-link MFA",
+    async (reason) => {
+      const challenge = await linkChallengeOnA();
+      expect(challenge.kind).toBe('mfa_challenge');
+      advanceGeneration(A.connectionId as never, reason);
+      await expect(
+        handler('sso:completeMFA')(
+          A.event(),
+          A_ORIGIN,
+          linkProof(challenge.credentialOwner)
+        ) as Promise<unknown>
+      ).resolves.toMatchObject({ kind: 'error', status: 409 });
+      expect(A.svc.mfaVerifyPosts).toBe(0);
+      expect(A.stored).toHaveLength(0);
+    }
+  );
+
+  it.each(['sso:googleSignIn', 'sso:appleSignIn'])(
+    "B1 (#223) [%s]: each flow's client binding reaches both exchange steps on the connection's own session",
+    async (channel) => {
+      const run = async (n: number) => {
+        const result = handler(channel)(A.event(), A_ORIGIN) as Promise<unknown>;
+        await vi.waitFor(() => expect(shell.openExternal).toHaveBeenCalledTimes(n));
+        mocked.fakeHandles[n - 1].__resolve({ code: 'code-for-A', state: 'state-A' });
+        await expect(result).resolves.toMatchObject({ kind: 'tokens' });
+      };
+      await run(1);
+      await run(2);
+      expect(B.svc.bindings).toEqual([]);
+      expect(A.svc.bindings.map((b) => b.path.endsWith('/session'))).toEqual([
+        false,
+        true,
+        false,
+        true,
+      ]);
+      const [first, firstSession, second, secondSession] = A.svc.bindings.map((b) => b.binding);
+      expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(firstSession).toBe(first);
+      expect(secondSession).toBe(second);
+      expect(second).not.toBe(first);
+    }
+  );
 });

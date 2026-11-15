@@ -4,7 +4,7 @@ import { bootConnection, type BootConnection } from './bootConnection';
 // #86 §3.10: the base this document boots with. A connection document is pinned to
 // its identity's apiOrigin; an unavailable one gets an address that can never resolve
 // (RFC 6761 `.invalid`), because it must never fall back to the build-time API_BASE.
-// Only a legacy (pre-v34 shell) document starts from API_BASE and may change it.
+// Only a legacy (pre-v35 shell) document starts from API_BASE and may change it.
 const boot = bootConnection();
 const UNAVAILABLE_API_BASE = 'https://connection-unavailable.invalid';
 function bootApiBaseFor(connection: BootConnection): string {

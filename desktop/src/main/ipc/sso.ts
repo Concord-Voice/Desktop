@@ -43,7 +43,7 @@
  *                                     the target from its own state, so the
  *                                     renderer carries no authority.
  *
- * Admission (#86 contract v34): every channel registers through `registerIpc` as
+ * Admission (#86 contract v35): every channel registers through `registerIpc` as
  * `connection-bound`, so the sender is a bound primary main frame whose URL its
  * service kind permits, and the handler receives that main-held binding. A
  * refused sender makes the invoke handlers reject (the renderer sees a rejected
@@ -316,6 +316,38 @@ function parseCompletionTokens(value: unknown): MainCompletionTokens | null {
     refreshToken: value.refresh_token,
     sessionId: value.session_id,
     rememberMe: value.remember_me ?? true,
+  };
+}
+
+function parseLinkChallenge(
+  value: unknown
+): Omit<Extract<SSOCompletionResult, { kind: 'mfa_challenge' }>, 'credentialOwner'> | null {
+  if (
+    !isRecord(value) ||
+    !isBoundedString(value.mfa_challenge_token, 8192) ||
+    !Array.isArray(value.methods) ||
+    value.methods.length === 0 ||
+    value.methods.length > 8 ||
+    !value.methods.every((method: unknown) => isBoundedString(method, 32)) ||
+    (value.recovery_only_methods !== undefined &&
+      (!Array.isArray(value.recovery_only_methods) ||
+        value.recovery_only_methods.length > 8 ||
+        !value.recovery_only_methods.every((method: unknown) => isBoundedString(method, 32)))) ||
+    (value.default_method !== undefined && !isBoundedString(value.default_method, 32)) ||
+    value.access_token !== undefined ||
+    value.refresh_token !== undefined ||
+    value.session_id !== undefined
+  )
+    return null;
+  return {
+    kind: 'mfa_challenge',
+    mfaChallengeToken: value.mfa_challenge_token,
+    methods: value.methods,
+    ...(value.recovery_only_methods !== undefined
+      ? { recoveryOnlyMethods: value.recovery_only_methods }
+      : {}),
+    ...(value.webauthn_options !== undefined ? { webauthnOptions: value.webauthn_options } : {}),
+    ...(value.default_method !== undefined ? { defaultMethod: value.default_method } : {}),
   };
 }
 
@@ -643,6 +675,47 @@ export function registerSSOIPC(): void {
         code: safeBody?.error_code ?? `sso_${endpoint}_failed`,
         ...(safeBody ? { body: safeBody } : {}),
       };
+    }
+
+    // #223: an account link may answer with the account's existing MFA challenge
+    // instead of a session. The continuation moves to this connection's pendingMFA
+    // under the SAME reserved owner and the same connection document (`owner`), so
+    // sso:completeMFA verifies the proof in main and the refresh credential is
+    // stored in this connection's custody, never handed to the renderer. A
+    // challenge that carries any session material is not a challenge: revoke and
+    // reject it.
+    if (endpoint === 'complete-link' && isRecord(body) && 'mfa_challenge_token' in body) {
+      const challenge = parseLinkChallenge(body);
+      if (
+        !challenge ||
+        response.headers.has(SESSION_ID_HEADER) ||
+        response.headers.has('set-cookie')
+      ) {
+        await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
+        discardPendingCompletion(id, completion);
+        if (isOwnerCurrent(completion.owner)) {
+          custody.clearTokensIfOwner(completion.credentialOwner);
+        }
+        return { kind: 'error', status: 502, code: 'sso_session_rejected' };
+      }
+      // Identity, not presence: a newer sign-in on this connection, an abandon, or
+      // any generation advance has already dropped or replaced this completion.
+      if (
+        !custody.credentialOwnerIsCurrent(completion.credentialOwner) ||
+        pendingCompletion.get(id) !== completion
+      ) {
+        discardPendingCompletion(id, completion);
+        return { kind: 'error', status: 409, code: 'sso_cancelled' };
+      }
+      pendingMFA.set(id, {
+        apiBase: completion.apiBase,
+        credentialOwner: completion.credentialOwner,
+        provider: completion.provider,
+        mfaChallengeToken: challenge.mfaChallengeToken,
+        owner: completion.owner,
+      });
+      discardPendingCompletion(id, completion);
+      return { ...challenge, credentialOwner: completion.credentialOwner };
     }
 
     const tokens = parseCompletionTokens(body);

@@ -95,7 +95,7 @@ const GENERATION_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * #86 §3.7 (contract v34): which connection this document belongs to. ONE sendSync at
+ * #86 §3.7 (contract v35): which connection this document belongs to. ONE sendSync at
  * preload evaluation, before any renderer module runs. Main answers from its own sender
  * binding, never from anything the page sends, and the answer is re-validated with the
  * shared exact-key codec. Cached for the document's lifetime; only a NEWER generation
@@ -134,7 +134,7 @@ contextBridge.exposeInMainWorld('electron', {
   // here is acceptable because the read-only surface is bounded.
   getBuildTag: () => ipcRenderer.invoke('app:getBuildTag') as Promise<string>,
 
-  // #86 §3.7 (contract v34). Feature-detect the namespace: absent means a pre-34 shell
+  // #86 §3.7 (contract v35). Feature-detect the namespace: absent means a pre-35 shell
   // and the legacy single-connection path; `whoAmI() === null` means no connection.
   connection: {
     whoAmI: (): ConnectionIdentity | null => connectionIdentity,
@@ -851,9 +851,9 @@ export interface ElectronAPI {
   getBuildTag: () => Promise<string>;
 
   /**
-   * #86 §3.7 (contract v34). `whoAmI` is the identity main gave this document at preload
+   * #86 §3.7 (contract v35). `whoAmI` is the identity main gave this document at preload
    * evaluation; `onGenerationChanged` delivers only newer generations of that same
-   * connection. A pre-34 shell has no `connection` namespace at all.
+   * connection. A pre-35 shell has no `connection` namespace at all.
    */
   connection: {
     whoAmI: () => ConnectionIdentity | null;
