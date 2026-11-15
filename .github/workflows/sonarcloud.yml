@@ -113,8 +113,9 @@ jobs:
 
       # The caller-proof verifier is Go (tools/sonar-caller-proof); pin the
       # toolchain its go.mod names rather than relying on the runner image.
+      # The main-branch scan needs it too: SCA resolves that go.mod with a
+      # matching Go runtime.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: ${{ !inputs.reusable-analysis }}
         with:
           go-version-file: tools/sonar-caller-proof/go.mod
           cache: false
@@ -172,7 +173,7 @@ jobs:
         # nosemgrep: generic.secrets.security.detected-sonarqube-docs-api-key.detected-sonarqube-docs-api-key  # pragma: allowlist nextline secret
         uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         with:
-          args: ${{ !inputs.reusable-analysis && format('-Dsonar.projectBaseDir={0}/protected-sonar-analysis -Dsonar.qualitygate.wait=true', runner.temp) || (inputs.require-quality-gate && '-Dsonar.qualitygate.wait=true' || '') }}
+          args: ${{ !inputs.reusable-analysis && format('-Dsonar.projectBaseDir={0}/protected-sonar-analysis -Dsonar.qualitygate.wait=true -Dsonar.sca.enabled=false', runner.temp) || (inputs.require-quality-gate && '-Dsonar.qualitygate.wait=true' || '') }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 

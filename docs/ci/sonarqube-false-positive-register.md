@@ -32,6 +32,14 @@ The register exists because the `mcp__sonarqube__change_sonar_issue_status` tool
 > byte-identical. CodeQL `security-extended` (#1424) + Semgrep (#1426) own the
 > taint classes. The AI-Code-Assurance *security* signal
 > originates from GitHub Code Scanning as of #1430.
+>
+> **Dependency analysis (SCA):** it runs only in the main-branch scan
+> (`sonar-main.yml`, full checkout). The protected PR scan sets
+> `sonar.sca.enabled=false` in `sonarcloud.yml`, because SCA can run build tools
+> in a job that holds the Sonar token and must never resolve PR-controlled
+> manifests. PR-time dependency gating stays with OSV-Scanner and Dependabot.
+> The `sonar.sca.*` properties in `sonar-project.properties` set scan scope
+> only, not rules, so they are not rule tuning.
 
 ### Relationship to SonarQube AI-Code Assurance
 

@@ -103,6 +103,15 @@ class ProtectedSonarWorkflowTests(unittest.TestCase):
         self.assertIn("sonar.projectBaseDir", scan["with"]["args"])
         self.assertIn("!inputs.reusable-analysis", scan["with"]["args"])
         self.assertIn("sonar.qualitygate.wait=true", scan["with"]["args"])
+        # SCA may run build tools in this token-holding job, so the PR path must
+        # never resolve PR-controlled manifests; only the main scan keeps it on.
+        pr_args, main_args = scan["with"]["args"].split("||", 1)
+        self.assertIn("-Dsonar.sca.enabled=false", pr_args)
+        self.assertNotIn("sonar.sca", main_args)
+        # The main scan resolves tools/sonar-caller-proof/go.mod, so it needs its Go.
+        setup_go = next(step for step in steps if str(step.get("uses", "")).startswith("actions/setup-go@"))
+        self.assertNotIn("if", setup_go)
+        self.assertEqual(setup_go["with"]["go-version-file"], "tools/sonar-caller-proof/go.mod")
         for name in ("desktop", "concord-bridge"):
             download = next(step for step in steps if step.get("name") == f"Download {name} coverage")
             self.assertIn("inputs.reusable-analysis && inputs.", download["if"])
