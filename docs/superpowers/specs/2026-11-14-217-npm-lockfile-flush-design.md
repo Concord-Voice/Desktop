@@ -23,7 +23,10 @@ reduced to one root.
   2. It runs `npm update --package-lock-only --ignore-scripts --min-release-age=7`
      in `desktop/`.
   3. It checks the result and fails on any of these:
-     - a downgrade, per install path and per package name and major;
+     - a downgrade of the highest copy per package name and major (a 0.x minor
+       counts as a major). It does not check per install path, because npm
+       re-hoists: a real run on `desktop/` swapped the top-level major of five
+       packages while the newer copy stayed nested;
      - any changed file other than the lockfile.
   4. It uploads the lockfile and the PR body as an artifact.
 - `open-pr` (App token, no npm) copies the lockfile in. Then it opens or updates

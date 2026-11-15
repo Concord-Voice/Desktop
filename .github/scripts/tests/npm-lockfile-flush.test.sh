@@ -57,11 +57,13 @@ for s in guard refresh render; do
 done
 
 # ── harness: a repo with desktop/ and a stub npm ────────────────────────────
-lock() { # $1 = version of node_modules/dep; [$2 = extra "path:version" entry]
-  printf '{"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},"node_modules/dep":{"version":"%s"}}}\n' "$1" \
-    | if [ -n "${2:-}" ]; then jq -c --arg k "${2%%:*}" --arg v "${2#*:}" '.packages[$k] = {version: $v}'; else cat; fi
+lock() { # $1 = version of node_modules/dep; [$2 = extra entries, "path:version" separated by spaces]
+  local e out
+  out=$(printf '{"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},"node_modules/dep":{"version":"%s"}}}' "$1")
+  for e in ${2:-}; do out=$(jq -c --arg k "${e%%:*}" --arg v "${e#*:}" '.packages[$k] = {version: $v}' <<<"$out"); done
+  echo "$out"
 }
-make_repo() { # [$1 = extra base entry "path:version"]; prints the repo path
+make_repo() { # [$1 = extra base entries, as for lock]; prints the repo path
   local dir; dir="$(mktemp -d "$WORK/repo.XXXXXX")"
   mkdir -p "$dir/desktop"
   printf '{"name":"r","devDependencies":{"dep":"^1.0.0"}}\n' > "$dir/desktop/package.json"
@@ -86,7 +88,9 @@ case "$NPM_STUB_MODE" in
   bump)      printf '%s"node_modules/dep":{"version":"1.2.0"}}}\n' "$L" > package-lock.json ;;
   manifest)  printf '{"name":"r","devDependencies":{"dep":"^1.2.0"}}\n' > package.json ;;
   stray)     touch ../stray.txt ;;
-  downgrade) printf '%s"node_modules/dep":{"version":"0.9.0"}}}\n' "$L" > package-lock.json ;;
+  downgrade) printf '%s"node_modules/dep":{"version":"1.0.0"}}}\n' "$L" > package-lock.json ;;
+  rehoist)   printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"3.1.0"},"node_modules/b/node_modules/x":{"version":"2.0.0"}}}\n' "$L" > package-lock.json ;;
+  zero)      printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/s":{"version":"0.27.0"}}}\n' "$L" > package-lock.json ;;
   hoist)     printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"2.1.0"}}}\n' "$L" > package-lock.json ;;
   rc)        printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"3.0.0-rc.9"}}}\n' "$L" > package-lock.json ;;
   none)      ;;
@@ -129,8 +133,8 @@ run_refresh stray
   && ok "any other new file fails the run" \
   || bad "an untracked file must fail the run" "rc=$RC"$'\n'"$OUT"
 
-run_refresh downgrade
-[ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] && grep -q 'desktop/package-lock.json: node_modules/dep 1.0.0 -> 0.9.0' <<<"$OUT" \
+run_refresh downgrade "" 'node_modules/dep:1.0.5'
+[ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] && grep -q 'desktop/package-lock.json: dep@1 1.0.5 -> 1.0.0' <<<"$OUT" \
   && ok "a downgrade fails the run and names the lockfile, package and versions" \
   || bad "a downgrade must fail the run" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
 
@@ -141,9 +145,21 @@ run_refresh hoist "" 'node_modules/dep/node_modules/x:2.1.1'
   || bad "a hoisted downgrade must fail the run" "rc=$RC"$'\n'"$OUT"
 
 run_refresh rc "" 'node_modules/x:3.0.0-rc.10'
-[ "$RC" -ne 0 ] && grep -q 'node_modules/x 3.0.0-rc.10 -> 3.0.0-rc.9' <<<"$OUT" \
+[ "$RC" -ne 0 ] && grep -q 'x@3 3.0.0-rc.10 -> 3.0.0-rc.9' <<<"$OUT" \
   && ok "prerelease numbers compare as numbers (rc.10 -> rc.9 is a downgrade)" \
   || bad "rc.10 -> rc.9 must fail the run" "rc=$RC"$'\n'"$OUT"
+
+# A re-hoist, as real npm does: the top-level copy changes major and the newer
+# copy moves to a nested path. Nothing went down, so it must pass.
+run_refresh rehoist "" 'node_modules/x:2.0.0 node_modules/a/node_modules/x:3.1.0'
+[ "$RC" -eq 0 ] && [ "$OUTPUTS" = "has_changes=true" ] \
+  && ok "a re-hoist that moves the newer copy to another path passes" \
+  || bad "a pure re-hoist must not count as a downgrade" "rc=$RC"$'\n'"$OUT"
+
+# 0.x: a minor is a major under ^, so 0.28 -> 0.27 at one path is a line
+# change, not a downgrade within a line.
+run_refresh zero "" 'node_modules/s:0.28.0'
+[ "$RC" -eq 0 ] && ok "a 0.x minor counts as its own line" || bad "0.28 -> 0.27 must compare as two lines" "rc=$RC"$'\n'"$OUT"
 
 run_refresh bump 0
 [ "$RC" -ne 0 ] && [ ! -s "$WORK/npm.log" ] && grep -q 'no min-release-age' <<<"$OUT" \
@@ -162,7 +178,7 @@ case "$1" in
       exit 1
     fi
     [ "$2" = comment ] && echo "comment $3" >> "$GH_STUB_LOG" ;;
-  api) echo 0 ;;
+  api) [ -z "${GH_STUB_RECENT:-}" ] || printf '101\n102\n' ;;  # ids of matching comments, one per line
 esac
 STUB
 chmod +x "$WORK/bin/gh"
@@ -183,6 +199,10 @@ run_guard "[{\"number\":1,\"headRefName\":\"dependabot/npm_and_yarn/desktop/jose
 [ "$RC" -eq 0 ] && [ "$OUTPUTS" = "deferred=true" ] && [ "$(cat "$WORK/gh.log")" = $'comment 1\ncomment 2' ] \
   && ok "the guard defers on same-repo Dependabot desktop npm PRs and comments on those only" \
   || bad "the guard must count only PRs 1 and 2 (not concord-bridge, fork, other author or Actions)" "rc=$RC outputs=$OUTPUTS log=$(cat "$WORK/gh.log")"$'\n'"$OUT"
+GH_STUB_RECENT=1 run_guard "[{\"number\":1,\"headRefName\":\"dependabot/npm_and_yarn/desktop/jose-6.2.15\",$DEP}]"
+[ "$RC" -eq 0 ] && [ "$OUTPUTS" = "deferred=true" ] && [ ! -s "$WORK/gh.log" ] && grep -q 'already has a recent deferral comment' <<<"$OUT" \
+  && ok "a PR with a recent deferral comment (any page) gets no second one" \
+  || bad "a recent deferral comment must suppress another" "rc=$RC log=$(cat "$WORK/gh.log")"$'\n'"$OUT"
 run_guard "[{\"number\":4,\"headRefName\":\"dependabot/npm_and_yarn/desktop/evil\",\"author\":{\"login\":\"mallory\"},\"isCrossRepository\":true}]"
 [ "$RC" -eq 0 ] && [ "$OUTPUTS" = "deferred=false" ] && [ ! -s "$WORK/gh.log" ] \
   && ok "a spoofed dependabot/... branch does not defer the run" \
