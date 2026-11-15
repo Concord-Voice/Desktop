@@ -94,22 +94,8 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         const other = peers.get(body.peer === 'a' ? 'b' : 'a');
         const producer = owned(other.producers, body.producerId);
         if (peer.consumers.size >= 2) throw new Error('Fixture consumer limit');
-        // Diagnostics showed healthy transport bitrate yet a video consumer that never
-        // got a layer, so no keyframe was ever requested (0 packets, 0 PLI forwarded).
-        // With congestion control negotiated, mediasoup hands layers out only from its
-        // bitrate allocator, which can run before the sender's layer bitrates are
-        // measurable. A loopback fixture has no bandwidth to adapt to: drop the
-        // congestion-control feedback so layer selection is immediate and deterministic.
-        const caps = body.rtpCapabilities;
-        const rtpCapabilities = producer.kind !== 'video' ? caps : {
-          ...caps,
-          codecs: caps.codecs.map((codec) => ({ ...codec, rtcpFeedback: (codec.rtcpFeedback ?? [])
-            .filter((fb) => fb.type !== 'transport-cc' && fb.type !== 'goog-remb') })),
-          headerExtensions: (caps.headerExtensions ?? []).filter((ext) =>
-            !/transport-wide-cc|abs-send-time/.test(ext.uri)),
-        };
         const consumer = await owned(peer.transports, body.transportId).consume({
-          producerId: producer.id, rtpCapabilities, paused: true,
+          producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
         consumer.appData.transportId = body.transportId;
@@ -125,6 +111,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
       }
       case 'resume': {
         const consumer = owned(peer.consumers, body.consumerId);
+        // The consumer's transport may still be mid-DTLS here: the client's connect RPC
+        // returns before the handshake completes. Resume only once media can flow.
+        const transport = peer.transports.get(consumer.appData.transportId);
+        for (let i = 0; transport && transport.dtlsState !== 'connected' && i < 100; i++) {
+          await new Promise((resolve) => { setTimeout(resolve, 50).unref(); });
+        }
         await consumer.resume();
         // CI diagnostics showed the SFU never asked the sender for a keyframe: the video
         // consumer stayed at currentLayers null with zero PLIs forwarded, so the receiver
@@ -158,9 +150,6 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
               stats: (await p.getStats()).map(trim) }))),
             consumers: await Promise.all([...entry.consumers.values()].map(async (c) => ({
               kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
-              dump: c.kind === 'video' ? await c.dump().then((d) => ({ target: d.targetSpatialLayer ?? null,
-                current: d.currentSpatialLayer ?? null, preferred: d.preferredSpatialLayer ?? null,
-                externallyManaged: d.externallyManagedBitrate ?? null })).catch(() => null) : null,
               score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
               stats: (await c.getStats()).map(trim) }))) });
         }
