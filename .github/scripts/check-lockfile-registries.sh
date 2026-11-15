@@ -10,7 +10,8 @@
 # package-lock.json / npm-shrinkwrap.json — for every entry (v2/v3 `packages`,
 # and the v1 nested `dependencies` tree):
 #   - `resolved` must be a plain registry URL, https://<host>/<seg>/…/<seg>,
-#     with <host> listed in .github/approved-registries.txt. No port, no
+#     with <host> listed in .github/scripts/approved-registries.txt (owned by
+#     the security team in CODEOWNERS, like this script). No port, no
 #     credentials, no empty path segment (npm rebuilds `//host/…` paths into a
 #     new host), no backslash, query or whitespace.
 #   - or a relative local path: `file:<relative>`, or a `link: true` entry.
@@ -30,7 +31,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG="${APPROVED_REGISTRIES:-$HERE/../approved-registries.txt}"
+CONFIG="${APPROVED_REGISTRIES:-$HERE/approved-registries.txt}"
 NPMRC_ALLOWED=(install-links min-release-age)
 
 if [ "$#" -eq 0 ]; then
@@ -56,10 +57,11 @@ for f in "$@"; do
   case "$f" in
     *package-lock.json|*npm-shrinkwrap.json)
       if ! bad="$(jq -r --argjson ok "$approved" '
-          def relpath: test("^[^/\\\\:\\s][^:\\\\\\s]*\\z");
-          def semver: test("^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?\\z");
-          def host: (capture("^https://(?<h>[a-z0-9.-]+)/[A-Za-z0-9@._~+-]+(/[A-Za-z0-9@._~+-]+)*\\z") | .h) // null;
-          def okversion: semver or (test("^npm:[^:/\\s]+(/[^:/\\s]+)?@") and (sub("^npm:.+@"; "") | semver))
+          # Anchor with \A, not ^: in jq ^ also matches just after a newline.
+          def relpath: test("\\A[^/\\\\:\\s][^:\\\\\\s]*\\z");
+          def semver: test("\\A[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?\\z");
+          def host: (capture("\\Ahttps://(?<h>[a-z0-9.-]+)/[A-Za-z0-9@._~+-]+(/[A-Za-z0-9@._~+-]+)*\\z") | .h) // null;
+          def okversion: semver or (test("\\Anpm:[^:/\\s]+(/[^:/\\s]+)?@") and (sub("\\Anpm:.+@"; "") | semver))
             or (startswith("file:") and (.[5:] | relpath));
           # Lockfile entries only: packages["<key>"], and the v1 tree
           # dependencies.<name>(.dependencies.<name>)*. A dependency map that
@@ -70,7 +72,9 @@ for f in "$@"; do
                          and ([range(0; $p | length; 2) as $i | $p[$i]] | all(. == "dependencies"))))
             | {key: ($p[-1] | tostring), v1: ($p[0] == "dependencies"), e: getpath($p)} ]
           | .[] | .key as $k | .e as $e | .v1 as $v1
-          | if ($e.resolved | type) == "string" then
+          | if ([$k, $e.resolved, $e.version] | map(strings) | any(test("[\\x00-\\x1f\\x7f]"))) then
+              [$k, "has a control character in its key, resolved or version", "-"]
+            elif ($e.resolved | type) == "string" then
               $e.resolved as $u
               | select(($u | startswith("file:") and (.[5:] | relpath)) or ($e.link == true and ($u | relpath)) | not)
               | ($u | host) as $h
@@ -81,7 +85,7 @@ for f in "$@"; do
             # link targets (keys outside node_modules/).
             elif $k == "" or $e.link == true or $e.inBundle == true or $e.bundled == true then empty
             elif (($e.version // "") | tostring | startswith("file:")) then empty
-            elif $v1 or ($k | test("(^|/)node_modules/")) then [$k, "has no resolved URL", "-"]
+            elif $v1 or ($k | test("(\\A|/)node_modules/")) then [$k, "has no resolved URL", "-"]
             else empty end,
             ( select(($e.version | type) == "string" and ($e.version | okversion | not))
               | [$k, "has a version that is not a registry version", $e.version] )
@@ -90,7 +94,7 @@ for f in "$@"; do
       fi
       while IFS=$'\t' read -r pkg why url; do
         [ -n "$pkg" ] || continue
-        echo "::error file=$f,title=off-registry package::$f: $pkg $why ($url). Approved hosts: $approved_list — see .github/approved-registries.txt."
+        echo "::error file=$f,title=off-registry package::$f: $pkg $why ($url). Approved hosts: $approved_list — see .github/scripts/approved-registries.txt."
         status=1
       done <<<"$bad"
       ;;
@@ -118,12 +122,14 @@ for f in "$@"; do
       ;;
     *go.mod|*go.work)
       if ! replaces="$(awk '
-          { sub(/\r$/, ""); sub(/\/\/.*/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+          # Go reads CR as whitespace anywhere, so map every CR to a space,
+          # and treat any line whose first token starts with "replace" as one.
+          { gsub(/\r/, " "); sub(/\/\/.*/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
           $0 == "" { next }
           blk && $0 == ")" { blk = 0; next }
           blk { print FNR ":" $0; next }
           /^replace[ \t]*\($/ { blk = 1; next }
-          /^replace[ \t]/ { sub(/^replace[ \t]+/, ""); print FNR ":" $0 }
+          $1 ~ /^replace/ { sub(/^replace[ \t]*/, ""); print FNR ":" $0 }
         ' "$f")"; then
         echo "::error file=$f::$f is not readable"; status=1; continue
       fi

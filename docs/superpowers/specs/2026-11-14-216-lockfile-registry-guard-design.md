@@ -13,7 +13,7 @@ it today. Fail such a PR.
 - Fail when any `resolved` URL in a tracked `package-lock.json` is not
   `https://` on an approved host. Name the file, the package and the host.
 - Fail on any `replace` directive in a tracked `go.mod` or `go.work`.
-- Keep the approved hosts in one small file: `.github/approved-registries.txt`.
+- Keep the approved hosts in one small file: `.github/scripts/approved-registries.txt`.
 - Fail a tracked `.npmrc` that uses any setting outside a short allowlist
   (`install-links`, `min-release-age` today). `registry`, `userconfig`,
   `globalconfig` and others can move npm's fetches, and npm's ini reader

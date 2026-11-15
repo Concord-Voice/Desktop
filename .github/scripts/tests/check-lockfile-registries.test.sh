@@ -82,6 +82,12 @@ v1 '{"x": {"version": "attacker/payload#0123456789abcdef"}}'
 expect 1 "v1 GitHub shorthand fails" "$lock" "x has a version that is not a registry version"
 v1 '{"x": {"version": "file:///mnt/share/x.tgz"}}'
 expect 1 "v1 absolute file: version fails" "$lock" "x has a version that is not a registry version"
+v1 '{"x": {"version": "evil\n1.0.0", "resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz"}}'
+expect 1 "newline before a semver version fails" "$lock" "x has a control character"
+v1 '{"x\ty": {"version": "1.0.0", "resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz"}}'
+expect 1 "control character in a key fails" "$lock" "has a control character"
+v1 '{"x": {"version": "1.0.0", "resolved": "https://evil.example/x.tgz\nhttps://registry.npmjs.org/x/-/x-1.0.0.tgz"}}'
+expect 1 "newline inside resolved fails" "$lock" "x has a control character"
 v1 '{"x": {"version": "1.0.0"}}'
 expect 1 "v1 entry with no resolved fails" "$lock" "x has no resolved URL"
 v1 '{"x": {"version": "file:tools/x"}, "y": {"version": "npm:string-width@4.2.3", "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz"}}'
@@ -92,6 +98,8 @@ printf 'module x\n\nreplace (\n\t// note\n\ta => b v1.0.0\n)\n' > "$tmp/go.mod"
 expect 1 "replace block fails" "$tmp/go.mod" "$tmp/go.mod:5" "a => b v1.0.0"
 printf 'module x\r\n\r\nreplace(\r\n\ta => b v1.0.0\r\n)\r\n' > "$tmp/go.mod"
 expect 1 "CRLF replace block fails" "$tmp/go.mod" "$tmp/go.mod:4" "a => b v1.0.0"
+printf 'module x\n\nreplace\ra => b v1.0.0\n' > "$tmp/go.mod"
+expect 1 "replace followed by a bare CR fails" "$tmp/go.mod" "$tmp/go.mod:3" "a => b v1.0.0"
 printf 'module x\n\n// replace a => b\nrequire a v1.0.0\n' > "$tmp/go.mod"
 expect 0 "commented replace passes" "$tmp/go.mod"
 printf 'go 1.27\n\nuse ./a\n\nreplace a => ../evil\n' > "$tmp/go.work"
@@ -136,7 +144,7 @@ report "config without hosts exits 2" 2 "$rc" "$out" "no approved hosts"
 repo="$tmp/repo"
 mkdir -p "$repo/.github/scripts/tests/fixtures/x" "$repo/app" "$repo/svc"
 cp "$CHECK" "$repo/.github/scripts/"
-cp "$HERE/../../approved-registries.txt" "$repo/.github/"
+cp "$HERE/../approved-registries.txt" "$repo/.github/scripts/"
 git -C "$repo" init -q
 rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
 report "no-arg mode with nothing tracked exits 2" 2 "$rc" "$out" "no lockfiles found"

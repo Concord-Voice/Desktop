@@ -3,7 +3,7 @@ name: Lockfile Registries
 # Fails a PR whose lockfile resolves outside the approved registries, whose
 # .npmrc uses a setting not on the script's allowed list, or whose go.mod or
 # go.work adds a replace directive (#216). Approved hosts live in
-# .github/approved-registries.txt. No install, no secrets, read-only.
+# .github/scripts/approved-registries.txt. No install, no secrets, read-only.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -15,7 +15,7 @@ on:
       - '**/pnpm-lock.yaml'
       - '**/go.mod'
       - '**/go.work'
-      - '.github/approved-registries.txt'
+      - '.github/scripts/approved-registries.txt'
       - '.github/scripts/check-lockfile-registries.sh'
       - '.github/scripts/tests/check-lockfile-registries.test.sh'
       - '.github/scripts/tests/fixtures/lockfile-registries/**'

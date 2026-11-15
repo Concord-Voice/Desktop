@@ -1,4 +1,5 @@
 # Hosts that a lockfile `resolved` URL may use (#216). One host per line,
 # compared exactly against the URL authority (no port, no credentials).
-# check-lockfile-registries.sh reads this file; a change here is a visible diff.
+# check-lockfile-registries.sh reads this file. It sits under .github/scripts/
+# so CODEOWNERS sends every change to the security team.
 registry.npmjs.org
