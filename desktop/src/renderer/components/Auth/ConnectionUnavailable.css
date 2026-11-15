@@ -1,0 +1,10 @@
+/* #86 §3.10 fatal boot screen. The card itself reuses ForceUpdateOverlay's tokens. */
+.connection-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 16px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}

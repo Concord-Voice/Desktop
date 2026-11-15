@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
 
-import {
-  isPermittedFrameUrl,
-  isTrustedMainWindowSender,
-  requireTrustedSender,
-} from '@/main/ipc/frameValidation';
+import { isPermittedFrameUrl, requireTrustedSender } from '@/main/ipc/frameValidation';
 
 describe('requireTrustedSender', () => {
   it('returns the captured sender frame for a permitted origin', () => {
@@ -21,82 +17,6 @@ describe('requireTrustedSender', () => {
     { senderFrame: null },
   ])('rejects an untrusted or missing sender frame', (event) => {
     expect(requireTrustedSender(event as IpcMainInvokeEvent, null)).toBeNull();
-  });
-});
-
-describe('isTrustedMainWindowSender', () => {
-  const contents = { mainFrame: { frameTreeNodeId: 41 } };
-  const win = { isDestroyed: () => false, webContents: contents } as unknown as BrowserWindow;
-  const event = (url: string, id = 41, sender: unknown = contents) =>
-    ({ sender, senderFrame: { url, frameTreeNodeId: id } }) as IpcMainInvokeEvent;
-
-  it.each([
-    ['app://concord/index.html', null],
-    ['spa-cache://concord/index.html', null],
-    ['http://localhost:3001/', null],
-    ['https://spa.example/index.html', 'https://spa.example'],
-  ])('accepts the live main frame at %s', (url, origin) => {
-    expect(
-      isTrustedMainWindowSender(
-        event(url),
-        () => win,
-        () => origin
-      )
-    ).toBe(true);
-  });
-
-  it('rejects PiP, subframes, untrusted URLs and missing senders', () => {
-    for (const e of [
-      event('app://concord/index.html', 41, {}),
-      event('app://concord/index.html', 42),
-      event('https://evil.example/', 41),
-      { sender: contents, senderFrame: null } as unknown as IpcMainInvokeEvent,
-    ])
-      expect(
-        isTrustedMainWindowSender(
-          e,
-          () => win,
-          () => null
-        )
-      ).toBe(false);
-  });
-
-  it('fails closed for missing, destroyed, replaced or inaccessible windows', () => {
-    const trusted = event('app://concord/index.html');
-    expect(
-      isTrustedMainWindowSender(
-        trusted,
-        () => null,
-        () => null
-      )
-    ).toBe(false);
-    expect(
-      isTrustedMainWindowSender(
-        trusted,
-        () => ({ ...win, isDestroyed: () => true }) as BrowserWindow,
-        () => null
-      )
-    ).toBe(false);
-    const replacement = {
-      isDestroyed: () => false,
-      webContents: { mainFrame: { frameTreeNodeId: 41 } },
-    } as unknown as BrowserWindow;
-    expect(
-      isTrustedMainWindowSender(
-        trusted,
-        () => replacement,
-        () => null
-      )
-    ).toBe(false);
-    expect(
-      isTrustedMainWindowSender(
-        trusted,
-        () => {
-          throw new Error('destroyed');
-        },
-        () => null
-      )
-    ).toBe(false);
   });
 });
 

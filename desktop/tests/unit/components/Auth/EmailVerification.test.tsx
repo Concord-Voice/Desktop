@@ -163,6 +163,82 @@ describe('EmailVerification', () => {
     });
   });
 
+  it('#86: publishes the confirmed user id as serverUserId', async () => {
+    setRuntimeServerBase('https://origin-a.example');
+    const storeRefreshToken = vi.fn().mockResolvedValue(41);
+    Object.defineProperty(globalThis, 'electron', {
+      value: { ...globalThis.electron, storeRefreshToken },
+      writable: true,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...MOCK_CONFIRM_SUCCESS,
+        user: { id: 'verified-user-3', email_verified: true },
+      }),
+    });
+
+    submitVerificationCode();
+
+    await waitFor(() => {
+      expect(storeRefreshToken).toHaveBeenCalledWith({
+        refreshToken: 'origin-a-refresh',
+        rememberMe: true,
+        apiBase: 'https://origin-a.example',
+        accessToken: 'origin-a-access',
+        serverUserId: 'verified-user-3',
+      });
+    });
+  });
+
+  it('#86: omits serverUserId when the confirmation carries no usable user id', async () => {
+    setRuntimeServerBase('https://origin-a.example');
+    const storeRefreshToken = vi.fn().mockResolvedValue(41);
+    Object.defineProperty(globalThis, 'electron', {
+      value: { ...globalThis.electron, storeRefreshToken },
+      writable: true,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ...MOCK_CONFIRM_SUCCESS, user: { id: 42, email_verified: true } }),
+    });
+
+    submitVerificationCode();
+
+    await waitFor(() => {
+      expect(storeRefreshToken).toHaveBeenCalledTimes(1);
+    });
+    expect(storeRefreshToken.mock.calls[0][0]).not.toHaveProperty('serverUserId');
+  });
+
+  // #86: main refuses the whole auth:storeRefreshToken payload when serverUserId fails
+  // isServerUserId, so the renderer must apply the same rule and drop a bad id instead.
+  it.each([
+    ['a control character', 'verified\u0000user'],
+    ['an over-length id', 'u'.repeat(257)],
+  ])('#86: drops a serverUserId with %s and still admits the user', async (_label, badId) => {
+    setRuntimeServerBase('https://origin-a.example');
+    // Mirrors main: a payload carrying a refused serverUserId is not stored.
+    const storeRefreshToken = vi.fn(async (payload: { serverUserId?: string }) =>
+      payload.serverUserId === undefined ? 41 : null
+    );
+    Object.defineProperty(globalThis, 'electron', {
+      value: { ...globalThis.electron, storeRefreshToken },
+      writable: true,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ...MOCK_CONFIRM_SUCCESS, user: { id: badId, email_verified: true } }),
+    });
+
+    submitVerificationCode();
+
+    await waitFor(() => expect(mockOnSuccess).toHaveBeenCalledTimes(1));
+    expect(storeRefreshToken).toHaveBeenCalledTimes(1);
+    expect(storeRefreshToken.mock.calls[0][0]).not.toHaveProperty('serverUserId');
+    expect(useAuthStore.getState().emailVerified).toBe(true);
+  });
+
   it('keeps origin B credentials when B persists before A token storage resolves', async () => {
     const { revokeAbortedSession } = await import('@/renderer/services/system/apiClient');
     const requestApiBase = 'https://origin-a.example';

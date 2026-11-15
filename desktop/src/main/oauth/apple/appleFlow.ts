@@ -277,6 +277,9 @@ export async function runAppleSignIn(deps: AppleFlowDeps): Promise<MainSSOSignIn
       'apple_verification_unavailable'
     );
 
+    // A cancel during verify must not still post the ID token to /session.
+    if (abort.signal.aborted) throw new AppleFlowError('sso_cancelled', 'session');
+
     const sessionBody = await postSession(
       deps,
       { idToken, state: init.state, appleUserData: cb.appleUserData },

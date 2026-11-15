@@ -4,8 +4,9 @@
  *
  * The renderer can only originate two reasons (`'chunk-load'` from a window
  * `error` event, `'chunk-import-rejected'` from `unhandledrejection`). The
- * main process can additionally originate `'main-frame-load'` and
- * `'sub-resource'` from its `did-fail-load` listener.
+ * main process can additionally originate `'main-frame-load'` from its
+ * `did-fail-load` listener. `'sub-resource'` stays reserved (renderers may not send
+ * it) but main no longer emits it: that listener is main-frame only (#86 RT3).
  *
  * The IPC handler MUST validate `payload.reason` against
  * `RENDERER_SELF_HEAL_REASONS` before forwarding to `attemptSelfHeal` —

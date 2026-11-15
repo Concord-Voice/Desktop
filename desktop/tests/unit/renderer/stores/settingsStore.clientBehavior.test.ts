@@ -34,6 +34,27 @@ describe('settingsStore — clientBehavior slice', () => {
     });
   });
 
+  // #86 C7: main keeps one value per connection and reads the visible one's, so each
+  // view must push its stored value at startup, not only when the setting is changed.
+  it('pushes the stored value to main when the store rehydrates', async () => {
+    localStorage.setItem(
+      'concord-settings',
+      JSON.stringify({
+        state: { clientBehavior: { toTray: 'minimize', toToolbar: 'close' } },
+        version: 1,
+      })
+    );
+    try {
+      await useSettingsStore.persist.rehydrate();
+      expect(mockSetClientBehavior).toHaveBeenCalledWith({
+        toTray: 'minimize',
+        toToolbar: 'close',
+      });
+    } finally {
+      localStorage.removeItem('concord-settings');
+    }
+  });
+
   it('pushes the new value to main via IPC', () => {
     useSettingsStore.getState().setClientBehavior({
       toTray: 'none',
