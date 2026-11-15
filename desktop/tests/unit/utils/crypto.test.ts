@@ -506,3 +506,18 @@ describe('crypto utilities', () => {
     }, 60000);
   });
 });
+
+describe('Argon2id known-answer vector', () => {
+  // Pins the exact bytes the production parameters (m=64 MiB, t=3, p=4, 32-byte
+  // output) derive. Every wrapped key a user holds depends on these bytes, so a
+  // hash-wasm update that changed them would lock users out while the
+  // determinism and round-trip tests above still passed. The expected value was
+  // computed with hash-wasm 4.12.0 and 4.13.0, which agree.
+  it('derives the pinned key for a fixed password and salt', async () => {
+    const salt = new Uint8Array(16).map((_, i) => i);
+    const key = await deriveKeyArgon2idExportable('correct horse battery staple', salt);
+    const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+    const hex = Array.from(raw, (b) => b.toString(16).padStart(2, '0')).join('');
+    expect(hex).toBe('853b272a44db1421c02962669a55eb0994f3cab385ed1c4c79253eee19bab49e');
+  });
+});
