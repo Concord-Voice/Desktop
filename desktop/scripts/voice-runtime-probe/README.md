@@ -75,6 +75,9 @@ cannot satisfy the media gate. The probe itself does not install host packages.
 `MEDIA_PROBE_SERVER_DIR` may select another installed media-plane worktree (for example,
 the server update under review). Its installed version must match its own lockfile.
 `MEDIA_PROBE_DURATION_MS` defaults to 95000 and accepts only 95000..180000.
+The run prints each stage change and wait to stderr. Every renderer wait and cleanup call
+has its own deadline, and a watchdog (the duration plus 145 s) writes a `FAIL` result that
+names the stuck stage and exits nonzero, so a hung run still leaves an artifact.
 The existing supported `MEDIASOUP_WORKER_BIN` override can select an exact candidate
 worker; record that separately from proving its ordinary installation/build path.
 The artifact distinguishes the JavaScript package version from the resolved native
