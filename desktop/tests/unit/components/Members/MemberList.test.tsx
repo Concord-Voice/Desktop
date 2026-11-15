@@ -700,11 +700,9 @@ describe('MemberList', () => {
       expect(screen.getAllByRole('button', { name: /^Member \d+ — Online$/ })).toHaveLength(24);
       // Inline value, not computed — jsdom resolves calc() against the
       // viewport, so toHaveStyle would see "752px" rather than the declaration
-      // AttributedPopover actually sets. Compared through jsdom's own
-      // serialization; see the matching note in AttributedPopover.test.tsx.
-      const expected = document.createElement('div');
-      expected.style.maxHeight = 'calc(100vh - 16px)';
-      expect(region.style.maxHeight).toBe(expected.style.maxHeight);
+      // AttributedPopover actually sets (`calc(100vh - 16px)`, which jsdom 31
+      // serializes in canonical order). See AttributedPopover.test.tsx.
+      expect(region.style.maxHeight).toBe('calc(-16px + 100vh)');
       expect(region.querySelector('.attributed-popover__body')).toContainElement(
         screen.getByRole('button', { name: 'Member 24 — Online' })
       );

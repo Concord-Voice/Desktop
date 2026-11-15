@@ -135,23 +135,26 @@ describe('MarkdownContent', () => {
         'utf-8'
       );
       document.head.appendChild(style);
-      const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
-      const items = container.querySelectorAll('li');
-      expect(items.length).toBe(3);
-      // Loose-list mode is proven by the presence of <p> inside each <li>.
-      for (const li of items) {
-        const innerP = li.querySelector('p');
-        expect(innerP).not.toBeNull();
-        if (innerP) {
-          // The CSS `.markdown-content li > p { margin: 0 }` must apply.
-          // jsdom serializes the margin shorthand as "0" (unitless) when the
-          // declared value is "0"; production browsers serialize it as "0px".
-          // Accept either form — both indicate the rule applied.
-          const margin = getComputedStyle(innerP).margin;
-          expect(['0', '0px']).toContain(margin);
+      try {
+        const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
+        const items = container.querySelectorAll('li');
+        expect(items.length).toBe(3);
+        // Loose-list mode is proven by the presence of <p> inside each <li>.
+        for (const li of items) {
+          const innerP = li.querySelector('p');
+          expect(innerP).not.toBeNull();
+          if (innerP) {
+            // The CSS `.markdown-content li > p { margin: 0 }` must apply.
+            // jsdom serializes the margin shorthand as "0" (unitless) when the
+            // declared value is "0"; production browsers serialize it as "0px".
+            // Accept either form — both indicate the rule applied.
+            const margin = getComputedStyle(innerP).margin;
+            expect(['0', '0px']).toContain(margin);
+          }
         }
+      } finally {
+        style.remove();
       }
-      style.remove();
     });
 
     it('renders block quote', () => {

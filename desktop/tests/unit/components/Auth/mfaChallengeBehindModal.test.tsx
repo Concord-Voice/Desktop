@@ -397,6 +397,9 @@ describe('focus after a failed proof', () => {
     openChallenge();
     const first = screen.getByLabelText('Digit 1');
     fireEvent.paste(first, { clipboardData: { getData: () => '123456' } });
+    // A digit holds focus when the proof starts; without this, a regression
+    // that dropped focus early would pass the <body> check below trivially.
+    expect(screen.getAllByLabelText(/^Digit \d$/)).toContain(document.activeElement);
     await act(async () => {
       await Promise.resolve();
     });
