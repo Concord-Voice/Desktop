@@ -164,7 +164,50 @@ async function consume(descriptor) {
   }
   await rpc('resume', { consumerId: consumer.id });
   if (consumer.kind === 'audio') await audioWitness.start();
-  if (consumer.kind === 'video') await videoElement.play();
+  if (consumer.kind === 'video') {
+    // play() on a MediaStream waits for the first frame and has no deadline of
+    // its own; bound it like the audio witness so a starved consumer names itself.
+    let timer;
+    try {
+      await Promise.race([
+        videoElement.play(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Playback deadline')), 10_000); }),
+      ]);
+    } catch {
+      throw new Error('Fixture remote video playback failed');
+    } finally { clearTimeout(timer); }
+  }
+}
+
+// Failure-only diagnostics: window visibility plus video RTP counters, sampled
+// twice so a stalled encoder or a starved receiver shows as a flat counter.
+// Bounded fields only: no SDP, keys, ids or raw stats reports.
+async function videoCounters() {
+  const out = { outbound: [], inbound: [] };
+  for (const transport of [send, videoRecv]) {
+    if (!transport) continue;
+    for (const entry of (await transport.getStats()).values()) {
+      if (entry.kind !== 'video') continue;
+      if (entry.type === 'outbound-rtp') {
+        out.outbound.push({ rid: entry.rid ?? null, framesEncoded: entry.framesEncoded ?? null,
+          keyFramesEncoded: entry.keyFramesEncoded ?? null, pliCount: entry.pliCount ?? null,
+          firCount: entry.firCount ?? null, packetsSent: entry.packetsSent ?? null,
+          qualityLimitationReason: entry.qualityLimitationReason ?? null });
+      } else if (entry.type === 'inbound-rtp') {
+        out.inbound.push({ packetsReceived: entry.packetsReceived ?? null, framesDecoded: entry.framesDecoded ?? null,
+          keyFramesDecoded: entry.keyFramesDecoded ?? null, pliCount: entry.pliCount ?? null });
+      }
+    }
+  }
+  return out;
+}
+
+async function diagnose() {
+  const first = await videoCounters();
+  await new Promise((resolve) => { setTimeout(resolve, 2_000); });
+  return { visibilityState: document.visibilityState, hasFocus: document.hasFocus(),
+    videoTrackState: videoTrack?.readyState ?? null, videoTrackMuted: videoTrack?.muted ?? null,
+    frameRate: videoTrack?.getSettings().frameRate ?? null, first, second: await videoCounters() };
 }
 
 async function independentTick() {
@@ -308,4 +351,4 @@ async function cleanup() {
   voiceService.terminateE2EEWorker(); voiceService.mediaEncryption?.destroy();
 }
 
-globalThis.mediaProbe = { setup, publish, consume, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };
+globalThis.mediaProbe = { setup, publish, consume, diagnose, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };
