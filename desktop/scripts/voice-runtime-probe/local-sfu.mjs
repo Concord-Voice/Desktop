@@ -107,6 +107,24 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         const producer = owned(peer.producers, body.producerId);
         peer.producers.delete(producer.id); producer.close(); return {};
       }
+      case 'sfuDiagnose': {
+        // Failure-only: bounded SFU-side counters, no ids, keys or raw reports.
+        const trim = (entry) => ({ type: entry.type, kind: entry.kind, rid: entry.rid ?? null,
+          packetCount: entry.packetCount ?? null, pliCount: entry.pliCount ?? null,
+          firCount: entry.firCount ?? null, nackCount: entry.nackCount ?? null, score: entry.score ?? null });
+        const out = [];
+        for (const [name, entry] of peers) {
+          out.push({ peer: name,
+            producers: await Promise.all([...entry.producers.values()].map(async (p) => ({
+              kind: p.kind, type: p.type, paused: p.paused, score: p.score,
+              stats: (await p.getStats()).map(trim) }))),
+            consumers: await Promise.all([...entry.consumers.values()].map(async (c) => ({
+              kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
+              score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
+              stats: (await c.getStats()).map(trim) }))) });
+        }
+        return out;
+      }
       default: throw new Error('Unknown fixture action');
     }
   };
