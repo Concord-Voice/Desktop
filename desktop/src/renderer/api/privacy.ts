@@ -83,7 +83,7 @@ export class PrivacyApiError extends Error {
     status: number,
     code: PrivacyApiErrorCode = 'unknown',
     requiredOwnedServerIds?: string[],
-    stepUpRefusal: StepUpRefusal = { kind: 'failed' }
+    stepUpRefusal?: StepUpRefusal
   ) {
     const message = `erase-account failed with status ${status}`;
     super(message);
@@ -91,7 +91,7 @@ export class PrivacyApiError extends Error {
     this.status = status;
     this.code = code;
     this.requiredOwnedServerIds = requiredOwnedServerIds;
-    this.stepUpRefusal = stepUpRefusal;
+    this.stepUpRefusal = stepUpRefusal ?? { kind: 'failed' };
   }
 }
 

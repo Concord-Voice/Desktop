@@ -3317,6 +3317,12 @@ function isCredentialOwner(value: unknown): value is CredentialOwner {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
+/** Gives ownerless (cold-start) erasure links the restored saas owner, then delivers them. */
+function bindOwnerlessErasureLinks(owner: CredentialOwner): void {
+  for (const confirmation of pendingErasureConfirmations) confirmation.owner ??= owner;
+  drainErasureConfirmations();
+}
+
 registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
   const connectionId = sender.ref.connectionId;
   const inFlight = restoreSessionByConnection.get(connectionId);
@@ -3375,12 +3381,7 @@ registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
       // Only the saas restore verifies the owner an erasure link is fenced by: owner
       // numbers are not unique across custodies (#86 S3), so a self-hosted restore
       // must never bind a saas link.
-      if (isSaas) {
-        for (const confirmation of pendingErasureConfirmations) {
-          if (confirmation.owner === null) confirmation.owner = restoreOwner;
-        }
-        drainErasureConfirmations();
-      }
+      if (isSaas) bindOwnerlessErasureLinks(restoreOwner);
       return {
         status: 'restored',
         accessToken: refreshResult.accessToken,
