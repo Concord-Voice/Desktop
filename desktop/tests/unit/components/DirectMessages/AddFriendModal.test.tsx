@@ -301,9 +301,19 @@ describe('AddFriendModal', () => {
       expect(screen.getByText('Copied!')).toBeInTheDocument();
       await act(async () => vi.advanceTimersByTime(2000));
       expect(screen.getByText('Copy')).toBeInTheDocument();
+      // Watch the component's own 2 s feedback timer rather than counting every
+      // timer: under jsdom 31 the environment can leave an unrelated timer
+      // pending at unmount, which made a global count flaky on CI.
+      const setSpy = vi.spyOn(globalThis, 'setTimeout');
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      const copyTimers = () =>
+        setSpy.mock.calls.flatMap(([, delay], i) =>
+          delay === 2000 ? [setSpy.mock.results[i]?.value] : []
+        );
       await act(async () => fireEvent.click(screen.getByText('Copy')));
       expect(screen.getByText('Copied!')).toBeInTheDocument();
-      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      expect(copyTimers()).toHaveLength(1);
+      const [feedbackTimer] = copyTimers();
 
       let finishCopy: () => void = () => {};
       clipboard.mockImplementationOnce(
@@ -314,9 +324,10 @@ describe('AddFriendModal', () => {
       );
       fireEvent.click(screen.getByText('Copied!'));
       unmount();
-      expect(vi.getTimerCount()).toBe(0);
+      expect(clearSpy).toHaveBeenCalledWith(feedbackTimer);
       await act(async () => finishCopy());
-      expect(vi.getTimerCount()).toBe(0);
+      // The late clipboard completion must not start a new feedback timer.
+      expect(copyTimers()).toHaveLength(1);
     } finally {
       unmount();
       vi.useRealTimers();
