@@ -2461,12 +2461,8 @@ class VoiceService {
     );
   }
 
-  private shouldResumeMicAfterTrackReplacement(producerId: string): boolean {
-    return (
-      !useVoiceStore.getState().isSoloBandwidthSaving &&
-      !this.isMediaPolicyLatched(producerId) &&
-      this.shouldRunMicVAD(producerId)
-    );
+  private shouldResumeMicAfterTrackReplacement(producer: mediasoupTypes.Producer): boolean {
+    return !useVoiceStore.getState().isSoloBandwidthSaving && this.canResumeMic(producer);
   }
 
   private hasLiveMicGraph(producer: mediasoupTypes.Producer): boolean {
@@ -2655,8 +2651,7 @@ class VoiceService {
       replaceSeq === this.liveAudioTrackReplaceSeq &&
       producerTrackSafe &&
       graph !== null &&
-      this.hasLiveMicGraph(producer) &&
-      this.shouldResumeMicAfterTrackReplacement(producer.id)
+      this.shouldResumeMicAfterTrackReplacement(producer)
     ) {
       graph.track.enabled = true;
       producer.resume();
@@ -5248,7 +5243,7 @@ class VoiceService {
 
     // The outbound track was disabled before transport.produce. Only current
     // policy may enable it; muted and test-suspended producers stay paused.
-    if (this.shouldResumeMicAfterTrackReplacement(producer.id)) {
+    if (this.shouldResumeMicAfterTrackReplacement(producer)) {
       producer.resume();
     } else {
       producer.pause();
@@ -6718,7 +6713,7 @@ class VoiceService {
     if (this.isMediaPolicyLatched(producer.id)) return; // #2153: never resume a policed producer
     if (policy.keepProducersPaused) return;
     if (source === 'mic' && policy.keepMicPaused) return;
-    if (source === 'mic' && !this.hasLiveMicGraph(producer)) return;
+    if (source === 'mic' && !this.canResumeMic(producer)) return; // #242: deafen too
 
     producer.resume();
     this.socket?.emit('resume-producer', { producerId: producer.id });
@@ -6838,6 +6833,17 @@ class VoiceService {
     }
   }
 
+  /**
+   * Unmuting while deafened also undeafens (#242), so the mic and the UI agree.
+   * Returns false when the user is server-deafened and cannot undeafen.
+   */
+  private undeafenForUnmute(): boolean {
+    if (!useVoiceStore.getState().isDeafened) return true;
+    if (this.isServerDeafenBlocked()) return false;
+    this.toggleDeafen();
+    return true;
+  }
+
   /** Toggle mute (pause/resume mic producer) */
   async toggleMute(): Promise<void> {
     const store = useVoiceStore.getState();
@@ -6856,7 +6862,8 @@ class VoiceService {
       // A codec replacement can have no mapped producer while pending or after
       // a recoverable failure. Keep the latest mute intent for adoption, where
       // the outgoing track stays disabled until current policy permits a resume.
-      if (store.isMuted && (!this.canUnmuteMic(store) || store.isDeafened)) return;
+      if (store.isMuted && !this.canUnmuteMic(store)) return;
+      if (store.isMuted && !this.undeafenForUnmute()) return;
       const muted = !store.isMuted;
       store.setMuted(muted);
       this.applyOptimisticMute(store, muted);
@@ -6870,6 +6877,7 @@ class VoiceService {
     if (this.isMediaPolicyLatched(producer.id)) return;
 
     const wasMuted = store.isMuted;
+    if (wasMuted && this.canUnmuteMic(store) && !this.undeafenForUnmute()) return;
     try {
       if (wasMuted) {
         await this.unmuteMicProducer(store, producer);
@@ -6932,13 +6940,30 @@ class VoiceService {
     // cannot act on a producer (none yet, or latched); record the intent anyway so
     // the mute button stays truthful and no later path reads "unmuted" (#242).
     if (newDeafened && !store.isMuted) {
-      void this.toggleMute().finally(() => {
-        const after = useVoiceStore.getState();
-        if (after.isDeafened && !after.isMuted) {
-          after.setMuted(true);
-          this.applyOptimisticMute(after, true);
-        }
-      });
+      void this.toggleMute()
+        .catch((error: unknown) => {
+          console.error('[VoiceService] deafen mute failed:', errorMessage(error));
+        })
+        .then(() => this.enforceDeafenedMicOff());
+    }
+  }
+
+  /**
+   * After a deafen, the mic must be paused and the store muted, even when toggleMute
+   * could not act (no producer, latched) or failed and its revert resumed the mic (#242).
+   */
+  private enforceDeafenedMicOff(): void {
+    const after = useVoiceStore.getState();
+    if (!after.isDeafened) return;
+    const mic = this.producers.get('mic');
+    if (mic && !mic.closed && !mic.paused) {
+      mic.pause();
+      this.socket?.emit('pause-producer', { producerId: mic.id });
+      this.stopLocalVAD();
+    }
+    if (!after.isMuted) {
+      after.setMuted(true);
+      this.applyOptimisticMute(after, true);
     }
   }
 
@@ -10277,7 +10302,8 @@ class VoiceService {
         }
         store.setDeafened(true);
       }
-      if (muted) {
+      // #242: a server-deafened user may not transmit either.
+      if (muted || serverDeafened) {
         const micProducer = this.producers.get('mic');
         if (micProducer && !micProducer.paused) {
           micProducer.pause();
