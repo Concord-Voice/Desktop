@@ -1,3 +1,10 @@
+import type {
+  ConnectionId,
+  Generation,
+  GenerationReason,
+  ServiceId,
+} from '../shared/connectionIdentity';
+
 /**
  * IPC Contract Version — the compatibility boundary between shell and renderer.
  *
@@ -327,13 +334,79 @@
  * - v34: SSO `complete-link` may return an MFA challenge; the existing
  *        `sso:completeMFA` bridge verifies it and keeps refresh custody in main.
  *        No new channel or server SPA minimum is required.
- * - v35: Account-erasure confirmation deep link: dedicated
+ * - v35: Connection context isolation (#86, spec 2026-11-09 §3.7). Every channel
+ *        registers through `registerIpc` behind an admission class. New:
+ *        `connection:whoAmI` (sendSync, once at preload evaluation → the
+ *        document's `ConnectionIdentity` or null), `connection:create` (foreground
+ *        primary; single-flight; probe → ceremony → open → activate),
+ *        `connection:activate` (foreground primary → boolean), and the
+ *        `connection:generation` push to the record's own webContents, which the
+ *        preload accepts only when its generation is newer than the cached one.
+ *        `connection:preferenceScope` (any bound primary → its own
+ *        `{ serviceId, accountKey }`, or null until its custody holds an account).
+ *        `auth:storeRefreshToken` gains an optional `serverUserId` (bounded,
+ *        control-free; main hashes it into the account key and never stores it);
+ *        an older shell ignores the field.
+ *
+ *        The SERVER's spaIpcContract stays 19: a renderer that finds no
+ *        `electron.connection` bridge runs the legacy single-connection path, and
+ *        only a bridge that answers null renders "connection unavailable".
+ *        Capability, not demand.
+ * - v36: Capture lease (#87, spec 2026-11-09 §3.9). Two invokes, both
+ *        `connection-bound` with an explicit refusal: `capture:acquire`
+ *        (`{ intent }` -> `CaptureAcquireResult`; an admission refusal maps to
+ *        `rejected` with `not-foreground` kept and every other reason
+ *        `untrusted-sender`) and `capture:release` (`{ intent }` -> boolean;
+ *        refused -> `false`). Two pushes: `capture:lease` (`CaptureLeaseState`,
+ *        which the preload validates, copies and replays to each new subscriber
+ *        until superseded) and `capture:leaseRevoked` (`CaptureLeaseRevoked`, to
+ *        the holder only, no replay). Changed semantics, no shape change:
+ *        `media:getDesktopSources` returns `[]` to a non-holder; `audiocap:start`
+ *        uses the holder gate in place of the refuse-while-owned rule;
+ *        `tray:setStatus` is stored per connection and applied for the displayed
+ *        one; `tray:action` routes to the displayed connection;
+ *        `permission:changed` also goes to the holder; `sso:startLoopback`
+ *        supersedes, one loopback per connection.
+ *
+ *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
+ *        `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell
+ *        below 36 keeps today's behaviour. Capability, not demand.
+ * - v37: Account-erasure confirmation deep link: dedicated
  *        `deeplink:account-erasure-confirmation` main-to-renderer event plus
  *        `deeplink:account-erasure-ready` readiness signal. The payload carries
  *        only `{ requestId, token }`, is sender/session fenced in main, and never
  *        passes through invite/friend routing or persistent storage.
  */
-export const IPC_CONTRACT_VERSION = 35;
+export const IPC_CONTRACT_VERSION = 37;
+
+export type {
+  CaptureAcquireResult,
+  CaptureIntent,
+  CaptureLeaseRevoked,
+  CaptureLeaseState,
+} from '../shared/captureLease';
+
+/** `connection:create` reply (#86 §3.7). The renderer never learns more than the reason. */
+export type ConnectionCreateResult =
+  | { status: 'opened'; serviceId: ServiceId }
+  | {
+      status: 'rejected';
+      reason:
+        | 'untrusted-sender'
+        | 'not-foreground'
+        | 'invalid-origin'
+        | 'declined'
+        | 'busy'
+        | 'limit'
+        | 'service-id-collision';
+    };
+
+/** `connection:generation` push payload, sent only to the record's own webContents. */
+export interface ConnectionGenerationPush {
+  connectionId: ConnectionId;
+  generation: Generation;
+  reason: GenerationReason;
+}
 
 /**
  * The oldest shell this repository's RENDERER actually runs on.
@@ -408,4 +481,8 @@ export type SelfHostedProbeResult =
       status: 'error';
       code: string;
       message: string;
-    };
+    }
+  // #86 (contract v35, additive): a probe from one connection's view of ANOTHER
+  // approved origin opens that origin in its own connection and activates it. The
+  // probing view is never re-homed, so it receives no apiBase to navigate to.
+  | { status: 'opened-in-connection'; serviceId: ServiceId };

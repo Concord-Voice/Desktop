@@ -9,6 +9,7 @@ import { useCallback } from 'react';
 import { ConnectionState, getWebSocketService } from '../../services/messaging/websocketService';
 import { e2eeService } from '../../services/e2ee/e2eeService';
 import { getVoiceActionGeneration } from '../../services/voice/voiceActionGeneration';
+import { releaseVoiceJoinWhenCapturesSettle } from '../../services/voice/captureLeaseClient';
 import { useConnectionStore, type VoiceRejoinState } from '../../stores/ui/connectionStore';
 import { useUserStore } from '../../stores/auth/userStore';
 import { useAuthStore } from '../../stores/auth/authStore';
@@ -28,6 +29,17 @@ import {
 // voice-service import immediately destroys.
 // A later outage supersedes both the old import and any rejoin it scheduled.
 let voiceRecoveryGeneration = 0;
+
+/**
+ * The outage teardown kept the capture lease for its rejoin (#87 §3.8). A rejoin
+ * abandoned after that must give the lease back, or it outlives the call. Never while a
+ * call owns voice: that call's join holds the lease now.
+ */
+function releaseAbandonedRejoinLease(): void {
+  const voice = useVoiceStore.getState();
+  if (voice.connectionState !== 'disconnected' || voice.activeChannelId) return;
+  releaseVoiceJoinWhenCapturesSettle();
+}
 
 /** Run preflight diagnostics after grace period expires and route to the appropriate recovery path. */
 async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocketService>) {
@@ -124,7 +136,12 @@ async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocket
           isDeafened: currentVoice.isDeafened,
         };
         const voiceActionGeneration = voiceService.getVoiceActionGeneration();
-        voiceService.emergencyCleanup();
+        // #87 §3.8: keep the capture lease only while this teardown's rejoin ticket is
+        // still pending. The rejoin re-acquires as the holder; with no ticket, nothing
+        // rejoins and the lease must go with the call.
+        const keepCaptureLease =
+          useConnectionStore.getState().pendingVoiceRejoin?.cleanup === cleanup;
+        voiceService.emergencyCleanup({ keepCaptureLease });
         return { privacyIntent, voiceActionGeneration };
       })
       .catch(() => {
@@ -227,6 +244,8 @@ function schedulePendingVoiceRejoin(): void {
         return;
       if (!cleanupResult || useAuthStore.getState().authGeneration !== voiceRejoin.authGeneration) {
         useConnectionStore.getState().setPendingVoiceRejoin(null);
+        // A result means the teardown kept the lease; nothing will rejoin now.
+        if (cleanupResult) releaseAbandonedRejoinLease();
         return;
       }
       return import('../../services/voice/voiceService').then(({ voiceService }) => {
@@ -235,11 +254,15 @@ function schedulePendingVoiceRejoin(): void {
           generation !== voiceRecoveryGeneration
         )
           return;
+        const authChanged = useAuthStore.getState().authGeneration !== voiceRejoin.authGeneration;
         if (
-          useAuthStore.getState().authGeneration !== voiceRejoin.authGeneration ||
+          authChanged ||
           voiceService.getVoiceActionGeneration() !== cleanupResult.voiceActionGeneration
         ) {
           useConnectionStore.getState().setPendingVoiceRejoin(null);
+          // A user's join or leave decided the lease itself; only an abandoned rejoin
+          // gives it back here.
+          if (authChanged) releaseAbandonedRejoinLease();
           return;
         }
         // A user-initiated join while cleanup/import was pending owns voice.

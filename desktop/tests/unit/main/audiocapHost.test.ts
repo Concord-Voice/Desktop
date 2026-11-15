@@ -1,3 +1,4 @@
+import type * as AudiocapProtocolModule from '../../../src/shared/audiocapProtocol';
 // @vitest-environment node
 /**
  * Tests for the audiocap utilityProcess host (#3195, ADR-0043).
@@ -67,6 +68,13 @@ vi.mock('electron', () => ({
     exit: vi.fn(),
   },
 }));
+
+/**
+ * The capture-lease holder gate (#87 RC-3). The REAL `ipc/audiocap.ts` cases below start a
+ * share with no lease, so the sender is the holder here; the gate itself is pinned in
+ * `audiocapIpc.test.ts`.
+ */
+vi.mock('../../../src/main/captureLease', () => ({ isHolder: () => true }));
 
 /** A utilityProcess child stub whose handlers the test drives by hand. */
 /**
@@ -1205,7 +1213,7 @@ describe('start settles on the started ack, not on hello (#3394 PR 1, spec C1)',
   // the child, and only reaching the real (mocked) START_ACK_TIMEOUT_MS may.
   it('START_ACK_TIMEOUT_MS is genuinely distinct from HANDSHAKE_TIMEOUT_MS (#3394 PR 1, C8)', async () => {
     vi.doMock('../../../src/shared/audiocapProtocol', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('../../../src/shared/audiocapProtocol')>();
+      const actual = await importOriginal<typeof AudiocapProtocolModule>();
       return { ...actual, START_ACK_TIMEOUT_MS: 30_000 };
     });
     vi.useFakeTimers();
@@ -1365,6 +1373,50 @@ describe('renderer loss kills the capture, never the probe (#3394 PR 1, spec C15
     contents.handlers['render-process-gone']!({}, { reason: 'crashed', exitCode: 1 });
     contents.handlers['did-navigate']!({}, 'https://example.invalid/', 200, 'OK');
     expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  // #86 Codex C2: every connection's view is wired, so a loss belongs to ONE connection.
+  // Before the scoping, connection B's reload, failed load or crash killed connection A's
+  // live capture and moved the process-wide epoch, with no interrupt published to A.
+  describe("a renderer loss ends only the owning connection's capture (#86 C2)", () => {
+    const owner = { kind: 'audiocap', ref: { connectionId: 'conn-A', generation: 1 } };
+
+    async function ownedCapture() {
+      const host = await loadHost();
+      const child = makeChild();
+      fork.mockReturnValue(child);
+      host.setAudiocapPortSink(vi.fn());
+      const started = host.startAudiocapHost(1, 42, owner as never);
+      child.handlers.message(validHello());
+      child.handlers.message(STARTED);
+      await started;
+      child.kill.mockClear();
+      const viewA = fakeContents();
+      const viewB = fakeContents();
+      host.wireAudiocapRendererLoss(viewA as never, 'conn-A' as never);
+      host.wireAudiocapRendererLoss(viewB as never, 'conn-B' as never);
+      return { host, child, viewA, viewB };
+    }
+
+    it("another connection's reload, failed load or crash leaves the owner's capture and epoch alone", async () => {
+      const { host, child, viewB } = await ownedCapture();
+      const ownerBefore = host.audiocapRendererLossEpoch('conn-A' as never);
+      const otherBefore = host.audiocapRendererLossEpoch('conn-B' as never);
+      viewB.handlers['did-navigate']!({}, 'app://concord/index.html', 200, 'OK');
+      viewB.handlers['did-fail-load']!({}, -6, 'ERR_FILE_NOT_FOUND', 'app://x/', true, 1, 1);
+      viewB.handlers['render-process-gone']!({}, { reason: 'crashed', exitCode: 1 });
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(host.audiocapRendererLossEpoch('conn-A' as never)).toBe(ownerBefore);
+      expect(host.audiocapRendererLossEpoch('conn-B' as never)).toBe(otherBefore + 3);
+    });
+
+    it("control: the owner's own reload still kills the capture and moves the owner's epoch", async () => {
+      const { host, child, viewA } = await ownedCapture();
+      const ownerBefore = host.audiocapRendererLossEpoch('conn-A' as never);
+      viewA.handlers['did-navigate']!({}, 'app://concord/index.html', 200, 'OK');
+      expect(child.kill).toHaveBeenCalled();
+      expect(host.audiocapRendererLossEpoch('conn-A' as never)).toBe(ownerBefore + 1);
+    });
   });
 
   it('registers all three renderer-loss handlers (did-navigate, render-process-gone, did-fail-load)', async () => {
@@ -1562,13 +1614,15 @@ describe('audiocapRendererLossEpoch always bumps on a recognized loss event, liv
     });
     getSources.mockReturnValueOnce(pending);
 
-    const mainWebContents = { mainFrame: { frameTreeNodeId: 1 } };
-    const getMainWindow = () =>
-      ({ isDestroyed: () => false, webContents: mainWebContents }) as never;
-    const trusted = {
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
-      sender: mainWebContents,
-    } as never;
+    // #86 Task 7B re-point: the handler takes the main-held binding the registry admitted.
+    // The sender is a bound, foreground primary whose own main frame (`parent: null`)
+    // sends the event, which is the shape the registry admits.
+    const { bindTestSender } = await import('./ipc/boundSenderFixture');
+    const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+    const bound = bindTestSender();
+    const trusted = bound.event();
+    const sender = requireConnectionSender(trusted, { roles: ['primary'] }, null);
+    if (sender === null) throw new Error('fixture sender not admitted');
 
     const contents = { handlers: {} as Record<string, (...a: unknown[]) => void>, on: vi.fn() };
     (contents.on as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1576,14 +1630,10 @@ describe('audiocapRendererLossEpoch always bumps on a recognized loss event, liv
         contents.handlers[event] = cb;
       }
     );
-    host.wireAudiocapRendererLoss(contents as never);
+    // The view is the requester's own connection's (#86 C2: a loss counts per connection).
+    host.wireAudiocapRendererLoss(contents as never, sender.ref.connectionId);
 
-    const pendingStart = handleAudiocapStart(
-      trusted,
-      { sourceId: 'window:42:0' },
-      () => null,
-      getMainWindow
-    );
+    const pendingStart = handleAudiocapStart(sender, trusted, { sourceId: 'window:42:0' });
     expect(contents.handlers['did-navigate']).toBeTypeOf('function');
     contents.handlers['did-navigate']!({}, 'https://example.invalid/', 200, 'OK');
     release([{ id: 'window:42:0', name: 'Some App' }]);
@@ -1772,24 +1822,31 @@ describe('audiocap:stop spares the windowless app-start probe (#3394 PR 1, R4)',
 
   it('control: a stop during a REAL capture still stops it', async () => {
     const host = await loadHost();
-    const { handleAudiocapStop } = await import('../../../src/main/ipc/audiocap');
+    const { handleAudiocapStart, handleAudiocapStop } =
+      await import('../../../src/main/ipc/audiocap');
     const child = makeChild();
     fork.mockReturnValue(child);
     host.setAudiocapPortSink(vi.fn());
-    const started = host.startAudiocapHost(1, 42);
+    // #86 Task 7B re-point: the handler takes the main-held binding the registry admitted.
+    // The sender is a bound, foreground primary whose own main frame (`parent: null`)
+    // sends the event, which is the shape the registry admits.
+    const { bindTestSender } = await import('./ipc/boundSenderFixture');
+    const { requireConnectionSender } = await import('../../../src/main/ipc/connectionSender');
+    const bound = bindTestSender();
+    const trusted = bound.event();
+    const sender = requireConnectionSender(trusted, { roles: ['primary'] }, null);
+    if (sender === null) throw new Error('fixture sender not admitted');
+    // A stop ends only the share its connection OWNS (a stop with no owner is a no-op since
+    // #86 Task 7B), so the real capture is started through audiocap:start by the same bound
+    // primary that stops it, not by a bare host start that has no owner.
+    const started = handleAudiocapStart(sender, trusted, { sourceId: 'window:42:0' });
+    await vi.waitFor(() => expect(fork).toHaveBeenCalledTimes(1));
     child.handlers.message(validHello());
     child.handlers.message(STARTED);
-    await started;
+    await expect(started).resolves.toMatchObject({ ok: true });
     child.postMessage.mockClear();
 
-    const mainWebContents = { mainFrame: { frameTreeNodeId: 1 } };
-    const getMainWindow = () =>
-      ({ isDestroyed: () => false, webContents: mainWebContents }) as never;
-    const trusted = {
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
-      sender: mainWebContents,
-    } as never;
-    handleAudiocapStop(trusted, () => null, getMainWindow);
+    handleAudiocapStop(sender, trusted);
 
     // The GRACEFUL stop, not a bare kill (electron.md "IPC contract v28" / #3198 PR 3
     // rationale): a real capture must still be ended by a trusted stop.
@@ -2126,5 +2183,72 @@ describe('mid-share interrupt publication — the harness genuinely reaches capt
     child.kill.mockClear();
     child.handlers.message({ kind: 'fault', stage: 'protocol', message: 'x' });
     expect(child.kill).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// #87 Task 4 (RC-3, RC-4): the read-only capture probe the lease consults, and the handoff's
+// `revokeAudiocapShare`, which must never reap the app-start probe (ADR-0043 A9).
+// ─────────────────────────────────────────────────────────────────────────
+describe('audiocapCaptureActive and revokeAudiocapShare (#87 RC-3, RC-4)', () => {
+  it('reads true for a live renderer capture and false once killAudiocapCapture ends it', async () => {
+    const host = await loadHost();
+    expect(host.audiocapCaptureActive()).toBe(false);
+    const child = makeChild();
+    fork.mockReturnValue(child);
+    host.setAudiocapPortSink(vi.fn());
+    const started = host.startAudiocapHost(1, 42);
+    expect(host.audiocapCaptureActive()).toBe(true);
+    child.handlers.message(validHello());
+    child.handlers.message(STARTED);
+    await started;
+    expect(host.audiocapCaptureActive()).toBe(true);
+    host.killAudiocapCapture();
+    expect(child.kill).toHaveBeenCalled();
+    expect(host.audiocapCaptureActive()).toBe(false);
+  });
+
+  it('reads false while only the windowless app-start probe is live', async () => {
+    const host = await loadHost();
+    fork.mockReturnValue(makeChild());
+    void host.probeAudiocapCapability();
+    expect(fork).toHaveBeenCalledTimes(1);
+    expect(host.audiocapCaptureActive()).toBe(false);
+  });
+
+  it('revokeAudiocapShare spares the handshaking probe and leaves its result unchanged', async () => {
+    const host = await loadHost();
+    const { revokeAudiocapShare } = await import('../../../src/main/ipc/audiocap');
+    const probeChild = makeChild();
+    fork.mockReturnValue(probeChild);
+    const probe = host.probeAudiocapCapability();
+    expect(host.audiocapProbeResult()).toBeNull();
+
+    revokeAudiocapShare();
+
+    expect(probeChild.kill).not.toHaveBeenCalled();
+    expect(host.audiocapProbeResult()).toBeNull();
+    probeChild.handlers.message(validHello());
+    await expect(probe).resolves.toEqual({ ok: true, perProcessAudio: true });
+    expect(host.audiocapProbeResult()).toEqual({ ok: true, perProcessAudio: true });
+    revokeAudiocapShare();
+    expect(host.audiocapProbeResult()).toEqual({ ok: true, perProcessAudio: true });
+    expect(fork).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokeAudiocapShare kills a live renderer capture', async () => {
+    const host = await loadHost();
+    const { revokeAudiocapShare } = await import('../../../src/main/ipc/audiocap');
+    const child = makeChild();
+    fork.mockReturnValue(child);
+    host.setAudiocapPortSink(vi.fn());
+    const started = host.startAudiocapHost(1, 42);
+    child.handlers.message(validHello());
+    child.handlers.message(STARTED);
+    await started;
+    child.kill.mockClear();
+    revokeAudiocapShare();
+    expect(child.kill).toHaveBeenCalled();
+    expect(host.audiocapCaptureActive()).toBe(false);
   });
 });

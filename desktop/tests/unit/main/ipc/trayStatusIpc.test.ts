@@ -16,6 +16,7 @@ const { handlers, mockApplyTraySnapshot } = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+  app: { getPath: () => '/tmp/concord-test-userdata' },
   ipcMain: {
     handle: vi.fn((channel: string, fn: Handler) => {
       handlers.set(channel, fn);
@@ -30,8 +31,27 @@ vi.mock('../../../../src/main/tray', () => ({
 import {
   attachTrayResetHooks,
   createTokenBucket,
+  displayedTrayConnection,
+  dropTraySnapshot,
   registerTrayStatusIpc,
+  setTrayOwner,
+  trayActionTarget,
+  trayOwner,
+  traySnapshotCount,
+  traySnapshotFor,
 } from '../../../../src/main/ipc/trayStatus';
+import {
+  _resetConnectionRegistryForTesting,
+  advanceGeneration,
+  bindSender,
+  disposeConnection,
+  openConnection,
+  refOf,
+  registerService,
+  setForeground,
+} from '../../../../src/main/connectionRegistry';
+import { _resetIpcRegistryForTesting } from '../../../../src/main/ipc/registry';
+import type { ConnectionId } from '../../../../src/shared/connectionIdentity';
 
 const SNAPSHOT: TrayStatusSnapshot = {
   v: 1,
@@ -52,7 +72,7 @@ const SNAPSHOT: TrayStatusSnapshot = {
 };
 
 function makeWindow() {
-  const contents = { mainFrame: { frameTreeNodeId: 1 } };
+  const contents = { id: 1, mainFrame: { frameTreeNodeId: 1, parent: null, detached: false } };
   const win = { isDestroyed: vi.fn(() => false), webContents: contents };
   return { contents, win };
 }
@@ -60,25 +80,47 @@ function makeWindow() {
 function setup(now?: () => number) {
   handlers.clear();
   const { contents, win } = makeWindow();
-  let current: typeof win | null = win;
   vi.spyOn(Date, 'now').mockImplementation(now ?? (() => 1_000));
-  registerTrayStatusIpc(
-    () => null,
-    () => current as never
-  );
+  // #86 Task 7B re-point: admission is the main-held binding, not a main-window identity
+  // gate. `contents` is the bound FOREGROUND saas primary; `setWindow(null)` now means
+  // "no connection is foreground", which is what the old null-window case guarded.
+  _resetConnectionRegistryForTesting();
+  _resetIpcRegistryForTesting();
+  const svc = registerService('https://api.concordvoice.chat', {
+    makeSession: () => ({}) as never,
+    makeCustody: () => ({}) as never,
+    isValidatedSelfHostedApiBase: () => true,
+  });
+  if (!svc.ok) throw new Error(svc.reason);
+  const opened = openConnection(svc.service.serviceId, contents as never, null);
+  if (!opened.ok) throw new Error(opened.reason);
+  bindSender(contents as never, opened.record.connectionId, 'primary');
+  setForeground(opened.record.connectionId);
+  const connectionId = opened.record.connectionId;
+  // registerTrayStatusIpc forgets the previous test's tray state, so clearing the
+  // owner after it re-renders nothing here.
+  registerTrayStatusIpc();
+  setTrayOwner(null);
+  mockApplyTraySnapshot.mockReset();
   const handler = handlers.get(TRAY_SET_STATUS);
   if (!handler) throw new Error('tray:setStatus not registered');
   const trusted = {
     sender: contents,
-    senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+    senderFrame: {
+      url: 'app://concord/index.html',
+      frameTreeNodeId: 1,
+      parent: null,
+      detached: false,
+    },
   };
   return {
     handler,
     contents,
+    connectionId,
     win,
     trusted,
     setWindow: (w: typeof win | null) => {
-      current = w;
+      setForeground(w ? connectionId : null);
     },
   };
 }
@@ -125,7 +167,12 @@ describe('tray:setStatus handler (AC8)', () => {
     const { handler, contents } = setup();
     const evil = {
       sender: contents,
-      senderFrame: { url: 'https://evil.example/', frameTreeNodeId: 1 },
+      senderFrame: {
+        url: 'https://evil.example/',
+        frameTreeNodeId: 1,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(evil, SNAPSHOT)).toBe(true);
     expect(await handler({ sender: contents, senderFrame: null }, SNAPSHOT)).toBe(true);
@@ -135,8 +182,13 @@ describe('tray:setStatus handler (AC8)', () => {
   it('refuses a PiP sender that shares the origin', async () => {
     const { handler } = setup();
     const pip = {
-      sender: { mainFrame: { frameTreeNodeId: 9 } },
-      senderFrame: { url: 'app://concord/pip.html', frameTreeNodeId: 9 },
+      sender: { mainFrame: { frameTreeNodeId: 9, parent: null, detached: false } },
+      senderFrame: {
+        url: 'app://concord/pip.html',
+        frameTreeNodeId: 9,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(pip, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
@@ -146,24 +198,25 @@ describe('tray:setStatus handler (AC8)', () => {
     const { handler, contents } = setup();
     const sub = {
       sender: contents,
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 5 },
+      senderFrame: {
+        url: 'app://concord/index.html',
+        frameTreeNodeId: 5,
+        parent: null,
+        detached: false,
+      },
     };
     expect(await handler(sub, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
   });
 
-  it('refuses when there is no main window, or it is destroyed, or reading it throws', async () => {
-    const { handler, trusted, win, setWindow } = setup();
+  it('with no foreground and no owner it stores the snapshot but applies nothing (#87 RC-2)', async () => {
+    const { handler, trusted, setWindow } = setup();
     setWindow(null);
-    expect(await handler(trusted, SNAPSHOT)).toBe(true);
-    setWindow(win);
-    win.isDestroyed.mockReturnValue(true);
-    expect(await handler(trusted, SNAPSHOT)).toBe(true);
-    win.isDestroyed.mockImplementation(() => {
-      throw new Error('Object has been destroyed');
-    });
+    mockApplyTraySnapshot.mockClear();
     expect(await handler(trusted, SNAPSHOT)).toBe(true);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotCount()).toBe(1);
+    expect(displayedTrayConnection()).toBeNull();
   });
 
   it('drops the 21st call inside one second', async () => {
@@ -206,37 +259,55 @@ describe('tray:setStatus handler (AC8)', () => {
   });
 });
 
+/** `attachTrayResetHooks` on a fake `webContents`, for the connection `connectionId`. */
+function hooks(connectionId: ConnectionId) {
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  const contents = {
+    on: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
+      listeners.set(event, fn);
+    }),
+  };
+  attachTrayResetHooks(contents, connectionId);
+  const fire = (event: string, ...args: unknown[]) => {
+    const fn = listeners.get(event);
+    if (!fn) throw new Error(`no ${event} listener`);
+    fn(...args);
+  };
+  return { fire };
+}
+
+// Every reset hook, with arguments that make it reset (#86 B2 runs each one per view).
+const RESETS: ReadonlyArray<readonly [string, readonly unknown[]]> = [
+  ['did-navigate', []],
+  ['did-fail-load', [{}, -105, 'name not resolved', 'https://x', true]],
+  ['render-process-gone', [{}, {}]],
+  ['unresponsive', []],
+  ['destroyed', []],
+];
+
 describe('attachTrayResetHooks (AC13)', () => {
-  function hooks() {
-    const listeners = new Map<string, (...args: unknown[]) => void>();
-    const contents = {
-      on: vi.fn((event: string, fn: (...args: unknown[]) => void) => {
-        listeners.set(event, fn);
-      }),
-    };
-    attachTrayResetHooks(contents);
-    const fire = (event: string, ...args: unknown[]) => {
-      const fn = listeners.get(event);
-      if (!fn) throw new Error(`no ${event} listener`);
-      fn(...args);
-    };
-    return { fire };
+  // The foreground connection's view, with an accepted snapshot on the tray.
+  async function shown() {
+    const s = setup();
+    await s.handler(s.trusted, SNAPSHOT);
+    mockApplyTraySnapshot.mockClear();
+    return { ...s, ...hooks(s.connectionId) };
   }
 
-  it('resets to neutral once a main-frame navigation commits', () => {
-    const { fire } = hooks();
+  it('resets to neutral once a main-frame navigation commits', async () => {
+    const { fire } = await shown();
     fire('did-navigate');
     expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
   });
 
-  it('does not reset on a navigation attempt that may still be cancelled', () => {
-    const { fire } = hooks();
+  it('does not reset on a navigation attempt that may still be cancelled', async () => {
+    const { fire } = await shown();
     expect(() => fire('did-start-navigation', { isMainFrame: true })).toThrow(/no did-start/);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
   });
 
-  it('resets on a failed main-frame load, but not an aborted one or a subframe', () => {
-    const { fire } = hooks();
+  it('resets on a failed main-frame load, but not an aborted one or a subframe', async () => {
+    const { fire } = await shown();
     fire('did-fail-load', {}, -3, 'aborted', 'https://x', true);
     fire('did-fail-load', {}, -105, 'name not resolved', 'https://x', false);
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
@@ -244,17 +315,14 @@ describe('attachTrayResetHooks (AC13)', () => {
     expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
   });
 
-  it.each(['render-process-gone', 'unresponsive', 'destroyed'])('resets on %s', (event) => {
-    const { fire } = hooks();
+  it.each(['render-process-gone', 'unresponsive', 'destroyed'])('resets on %s', async (event) => {
+    const { fire } = await shown();
     fire(event, {}, {});
     expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
   });
 
   it('re-applies the last accepted snapshot when a hung renderer recovers', async () => {
-    const { handler, trusted } = setup();
-    await handler(trusted, SNAPSHOT);
-    const { fire } = hooks();
-    mockApplyTraySnapshot.mockClear();
+    const { fire } = await shown();
     fire('unresponsive');
     expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
     fire('responsive');
@@ -264,9 +332,7 @@ describe('attachTrayResetHooks (AC13)', () => {
   it.each(['render-process-gone', 'destroyed'])(
     'forgets the snapshot on %s, so a later responsive restores nothing',
     async (event) => {
-      const { handler, trusted } = setup();
-      await handler(trusted, SNAPSHOT);
-      const { fire } = hooks();
+      const { fire } = await shown();
       fire(event, {}, {});
       mockApplyTraySnapshot.mockClear();
       fire('responsive');
@@ -275,12 +341,459 @@ describe('attachTrayResetHooks (AC13)', () => {
   );
 
   it('forgets the snapshot on a main-frame navigation', async () => {
-    const { handler, trusted } = setup();
-    await handler(trusted, SNAPSHOT);
-    const { fire } = hooks();
+    const { fire } = await shown();
     fire('did-navigate');
     mockApplyTraySnapshot.mockClear();
     fire('responsive');
     expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+  });
+});
+
+// #86 Task 7B: sender authority is the main-held binding. getMainWindow is null below so the
+// legacy main-window identity gate can never admit these senders.
+describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
+  function conn(origin: string, id: number) {
+    const r = registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id }, isDestroyed: () => false } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record, id, ref: refOf(o.record) };
+  }
+  const ev = (c: { wc: unknown; id: number }, over: Record<string, unknown> = {}) =>
+    ({
+      sender: c.wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: c.id,
+        detached: false,
+        ...over,
+      },
+    }) as never;
+
+  function boot() {
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    handlers.clear();
+    setTrayOwner(null);
+    mockApplyTraySnapshot.mockReset();
+    vi.spyOn(Date, 'now').mockImplementation(() => 1_000);
+    registerTrayStatusIpc(
+      () => null,
+      () => null
+    );
+    const handler = handlers.get(TRAY_SET_STATUS)!;
+    const A = conn('https://api.concordvoice.chat', 31);
+    const B = conn(new URL('https://a.example').origin, 32);
+    setForeground(A.record.connectionId);
+    mockApplyTraySnapshot.mockReset();
+    return { handler, A, B };
+  }
+  const SNAP_B: TrayStatusSnapshot = { ...SNAPSHOT, unread: 7, voice: 'none' };
+  function hooksOn(wc: unknown, connectionId: ConnectionId) {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    Object.assign(wc as object, {
+      on: (event: string, fn: (...args: unknown[]) => void) => {
+        listeners.set(event, fn);
+      },
+    });
+    attachTrayResetHooks(wc as never, connectionId);
+    return (event: string, ...args: unknown[]) => {
+      const fn = listeners.get(event);
+      if (!fn) throw new Error(`no ${event} listener`);
+      fn(...args);
+    };
+  }
+
+  it('trayOwner() is null by default and round-trips setTrayOwner', () => {
+    const { B } = boot();
+    expect(trayOwner()).toBeNull();
+    setTrayOwner(B.ref);
+    expect(trayOwner()).toEqual(B.ref);
+    setTrayOwner(null);
+    expect(trayOwner()).toBeNull();
+  });
+
+  // #87 RC-2 (R15 wins inside the handler): every bound primary's snapshot is STORED, and
+  // only the displayed connection's is APPLIED. These rows replace #86's "admits X only".
+  it("with no tray owner it stores every bound primary's snapshot and applies the foreground's only", async () => {
+    const { handler, A, B } = boot();
+    expect(await handler(ev(B), SNAP_B)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotFor(B.record.connectionId)).toEqual(SNAP_B);
+    expect(await handler(ev(A), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledWith(SNAPSHOT);
+    expect(traySnapshotCount()).toBe(2);
+    expect(displayedTrayConnection()).toBe(A.record.connectionId);
+  });
+
+  it("after setTrayOwner(refB) it stores A's update but applies B's only, even while A is foreground", async () => {
+    const { handler, A, B } = boot();
+    setTrayOwner(B.ref);
+    mockApplyTraySnapshot.mockClear();
+    expect(await handler(ev(A), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotFor(A.record.connectionId)).toEqual(SNAPSHOT);
+    expect(await handler(ev(B), SNAP_B)).toBe(true);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledWith(SNAP_B);
+  });
+
+  it("after setTrayOwner(refA) B's update is stored, not applied, even while B is foreground", async () => {
+    const { handler, A, B } = boot();
+    setForeground(B.record.connectionId);
+    setTrayOwner(A.ref);
+    mockApplyTraySnapshot.mockClear();
+    expect(await handler(ev(B), SNAP_B)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotFor(B.record.connectionId)).toEqual(SNAP_B);
+    // Owner A sent nothing, so the tray is neutral rather than showing B.
+    expect(displayedTrayConnection()).toBeNull();
+  });
+
+  it("setTrayOwner re-applies the newly displayed snapshot at once; null applies the foreground's", async () => {
+    const { handler, A, B } = boot();
+    await handler(ev(A), SNAPSHOT);
+    await handler(ev(B), SNAP_B);
+    mockApplyTraySnapshot.mockClear();
+    setTrayOwner(B.ref);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(SNAP_B);
+    setTrayOwner(null);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(2);
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(SNAPSHOT);
+  });
+
+  it('a stale tray owner stores the snapshot but keeps the tray neutral and routes no action', async () => {
+    const { handler, B } = boot();
+    setTrayOwner(B.ref);
+    advanceGeneration(B.record.connectionId, 'document');
+    mockApplyTraySnapshot.mockClear();
+    expect(await handler(ev(B), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotFor(B.record.connectionId)).toEqual(SNAPSHOT);
+    expect(displayedTrayConnection()).toBeNull();
+    expect(trayActionTarget()).toBeNull();
+  });
+
+  it('dropTraySnapshot removes one connection and neutralises the tray only when it is displayed', async () => {
+    const { handler, A, B } = boot();
+    await handler(ev(A), SNAPSHOT);
+    await handler(ev(B), SNAP_B);
+    mockApplyTraySnapshot.mockClear();
+    dropTraySnapshot(A.record.connectionId);
+    expect(traySnapshotCount()).toBe(1);
+    expect(traySnapshotFor(A.record.connectionId)).toBeNull();
+    expect(traySnapshotFor(B.record.connectionId)).toEqual(SNAP_B);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
+    dropTraySnapshot(B.record.connectionId);
+    expect(traySnapshotCount()).toBe(0);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('a navigation START keeps the snapshot (cancelled navigations); the commit forgets it (Codex P2)', async () => {
+    const { handler, A } = boot();
+    await handler(ev(A), SNAPSHOT);
+    const fire = hooksOn(A.wc, A.record.connectionId);
+    mockApplyTraySnapshot.mockClear();
+    // Start of a navigation that main cancels: the same document and call stay alive.
+    advanceGeneration(A.record.connectionId, 'document');
+    expect(traySnapshotFor(A.record.connectionId)).toEqual(SNAPSHOT);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    // The surviving document owns the tray again once the lease restores it, and its kept
+    // snapshot matches the new generation, so it is shown without a resend.
+    setTrayOwner(refOf(A.record));
+    expect(displayedTrayConnection()).toBe(A.record.connectionId);
+    expect(trayActionTarget()).toBe(A.wc);
+    // A real commit: the tray hook (which runs before the generation hooks) forgets it.
+    fire('did-navigate');
+    expect(traySnapshotFor(A.record.connectionId)).toBeNull();
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+  });
+
+  it("a reset hook resets only its own connection: B's did-navigate leaves displayed A untouched", async () => {
+    const { handler, A, B } = boot();
+    await handler(ev(A), SNAPSHOT);
+    await handler(ev(B), SNAP_B);
+    const fireA = hooksOn(A.wc, A.record.connectionId);
+    const fireB = hooksOn(B.wc, B.record.connectionId);
+    mockApplyTraySnapshot.mockClear();
+    fireB('did-navigate');
+    fireB('unresponsive');
+    fireB('responsive');
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    expect(traySnapshotFor(B.record.connectionId)).toBeNull();
+    expect(traySnapshotFor(A.record.connectionId)).toEqual(SNAPSHOT);
+    fireA('unresponsive');
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+    fireA('responsive');
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(SNAPSHOT);
+    fireA('did-navigate');
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+    expect(traySnapshotCount()).toBe(0);
+  });
+
+  // RC-14: a credential advance re-keys the same running document, so its snapshot stays.
+  it.each(['credential-start', 'credential-end'] as const)(
+    'a %s advance keeps that connection’s snapshot',
+    async (reason) => {
+      const { handler, A } = boot();
+      await handler(ev(A), SNAPSHOT);
+      mockApplyTraySnapshot.mockClear();
+      advanceGeneration(A.record.connectionId, reason);
+      expect(traySnapshotFor(A.record.connectionId)).toEqual(SNAPSHOT);
+      expect(traySnapshotCount()).toBe(1);
+      expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['renderer-gone', 'disposed'] as const)(
+    'a %s advance drops that connection’s snapshot and neutralises it while displayed',
+    async (reason) => {
+      const { handler, A, B } = boot();
+      await handler(ev(A), SNAPSHOT);
+      await handler(ev(B), SNAP_B);
+      mockApplyTraySnapshot.mockClear();
+      advanceGeneration(A.record.connectionId, reason);
+      expect(traySnapshotFor(A.record.connectionId)).toBeNull();
+      expect(traySnapshotFor(B.record.connectionId)).toEqual(SNAP_B);
+      expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
+    }
+  );
+
+  it('the rate limit is per connection', async () => {
+    const { handler, A, B } = boot();
+    for (let i = 0; i < 20; i += 1) expect(await handler(ev(B), SNAP_B)).toBe(true);
+    expect(await handler(ev(B), SNAP_B)).toBe(false);
+    expect(await handler(ev(A), SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).toHaveBeenCalledWith(SNAPSHOT);
+  });
+
+  it("a foreground change shows the new foreground's stored snapshot while no owner is set", async () => {
+    const { handler, A, B } = boot();
+    await handler(ev(A), SNAPSHOT);
+    await handler(ev(B), SNAP_B);
+    mockApplyTraySnapshot.mockClear();
+    setForeground(B.record.connectionId);
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(SNAP_B);
+    setForeground(null);
+    expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+    setTrayOwner(A.ref);
+    mockApplyTraySnapshot.mockClear();
+    setForeground(B.record.connectionId);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+  });
+
+  it('trayActionTarget follows the displayed connection and fails closed on a stale owner', async () => {
+    const { handler, A, B } = boot();
+    await handler(ev(A), SNAPSHOT);
+    await handler(ev(B), SNAP_B);
+    expect(trayActionTarget()).toBe(A.wc);
+    setTrayOwner(B.ref);
+    expect(trayActionTarget()).toBe(B.wc);
+    setTrayOwner(null);
+    setForeground(null);
+    expect(trayActionTarget()).toBeNull();
+    setTrayOwner(B.ref);
+    advanceGeneration(B.record.connectionId, 'document');
+    expect(trayActionTarget()).toBeNull();
+  });
+
+  it('refuses a detached sender frame and a destroyed sender, resolving true', async () => {
+    const { handler, A } = boot();
+    expect(await handler(ev(A, { detached: true }), SNAPSHOT)).toBe(true);
+    const destroyed = ev(A) as { senderFrame: unknown };
+    Object.defineProperty(destroyed, 'senderFrame', {
+      get: () => {
+        throw new Error('Object has been destroyed');
+      },
+    });
+    expect(await handler(destroyed, SNAPSHOT)).toBe(true);
+    expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+  });
+  // #86 B1: the tray shows, and its actions reach, one connection. A snapshot a
+  // background connection sent is kept for it, so a switch shows that connection's
+  // state at once: its renderer sends only on change and will not resend.
+  describe('foreground switch (#86 B1)', () => {
+    const IN_VOICE: TrayStatusSnapshot = { ...SNAPSHOT, voice: 'channel', muted: false };
+    const IDLE: TrayStatusSnapshot = { ...SNAPSHOT, voice: 'none' };
+
+    it("shows the new foreground's snapshot, sent while it was background, with no resend", async () => {
+      const { handler, A, B } = boot();
+      expect(await handler(ev(A), IN_VOICE)).toBe(true);
+      expect(await handler(ev(B), IDLE)).toBe(true);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+      setForeground(B.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      setForeground(A.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+    });
+
+    it("drops the previous connection's voice rows when the new foreground has sent nothing", async () => {
+      const { handler, A, B } = boot();
+      await handler(ev(A), IN_VOICE);
+      setForeground(B.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+    });
+
+    it('routes tray actions to the connection whose snapshot is on screen', async () => {
+      const { handler, A, B } = boot();
+      await handler(ev(A), IN_VOICE);
+      expect(trayActionTarget()).toBe(A.wc);
+      await handler(ev(B), IDLE);
+      expect(trayActionTarget()).toBe(A.wc);
+      setForeground(B.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      expect(trayActionTarget()).toBe(B.wc);
+    });
+
+    it('sends tray actions nowhere while neutral, and to the owner while it holds the tray', async () => {
+      const { handler, A, B } = boot();
+      expect(trayActionTarget()).toBeNull();
+      await handler(ev(A), IN_VOICE);
+      setForeground(B.record.connectionId);
+      expect(trayActionTarget()).toBeNull();
+      // #87 RC-2 (B3): an owner other than the foreground receives the action it displays.
+      setForeground(A.record.connectionId);
+      setTrayOwner(B.ref);
+      await handler(ev(B), IDLE);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      expect(trayActionTarget()).toBe(B.wc);
+    });
+
+    it("naming or clearing a tray owner shows that connection's kept snapshot at once", async () => {
+      const { handler, A, B } = boot();
+      await handler(ev(A), IN_VOICE);
+      await handler(ev(B), IDLE);
+      setTrayOwner(B.ref);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      setTrayOwner(null);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+    });
+
+    it("re-renders neutral at once when the owner's generation advances, with no resend (M11)", async () => {
+      const { handler, A, B } = boot();
+      const reg = await import('../../../../src/main/connectionRegistry');
+      await handler(ev(A), IN_VOICE);
+      await handler(ev(B), IDLE);
+      setTrayOwner(B.ref);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      mockApplyTraySnapshot.mockClear();
+      reg.advanceGeneration(B.record.connectionId, 'document');
+      expect(mockApplyTraySnapshot).toHaveBeenCalledTimes(1);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+      expect(trayActionTarget()).toBeNull();
+    });
+
+    it.each(['credential-start', 'credential-end'] as const)(
+      'a %s re-key keeps the owner showing its snapshot with no resend (Codex P2)',
+      async (reason) => {
+        const { handler, A } = boot();
+        const reg = await import('../../../../src/main/connectionRegistry');
+        await handler(ev(A), IN_VOICE);
+        setTrayOwner(A.ref);
+        expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+        reg.advanceGeneration(A.record.connectionId, reason);
+        // The capture lease re-keys the owner in the same event.
+        setTrayOwner(reg.refOf(reg.recordFor(A.record.connectionId)!));
+        expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+        expect(trayActionTarget()).not.toBeNull();
+      }
+    );
+
+    it("never shows a snapshot kept at an older generation than the owner's named one (M6)", async () => {
+      const { handler, A, B } = boot();
+      const reg = await import('../../../../src/main/connectionRegistry');
+      // B sends at generation N while A is foreground: kept, not shown.
+      await handler(ev(B), IDLE);
+      // A real replacement: the commit's tray hook runs before the generation hooks. (A
+      // navigation START alone keeps the snapshot for a cancelled navigation: see the
+      // 'navigation START' case.)
+      const fireB = hooksOn(B.wc, B.record.connectionId);
+      fireB('did-navigate');
+      reg.advanceGeneration(B.record.connectionId, 'document');
+      const live = reg.recordFor(B.record.connectionId)!;
+      expect(live.generation).not.toBe(B.ref.generation);
+      // Main names B at its CURRENT generation N+1: the owner is current, but the
+      // kept snapshot predates it and B has not resent.
+      setTrayOwner(reg.refOf(live));
+      expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+      expect(trayActionTarget()).toBeNull();
+      // Once B resends at N+1, the owner shows it.
+      await handler(ev(B), IDLE);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IDLE);
+      void A;
+    });
+
+    it('blanks the tray when the foreground connection is disposed', async () => {
+      const { handler, A } = boot();
+      await handler(ev(A), IN_VOICE);
+      disposeConnection(A.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+      expect(trayActionTarget()).toBeNull();
+    });
+
+    it("a background connection does not spend the foreground connection's rate budget", async () => {
+      const { handler, A, B } = boot();
+      for (let i = 0; i < 25; i += 1) await handler(ev(B), IDLE);
+      expect(await handler(ev(B), IDLE)).toBe(false);
+      expect(await handler(ev(A), IN_VOICE)).toBe(true);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(IN_VOICE);
+    });
+  });
+
+  // #86 B2: every view gets reset hooks, but the tray is shared, so only the view
+  // whose snapshot the tray shows may reset it.
+  describe('reset hooks per view (#86 B2)', () => {
+    it.each(RESETS)(
+      '%s from a background view leaves the foreground tray alone',
+      async (event, args) => {
+        const { handler, A, B } = boot();
+        await handler(ev(A), SNAPSHOT);
+        await handler(ev(B), SNAPSHOT);
+        mockApplyTraySnapshot.mockClear();
+        hooks(B.record.connectionId).fire(event, ...args);
+        hooks(B.record.connectionId).fire('responsive');
+        expect(mockApplyTraySnapshot).not.toHaveBeenCalled();
+      }
+    );
+
+    it.each(RESETS)('%s from the foreground view still resets the tray', async (event, args) => {
+      const { handler, A } = boot();
+      await handler(ev(A), SNAPSHOT);
+      mockApplyTraySnapshot.mockClear();
+      hooks(A.record.connectionId).fire(event, ...args);
+      expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
+    });
+
+    it.each(RESETS)(
+      '%s from the tray owner resets it while another view is foreground',
+      async (event, args) => {
+        const { handler, B } = boot();
+        setTrayOwner(B.ref);
+        await handler(ev(B), SNAPSHOT);
+        mockApplyTraySnapshot.mockClear();
+        hooks(B.record.connectionId).fire(event, ...args);
+        expect(mockApplyTraySnapshot).toHaveBeenCalledWith(null);
+      }
+    );
+
+    it('a background reload forgets that connection only: switching to it shows neutral', async () => {
+      const { handler, A, B } = boot();
+      await handler(ev(A), SNAPSHOT);
+      await handler(ev(B), { ...SNAPSHOT, voice: 'none' });
+      hooks(B.record.connectionId).fire('did-navigate');
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(SNAPSHOT);
+      setForeground(B.record.connectionId);
+      expect(mockApplyTraySnapshot).toHaveBeenLastCalledWith(null);
+    });
   });
 });

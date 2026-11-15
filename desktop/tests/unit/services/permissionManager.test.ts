@@ -53,15 +53,19 @@ import {
   registerIpcHandlers,
   type OsPermissionType,
 } from '@/main/permissionManager';
+import { bindTestSender } from '../main/ipc/boundSenderFixture';
 
-const trustedIpcEvent = {
-  senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 41 },
-};
-const getRemoteSpaBaseUrl = () => null;
+// #86 Task 7B: the handlers run behind registerIpc, so the trusted event is the bound
+// FOREGROUND saas primary's main frame, rebuilt (with fresh registries) per case.
+const trustedIpcEvent: Record<string, unknown> = {};
+let connectionId = '';
 
 describe('permissionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const fx = bindTestSender();
+    connectionId = fx.connectionId;
+    Object.assign(trustedIpcEvent, fx.event());
     // Drain the *Once queues: vi.clearAllMocks() does not, so an unconsumed
     // queued value is served to the next test. See internal-reference
     // § The *Once queue outlives the test that queued it.
@@ -387,7 +391,7 @@ describe('permissionManager', () => {
 
   describe('registerIpcHandlers', () => {
     it('registers all handlers', () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
+      registerIpcHandlers(vi.fn());
       const channels = mockHandle.mock.calls.map((c: unknown[]) => c[0]);
       expect(channels).toContain('permission:checkAll');
       expect(channels).toContain('permission:check');
@@ -396,7 +400,7 @@ describe('permissionManager', () => {
     });
 
     it('check handler validates type', () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
+      registerIpcHandlers(vi.fn());
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:check'
       );
@@ -405,7 +409,7 @@ describe('permissionManager', () => {
     });
 
     it('check handler returns status', async () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
+      registerIpcHandlers(vi.fn());
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:check'
       );
@@ -415,8 +419,7 @@ describe('permissionManager', () => {
     });
 
     it('request handler notifies renderer', async () => {
-      const win = { isDestroyed: vi.fn().mockReturnValue(false), webContents: { send: mockSend } };
-      registerIpcHandlers(vi.fn().mockReturnValue(win), getRemoteSpaBaseUrl);
+      registerIpcHandlers((_ref, channel, ...args) => mockSend(channel, ...args));
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
@@ -429,31 +432,22 @@ describe('permissionManager', () => {
       });
     });
 
-    it('request handler skips destroyed window', async () => {
-      const win = { isDestroyed: vi.fn().mockReturnValue(true), webContents: { send: mockSend } };
-      registerIpcHandlers(vi.fn().mockReturnValue(win), getRemoteSpaBaseUrl);
+    it('request handler pushes only to the requesting connection ref', async () => {
+      const push = vi.fn();
+      registerIpcHandlers(push);
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
       const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       mockSecureStorageAvailable.mockReturnValue(true);
       await handler(trustedIpcEvent, 'secureStorage');
-      expect(mockSend).not.toHaveBeenCalled();
-    });
-
-    it('request handler skips null window', async () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
-      const call = mockHandle.mock.calls.find(
-        (c: unknown[]) => (c as string[])[0] === 'permission:request'
-      );
-      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
-      mockSecureStorageAvailable.mockReturnValue(true);
-      await handler(trustedIpcEvent, 'secureStorage');
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(push.mock.calls[0][0]).toEqual(expect.objectContaining({ connectionId }));
       expect(mockSend).not.toHaveBeenCalled();
     });
 
     it('request handler throws for invalid type', async () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
+      registerIpcHandlers(vi.fn());
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
@@ -462,7 +456,7 @@ describe('permissionManager', () => {
     });
 
     it('openSettings handler throws for invalid type', () => {
-      registerIpcHandlers(vi.fn().mockReturnValue(null), getRemoteSpaBaseUrl);
+      registerIpcHandlers(vi.fn());
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:openSettings'
       );

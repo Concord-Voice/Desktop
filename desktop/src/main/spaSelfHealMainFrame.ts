@@ -51,12 +51,14 @@ export function shouldTriggerSelfHealForFailedLoad(args: DidFailLoadFilterArgs):
   // URL means a host/path migration can't silently re-break this (#976).
   if (url.origin !== args.remoteSpaBaseUrl) return false;
 
-  if (args.isMainFrame) {
-    // Main-frame failure: the SPA index itself is unreachable.
-    return url.pathname.startsWith(args.remoteSpaBaseDir);
-  }
-  // Sub-resource failure: only the SPA's own chunk assets (`<baseDir>assets/`).
-  return url.pathname.startsWith(args.remoteSpaBaseDir + 'assets/');
+  // Main-frame failures only: the SPA index itself is unreachable (#86 RT3).
+  // did-fail-load reports a FRAME's document load, not a script or chunk fetch, so a
+  // subframe event at `<baseDir>assets/` could only come from a document that frames
+  // the SPA origin (Chromium refuses it: CSP default-src 'self', X-Frame-Options
+  // DENY). No legitimate frame does that; the SPA's own chunk failures reach
+  // self-heal through spa:requestSelfHeal (spaSelfHealClient.ts) instead.
+  if (!args.isMainFrame) return false;
+  return url.pathname.startsWith(args.remoteSpaBaseDir);
 }
 
 export interface SenderFrameValidationArgs {
@@ -106,6 +108,8 @@ export async function handleSpaRequestSelfHeal(args: {
   payload: unknown;
   remoteSpaBaseUrl: string | null;
   remoteSpaBaseDir: string | null;
+  /** `event.sender`; attemptSelfHeal acts only when it is the saas view (#86 RT3). */
+  requester: Electron.WebContents;
 }): Promise<SelfHealOutcome | null> {
   if (
     !validateSelfHealSenderFrame({
@@ -123,7 +127,11 @@ export async function handleSpaRequestSelfHeal(args: {
     return null;
   }
 
-  return attemptSelfHeal({ reason: args.payload.reason, url: args.payload.url });
+  return attemptSelfHeal({
+    reason: args.payload.reason,
+    url: args.payload.url,
+    requester: args.requester,
+  });
 }
 
 /**
@@ -141,13 +149,16 @@ export async function handleDidFailLoad(args: {
   isMainFrame: boolean;
   remoteSpaBaseUrl: string | null;
   remoteSpaBaseDir: string | null;
+  /** The contents that emitted did-fail-load; only the saas view heals (#86 RT3). */
+  requester: Electron.WebContents;
 }): Promise<SelfHealOutcome | null> {
   const trigger = shouldTriggerSelfHealForFailedLoad(args);
   if (!trigger) return null;
 
   return attemptSelfHeal({
-    reason: args.isMainFrame ? 'main-frame-load' : 'sub-resource',
+    reason: 'main-frame-load',
     url: args.validatedURL,
     errorCode: args.errorCode,
+    requester: args.requester,
   });
 }

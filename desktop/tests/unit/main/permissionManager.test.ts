@@ -64,13 +64,17 @@ import {
   openSystemSettings,
   registerIpcHandlers,
 } from '@/main/permissionManager';
+import { bindTestSender, type BoundSenderFixture } from './ipc/boundSenderFixture';
+import { recordFor, refOf } from '@/main/connectionRegistry';
+import { _resetIpcRegistryForTesting } from '@/main/ipc/registry';
+import type { ConnectionRef } from '@/shared/connectionIdentity';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
 const originalPlatform = process.platform;
-const trustedIpcEvent = {
-  senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 41 },
-} as IpcMainInvokeEvent;
+// #86 Task 7B: the handlers run behind registerIpc, so the trusted event is the bound
+// FOREGROUND saas primary's main frame, filled in by the IPC suite's beforeEach.
+const trustedIpcEvent = {} as IpcMainInvokeEvent;
 
 function setPlatform(platform: string) {
   Object.defineProperty(process, 'platform', {
@@ -533,8 +537,8 @@ describe('permissionManager', () => {
 
   describe('registerIpcHandlers', () => {
     it('registers 4 IPC handlers', () => {
-      const getMainWindow = vi.fn(() => null);
-      registerIpcHandlers(getMainWindow, () => null);
+      bindTestSender();
+      registerIpcHandlers(vi.fn());
       expect(mockIpcMainHandle).toHaveBeenCalledTimes(4);
       const channels = mockIpcMainHandle.mock.calls.map((c: unknown[]) => c[0]);
       expect(channels).toContain('permission:checkAll');
@@ -545,10 +549,8 @@ describe('permissionManager', () => {
 
     describe('IPC handler behavior', () => {
       let handlers: Record<string, (...args: unknown[]) => unknown>;
-      let mockWindow: {
-        isDestroyed: ReturnType<typeof vi.fn>;
-        webContents: { send: ReturnType<typeof vi.fn> };
-      };
+      let push: ReturnType<typeof vi.fn>;
+      let fx: BoundSenderFixture;
 
       beforeEach(() => {
         mockIpcMainHandle.mockReset();
@@ -559,14 +561,10 @@ describe('permissionManager', () => {
           }
         );
 
-        mockWindow = {
-          isDestroyed: vi.fn(() => false),
-          webContents: { send: vi.fn() },
-        };
-        registerIpcHandlers(
-          () => mockWindow as never,
-          () => null
-        );
+        fx = bindTestSender();
+        Object.assign(trustedIpcEvent, fx.event());
+        push = vi.fn();
+        registerIpcHandlers(push);
       });
 
       it.each([
@@ -588,7 +586,7 @@ describe('permissionManager', () => {
         expect(mockAskForMediaAccess).not.toHaveBeenCalled();
         expect(mockNotificationShow).not.toHaveBeenCalled();
         expect(mockOpenExternal).not.toHaveBeenCalled();
-        expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+        expect(push).not.toHaveBeenCalled();
       });
 
       it('permission:checkAll returns all permissions', async () => {
@@ -637,43 +635,106 @@ describe('permissionManager', () => {
         expect(mockOpenExternal).toHaveBeenCalled();
       });
 
-      it('permission:request does not send event when window is null', async () => {
-        mockIpcMainHandle.mockReset();
-        handlers = {};
-        mockIpcMainHandle.mockImplementation(
-          (channel: string, handler: (...args: unknown[]) => unknown) => {
-            handlers[channel] = handler;
-          }
-        );
-        registerIpcHandlers(
-          () => null,
-          () => null
-        );
-        setPlatform('win32');
-        // Should not throw
-        const result = await handlers['permission:request'](trustedIpcEvent, 'microphone');
-        expect(result).toBe('granted');
-      });
-
-      it('permission:request does not send event when window is destroyed', async () => {
-        mockIpcMainHandle.mockReset();
-        handlers = {};
-        mockIpcMainHandle.mockImplementation(
-          (channel: string, handler: (...args: unknown[]) => unknown) => {
-            handlers[channel] = handler;
-          }
-        );
-        const destroyedWindow = {
-          isDestroyed: vi.fn(() => true),
-          webContents: { send: vi.fn() },
-        };
-        registerIpcHandlers(
-          () => destroyedWindow as never,
-          () => null
-        );
+      it('permission:request pushes permission:changed to the requesting connection only', async () => {
         setPlatform('win32');
         await handlers['permission:request'](trustedIpcEvent, 'microphone');
-        expect(destroyedWindow.webContents.send).not.toHaveBeenCalled();
+        expect(push).toHaveBeenCalledTimes(1);
+        expect(push).toHaveBeenCalledWith(
+          expect.objectContaining({ connectionId: fx.connectionId }),
+          'permission:changed',
+          { type: 'microphone', status: 'granted' }
+        );
+      });
+
+      it('refuses a background connection: no OS prompt and no push (app-global-mutate)', async () => {
+        setPlatform('darwin');
+        const background = bindTestSender({
+          origin: 'https://voice.example',
+          id: 9,
+          reset: false,
+          foreground: false,
+        });
+        await expect(
+          handlers['permission:request'](background.event(), 'microphone')
+        ).resolves.toBeUndefined();
+        expect(
+          handlers['permission:openSettings'](background.event(), 'microphone')
+        ).toBeUndefined();
+        expect(mockAskForMediaAccess).not.toHaveBeenCalled();
+        expect(mockOpenExternal).not.toHaveBeenCalled();
+        expect(push).not.toHaveBeenCalled();
+      });
+
+      describe('capture-lease holder delivery (#87 Task 4)', () => {
+        const refFor = (id: string) => {
+          const record = recordFor(id);
+          if (!record) throw new Error('fixture: no record');
+          return refOf(record);
+        };
+        const register = (holder: () => ConnectionRef | null) => {
+          // registerIpc refuses a duplicate channel, so start from a clean IPC registry.
+          _resetIpcRegistryForTesting();
+          mockIpcMainHandle.mockClear();
+          registerIpcHandlers(push, holder);
+        };
+        const background = (id: number) =>
+          bindTestSender({
+            origin: `https://bg${id}.example`,
+            id,
+            reset: false,
+            foreground: false,
+          });
+
+        it('pushes permission:changed to the requester and to a different holder', async () => {
+          setPlatform('win32');
+          const holder = background(11);
+          const third = background(12);
+          const holderRef = refFor(holder.connectionId);
+          register(() => holderRef);
+          await handlers['permission:request'](trustedIpcEvent, 'microphone');
+          const payload = { type: 'microphone', status: 'granted' };
+          expect(push).toHaveBeenCalledTimes(2);
+          expect(push).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ connectionId: fx.connectionId }),
+            'permission:changed',
+            payload
+          );
+          expect(push).toHaveBeenNthCalledWith(2, holderRef, 'permission:changed', payload);
+          const targets = push.mock.calls.map(
+            (c: unknown[]) => (c[0] as ConnectionRef).connectionId
+          );
+          expect(targets).not.toContain(third.connectionId);
+        });
+
+        it('pushes once when the requester is the holder', async () => {
+          setPlatform('win32');
+          const own = refFor(fx.connectionId);
+          register(() => own);
+          await handlers['permission:request'](trustedIpcEvent, 'microphone');
+          expect(push).toHaveBeenCalledTimes(1);
+        });
+
+        it('pushes once when there is no holder', async () => {
+          setPlatform('win32');
+          register(() => null);
+          await handlers['permission:request'](trustedIpcEvent, 'microphone');
+          expect(push).toHaveBeenCalledTimes(1);
+        });
+
+        it('R14: a BACKGROUND holder still cannot request or open settings', async () => {
+          setPlatform('darwin');
+          const holder = background(13);
+          const holderRef = refFor(holder.connectionId);
+          register(() => holderRef);
+          await expect(
+            handlers['permission:request'](holder.event(), 'microphone')
+          ).resolves.toBeUndefined();
+          expect(handlers['permission:openSettings'](holder.event(), 'microphone')).toBeUndefined();
+          expect(mockAskForMediaAccess).not.toHaveBeenCalled();
+          expect(mockOpenExternal).not.toHaveBeenCalled();
+          expect(push).not.toHaveBeenCalled();
+        });
       });
     });
   });

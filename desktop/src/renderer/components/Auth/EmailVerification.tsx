@@ -10,6 +10,7 @@ import {
   runtimeServerSelectionIsCurrent,
 } from '../../services/system/runtimeServerBase';
 import type { CredentialOwner } from '../../../main/ipcContract';
+import { isServerUserId } from '../../../shared/serverUserId';
 import './EmailVerification.css';
 import './TOTPInput.css';
 
@@ -70,7 +71,17 @@ interface ConfirmResponse {
   access_token: string;
   refresh_token: string;
   session_id?: string;
-  user?: { email_verified?: boolean };
+  user?: { id?: unknown; email_verified?: boolean };
+}
+
+/**
+ * #86: main derives this connection's preference account key from the confirmed
+ * account's server id. The body is not schema-validated, so an id that fails main's
+ * own admission rule is omitted — no key (a null scope), not a failed verification.
+ */
+function confirmedServerUserId(data: ConfirmResponse): { serverUserId?: string } {
+  const id = data.user?.id;
+  return isServerUserId(id) ? { serverUserId: id } : {};
 }
 
 interface ResendResponse {
@@ -112,6 +123,7 @@ async function admitVerifiedSession(params: {
       rememberMe: true,
       apiBase: requestApiBase,
       accessToken: data.access_token,
+      ...confirmedServerUserId(data),
     });
     if (typeof storedOwner !== 'number') {
       setError('Verification failed. Please try again.');

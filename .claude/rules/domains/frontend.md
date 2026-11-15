@@ -11,7 +11,7 @@ paths:
 
 ## State Management
 
-- ~47 Zustand stores (v5.0.12) — always use selective subscriptions: `useStore((s) => s.field)`
+- 45 Zustand stores (v5.0.16) — always use selective subscriptions: `useStore((s) => s.field)`
 - Actions live on the store — never define state-changing logic in components
 - Use `persist` middleware only for data surviving app restart
 - Store files: `src/renderer/stores/<concern>/{name}Store.ts` — one per file
@@ -422,6 +422,9 @@ So each entry below names a **runtime proof**, not a test. That is the control.
 
 
 | **Calibration phase attribution and silent processing (#3637).** Renderer delivery time cannot label audio. Send increasing safe-integer epochs, reset the calibration partial window on the audio thread, acknowledge the epoch/phase, and accept only matching complete-window reports. Count usable frames at the actual context rate; cap quiet/speech reports at 10/20 captured seconds. Silent calibration connects the existing Test processor through zero gain to the running destination, with no listening element; close the processor/context and disconnect owned nodes on teardown | MDN says the AudioContext [currentTime](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/currentTime) is an “ever-increasing hardware timestamp in seconds”; its [suspend()](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/suspend) contract “temporarily halts audio hardware access.” Neither establishes renderer message-delivery time as an audio-phase boundary or proves a silent graph runs on every packaged origin. An epoch acknowledgement is synchronization, not proof of speech or microphone quality | **MEASURED 2026-10-25 on real Chromium 151.0.7922.173**, Vite origin `http://127.0.0.1:5177`, importing actual `createMicProcessor` and current-origin worklet (`HTTP 200`, `text/javascript`). Synthetic ConstantSource through fixed gate and zero-gain destination produced epoch-1 quiet reports: 500 windows / 480,000 frames at 48 kHz, then held its cap. Reports measured peak `0.0010000000474974513` while gated output peak was `0`. Suspension held report count stable. Epoch-2 speech reported `0.009999999776482582`; context closed with no processor errors. See verification report for reproduction and limits. This proves this synthetic browser graph only; packaged Electron origins, physical microphone quality, full UI cleanup and mid-window phase reset require their own evidence. Re-run on browser/Electron/Vite changes |
+| **Child `WebContentsView`s outlive their `BaseWindow` (#86).** Closing the shell window does not destroy the connection views' webContents. `shellWindow.ts` closes every live child explicitly in the window's `'closed'` handler, and `disposeConnectionView` advances the generation before it closes the view | `BaseWindow.close()` and `'closed'` fire the same either way; a surviving renderer keeps its session, sockets and IPC sender alive with no window. A mock view has no process to leak | Measured on Electron 45 / macOS arm64: `desktop/spikes/connection-footprint/results/macos-arm64.md`. Windows x64 and Linux x64: NOT MEASURED. Re-run the spike's close row on an Electron bump. Unit pin: `shellWindow.test.ts` "'closed' closes every live child webContents explicitly" |
+| **Hidden connection views run timers at 1-minute wake-ups (#86).** Views keep `backgroundThrottling: true`. About 3.5 min after a view is hidden, Chromium's intensive throttling stretches the 30 s heartbeat to 60 s (max gap 60.0 s). That stays under the 120 s presence window and the 60 s `pongWait`, so no server deadline is missed. Any hidden-view timer that needs better than 1-minute resolution (the access-token refresh lead) must not rely on `setTimeout` cadence | `setInterval(…, 30_000)` type-checks and passes under fake timers; only a real hidden renderer shows the stretch | Measured on macOS arm64, production bundle, 10 min, 3 hidden views (same results file, "Hidden-view throttling vs heartbeat"). Logged-in idle: NOT MEASURED. Windows/Linux: NOT MEASURED. Re-run `--state=login-idle --minutes=10 --throttle=true` on a Chromium bump |
+| **Frameless chrome over a child view (#86).** The renderer now lives in a `WebContentsView` under a `BaseWindow`, so title-bar behavior depends on how the OS chrome composes with a child view: macOS `hiddenInset` traffic lights, `-webkit-app-region: drag` inside the child, `titleBarOverlay` hit-testing (Windows/X11), framed chrome on Wayland | The window options are accepted on every platform and nothing throws; whether a click reaches the overlay or the page is decided by the compositor | macOS arm64: traffic lights draw above the child view (verified, spike). Drag region inside a child view: NOT VERIFIED (needs a real OS drag). `titleBarOverlay` hit-testing on Windows/X11 and Wayland chrome: NOT MEASURED — no Windows/Linux host. Check each by hand on those platforms before a release that ships #86 |
 
 **Adding an entry.** When you find that some behavior you rely on is not guaranteed by a
 signature — a timing rule, an ordering rule, an engine-availability rule — add a row here
@@ -1169,6 +1172,73 @@ half is `.claude/rules/media-plane.md` § "Media-rate policer (#2153)" — read 
   cooldown on the automatic reconnect path (`resumeAfterReconnect`) tears down through
   `emergencyCleanup()` with no dialog; only `handleJoinFailure` opens it. The popped-out PiP controls
   window shows no notice strip, but `toggleMute`'s guard still holds there.
+
+## Capture lease — renderer side (#87)
+
+Spec §3.8 (`docs/superpowers/specs/2026-11-09-87-capture-lease-and-resource-budgets-design.md`).
+`services/voice/captureLeaseClient.ts` is a service, not a store. It wraps
+`globalThis.electron.capture` (contract 36). With no bridge, `acquire` answers `granted` and
+`release` does nothing, which is the pre-35 behaviour.
+
+- **Join acquires first.** The first await in `joinChannel` is `acquire('voice-join')`. It runs
+  before `authorizeVoiceJoin`, E2EE init and any `getUserMedia`. A `granted` clears
+  `captureMovedNotice`. Any other non-grant except `declined` throws `CaptureLeaseError`, and
+  `setJoinError` shows `captureLeaseMessage(reason)`.
+- **`declined` is silent.** The user chose Stay in main's dialog, so no join error is shown.
+  The join calls `bumpCaptureDeclined()` and the announcer speaks once.
+- **Revocation sets the notice before cleanup and never rejoins.** `captureRevocation.ts` is
+  installed once by `App` (never in the PiP window). On `moved` it runs, in order:
+  `setCaptureMovedNotice(true)`, `advanceVoiceActionGeneration()`,
+  `setPendingVoiceRejoin(null)`, `voiceService.emergencyCleanup()`, the `capture-revoked` event
+  on `captureRevokedEvents`, a release of both claims, then `setCaptureLease('none')`. On
+  `backgrounded` (a device test only) it emits the event, releases `device-test` and clears the
+  view; a call is left alone. The same module mirrors every `capture:lease` push into
+  `captureLease`.
+- **Three `voiceStore` fields.** `reset()` **preserves** `captureLease`
+  (`'none' | 'mine' | 'other'`) and `captureMovedNotice`, because a `moved` revocation sets the
+  notice and `emergencyCleanup()` then runs `reset()`. `gracefulReset()` clears both, and
+  `resetAllStores()` pins both. `captureDeclinedSeq` is transient, so `reset()` wipes it.
+- **Copy (§3.8, verbatim).** It never names a service. `CAPTURE_LEASE_COPY` and
+  `captureLeaseMessage` export it:
+
+| Key | String |
+|---|---|
+| Hint (join controls; device test) | "Your microphone is in a call on another connection. Joining here will ask before ending that call." |
+| Device test, `held` | "Your microphone is in a call on another connection. Leave that call to test it here." |
+| Device test, `backgrounded` | "Your test stopped when you switched to another connection. Start it again to keep testing." |
+| Pending (SR) | "Joining voice…" |
+| Declined (SR) | "Staying on your current call." |
+| Banner | "Your call ended because your microphone moved to another connection." Button: "Dismiss" |
+| `busy` | "You've asked to switch a few times quickly. Wait a moment, then try again." |
+| `not-foreground` | "Voice can start only on the connection you're viewing. Join again from here." |
+| `unavailable` | "This connection doesn't offer voice." |
+| `superseded` | "Your connection restarted before voice could start. Join again." |
+| `untrusted-sender`, IPC throws, unknown | "Couldn't start voice. Restart Concord Voice and try again." |
+
+- **Join controls: hint by `aria-describedby`, pending by `aria-disabled` + `aria-busy`.**
+  Every control that calls `joinChannel` from a click (`VoiceView`'s `JoinPrompt`,
+  `DMChatArea`'s `DMJoinCallButton`) subscribes to `captureLease` and to
+  `isAcquirePending` through `useSyncExternalStore`. While `'other'`, `aria-describedby`
+  points at a `CaptureLeaseHint` node (visually hidden; never a `title`). While pending,
+  the control is `aria-busy` and `aria-disabled` with a guarded click, and never natively
+  `disabled`: Chromium drops focus to `<body>` from a disabled button, and focus must still
+  be on the control when the user picks Stay. A pre-existing native `disabled` (connecting,
+  busy) is suspended for the pending window. `VoiceView` re-arms its single-flight ref
+  after a join that resolves unjoined, or a declined prompt locks Join Voice. Server
+  `voice_move` (`useWebSocketMessages`) and recovery rejoin are not controls and carry
+  neither.
+- **`CaptureMovedBanner` sits in `.app` flow directly after `UpdateBanner`, as
+  `{!isPipWindow && <CaptureMovedBanner />}`.** It is inline, not a global overlay, so the
+  top-layer rules above do not apply. `role="status"`; text is set one frame after
+  `document.visibilityState` is `visible` (T0 row 7), because a backgrounded connection's
+  document reports `hidden` and an announcement there is lost. Dismiss moves focus to the
+  first tabbable after the banner, else to `.app` with `tabindex="-1"`, never `<body>`.
+  The reduced-motion block stays last in its CSS.
+- **`CaptureLeaseAnnouncer` is its own polite region beside the banner**, not
+  `MediaPolicyNotice`'s. It mounts on a pending join or a decline, sets text one frame
+  later, and a module-level `lastAnnouncedSeq` stops a remount re-announcing a decline.
+- **Terminology.** Copy says "connection" until #88 names these; every string changes
+  together then (`docs/self-hosted-client.md` records the same).
 
 ## Codec selection and status truth (`voiceCodecSelection.ts`, post-#2242)
 
@@ -3216,8 +3286,10 @@ and the fact-first system row deliberately differ from the issue's examples (a s
   The login page keeps that selection with its own challenge. For `MFAChallengeModal` the code
   that raises the challenge records it before calling `showChallenge`, through
   `recordChallengeIssuer` (`services/system/challengeIssuer.ts`, first record wins): `useSSOFlow`
-  records the selection it reserved at `begin`, and `apiClient`'s refresh records the selection
-  it captured before awaiting `refreshToken()`. Those are the only two `showChallenge` callers.
+  records the selection it reserved at `begin`, `SSOAccountLinkConfirm` records the selection of
+  its link request, `AccountRecovery` records its recovery selection, and `apiClient`'s refresh
+  records the selection it captured before awaiting `refreshToken()`. Those are the four
+  `showChallenge` callers; `grep showChallenge(` is the check, not this count.
   The modal reads `challengeIssuerFor` and never captures a selection at render, because a
   selection that moved before React committed would send the token to the new server. A token
   with no record fails closed: nothing is sent, and the send line and a verify both say the

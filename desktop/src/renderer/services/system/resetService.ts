@@ -155,6 +155,9 @@ export function gracefulReset(opts?: { keepDeepLinks?: boolean }): void {
   // #2153: reset() preserves the eviction/cooldown interrupt by design; an account
   // transition must not carry it into the next user's session.
   useVoiceStore.getState().clearMediaPolicyInterrupt();
+  // #87: reset() preserves the capture-lease view and the moved notice the same way.
+  useVoiceStore.getState().setCaptureLease('none');
+  useVoiceStore.getState().setCaptureMovedNotice(false);
   useChatStore.getState().reset();
   // Search indexes decrypted message content outside the chat stores. Purge it
   // explicitly so no plaintext survives an account lifecycle transition.

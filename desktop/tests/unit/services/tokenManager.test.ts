@@ -96,7 +96,20 @@ vi.mock('fs', () => ({
   rmSync: (path: string) => mockRm(path),
 }));
 
-import {
+import { createProfileCustody } from '@/main/tokenManager';
+import type { ProfileCustody } from '@/main/tokenManager';
+import { preferenceScopeFor } from '@/main/preferenceOwnership';
+
+// The suite runs once per custody instance (#1618): every former module-level
+// call now goes through the instance created in beforeEach.
+let custody: ProfileCustody;
+const viaCustody = new Proxy({} as ProfileCustody, {
+  get:
+    (_t, key: string) =>
+    (...args: unknown[]) =>
+      (custody as unknown as Record<string, (...a: unknown[]) => unknown>)[key](...args),
+});
+const {
   storeRefreshToken,
   restoreRefreshToken,
   clearTokens,
@@ -109,7 +122,7 @@ import {
   storeE2EEKeysIfOwner,
   restoreE2EEKeys,
   getCredentialCustodyState,
-  getPersistedApiBase,
+  getCredentialApiBase,
   getCapabilities,
   stopProactiveRefresh,
   performRefresh,
@@ -119,17 +132,20 @@ import {
   getCachedAccessToken,
   _resetForTesting,
   _flushDiskWritesForTesting,
-} from '@/main/tokenManager';
+} = viaCustody;
 // Mocked via vi.mock('electron') above — imported here so tests can spy the
 // async encrypt/decrypt to simulate a locked keychain or hold one in flight.
 import { safeStorage } from 'electron';
 import {
   profilePathsForApiBase,
+  serviceIdForApiBase,
   commitSelfHostedApproval,
   _resetSelfHostedProfileForTesting,
 } from '@/main/selfHostedProfile';
 import { _resetApprovalsCacheForTesting } from '@/main/selfHostedApprovals';
+import { SAAS_SERVICE_ID } from '../../../src/shared/connectionIdentity';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 // ─── JWT Test Helper ────────────────────────────────────────────────
 // Creates a minimal JWT with a given exp claim (seconds since epoch).
@@ -191,8 +207,13 @@ function readMockDisk(path: unknown): unknown {
   return value;
 }
 
-describe('tokenManager', () => {
+describe.each([
+  ['saas', 'https://api.concordvoice.chat'],
+  ['selfhost-A', 'https://a.example'],
+  ['selfhost-B', 'https://b.example:8443'],
+])('tokenManager (%s)', (_label, origin) => {
   beforeEach(() => {
+    custody = createProfileCustody(serviceIdForApiBase(origin), origin);
     safeStorageAvailable = true;
     appIsPackaged = false;
     storageBackend = 'gnome_libsecret';
@@ -222,9 +243,20 @@ describe('tokenManager', () => {
   });
 
   describe('persisted token destination binding', () => {
+    // #175 (merged from main) re-expressed for #86: custody is per service, and a
+    // custody refuses a meta naming another origin before any decrypt. Each case
+    // therefore runs against the custody of the API base it persists; the
+    // assertions are main's.
+    const useCustodyFor = (apiBase: string) => {
+      const apiOrigin = new URL(apiBase).origin;
+      custody = createProfileCustody(serviceIdForApiBase(apiOrigin), apiOrigin);
+      _resetForTesting();
+    };
+
     it('restores a currently approved self-hosted destination in packaged builds', async () => {
       fsRead.impl = readMockDisk;
       const apiBase = 'https://approved.example';
+      useCustodyFor(apiBase);
       expect(commitSelfHostedApproval(apiBase, '8.8.8.8')).toBe(true);
       storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase });
       await flushDiskWrites();
@@ -235,6 +267,7 @@ describe('tokenManager', () => {
 
     it('refuses a no-longer-approved self-hosted destination in packaged builds', async () => {
       fsRead.impl = readMockDisk;
+      useCustodyFor('https://unapproved.example');
       storeRefreshToken({
         refreshToken: 'secret',
         rememberMe: true,
@@ -256,6 +289,7 @@ describe('tokenManager', () => {
         wrappedPrivateKeyBase64: 'wpk',
       };
       fsRead.impl = readMockDisk;
+      useCustodyFor(apiBase);
       const owner = storeRefreshToken({ refreshToken: 'old', rememberMe: true, apiBase });
       expect(await storeE2EEKeysIfOwner(keys, owner)).toBe(true);
       mockNetFetch.mockResolvedValueOnce(
@@ -269,6 +303,7 @@ describe('tokenManager', () => {
     });
 
     it('refuses token-only legacy data without a network request', async () => {
+      useCustodyFor('http://localhost:8080');
       fsRead.impl = (path) =>
         String(path).endsWith('active-profile.json')
           ? (() => {
@@ -290,6 +325,7 @@ describe('tokenManager', () => {
         wrappedPrivateKeyBase64: 'wpk',
       };
       fsRead.impl = readMockDisk;
+      useCustodyFor(apiBase);
       const owner = storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase });
       await storeE2EEKeysIfOwner(keys, owner);
       const profile = profilePathsForApiBase(apiBase);
@@ -310,6 +346,7 @@ describe('tokenManager', () => {
       async (forgedBase) => {
         const originalBase = 'https://example.test';
         fsRead.impl = readMockDisk;
+        useCustodyFor(originalBase);
         storeRefreshToken({ refreshToken: 'secret', rememberMe: true, apiBase: originalBase });
         await flushDiskWrites();
         const source = profilePathsForApiBase(originalBase);
@@ -325,7 +362,8 @@ describe('tokenManager', () => {
           })
         );
         fsFiles.set('/tmp/td/active-profile.json', JSON.stringify({ apiBase: forgedBase }));
-        _resetForTesting();
+        // The forged destination's own custody reads the relocated files.
+        useCustodyFor(forgedBase);
         expect((await restoreRefreshToken()).status).not.toBe('ok');
         await performRefresh();
         expect(mockNetFetch).not.toHaveBeenCalled();
@@ -338,12 +376,12 @@ describe('tokenManager', () => {
       const firstOwner = storeRefreshToken({
         refreshToken: 'first-token',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const secondOwner = storeRefreshToken({
         refreshToken: 'second-token',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       expect(Number.isSafeInteger(firstOwner)).toBe(true);
@@ -354,7 +392,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'my-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       expect(tokenFromCiphertext(diskFile('secure-token.dat'))).toBe('my-token');
@@ -372,13 +410,11 @@ describe('tokenManager', () => {
       });
       await flushDiskWrites();
 
+      // #86: the custody's own origin selects the namespace (brief step 1).
+      const own = profilePathsForApiBase(origin);
       const paths = fsWriteCalls.map((c) => c[0] as string);
-      expect(paths).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-token\.dat$/)
-      );
-      expect(paths).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/token-meta\.json$/)
-      );
+      expect(paths).toContainEqual(own.tokenFile);
+      expect(paths).toContainEqual(own.metaFile);
       const metaWrite = fsWriteCalls.find((c) => String(c[0]).endsWith('token-meta.json'));
       expect(JSON.parse(metaWrite?.[1] as string)).toMatchObject({
         apiBase: 'https://homelab.lan',
@@ -391,7 +427,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'my-token',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(fsWriteCalls.length).toBe(0);
       expect(fsUnlinkCount).toBeGreaterThan(0);
@@ -402,7 +438,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'my-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       expect(credentialWrites()).toEqual([]);
@@ -414,7 +450,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'predecessor-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       const originalWrite = fs.writeFileSync;
@@ -427,7 +463,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'successor-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
 
@@ -444,7 +480,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'predecessor-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       fsUnlinkCalls.length = 0;
@@ -457,7 +493,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'successor-token',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
 
@@ -472,12 +508,194 @@ describe('tokenManager', () => {
     });
   });
 
+  // #86 Task 9: the custody's account handle. serverUserId is hashed with the custody's
+  // serviceId; neither it nor the origin is persisted in clear.
+  describe('accountKey', () => {
+    const expectedKey = (userId: string) =>
+      createHash('sha256')
+        .update(`${serviceIdForApiBase(origin)}\0${userId}`)
+        .digest('hex')
+        .slice(0, 16);
+
+    it('is null before any login', () => {
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is derived from serverUserId on storeRefreshToken', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+      expect(custody.getAccountKey()).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    it('persists accountKey in token-meta.json without the user id in clear', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: true,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      await flushDiskWrites();
+      const meta = String(diskFile('token-meta.json'));
+      expect(JSON.parse(meta)).toMatchObject({ accountKey: expectedKey('user-1') });
+      expect(meta).not.toContain('user-1');
+    });
+
+    it('restores the persisted accountKey after a main-process restart', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: true,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      await flushDiskWrites();
+      _resetForTesting();
+      expect(custody.getAccountKey()).toBeNull();
+      fsRead.impl = readMockDisk;
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 't' });
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+    });
+
+    it('still restores a meta without accountKey, with a null accountKey', async () => {
+      fsRead.impl = (path) => {
+        const file = String(path);
+        if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
+        if (file.endsWith('token-meta.json')) {
+          return JSON.stringify({ apiBase: origin, rememberMe: true });
+        }
+        return Buffer.from(`v11${tokenEnvelope('stored-token', origin)}`);
+      };
+      expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'stored-token' });
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    // pragma: allowlist nextline secret
+    it.each(['ABCDEF0123456789', '0123456789abcde', '0123456789abcdef0', 'zzzzzzzzzzzzzzzz', 7])(
+      'ignores a malformed persisted accountKey (%s) but still restores',
+      async (bad) => {
+        fsRead.impl = (path) => {
+          const file = String(path);
+          if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
+          if (file.endsWith('token-meta.json')) {
+            return JSON.stringify({ apiBase: origin, rememberMe: true, accountKey: bad });
+          }
+          return Buffer.from(`v11${tokenEnvelope('stored-token', origin)}`);
+        };
+        expect(await restoreRefreshToken()).toMatchObject({ status: 'ok' });
+        expect(custody.getAccountKey()).toBeNull();
+      }
+    );
+
+    it('setAccountKey is read back by getAccountKey', () => {
+      const key = expectedKey('user-2') as never;
+      custody.setAccountKey(key);
+      expect(custody.getAccountKey()).toBe(key);
+    });
+
+    it('is cleared by clearTokens', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      clearTokens();
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is cleared by clearTokensIfOwner', () => {
+      const owner = storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(clearTokensIfOwner(owner)).toBe(true);
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is cleared by performLogout, so the preference scope is null again', async () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      const sid = serviceIdForApiBase(origin);
+      const record = { serviceId: sid } as never;
+      const service = { serviceId: sid, custody } as never;
+      expect(preferenceScopeFor(record, service)).toEqual({
+        serviceId: sid,
+        accountKey: expectedKey('user-1'),
+      });
+      mockNetFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      await performLogout('access-tok');
+      expect(custody.getAccountKey()).toBeNull();
+      expect(preferenceScopeFor(record, service)).toBeNull();
+    });
+
+    it('refuses a serverUserId the IPC guard refuses, before any state moves', () => {
+      const owner = storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      expect(() =>
+        storeRefreshToken({
+          refreshToken: 't2',
+          rememberMe: false,
+          apiBase: origin,
+          serverUserId: 'user\0x',
+        } as never)
+      ).toThrow(TypeError);
+      expect(credentialOwnerIsCurrent(owner)).toBe(true);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-1'));
+    });
+
+    it('is derived on an owner-scoped (SSO) publish too', () => {
+      const owner = reserveCredentialOwner();
+      expect(
+        storeRefreshTokenIfOwner(
+          {
+            refreshToken: 't',
+            rememberMe: false,
+            apiBase: origin,
+            serverUserId: 'user-3',
+          } as never,
+          owner
+        )
+      ).toBe(owner);
+      expect(custody.getAccountKey()).toBe(expectedKey('user-3'));
+    });
+
+    it.each(['ABCDEF0123456789', 'short', 7])('setAccountKey refuses %s', (bad) => {
+      expect(() => custody.setAccountKey(bad as never)).toThrow(TypeError);
+      expect(custody.getAccountKey()).toBeNull();
+    });
+
+    it('is replaced, not kept, when the next login carries no serverUserId', () => {
+      storeRefreshToken({
+        refreshToken: 't',
+        rememberMe: false,
+        apiBase: origin,
+        serverUserId: 'user-1',
+      } as never);
+      storeRefreshToken({ refreshToken: 't2', rememberMe: false, apiBase: origin });
+      expect(custody.getAccountKey()).toBeNull();
+    });
+  });
+
   describe('restoreRefreshToken', () => {
     it('restores rememberMe=false session from main-process memory only', async () => {
       storeRefreshToken({
         refreshToken: 'memory-token',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsRead.impl = () => {
         throw new Error('disk should not be read for memory session');
@@ -486,7 +704,7 @@ describe('tokenManager', () => {
       expect(await restoreRefreshToken()).toEqual({
         status: 'ok',
         token: 'memory-token',
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         rememberMe: false,
       });
       expect(fsWriteCalls.length).toBe(0);
@@ -496,13 +714,13 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'memory-token',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsRead.impl = () => {
         throw new Error('disk should not be read for memory session');
       };
 
-      expect(getPersistedApiBase()).toBe('http://localhost:8080');
+      expect(getCredentialApiBase()).toBe(origin);
     });
 
     it('returns unavailable when safeStorage off', async () => {
@@ -522,20 +740,40 @@ describe('tokenManager', () => {
         const file = String(path);
         if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
         if (file.endsWith('token-meta.json')) {
-          return JSON.stringify({ apiBase: 'http://localhost:8080', rememberMe: true });
+          return JSON.stringify({ apiBase: origin, rememberMe: true });
         }
-        return Buffer.from(`v11${tokenEnvelope('stored-token')}`);
+        return Buffer.from(`v11${tokenEnvelope('stored-token', origin)}`);
       };
       const result = await restoreRefreshToken();
       expect(result).toEqual({
         status: 'ok',
         token: 'stored-token',
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         rememberMe: true,
       });
     });
 
-    it('restores a remembered self-hosted token after main-process restart', async () => {
+    it('restores a remembered token after main-process restart', async () => {
+      storeRefreshToken({
+        refreshToken: 'self-token',
+        rememberMe: true,
+        apiBase: origin,
+      });
+      await flushDiskWrites();
+      _resetForTesting();
+      fsRead.impl = readMockDisk;
+
+      expect(await restoreRefreshToken()).toEqual({
+        status: 'ok',
+        token: 'self-token',
+        apiBase: origin,
+        rememberMe: true,
+      });
+      expect(getCredentialApiBase()).toBe(origin);
+    });
+
+    // #86 Task 7B (S3): a meta naming another server is not this profile's credential.
+    it('refuses to restore a token whose meta names another origin', async () => {
       storeRefreshToken({
         refreshToken: 'self-token',
         rememberMe: true,
@@ -543,19 +781,11 @@ describe('tokenManager', () => {
       });
       await flushDiskWrites();
       _resetForTesting();
-      fsRead.impl = (path) => {
-        const value = fsFiles.get(String(path));
-        if (value === undefined) throw new Error('ENOENT');
-        return value;
-      };
+      fsRead.impl = readMockDisk;
 
-      expect(await restoreRefreshToken()).toEqual({
-        status: 'ok',
-        token: 'self-token',
-        apiBase: 'https://homelab.lan',
-        rememberMe: true,
-      });
-      expect(getPersistedApiBase()).toBe('https://homelab.lan');
+      expect(await restoreRefreshToken()).toEqual({ status: 'tampered' });
+      expect(getCachedAccessToken()).toBeNull();
+      expect(getCredentialApiBase()).toBeNull();
     });
 
     it('returns tampered when decryption fails (read throws)', async () => {
@@ -563,7 +793,7 @@ describe('tokenManager', () => {
         const file = String(path);
         if (file.endsWith('active-profile.json')) throw new Error('ENOENT');
         if (file.endsWith('token-meta.json')) {
-          return JSON.stringify({ apiBase: 'http://localhost:8080', rememberMe: true });
+          return JSON.stringify({ apiBase: origin, rememberMe: true });
         }
         throw new Error('read error');
       };
@@ -577,7 +807,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsUnlinkCount = 0;
       clearTokens();
@@ -603,35 +833,36 @@ describe('tokenManager', () => {
 
       clearTokens();
 
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-token\.dat$/)
-      );
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/token-meta\.json$/)
-      );
-      expect(fsUnlinkCalls).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-e2ee\.dat$/)
-      );
-      expect(fsUnlinkCalls).not.toContain('/tmp/td/secure-token.dat');
+      // #86: the custody's own files, and nothing outside its own directory.
+      const own = profilePathsForApiBase(origin);
+      expect(fsUnlinkCalls).toContainEqual(own.tokenFile);
+      expect(fsUnlinkCalls).toContainEqual(own.metaFile);
+      expect(fsUnlinkCalls).toContainEqual(own.e2eeFile);
+      const ownDir = own.tokenFile.slice(0, own.tokenFile.lastIndexOf('/'));
+      expect(
+        fsUnlinkCalls
+          .filter((p) => !p.endsWith('active-profile.json'))
+          .every((p) => p.slice(0, p.lastIndexOf('/')) === ownDir)
+      ).toBe(true);
     });
 
     it('clearTokensIfOwner preserves a successor lifecycle', async () => {
       const staleOwner = storeRefreshToken({
         refreshToken: 'rt-old',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const successorOwner = storeRefreshToken({
         refreshToken: 'rt-successor',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       expect(clearTokensIfOwner(staleOwner)).toBe(false);
       expect(await restoreRefreshToken()).toEqual({
         status: 'ok',
         token: 'rt-successor',
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         rememberMe: false,
       });
       expect(clearTokensIfOwner(successorOwner)).toBe(true);
@@ -642,7 +873,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'rt-old',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(
         jsonResponse({
@@ -667,11 +898,11 @@ describe('tokenManager', () => {
     });
 
     it('lets password credentials and keys win while a reserved SSO exchange waits', async () => {
-      const ssoOwner = reserveCredentialOwner('http://localhost:8080');
+      const ssoOwner = reserveCredentialOwner(origin);
       const passwordOwner = storeRefreshToken({
         refreshToken: 'rt-password',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         accessToken: 'at-password',
       });
       const passwordKeys = {
@@ -686,7 +917,7 @@ describe('tokenManager', () => {
           {
             refreshToken: 'rt-stale-sso',
             rememberMe: true,
-            apiBase: 'http://localhost:8080',
+            apiBase: origin,
             accessToken: 'at-stale-sso',
           },
           ssoOwner
@@ -706,12 +937,12 @@ describe('tokenManager', () => {
       const staleOwner = storeRefreshToken({
         refreshToken: 'rt-old',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const successorOwner = storeRefreshToken({
         refreshToken: 'rt-successor',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const staleKeys = {
         wrappingKeyBase64: 'stale-wk',
@@ -735,7 +966,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       fsWriteCalls.length = 0;
@@ -769,8 +1000,9 @@ describe('tokenManager', () => {
         owner
       );
 
+      // #86: the custody's own origin selects the namespace (brief step 1).
       expect(fsWriteCalls.map((c) => c[0] as string)).toContainEqual(
-        expect.stringMatching(/^\/tmp\/td\/profiles\/[0-9a-f]{64}\/secure-e2ee\.dat$/)
+        profilePathsForApiBase(origin).e2eeFile
       );
     });
 
@@ -788,7 +1020,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsWriteCalls.length = 0;
       const keys = {
@@ -811,7 +1043,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const memKeys = {
         wrappingKeyBase64: 'mem',
@@ -835,7 +1067,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await storeE2EEKeysIfOwner(
         {
@@ -865,7 +1097,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(await storeE2EEKeysIfOwner(data, owner)).toBe(true);
 
@@ -880,7 +1112,7 @@ describe('tokenManager', () => {
       const predecessorOwner = storeRefreshToken({
         refreshToken: 'rt-predecessor',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(
         await storeE2EEKeysIfOwner(
@@ -896,7 +1128,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-successor',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       // Crash after the successor token landed but before its key write.
       await flushDiskWrites();
@@ -911,7 +1143,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'rt-successor',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'rt-successor' });
@@ -938,7 +1170,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(
         storeE2EEKeys({
@@ -967,7 +1199,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(
         await storeE2EEKeysIfOwner(
@@ -1006,7 +1238,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       // Keychain locked → safeStorage.encryptStringAsync rejects (the #1288
       // failure mode). Drain the token write first so only the E2EE encrypt
@@ -1027,7 +1259,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       fsWriteCalls.length = 0;
@@ -1040,7 +1272,7 @@ describe('tokenManager', () => {
       const owner = storeRefreshToken({
         refreshToken: 'tk',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsWriteCalls.length = 0;
 
@@ -1051,7 +1283,7 @@ describe('tokenManager', () => {
   });
 
   describe('releaseCredentialReservation (#2394)', () => {
-    const API = 'http://localhost:8080';
+    const API = origin;
     const keys = {
       wrappingKeyBase64: 'wk',
       preferencesKeyBase64: 'pk',
@@ -1134,17 +1366,17 @@ describe('tokenManager', () => {
     });
   });
 
-  describe('getPersistedApiBase', () => {
+  describe('getCredentialApiBase', () => {
     it('returns apiBase from meta file', () => {
-      fsRead.impl = () => JSON.stringify({ apiBase: 'http://localhost:8080', rememberMe: true });
-      expect(getPersistedApiBase()).toBe('http://localhost:8080');
+      fsRead.impl = () => JSON.stringify({ apiBase: origin, rememberMe: true });
+      expect(getCredentialApiBase()).toBe(origin);
     });
 
     it('returns null when meta file does not exist', () => {
       fsRead.impl = () => {
         throw new Error('ENOENT');
       };
-      expect(getPersistedApiBase()).toBeNull();
+      expect(getCredentialApiBase()).toBeNull();
     });
   });
 
@@ -1213,7 +1445,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(
@@ -1223,7 +1455,6 @@ describe('tokenManager', () => {
           previous_session_id: 'sid0',
         })
       );
-      mockClearAttestationToken.mockClear();
 
       const result = await performRefresh();
 
@@ -1235,20 +1466,39 @@ describe('tokenManager', () => {
       });
       expect(mockNetFetch).toHaveBeenCalledOnce();
       const [url, opts] = mockNetFetch.mock.calls[0];
-      expect(url).toBe('http://localhost:8080/api/v1/auth/refresh');
+      expect(url).toBe(`${origin}/api/v1/auth/refresh`);
       expect(opts.method).toBe('POST');
       expect(opts.headers['X-Refresh-Token']).toBe('rt-abc');
       expect(opts.headers['X-Machine-Id']).toBe('mid');
       expect(opts.credentials).toBe('omit');
-      expect(mockGetMachineId).toHaveBeenCalledWith('http://localhost:8080');
-      expect(mockClearAttestationToken).toHaveBeenCalledOnce();
+      expect(mockGetMachineId).toHaveBeenCalledWith(origin);
+    });
+
+    // The attestation cache is app-global and minted for the SaaS control plane
+    // only, so only the SaaS custody's session rotation may clear it: a
+    // self-hosted refresh naming a new session leaves it alone.
+    it('clears the attestation token on a new session only from the SaaS custody', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: origin,
+      });
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(
+        jsonResponse({ access_token: jwt, session_id: 'sid1', previous_session_id: 'sid0' })
+      );
+      mockClearAttestationToken.mockClear();
+
+      expect((await performRefresh()).status).toBe('ok');
+      const isSaas = serviceIdForApiBase(origin) === SAAS_SERVICE_ID;
+      expect(mockClearAttestationToken).toHaveBeenCalledTimes(isSaas ? 1 : 0);
     });
 
     it('keeps the attestation token when the refresh names no new session', async () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockClearAttestationToken.mockClear();
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
@@ -1262,7 +1512,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
@@ -1274,7 +1524,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(
         jsonResponse(
@@ -1295,7 +1545,7 @@ describe('tokenManager', () => {
         mfaMethods: ['totp'],
         mfaRecoveryOnlyMethods: ['recovery_code'],
         // The server that issued the challenge: the one main refreshed against.
-        mfaApiBase: 'http://localhost:8080',
+        mfaApiBase: origin,
       });
     });
 
@@ -1303,7 +1553,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const webauthnOptions = { publicKey: { challenge: 'AQID', rpId: 'localhost' } };
       mockNetFetch.mockResolvedValueOnce(
@@ -1321,7 +1571,7 @@ describe('tokenManager', () => {
       const result = await performRefresh();
       expect(result.status).toBe('mfa_required');
       expect(result.mfaWebauthnOptions).toEqual(webauthnOptions);
-      expect(result.mfaApiBase).toBe('http://localhost:8080');
+      expect(result.mfaApiBase).toBe(origin);
     });
 
     // #3663 review. Mutant: the default dropped, so the modal always opens on
@@ -1330,7 +1580,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(
         jsonResponse(
@@ -1355,7 +1605,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(
         jsonResponse(
@@ -1377,7 +1627,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ error: 'forbidden' }, 403));
 
@@ -1389,7 +1639,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ session_id: 'sid1' }));
 
@@ -1401,7 +1651,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockRejectedValueOnce(new Error('network down'));
 
@@ -1413,7 +1663,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
@@ -1430,7 +1680,7 @@ describe('tokenManager', () => {
     });
 
     it('refreshes a successor owner while its predecessor is still in flight', async () => {
-      const oldApiBase = 'http://localhost:8080';
+      const oldApiBase = origin;
       const successorApiBase = 'https://successor.example';
       const successorAccessToken = makeJwt(Math.floor(Date.now() / 1000) + 900);
 
@@ -1513,7 +1763,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-old',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       await flushDiskWrites();
       fsWriteCalls.length = 0; // clear storeRefreshToken writes
@@ -1534,7 +1784,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-old',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsWriteCalls.length = 0;
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
@@ -1552,7 +1802,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(
         jsonResponse(
@@ -1581,7 +1831,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       // First refresh — returns JWT expiring in 900s (15min)
@@ -1612,7 +1862,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       const exp = Math.floor(Date.now() / 1000) + 120; // expires in 2min
@@ -1641,7 +1891,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       const exp = Math.floor(Date.now() / 1000) + 120;
@@ -1668,7 +1918,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       const exp = Math.floor(Date.now() / 1000) + 120;
@@ -1692,7 +1942,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       // Token that expires in 30s (within the 60s buffer → immediate refresh)
@@ -1727,7 +1977,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       const cb = vi.fn();
@@ -1746,7 +1996,7 @@ describe('tokenManager', () => {
 
     it('uses generation to drop an old response after identical credentials are re-stored', async () => {
       vi.useFakeTimers();
-      const apiBase = 'http://localhost:8080';
+      const apiBase = origin;
       const refreshToken = 'rt-same';
       storeRefreshToken({
         refreshToken,
@@ -1827,7 +2077,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       // Do a normal refresh first (sets lastProactiveRefreshTimestamp)
@@ -1869,7 +2119,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
@@ -1877,7 +2127,7 @@ describe('tokenManager', () => {
 
       expect(mockNetFetch).toHaveBeenCalledOnce();
       const [url, opts] = mockNetFetch.mock.calls[0];
-      expect(url).toBe('http://localhost:8080/api/v1/auth/logout');
+      expect(url).toBe(`${origin}/api/v1/auth/logout`);
       expect(opts.method).toBe('POST');
       expect(opts.headers['Authorization']).toBe('Bearer access-tok');
       expect(opts.headers['X-Refresh-Token']).toBe('rt-abc');
@@ -1887,7 +2137,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       fsUnlinkCount = 0;
       mockNetFetch.mockRejectedValueOnce(new Error('network down'));
@@ -1903,7 +2153,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: true,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         accessToken: makeJwt(Math.floor(Date.now() / 1000) + 900),
       });
       expect(vi.getTimerCount()).toBe(1);
@@ -1937,7 +2187,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
 
@@ -1960,7 +2210,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
@@ -1974,7 +2224,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
@@ -1989,7 +2239,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
@@ -2004,7 +2254,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       mockNetFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
@@ -2017,7 +2267,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         accessToken: 'initial-jwt',
       });
 
@@ -2028,7 +2278,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
 
       expect(getCachedAccessToken()).toBeNull();
@@ -2038,7 +2288,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         accessToken: 'old-jwt',
       });
       expect(getCachedAccessToken()).toBe('old-jwt');
@@ -2046,7 +2296,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-def',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       expect(getCachedAccessToken()).toBeNull();
     });
@@ -2055,7 +2305,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
       });
       const jwt1 = makeJwt(Math.floor(Date.now() / 1000) + 900);
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt1 }));
@@ -2072,7 +2322,7 @@ describe('tokenManager', () => {
       storeRefreshToken({
         refreshToken: 'rt-abc',
         rememberMe: false,
-        apiBase: 'http://localhost:8080',
+        apiBase: origin,
         accessToken: 'my-jwt',
       });
       expect(getCachedAccessToken()).toBe('my-jwt');
@@ -2088,7 +2338,7 @@ describe('tokenManager', () => {
   // awaits an encrypt/decrypt, so every disk write and delete after an await
   // must re-check that its credential still owns custody.
   describe('async safeStorage persistence', () => {
-    const API = 'http://localhost:8080';
+    const API = origin;
     const keys = {
       wrappingKeyBase64: 'wk',
       preferencesKeyBase64: 'pk',
@@ -2255,7 +2505,7 @@ describe('tokenManager', () => {
           : Buffer.from('v11stored');
       vi.spyOn(safeStorage, 'decryptStringAsync').mockResolvedValueOnce({
         shouldReEncrypt: true,
-        result: tokenEnvelope('rt-stored'),
+        result: tokenEnvelope('rt-stored', API),
       });
 
       expect(await restoreRefreshToken()).toMatchObject({ status: 'ok', token: 'rt-stored' });
@@ -2425,19 +2675,21 @@ describe('tokenManager', () => {
 
     it('restores no session, and falls back to no profile, when the pointer is not a URL', async () => {
       fsRead.impl = readMockDisk;
-      // A default-profile credential exists, so a fallback past the pointer would restore it.
+      // This profile's own credential exists, so a fallback past the pointer would restore it.
       storeRefreshToken({
         refreshToken: 'rt-default',
         rememberMe: true,
-        apiBase: 'https://api.concordvoice.chat',
+        apiBase: origin,
       });
       await flushDiskWrites();
       const pointer = [...fsFiles.keys()].find((path) => path.endsWith('active-profile.json'));
       fsFiles.set(String(pointer), JSON.stringify({ apiBase: ':://// not a url' }));
       _resetForTesting();
 
-      await expect(restoreRefreshToken()).resolves.toEqual({ status: 'no_session' });
-      expect(getPersistedApiBase()).toBeNull();
+      // #86: a custody never reads the pointer; choosing which profile a restart
+      // restores moved to the transitional router, which must choose none here.
+      // It reports its own credential's origin, and never another profile's.
+      expect(getCredentialApiBase()).toBe(origin);
       expect(() => clearTokens()).not.toThrow();
     });
 

@@ -11,8 +11,10 @@
  * - Push events (permission:changed) notify the renderer of status changes
  */
 
-import { app, BrowserWindow, ipcMain, Notification, shell, systemPreferences } from 'electron';
-import { requireTrustedSender } from './ipc/frameValidation';
+import { app, Notification, shell, systemPreferences } from 'electron';
+import type { ConnectionRef } from '../shared/connectionIdentity';
+import { CHANNEL_CLASSES } from './ipc/channelClassification';
+import { registerIpc } from './ipc/registry';
 import { isSecureStorageAvailable } from './secureStorage';
 
 // ─── Types ────────────────────────────────────────────────────────────
@@ -225,44 +227,69 @@ export function openSystemSettings(type: OsPermissionType): void {
 
 // ─── IPC Registration ─────────────────────────────────────────────────
 
+/** Pushes to one connection's primary; a stale ref is a no-op (`sendToConnection`). */
+export type ConnectionPush = (ref: ConnectionRef, channel: string, ...args: unknown[]) => unknown;
+
+function requireKnownType(type: string): OsPermissionType {
+  if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
+    throw new Error(`Unknown permission type: ${type}`);
+  }
+  return type as OsPermissionType;
+}
+
+/**
+ * #86 Task 7B: every channel goes through `registerIpc`. The two reads are
+ * `app-global-read`, the request and the settings deep link `app-global-mutate`
+ * (foreground primary only, so a hidden view cannot raise an OS prompt). A refused
+ * sender resolves `undefined`, as before. `permission:changed` goes to the requesting
+ * connection and, when `holder()` names a DIFFERENT connection, to the capture-lease
+ * holder too (#87: a background holder is still capturing and must learn the OS
+ * state); never to a third connection, and only while each generation is current
+ * (`push` drops a stale ref). The holder gets the push only: its own request and
+ * settings calls stay `app-global-mutate`, refused from the background (R14).
+ */
 export function registerIpcHandlers(
-  getMainWindow: () => BrowserWindow | null,
-  getRemoteSpaBaseUrl: () => string | null
+  push: ConnectionPush,
+  holder?: () => ConnectionRef | null
 ): void {
-  ipcMain.handle('permission:checkAll', (event) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    return checkAllPermissions();
-  });
+  const refused = () => undefined;
+  registerIpc(
+    'permission:checkAll',
+    CHANNEL_CLASSES['permission:checkAll'],
+    () => checkAllPermissions(),
+    { refusal: refused }
+  );
 
-  ipcMain.handle('permission:check', (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    return checkPermission(type as OsPermissionType);
-  });
+  registerIpc(
+    'permission:check',
+    CHANNEL_CLASSES['permission:check'],
+    (_sender, _event, type: string) => checkPermission(requireKnownType(type)),
+    { refusal: refused }
+  );
 
-  ipcMain.handle('permission:request', async (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    const status = await requestPermission(type as OsPermissionType);
+  registerIpc(
+    'permission:request',
+    CHANNEL_CLASSES['permission:request'],
+    async (sender, _event, type: string): Promise<OsPermissionStatus | undefined> => {
+      const known = requireKnownType(type);
+      const status = await requestPermission(known);
+      const changed = { type: known, status };
+      push(sender.ref, 'permission:changed', changed);
+      const holderRef = holder?.() ?? null;
+      if (holderRef !== null && holderRef.connectionId !== sender.ref.connectionId) {
+        push(holderRef, 'permission:changed', changed);
+      }
+      return status;
+    },
+    { refusal: (): Promise<OsPermissionStatus | undefined> => Promise.resolve(undefined) }
+  );
 
-    // Notify renderer of the new status
-    const win = getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('permission:changed', { type, status });
-    }
-
-    return status;
-  });
-
-  ipcMain.handle('permission:openSettings', (event, type: string) => {
-    if (!requireTrustedSender(event, getRemoteSpaBaseUrl())) return;
-    if (!PERMISSION_TYPES.has(type as OsPermissionType)) {
-      throw new Error(`Unknown permission type: ${type}`);
-    }
-    openSystemSettings(type as OsPermissionType);
-  });
+  registerIpc(
+    'permission:openSettings',
+    CHANNEL_CLASSES['permission:openSettings'],
+    (_sender, _event, type: string) => {
+      openSystemSettings(requireKnownType(type));
+    },
+    { refusal: refused }
+  );
 }

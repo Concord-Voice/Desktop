@@ -6,7 +6,12 @@ import { contextBridge, ipcRenderer, webFrame } from 'electron';
 // `tests/integration/preload-sandbox-contract.test.ts` pins. `import type` is erased
 // by esbuild, so this adds no `require`. Same shape as the `ipcContract` import above.
 import type { AudiocapStartResult } from '../main/audiocapHost';
-import type { CredentialOwner, SelfHostedProbeResult } from '../main/ipcContract';
+import type {
+  ConnectionCreateResult,
+  ConnectionGenerationPush,
+  CredentialOwner,
+  SelfHostedProbeResult,
+} from '../main/ipcContract';
 import type { AppleSignInResult } from '../shared/appleSso';
 import type {
   SSOCompleteLinkPayload,
@@ -17,7 +22,7 @@ import type {
 } from '../shared/sso';
 import type { SpaFallbackDiagnostic } from '../shared/spaIpcTypes';
 
-// The ONLY four runtime local imports in this file. `scripts/build-preload.mjs`
+// The ONLY runtime local imports in this file (the four below and `connectionIdentity`). `scripts/build-preload.mjs`
 // runs esbuild with `bundle: true, external: ['electron']`, so all four are
 // inlined into `dist/preload/preload.js` rather than becoming a `require` — which
 // is what keeps `tests/integration/preload-sandbox-contract.test.ts` green.
@@ -29,6 +34,17 @@ import type { SpaFallbackDiagnostic } from '../shared/spaIpcTypes';
 import { isAudiocapInterrupted, type AudiocapInterrupted } from '../shared/audiocapProtocol';
 import { AUDIOCAP_PORT_TAG, installAudiocapRelay, type AudiocapRelayWindow } from './audiocapRelay';
 import { createSetZoomFactor } from './uiZoom';
+// `connectionIdentity` is import-free by contract (its own header says the preload
+// bundle inlines it). It supplies the exact-key identity codec, so the `whoAmI` answer
+// and every `connection:generation` push narrow against the same anchor main and the
+// renderer use (#86 §3.7).
+import {
+  isGeneration,
+  parseConnectionIdentity,
+  type ConnectionIdentity,
+  type GenerationReason,
+  type PreferenceScope,
+} from '../shared/connectionIdentity';
 // `trayStatus` has no imports of its own. It supplies the channel constants and
 // `isTrayAction`, so the `tray:action` push narrows against the same closed-enum
 // anchor main and the renderer use (tray-status spec §4).
@@ -39,6 +55,21 @@ import {
   type TrayAction,
   type TrayStatusSnapshot,
 } from '../shared/trayStatus';
+// `captureLease` has no imports of its own. It supplies the channel constants and the
+// exact-key guards, so the `capture:lease` and `capture:leaseRevoked` pushes narrow
+// against the same anchor main and the renderer use (#87 §3.9).
+import {
+  CAPTURE_ACQUIRE,
+  CAPTURE_LEASE_PUSH,
+  CAPTURE_LEASE_REVOKED_PUSH,
+  CAPTURE_RELEASE,
+  isCaptureLeaseRevoked,
+  isCaptureLeaseState,
+  type CaptureAcquireInput,
+  type CaptureAcquireResult,
+  type CaptureLeaseRevoked,
+  type CaptureLeaseState,
+} from '../shared/captureLease';
 
 // `tsconfig.preload.json` pins `lib` to ES2022 with no DOM, so the global
 // `window` has no type in this build leg. Declare exactly the slice the relay
@@ -70,6 +101,55 @@ export interface TokenRefreshedData {
   previousSessionId?: string;
 }
 
+const GENERATION_REASONS: ReadonlySet<string> = new Set([
+  'document',
+  'renderer-gone',
+  'credential-start',
+  'credential-end',
+  'disposed',
+]);
+
+/**
+ * #86 §3.7 (contract v35): which connection this document belongs to. ONE sendSync at
+ * preload evaluation, before any renderer module runs. Main answers from its own sender
+ * binding, never from anything the page sends, and the answer is re-validated with the
+ * shared exact-key codec. Cached for the document's lifetime; only a NEWER generation
+ * push for the same connection moves it. `null` means "no connection" and is final.
+ */
+let connectionIdentity: ConnectionIdentity | null = (() => {
+  try {
+    return parseConnectionIdentity(ipcRenderer.sendSync('connection:whoAmI'));
+  } catch {
+    return null;
+  }
+})();
+
+/** A field-copied push for THIS document's connection, or null. */
+function generationPushFor(
+  current: ConnectionIdentity,
+  data: unknown
+): ConnectionGenerationPush | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const { connectionId, generation, reason } = data as Record<string, unknown>;
+  if (connectionId !== current.connectionId || !isGeneration(generation)) return null;
+  if (typeof reason !== 'string' || !GENERATION_REASONS.has(reason)) return null;
+  return { connectionId: current.connectionId, generation, reason: reason as GenerationReason };
+}
+
+/**
+ * #87 Review Focus 1: main pushes `capture:lease` to a view the moment it becomes
+ * foreground, which can be before the SPA has booted and subscribed. This listener is
+ * registered at preload evaluation, so it runs before any subscriber's, and keeps the
+ * LAST VALIDATED state (a frozen field copy) for `onLeaseChanged` to replay. A malformed
+ * push never reaches it, so it cannot supersede a valid one.
+ */
+let lastLeaseState: Readonly<CaptureLeaseState> | null = null;
+ipcRenderer.on(CAPTURE_LEASE_PUSH, (_event: Electron.IpcRendererEvent, data: unknown) => {
+  if (isCaptureLeaseState(data)) {
+    lastLeaseState = Object.freeze({ held: data.held, mine: data.mine });
+  }
+});
+
 contextBridge.exposeInMainWorld('electron', {
   // App info
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
@@ -82,6 +162,45 @@ contextBridge.exposeInMainWorld('electron', {
   // Threat-model: knowing the tag does not unlock any capability — exposure
   // here is acceptable because the read-only surface is bounded.
   getBuildTag: () => ipcRenderer.invoke('app:getBuildTag') as Promise<string>,
+
+  // #86 §3.7 (contract v35). Feature-detect the namespace: absent means a pre-35 shell
+  // and the legacy single-connection path; `whoAmI() === null` means no connection.
+  connection: {
+    whoAmI: (): ConnectionIdentity | null => connectionIdentity,
+    create: (origin: string) =>
+      ipcRenderer.invoke('connection:create', origin) as Promise<ConnectionCreateResult>,
+    activate: (serviceId: string) =>
+      ipcRenderer.invoke('connection:activate', serviceId) as Promise<boolean>,
+    /**
+     * Validated, then copied. Each subscription delivers only a generation newer than
+     * the last one it saw (starting from the cache at subscribe time), and a delivery
+     * moves the cache, so a replayed or reordered push never reaches the callback.
+     * Unsubscribe disarms as well as removes (same reasoning as `onTrayAction`).
+     */
+    onGenerationChanged: (callback: (push: ConnectionGenerationPush) => void) => {
+      let subscribed = true;
+      let seen = connectionIdentity?.generation ?? null;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        const current = connectionIdentity;
+        if (!subscribed || current === null || seen === null) return;
+        const push = generationPushFor(current, data);
+        if (push === null || push.generation <= seen) return;
+        seen = push.generation;
+        if (push.generation > current.generation) {
+          connectionIdentity = Object.freeze({ ...current, generation: push.generation });
+        }
+        callback(push);
+      };
+      ipcRenderer.on('connection:generation', handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener('connection:generation', handler);
+      };
+    },
+    /** #86 Task 9 registers the handler; until then the invoke rejects. */
+    preferenceScope: () =>
+      ipcRenderer.invoke('connection:preferenceScope') as Promise<PreferenceScope | null>,
+  },
 
   // SPA self-heal (#753, ADR-0001): renderer signals chunk-load failure or
   // unhandled dynamic-import rejection. Main process refetches client config,
@@ -183,6 +302,7 @@ contextBridge.exposeInMainWorld('electron', {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    serverUserId?: string;
   }) =>
     ipcRenderer.invoke('auth:storeRefreshToken', data) as Promise<
       CredentialOwner | { status: 'rejected' }
@@ -480,6 +600,55 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
+  /**
+   * The capture lease (#87 §3.9, contract 36). Feature-detect
+   * `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell below 36 keeps
+   * today's behaviour. The invokes AUTHORISE NOTHING here: they forward a fresh
+   * `{ intent }` and nothing else, and main resolves the connection, the holder and every
+   * refusal from its own binding.
+   *
+   * The pushes are VALIDATED, THEN COPIED with the shared exact-key guards, so a callback
+   * never receives `data` itself. `onLeaseChanged` replays the last validated state
+   * synchronously on subscribe (a new copy each time) until a newer valid push supersedes
+   * it; `onLeaseRevoked` replays nothing, because a revocation is an instruction for the
+   * document it was sent to at that moment. Unsubscribe disarms as well as removes (same
+   * reasoning as `onTrayAction`).
+   */
+  capture: {
+    acquire: (input: CaptureAcquireInput) =>
+      ipcRenderer.invoke(CAPTURE_ACQUIRE, {
+        intent: input.intent,
+      }) as Promise<CaptureAcquireResult>,
+    release: (input: CaptureAcquireInput) =>
+      ipcRenderer.invoke(CAPTURE_RELEASE, { intent: input.intent }) as Promise<boolean>,
+    onLeaseChanged: (callback: (state: CaptureLeaseState) => void) => {
+      const cached = lastLeaseState;
+      if (cached !== null) callback({ held: cached.held, mine: cached.mine });
+      let subscribed = true;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        if (!subscribed || !isCaptureLeaseState(data)) return;
+        callback({ held: data.held, mine: data.mine });
+      };
+      ipcRenderer.on(CAPTURE_LEASE_PUSH, handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener(CAPTURE_LEASE_PUSH, handler);
+      };
+    },
+    onLeaseRevoked: (callback: (revoked: CaptureLeaseRevoked) => void) => {
+      let subscribed = true;
+      const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+        if (!subscribed || !isCaptureLeaseRevoked(data)) return;
+        callback({ reason: data.reason });
+      };
+      ipcRenderer.on(CAPTURE_LEASE_REVOKED_PUSH, handler);
+      return () => {
+        subscribed = false;
+        ipcRenderer.removeListener(CAPTURE_LEASE_REVOKED_PUSH, handler);
+      };
+    },
+  },
+
   // Open a URL in the user's default browser via the main process. The main
   // process re-validates the protocol (http/https/mailto only) before calling
   // shell.openExternal — never trust the renderer. Returns `{ ok }` so the
@@ -774,6 +943,19 @@ export interface ElectronAPI {
   getBuildTag: () => Promise<string>;
 
   /**
+   * #86 §3.7 (contract v35). `whoAmI` is the identity main gave this document at preload
+   * evaluation; `onGenerationChanged` delivers only newer generations of that same
+   * connection. A pre-35 shell has no `connection` namespace at all.
+   */
+  connection: {
+    whoAmI: () => ConnectionIdentity | null;
+    create: (origin: string) => Promise<ConnectionCreateResult>;
+    activate: (serviceId: string) => Promise<boolean>;
+    onGenerationChanged: (callback: (push: ConnectionGenerationPush) => void) => () => void;
+    preferenceScope: () => Promise<PreferenceScope | null>;
+  };
+
+  /**
    * SPA self-heal (#753, ADR-0001): renderer requests the main process refetch
    * client config and reload the BrowserWindow once after a chunk-load failure.
    */
@@ -824,6 +1006,8 @@ export interface ElectronAPI {
     rememberMe: boolean;
     apiBase: string;
     accessToken?: string;
+    /** #86 T9: hashed in main into the connection's account key; never stored in clear. */
+    serverUserId?: string;
   }) => Promise<CredentialOwner | { status: 'rejected' }>;
   restoreSession: () => Promise<{
     status: string;
@@ -956,6 +1140,15 @@ export interface ElectronAPI {
   /** Resolves `false` only when main's rate limit dropped the snapshot. */
   traySetStatus: (s: TrayStatusSnapshot) => Promise<boolean>;
   onTrayAction: (callback: (action: TrayAction) => void) => () => void;
+
+  // Capture lease (#87 §3.9, contract 36). `onLeaseChanged` replays the last validated
+  // state on subscribe; `onLeaseRevoked` does not.
+  capture: {
+    acquire: (input: CaptureAcquireInput) => Promise<CaptureAcquireResult>;
+    release: (input: CaptureAcquireInput) => Promise<boolean>;
+    onLeaseChanged: (callback: (state: CaptureLeaseState) => void) => () => void;
+    onLeaseRevoked: (callback: (revoked: CaptureLeaseRevoked) => void) => () => void;
+  };
 
   // Open an external URL via shell.openExternal (main process enforces
   // http/https/mailto protocol allowlist).

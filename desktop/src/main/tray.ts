@@ -17,6 +17,7 @@ import {
   powerMonitor,
   systemPreferences,
   Tray,
+  type BaseWindow,
   type BrowserWindow,
   type MenuItemConstructorOptions,
   type NativeImage,
@@ -269,7 +270,7 @@ const mainState: MainTrayState = {
 };
 
 export interface TrayDeps {
-  getMainWindow: () => BrowserWindow | null;
+  getMainWindow: () => BaseWindow | null;
   createWindow: () => void;
   /** The same function the `update:download` handler calls (spec R4). */
   downloadUpdate: () => Promise<unknown>;

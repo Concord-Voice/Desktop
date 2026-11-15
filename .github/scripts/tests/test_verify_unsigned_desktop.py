@@ -124,6 +124,29 @@ class UnsignedDesktopTest(unittest.TestCase):
             'step drift': lambda w: build(w)['steps'].pop(3),
             'unattested upload': lambda w: build(w).update(steps=[
                 s for s in build(w)['steps'] if s.get('name') != 'Attest build provenance (Linux)']),
+            'scanner gets id-token': lambda w: w['jobs']['sbom']['permissions'].update({'id-token': 'write'}),
+            'scanner job dropped': lambda w: w['jobs'].pop('sbom'),
+            'attach checks out code': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {
+                'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'}),
+            'attach runs npm': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'npm ci'}),
+            'attach runs the scanner': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'syft scan dir:.'}),
+            'attach misses a leg': lambda w: w['jobs']['attach-sbom']['strategy']['matrix']['label'].pop(),
+            'attach skips attestation': lambda w: w['jobs']['attach-sbom'].update(steps=[
+                s for s in w['jobs']['attach-sbom']['steps'] if 'attest' not in s.get('uses', '')]),
+            'attach before packaging': lambda w: w['jobs']['attach-sbom'].update(needs=['check-tag']),
+            'attach runs a python shell': lambda w: w['jobs']['attach-sbom']['steps'][0].update(shell='python {0}'),
+            'attach runs sh': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'sh x'}),
+            'attach attests a wider path': lambda w: next(
+                s for s in w['jobs']['attach-sbom']['steps'] if 'attest' in s.get('uses', ''))['with'].update(
+                {'subject-path': '${{ runner.temp }}/leg/**'}),
+            'attach skips the digest check': lambda w: w['jobs']['attach-sbom'].update(steps=[
+                s for s in w['jobs']['attach-sbom']['steps'] if 'unchanged' not in s.get('name', '')]),
+            'attach in a container': lambda w: w['jobs']['attach-sbom'].update(container='node:24'),
+            'workflow run defaults': lambda w: w.update(defaults={'run': {'shell': 'python {0}'}}),
+            'digests job dropped': lambda w: w['jobs'].pop('leg-digests'),
+            'scanner before digests': lambda w: w['jobs']['sbom'].update(needs=['check-tag', 'release-build']),
+            'digests job runs a tool': lambda w: w['jobs']['leg-digests']['steps'].append({'run': 'npx x'}),
+            'attach writes contents': lambda w: w['jobs']['attach-sbom']['permissions'].update(contents='write'),
         }
         for label, mutate in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:

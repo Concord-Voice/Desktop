@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  _pipOpenBudgetHeldForTesting,
   _resetPipOpenBudgetForTesting,
   consumePipOpenToken,
+  isPipId,
   isPipOpenOptions,
+  MAX_PIP_WINDOWS,
+  MAX_PIP_WINDOWS_PER_CONNECTION,
+  releasePipOpenBudget,
 } from '@/main/pipOpenPolicy';
+import type { ConnectionId } from '@/shared/connectionIdentity';
+
+const A = 'connection-a' as ConnectionId;
+const B = 'connection-b' as ConnectionId;
 
 beforeEach(() => _resetPipOpenBudgetForTesting());
 
@@ -38,8 +47,39 @@ describe('PiP open admission', () => {
   });
 
   it('limits new windows per rolling interval and releases tokens as they age', () => {
-    for (let time = 0; time < 8; time++) expect(consumePipOpenToken(time)).toBe(true);
-    expect(consumePipOpenToken(8)).toBe(false);
-    expect(consumePipOpenToken(3_000)).toBe(true);
+    for (let time = 0; time < 8; time++) expect(consumePipOpenToken(A, time)).toBe(true);
+    expect(consumePipOpenToken(A, 8)).toBe(false);
+    expect(consumePipOpenToken(A, 3_000)).toBe(true);
   });
+
+  // #86 RT5: one connection's opens never spend another's tokens.
+  it('keeps one rolling window per connection', () => {
+    for (let time = 0; time < 8; time++) expect(consumePipOpenToken(A, time)).toBe(true);
+    expect(consumePipOpenToken(A, 8)).toBe(false);
+    expect(consumePipOpenToken(B, 8)).toBe(true);
+  });
+
+  it('drops a released connection and leaves the others alone', () => {
+    for (let time = 0; time < 8; time++) consumePipOpenToken(A, time);
+    consumePipOpenToken(B, 0);
+    releasePipOpenBudget(A);
+    expect(_pipOpenBudgetHeldForTesting(A)).toBe(false);
+    expect(_pipOpenBudgetHeldForTesting(B)).toBe(true);
+  });
+
+  it('caps one connection at half the process-wide ceiling', () => {
+    expect(MAX_PIP_WINDOWS_PER_CONNECTION * 2).toBe(MAX_PIP_WINDOWS);
+  });
+
+  // #86 RT4: main keys PiPs `<connectionId>:<id>`, which is unambiguous only while an id
+  // cannot contain ':'.
+  it.each(['controls-main', 'screen-11111111-1111-4111-8111-111111111111', 'a', 'x'.repeat(128)])(
+    'accepts the PiP id %s',
+    (id) => expect(isPipId(id)).toBe(true)
+  );
+
+  it.each(['', 'a:b', 'connection-a:controls-main', 'x'.repeat(129), 'a/b', 42, null])(
+    'refuses the PiP id %s',
+    (id) => expect(isPipId(id)).toBe(false)
+  );
 });

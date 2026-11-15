@@ -23,41 +23,44 @@
  * handlers. An untrusted frame causes both invoke handlers to throw, so the
  * renderer sees a rejected promise rather than a token or a silent clear.
  */
-import { ipcMain, type IpcMainInvokeEvent } from 'electron';
-
+import { SAAS_SERVICE_ID } from '../../shared/connectionIdentity';
 import { getAttestationToken, clearAttestationToken } from '../attestationService';
 
-import { isPermittedFrameUrl } from './frameValidation';
+import { CHANNEL_CLASSES } from './channelClassification';
+import type { ConnectionSender } from './connectionSender';
+import { registerIpc } from './registry';
 
-type RemoteSpaOriginProvider = () => string | null;
-
-/** Validates the IPC sender frame matches a permitted SPA origin. */
-function checkFrame(event: IpcMainInvokeEvent, getSpaBaseUrl: RemoteSpaOriginProvider): boolean {
-  const url = event.senderFrame?.url ?? '';
-  return isPermittedFrameUrl(url, getSpaBaseUrl());
+/** The token cache is app-global and minted for the saas control plane only, so a
+ *  non-saas connection neither reads it nor clears it (#86 Task 7B, fail closed). */
+function isSaasSender(sender: ConnectionSender): boolean {
+  return sender.service.serviceId === SAAS_SERVICE_ID && sender.service.kind === 'saas';
 }
 
 /**
  * registerAttestationIpc wires the two attestation:* IPC channels used by the
  * renderer to read and clear the main-process attestation token cache.
  *
- * `getSpaBaseUrl` returns the currently-active validated remote SPA origin (or
- * null when the bundled build is loaded). The accessor is injected so main.ts
- * can wire the live value once the SPA loader has decided which build to serve —
- * mirroring `registerSSOIPC` and `registerOpenExternalHandler`.
+ * #86 Task 7B: both channels go through `registerIpc` (`connection-bound`); an
+ * unbound or untrusted sender throws, as before. A bound non-saas sender reads null
+ * and its clear is a no-op.
  */
-export function registerAttestationIpc(getSpaBaseUrl: RemoteSpaOriginProvider): void {
-  ipcMain.handle('attestation:get-token', (event): string | null => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('attestation:get-token rejected: untrusted sender frame');
-    }
-    return getAttestationToken();
-  });
+export function registerAttestationIpc(): void {
+  const untrusted = (channel: string) => (): never => {
+    throw new Error(`${channel} rejected: untrusted sender frame`);
+  };
+  registerIpc(
+    'attestation:get-token',
+    CHANNEL_CLASSES['attestation:get-token'],
+    (sender): string | null => (isSaasSender(sender) ? getAttestationToken() : null),
+    { refusal: untrusted('attestation:get-token') }
+  );
 
-  ipcMain.handle('attestation:clear-token', (event): void => {
-    if (!checkFrame(event, getSpaBaseUrl)) {
-      throw new Error('attestation:clear-token rejected: untrusted sender frame');
-    }
-    clearAttestationToken();
-  });
+  registerIpc(
+    'attestation:clear-token',
+    CHANNEL_CLASSES['attestation:clear-token'],
+    (sender): void => {
+      if (isSaasSender(sender)) clearAttestationToken();
+    },
+    { refusal: untrusted('attestation:clear-token') }
+  );
 }

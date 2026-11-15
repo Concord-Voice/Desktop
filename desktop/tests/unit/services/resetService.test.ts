@@ -300,6 +300,14 @@ describe('resetService', () => {
       expect(useVoiceStore.getState().mediaPolicyInterrupt).toBeNull();
     });
 
+    it('gracefulReset clears the capture-lease fields reset() preserves (#87)', () => {
+      useVoiceStore.getState().setCaptureLease('other');
+      useVoiceStore.getState().setCaptureMovedNotice(true);
+      gracefulReset();
+      expect(useVoiceStore.getState().captureLease).toBe('none');
+      expect(useVoiceStore.getState().captureMovedNotice).toBe(false);
+    });
+
     it('clears every rich-presence category while preserving no self state on account reset', () => {
       const store = useRichPresenceStore.getState() as unknown as {
         replaceOtherPresence?: (next: Record<string, Record<string, unknown>>) => void;
