@@ -1,3 +1,6 @@
+import type * as CaptureLeaseClientModule from '@/renderer/services/voice/captureLeaseClient';
+import type * as OsPermissionStoreModule from '@/renderer/stores/voice/osPermissionStore';
+import type * as MicProcessorModule from '@/renderer/services/voice/micProcessor';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { resetAllStores } from '../../helpers/store-helpers';
@@ -5,8 +8,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 const calls: string[] = [];
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>();
+  const actual = await importOriginal<typeof CaptureLeaseClientModule>();
   return {
     ...actual,
     acquire: vi.fn(),
@@ -23,12 +25,12 @@ vi.mock('@/renderer/services/voice/voiceService', () => ({
 }));
 
 vi.mock('@/renderer/stores/voice/osPermissionStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/voice/osPermissionStore')>();
+  const actual = await importOriginal<typeof OsPermissionStoreModule>();
   return { ...actual, ensureOsPermission: vi.fn().mockResolvedValue('granted') };
 });
 
 vi.mock('@/renderer/services/voice/micProcessor', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/voice/micProcessor')>();
+  const actual = await importOriginal<typeof MicProcessorModule>();
   return {
     ...actual,
     createMicProcessor: vi.fn(async () => ({

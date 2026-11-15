@@ -10,6 +10,7 @@
  * `getUserMedia` run inside `connectAuthorizedJoinSession`. Spying the authorize and
  * connect stages therefore pins the acquire ahead of all three.
  */
+import type * as CaptureLeaseClientModule from '@/renderer/services/voice/captureLeaseClient';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { voiceService } from '@/renderer/services/voice/voiceService';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
@@ -25,7 +26,7 @@ import {
 import { resetAllStores } from '../../helpers/store-helpers';
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>()),
+  ...(await importOriginal<typeof CaptureLeaseClientModule>()),
   acquire: vi.fn(),
   release: vi.fn().mockResolvedValue(true),
   releaseVoiceJoinWhenCapturesSettle: vi.fn(),

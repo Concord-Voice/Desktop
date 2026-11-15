@@ -1,10 +1,10 @@
+import type * as CaptureLeaseClientModule from '@/renderer/services/voice/captureLeaseClient';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const calls: string[] = [];
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>();
+  const actual = await importOriginal<typeof CaptureLeaseClientModule>();
   return { ...actual, acquire: vi.fn(), release: vi.fn() };
 });
 

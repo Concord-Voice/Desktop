@@ -7,6 +7,7 @@
  * release there would free the lease while the same document is about to re-acquire it,
  * or while its call is still live.
  */
+import type * as CaptureLeaseClientModule from '@/renderer/services/voice/captureLeaseClient';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { voiceService } from '@/renderer/services/voice/voiceService';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
@@ -16,7 +17,7 @@ import { releaseVoiceJoinWhenCapturesSettle } from '@/renderer/services/voice/ca
 import { resetAllStores } from '../../helpers/store-helpers';
 
 vi.mock('@/renderer/services/voice/captureLeaseClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/voice/captureLeaseClient')>()),
+  ...(await importOriginal<typeof CaptureLeaseClientModule>()),
   acquire: vi.fn().mockResolvedValue({ status: 'granted' }),
   // Every call-end site asks the client to release the claim (deferred behind in-flight
   // captures, which callCaptureBarrier.test.ts covers); this suite classifies the sites.
