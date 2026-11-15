@@ -50,7 +50,7 @@
   | latched | `setMediaPolicyPaused('mic', 'mic-1')` | 0 |
 
 - [ ] **Step 3: Run the tests and see them fail.** Run `cd desktop && npx vitest run tests/unit/services/voiceService.reconnectMuteState.test.ts`. The deafened, serverMuted, serverDeafened and test-suspended rows should FAIL for both sites, and so should the reproduction test.
-- [ ] **Step 4: Implement `canResumeMic`.** Use it in both sites' mic branches. Make `shouldResumeMicAfterTrackReplacement` become `!isSoloBandwidthSaving && canResumeMic(producer)` (it needs the producer, so update its one caller in `adoptMicProducer`).
+- [ ] **Step 4: Implement `canResumeMic`.** Use it in both sites' mic branches. Leave `shouldResumeMicAfterTrackReplacement` unchanged: it has two callers and already applies the full policy.
 - [ ] **Step 5: Run the tests again** with the same command. Expected: PASS, and `voiceService.mediaPolicy.test.ts` is still green.
 - [ ] **Step 6: Commit** as `fix: gate every mic resume on the full mute/deafen policy`.
 
