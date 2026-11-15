@@ -404,6 +404,8 @@ async function adoptContinuationOrFailClosed(
       // upgraded by a security operation (spec 2.6 SE-2).
       rememberMe: useAuthStore.getState().rememberMe,
       apiBase: selection.apiBase,
+      // #86 T9: main derives this connection's preference account key from it.
+      serverUserId: lifecycle.userId,
     });
   } catch {
     return { failClosed: failClosedToReauth(isCurrent, nuclearReset), owner: null };

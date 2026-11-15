@@ -20,7 +20,7 @@ vi.mock('@/main/spaLoader', () => ({
 const { mockLoadURL, mockLoadFile, mockWebContents, mockGetAllWindows } = vi.hoisted(() => {
   const loadURL = vi.fn();
   const loadFile = vi.fn();
-  const webContents = { loadURL, loadFile };
+  const webContents = { loadURL, loadFile, isDestroyed: () => false };
   const getAllWindows = vi.fn(() => [{ webContents, isDestroyed: () => false }]);
   return {
     mockLoadURL: loadURL,
@@ -45,11 +45,23 @@ vi.mock('electron', () => ({
   },
 }));
 
+// #86 Task 4: self-heal targets the saas connection's view, not a BrowserWindow scan.
+// Each live mock "window" stands in for that view, so the per-test overrides of
+// mockGetAllWindows (e.g. the no-window race) keep their meaning.
+vi.mock('@/main/connectionRegistry', () => ({
+  liveConnections: () =>
+    mockGetAllWindows()
+      .filter((w: { isDestroyed: () => boolean }) => !w.isDestroyed())
+      .map((w: { webContents: unknown }) => ({ serviceId: 'saas', webContents: w.webContents })),
+}));
+
 // Module under test — imported AFTER mocks are registered.
 import { resolveSpaSource } from '@/main/spaLoader';
 import { attemptSelfHeal, __resetSelfHealState } from '@/main/spaSelfHeal';
 
 const mockResolve = resolveSpaSource as unknown as ReturnType<typeof vi.fn>;
+// The saas view the tests heal, and the requester every genuine trigger names (#86 RT3).
+const saasView = mockWebContents as unknown as Electron.WebContents;
 
 describe('spaSelfHeal — R2 retry state machine', () => {
   beforeEach(() => {
@@ -67,7 +79,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
       reason: 'remote SPA compatible',
     });
 
-    const promise = attemptSelfHeal({ reason: 'chunk-load' });
+    const promise = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     // Before 500ms elapses, no work has been done.
     expect(mockResolve).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(500);
@@ -87,7 +99,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
   it('retryCount=0 with mode=bundled: falls back to bundled, sets exhausted', async () => {
     mockResolve.mockResolvedValue({ mode: 'bundled', reason: 'spaUrl rejected' });
 
-    const promise = attemptSelfHeal({ reason: 'chunk-load' });
+    const promise = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
@@ -107,13 +119,13 @@ describe('spaSelfHeal — R2 retry state machine', () => {
       url: 'https://api.concordvoice.chat/spa/def5678/index.html',
       reason: 'remote SPA compatible',
     });
-    const first = attemptSelfHeal({ reason: 'chunk-load' });
+    const first = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     await first;
     vi.clearAllMocks();
 
     // Second call hits the retryCount=1 branch.
-    const second = await attemptSelfHeal({ reason: 'chunk-load' });
+    const second = await attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
 
     // #830: bundled fallback now loads via app:// scheme (Task 4 conversion).
     expect(mockResolve).not.toHaveBeenCalled();
@@ -126,13 +138,13 @@ describe('spaSelfHeal — R2 retry state machine', () => {
   it('after exhausted: subsequent calls log-and-noop', async () => {
     // Drive the state machine past exhaustion.
     mockResolve.mockResolvedValue({ mode: 'bundled', reason: 'forced' });
-    const first = attemptSelfHeal({ reason: 'chunk-load' });
+    const first = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     await first;
     vi.clearAllMocks();
 
     // Third trigger after exhaustion.
-    const third = await attemptSelfHeal({ reason: 'chunk-load' });
+    const third = await attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
 
     expect(mockResolve).not.toHaveBeenCalled();
     expect(mockLoadURL).not.toHaveBeenCalled();
@@ -147,9 +159,9 @@ describe('spaSelfHeal — R2 retry state machine', () => {
       reason: 'remote SPA compatible',
     });
 
-    const a = attemptSelfHeal({ reason: 'chunk-load' });
-    const b = attemptSelfHeal({ reason: 'main-frame-load' });
-    const c = attemptSelfHeal({ reason: 'chunk-import-rejected' });
+    const a = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
+    const b = attemptSelfHeal({ reason: 'main-frame-load', requester: saasView });
+    const c = attemptSelfHeal({ reason: 'chunk-import-rejected', requester: saasView });
 
     await vi.advanceTimersByTimeAsync(500);
     const [outcomeA, outcomeB, outcomeC] = await Promise.all([a, b, c]);
@@ -164,7 +176,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
   it('resolveSpaSource throws: falls back to bundled, no crash', async () => {
     mockResolve.mockRejectedValue(new Error('config fetch failed: timeout'));
 
-    const promise = attemptSelfHeal({ reason: 'chunk-load' });
+    const promise = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
@@ -179,7 +191,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     // Simulate a transient race where every window was destroyed mid-attempt.
     mockGetAllWindows.mockReturnValueOnce([]);
 
-    const noopOutcome = await attemptSelfHeal({ reason: 'chunk-load' });
+    const noopOutcome = await attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
 
     // No work done, no state change. retryCount stays 0; selfHealExhausted stays false.
     expect(noopOutcome).toEqual({ mode: 'noop', retryCount: 0 });
@@ -194,7 +206,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
       url: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       reason: 'remote SPA compatible',
     });
-    const followup = attemptSelfHeal({ reason: 'chunk-load' });
+    const followup = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     const followupOutcome = await followup;
 
@@ -213,7 +225,7 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     });
     mockLoadURL.mockRejectedValueOnce(new Error('net::ERR_CONNECTION_RESET'));
 
-    const promise = attemptSelfHeal({ reason: 'chunk-load' });
+    const promise = attemptSelfHeal({ reason: 'chunk-load', requester: saasView });
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
@@ -234,5 +246,31 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     expect(mockLoadURL).toHaveBeenNthCalledWith(2, 'app://concord/index.html');
     expect(mockLoadFile).not.toHaveBeenCalled();
     expect(outcome).toEqual({ mode: 'fellBackToBundled', retryCount: 1 });
+  });
+
+  // #86 RT3: recovery reloads the saas view, so a failure seen anywhere else must not
+  // reach it. A self-hosted view's own did-fail-load is the founding case.
+  it('refuses a requester that is not the saas view: no load, budget and slot preserved', async () => {
+    const foreignView = { loadURL: vi.fn(), isDestroyed: () => false };
+    mockResolve.mockResolvedValue({
+      mode: 'remote',
+      url: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+      reason: 'remote SPA compatible',
+    });
+
+    const refused = attemptSelfHeal({
+      reason: 'main-frame-load',
+      requester: foreignView as unknown as Electron.WebContents,
+    });
+    // Called in the same tick: had the refusal taken the in-flight slot, this genuine
+    // trigger would collapse into its noop instead of recovering.
+    const genuine = attemptSelfHeal({ reason: 'main-frame-load', requester: saasView });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(await refused).toEqual({ mode: 'noop', retryCount: 0 });
+
+    expect(await genuine).toEqual({ mode: 'recovered', retryCount: 1 });
+    expect(mockLoadURL).toHaveBeenCalledOnce();
+    expect(foreignView.loadURL).not.toHaveBeenCalled();
+    expect(mockResolve).toHaveBeenCalledOnce();
   });
 });

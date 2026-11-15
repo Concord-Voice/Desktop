@@ -18,7 +18,14 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 
 // ── Hoisted mocks: Tray constructor THROWS to exercise initTray's catch ────
-const { mockMainWindow, MockBrowserWindow, mockApp, mockTrayCtor } = vi.hoisted(() => {
+const {
+  mockMainWindow,
+  mockWebContents,
+  MockBrowserWindow,
+  MockWebContentsView,
+  mockApp,
+  mockTrayCtor,
+} = vi.hoisted(() => {
   const mockWebContents = {
     openDevTools: vi.fn(),
     closeDevTools: vi.fn(),
@@ -26,6 +33,14 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockTrayCtor } = vi.hoisted(
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
     on: vi.fn(),
+    // #86 Task 4: the saas connection's view loads its own document.
+    once: vi.fn(),
+    getURL: vi.fn(() => ''),
+    loadURL: vi.fn().mockResolvedValue(undefined),
+    loadFile: vi.fn().mockResolvedValue(undefined),
+    isDestroyed: vi.fn(() => false),
+    close: vi.fn(),
+    focus: vi.fn(),
     mainFrame: { frameTreeNodeId: 7 },
   };
   const mockMainWindow = {
@@ -45,10 +60,26 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockTrayCtor } = vi.hoisted(
     restore: vi.fn(),
     setAlwaysOnTop: vi.fn(),
     isDestroyed: vi.fn(() => false),
-    webContents: mockWebContents,
+    // #86 Task 4: the main window is a BaseWindow composing one view per connection.
+    maximize: vi.fn(),
+    setContentProtection: vi.fn(),
+    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
   };
+  if (!('isDestroyed' in mockMainWindow)) {
+    Object.assign(mockMainWindow, { isDestroyed: vi.fn(() => false) });
+  }
   const bw = vi.fn().mockImplementation(function () {
     return mockMainWindow;
+  });
+  const mockView = {
+    webContents: mockWebContents,
+    setBounds: vi.fn(),
+    setVisible: vi.fn(),
+    setBackgroundColor: vi.fn(),
+  };
+  const wcv = vi.fn().mockImplementation(function () {
+    return mockView;
   });
   (bw as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
   const mockApp = {
@@ -70,11 +101,21 @@ const { mockMainWindow, MockBrowserWindow, mockApp, mockTrayCtor } = vi.hoisted(
   const mockTrayCtor = vi.fn().mockImplementation(() => {
     throw new Error('tray_init_failed: no StatusNotifier host');
   });
-  return { mockMainWindow, MockBrowserWindow: bw, mockApp, mockTrayCtor };
+  return {
+    mockMainWindow,
+    mockWebContents,
+    MockBrowserWindow: bw,
+    MockWebContentsView: wcv,
+    mockApp,
+    mockTrayCtor,
+  };
 });
 
 vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
+  BaseWindow: MockBrowserWindow,
+  WebContentsView: MockWebContentsView,
+  net: { fetch: vi.fn() },
   app: mockApp,
   autoUpdater: { on: vi.fn() },
   ipcMain: { handle: vi.fn(), on: vi.fn() },
@@ -86,7 +127,10 @@ vi.mock('electron', () => ({
     })),
   },
   Tray: mockTrayCtor,
-  Menu: { buildFromTemplate: vi.fn((template: unknown) => ({ template })) },
+  Menu: {
+    buildFromTemplate: vi.fn((template: unknown) => ({ template })),
+    setApplicationMenu: vi.fn(),
+  },
   clipboard: { writeText: vi.fn() },
   desktopCapturer: { getSources: vi.fn(() => Promise.resolve([])) },
   screen: {
@@ -103,6 +147,8 @@ vi.mock('electron', () => ({
       setCertificateVerifyProc: vi.fn(),
       on: vi.fn(),
       webRequest: { onBeforeSendHeaders: vi.fn() },
+      protocol: { handle: vi.fn() },
+      fetch: vi.fn(),
     },
   },
   shell: { openExternal: vi.fn(() => Promise.resolve()) },
@@ -143,32 +189,46 @@ vi.mock('node:http', () => {
 });
 
 vi.mock('electron-squirrel-startup', () => ({ default: false }));
-vi.mock('../../../src/main/tokenManager', () => ({
-  storeRefreshToken: vi.fn(),
-  restoreRefreshToken: vi.fn(() => ({
-    status: 'ok',
-    refreshToken: 't',
-    apiBase: 'http://localhost:8080',
-  })),
-  performRefresh: vi.fn(() => Promise.resolve({ status: 'ok', accessToken: 'a', sessionId: 's' })),
-  performLogout: vi.fn(() => Promise.resolve()),
-  clearTokens: vi.fn(),
-  // A real tokenManager always exports this, so a stub that omits it models a
-  // regression rather than any shipping shell. main.ts's deep-link owner fence
-  // reads it on the drain path, which ordinary window setup reaches (#2363).
-  getCredentialCustodyState: vi.fn(() => ({ credentialOwner: 41, pendingE2EEUnlock: false })),
-  getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
-  storeE2EEKeys: vi.fn(),
-  restoreE2EEKeys: vi.fn(() => ({
-    wrappingKeyBase64: 'k',
-    preferencesKeyBase64: 'p',
-    wrappedPrivateKeyBase64: 'w',
-  })),
-  setProactiveRefreshCallback: vi.fn(),
-  onSystemResume: vi.fn(),
-  getCachedAccessToken: vi.fn(() => null),
-  getApiBaseOrigin: vi.fn(() => null),
-}));
+vi.mock('../../../src/main/tokenManager', () => {
+  // #86 Task 5: main.ts reaches custody through the transitional routers, and
+  // each hands back this one mocked set, so assertions on its members still hold.
+  const custody = {
+    storeRefreshToken: vi.fn(),
+    restoreRefreshToken: vi.fn(() => ({
+      status: 'ok',
+      refreshToken: 't',
+      apiBase: 'http://localhost:8080',
+    })),
+    performRefresh: vi.fn(() =>
+      Promise.resolve({ status: 'ok', accessToken: 'a', sessionId: 's' })
+    ),
+    performLogout: vi.fn(() => Promise.resolve()),
+    clearTokens: vi.fn(),
+    // A real tokenManager always exports this, so a stub that omits it models a
+    // regression rather than any shipping shell. main.ts's deep-link owner fence
+    // reads it on the drain path, which ordinary window setup reaches (#2363).
+    getCredentialCustodyState: vi.fn(() => ({ credentialOwner: 41, pendingE2EEUnlock: false })),
+    getCapabilities: vi.fn(() => ({ safeStorage: true, secureKeychain: true })),
+    storeE2EEKeys: vi.fn(),
+    restoreE2EEKeys: vi.fn(() => ({
+      wrappingKeyBase64: 'k',
+      preferencesKeyBase64: 'p',
+      wrappedPrivateKeyBase64: 'w',
+    })),
+    setProactiveRefreshCallback: vi.fn(),
+    onSystemResume: vi.fn(),
+    getCachedAccessToken: vi.fn(() => null),
+    getApiBaseOrigin: vi.fn(() => null),
+    onCredentialEvent: vi.fn(() => () => undefined),
+  };
+  return {
+    ...custody,
+    custodyFor: vi.fn(() => custody),
+    custodyForApiBase: vi.fn(() => custody),
+    liveCustody: vi.fn(() => custody),
+    restoreTargetCustody: vi.fn(() => custody),
+  };
+});
 vi.mock('../../../src/main/machineId', () => ({ getMachineId: vi.fn(() => 'mock-machine-id') }));
 vi.mock('../../../src/main/updater', () => ({
   initAutoUpdater: vi.fn(),
@@ -298,7 +358,7 @@ describe('trayless fallback (#1099): tray init failure must not strand the windo
       const setStatus = ipcHandlers.get('tray:setStatus');
       expect(setStatus).toBeDefined();
       const trusted = {
-        sender: mockMainWindow.webContents,
+        sender: mockWebContents,
         senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 7 },
       };
       const snapshot = {

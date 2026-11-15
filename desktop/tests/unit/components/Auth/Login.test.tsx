@@ -637,6 +637,32 @@ describe('Login', () => {
     expect(useAuthStore.getState().sessionId).toBe('rotated-session');
   });
 
+  it('#86: publishes the login response user id as serverUserId', async () => {
+    const storeRefreshToken = vi.fn().mockResolvedValue(41);
+    Object.defineProperty(globalThis, 'electron', {
+      value: { ...globalThis.electron, storeRefreshToken },
+      writable: true,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeLoginResponse(), // user.id: 'user-1'
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(onSuccess).toHaveBeenCalled();
+    });
+    expect(storeRefreshToken).toHaveBeenCalledTimes(1);
+    expect(storeRefreshToken).toHaveBeenCalledWith(
+      expect.objectContaining({ serverUserId: 'user-1' })
+    );
+  });
+
   it('rejects a token-only SSO successor instead of false-admitting an A2/S1 mixed account', async () => {
     // A password login owns {A1,S1}; a concurrent SSO completion has only A2.
     // Atomic lifecycle replacement must clear S1 and the generation gate must

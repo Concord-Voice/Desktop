@@ -34,6 +34,7 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
+    "test:e2e:electron": "playwright test -c playwright.electron.config.ts",
     "preview:splash": "npm run build:main && electron dist/main/splashPreview.js",
     "build:emoji-shortcodes": "NODE_PATH=./node_modules tsx ../scripts/build-emoji-shortcodes.ts",
     "generate:tray-icons": "node scripts/generate-tray-icons.mjs",

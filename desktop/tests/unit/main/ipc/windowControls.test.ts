@@ -1,38 +1,73 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('electron', () => ({
-  app: { quit: vi.fn() },
+  app: { quit: vi.fn(), getPath: () => '/tmp/concord-test-userdata' },
   ipcMain: { handle: vi.fn() },
 }));
 
 import { app, ipcMain } from 'electron';
-import { registerWindowControlsIpc, getCachedClientBehavior } from '@/main/ipc/windowControls';
+import {
+  _resetWindowControlsForTesting,
+  registerWindowControlsIpc,
+  getCachedClientBehavior,
+} from '@/main/ipc/windowControls';
 import { DEFAULT_CLIENT_BEHAVIOR } from '@/shared/clientBehavior';
+import {
+  _resetConnectionRegistryForTesting,
+  bindSender,
+  openConnection,
+  registerService,
+  setForeground,
+} from '@/main/connectionRegistry';
+import { _resetIpcRegistryForTesting } from '@/main/ipc/registry';
 
 const makeMockWindow = () => ({
   setTitleBarOverlay: vi.fn(),
   isDestroyed: vi.fn(() => false),
 });
 
+// #86 Task 7B re-point: handlers now run behind registerIpc, so the legacy `{}` event
+// is replaced by the FOREGROUND primary's event (the only sender these channels admit).
+// The registry is reset per case because registerIpc refuses a duplicate channel.
+let fgEvent: unknown = null;
+const fgEv = () => fgEvent as never;
+
 describe('registerWindowControlsIpc', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    _resetWindowControlsForTesting();
+    const r = registerService('https://api.concordvoice.chat', {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id: 7, mainFrame: { frameTreeNodeId: 7 } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    setForeground(o.record.connectionId);
+    fgEvent = {
+      sender: wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: 7,
+        detached: false,
+      },
+    };
   });
 
   it('starts with the safe default cached client behavior (close→tray, minimize→toolbar)', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
   });
 
   it('registers all three IPC handlers', () => {
-    registerWindowControlsIpc(
-      () => makeMockWindow() as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => makeMockWindow() as never);
     const channels = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     expect(channels).toContain('window:setClientBehavior');
     expect(channels).toContain('window:quit');
@@ -40,63 +75,51 @@ describe('registerWindowControlsIpc', () => {
   });
 
   it('updates the cached client behavior on setClientBehavior', () => {
-    registerWindowControlsIpc(
-      () => makeMockWindow() as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => makeMockWindow() as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
-    handler({} as never, { toTray: 'minimize', toToolbar: 'close' });
+    handler(fgEv(), { toTray: 'minimize', toToolbar: 'close' });
     expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
   });
 
   it('window:quit handler calls app.quit()', () => {
     const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:quit'
     )![1];
-    handler({
-      sender: window.webContents,
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
-    } as never);
+    handler(fgEv());
     expect(app.quit).toHaveBeenCalledTimes(1);
   });
 
   it('window:quit refuses a same-origin PiP or subframe', () => {
     const window = { ...makeMockWindow(), webContents: { mainFrame: { frameTreeNodeId: 1 } } };
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:quit'
     )![1];
+    // #86: "the main window" is the foreground connection's bound primary. An unbound
+    // webContents (a PiP, or any other window) and a subframe of the primary are refused.
+    const fg = fgEvent as { sender: { mainFrame: { frameTreeNodeId: number } } };
     handler({
-      sender: {},
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 1 },
+      sender: { id: 9, mainFrame: { frameTreeNodeId: 9 } },
+      senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: 9 },
     } as never);
     handler({
-      sender: window.webContents,
-      senderFrame: { url: 'app://concord/index.html', frameTreeNodeId: 2 },
+      sender: fg.sender,
+      senderFrame: { url: 'app://concord/index.html', parent: {}, frameTreeNodeId: 2 },
     } as never);
     expect(app.quit).not.toHaveBeenCalled();
   });
 
   it('setTitleBarOverlayColor calls win.setTitleBarOverlay with passed color', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '#000000', symbolColor: '#ffffff' });
+    handler(fgEv(), { color: '#000000', symbolColor: '#ffffff' });
     expect(window.setTitleBarOverlay).toHaveBeenCalledWith(
       expect.objectContaining({ color: '#000000', symbolColor: '#ffffff' })
     );
@@ -105,14 +128,11 @@ describe('registerWindowControlsIpc', () => {
   it('setTitleBarOverlayColor is a no-op when window is destroyed', () => {
     const window = makeMockWindow();
     window.isDestroyed.mockReturnValue(true);
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '#000', symbolColor: '#fff' });
+    handler(fgEv(), { color: '#000', symbolColor: '#fff' });
     expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
   });
 
@@ -121,66 +141,183 @@ describe('registerWindowControlsIpc', () => {
   // shapes at the IPC trust boundary rather than blindly trusting the
   // renderer's payload.
   it('setClientBehavior rejects invalid toTray value (keeps cache unchanged)', () => {
-    registerWindowControlsIpc(
-      () => makeMockWindow() as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => makeMockWindow() as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
     const before = getCachedClientBehavior();
-    handler({} as never, { toTray: 'EVIL', toToolbar: 'minimize' });
+    handler(fgEv(), { toTray: 'EVIL', toToolbar: 'minimize' });
     expect(getCachedClientBehavior()).toEqual(before);
   });
 
   it('setClientBehavior rejects non-object payload', () => {
-    registerWindowControlsIpc(
-      () => makeMockWindow() as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => makeMockWindow() as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
     const before = getCachedClientBehavior();
-    handler({} as never, 'not-an-object');
+    handler(fgEv(), 'not-an-object');
     expect(getCachedClientBehavior()).toEqual(before);
   });
 
   it('setClientBehavior accepts the swap configuration', () => {
-    registerWindowControlsIpc(
-      () => makeMockWindow() as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => makeMockWindow() as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setClientBehavior'
     )![1];
-    handler({} as never, { toTray: 'minimize', toToolbar: 'close' });
+    handler(fgEv(), { toTray: 'minimize', toToolbar: 'close' });
     expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
   });
 
   it('setTitleBarOverlayColor rejects non-CSS-color color value', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: '<script>alert(1)</script>', symbolColor: '#fff' });
+    handler(fgEv(), { color: '<script>alert(1)</script>', symbolColor: '#fff' });
     expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
   });
 
   it('setTitleBarOverlayColor accepts rgba() format', () => {
     const window = makeMockWindow();
-    registerWindowControlsIpc(
-      () => window as never,
-      () => null
-    );
+    registerWindowControlsIpc(() => window as never);
     const handler = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.find(
       (c) => c[0] === 'window:setTitleBarOverlayColor'
     )![1];
-    handler({} as never, { color: 'rgba(26, 22, 48, 1)', symbolColor: '#ffffff' });
+    handler(fgEv(), { color: 'rgba(26, 22, 48, 1)', symbolColor: '#ffffff' });
     expect(window.setTitleBarOverlay).toHaveBeenCalled();
+  });
+});
+
+// #86 Task 7B: low-stakes channels are admitted for the FOREGROUND primary only; any other
+// sender (a background primary) gets a silent no-op (undefined, no warn, no effect).
+describe('window controls: binding-derived admission (#86 Task 7B)', () => {
+  function conn(origin: string, id: number) {
+    const r = registerService(origin, {
+      makeSession: () => ({}) as never,
+      makeCustody: () => ({}) as never,
+      isValidatedSelfHostedApiBase: () => true,
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const wc = { id, mainFrame: { frameTreeNodeId: id } } as never;
+    const o = openConnection(r.service.serviceId, wc, null);
+    if (!o.ok) throw new Error(o.reason);
+    bindSender(wc, o.record.connectionId, 'primary');
+    return { wc, record: o.record, id };
+  }
+  const ev = (c: { wc: unknown; id: number }) =>
+    ({
+      sender: c.wc,
+      senderFrame: {
+        url: 'app://concord/index.html',
+        parent: null,
+        frameTreeNodeId: c.id,
+        detached: false,
+      },
+    }) as never;
+  const handlerFor = (channel: string) => {
+    const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c) => c[0] === channel
+    );
+    return calls[calls.length - 1][1] as (...a: unknown[]) => unknown;
+  };
+
+  function boot() {
+    _resetConnectionRegistryForTesting();
+    _resetIpcRegistryForTesting();
+    _resetWindowControlsForTesting();
+    const window = makeMockWindow();
+    registerWindowControlsIpc(() => window as never);
+    const fg = conn('https://api.concordvoice.chat', 21);
+    const bg = conn(new URL('https://a.example').origin, 22);
+    setForeground(fg.record.connectionId);
+    return { window, fg, bg };
+  }
+
+  it('setTitleBarOverlayColor from a background primary is a silent no-op', () => {
+    const { window, bg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = handlerFor('window:setTitleBarOverlayColor')(ev(bg), {
+      color: '#000000',
+      symbolColor: '#ffffff',
+    });
+    expect(r).toBeUndefined();
+    expect(window.setTitleBarOverlay).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // #86 C7: each view has its own stored settings, so a background primary's value is
+  // kept as that connection's own. It never changes the foreground's [X]/[-].
+  it('setClientBehavior from a background primary does not change the foreground behaviour', () => {
+    const { bg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const before = getCachedClientBehavior();
+    const r = handlerFor('window:setClientBehavior')(ev(bg), {
+      toTray: 'none',
+      toToolbar: 'close',
+    });
+    expect(r).toBeUndefined();
+    expect(getCachedClientBehavior()).toEqual(before);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // #86 C7 repro: A chose quit, B (whose settings say close-to-tray) is shown, and [X]
+  // used A's choice. The intercepts read getCachedClientBehavior().
+  it("the close/minimize behaviour follows the foreground connection's own value", () => {
+    const { fg, bg } = boot();
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'minimize' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+
+    // B has pushed nothing yet: its default, not A's quit.
+    setForeground(bg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
+
+    // B's own value, pushed while hidden (its startup rehydrate), applies once B is shown.
+    setForeground(fg.record.connectionId);
+    handlerFor('window:setClientBehavior')(ev(bg), { toTray: 'minimize', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+    setForeground(bg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'minimize', toToolbar: 'close' });
+    setForeground(fg.record.connectionId);
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'minimize' });
+  });
+
+  it('an unbound sender or a PiP writes nothing', () => {
+    const { fg } = boot();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const set = handlerFor('window:setClientBehavior');
+    set(
+      {
+        sender: { id: 99, mainFrame: { frameTreeNodeId: 99 } },
+        senderFrame: { url: 'app://concord/index.html', parent: null, frameTreeNodeId: 99 },
+      } as never,
+      { toTray: 'none', toToolbar: 'close' }
+    );
+    const pip = { id: 23, mainFrame: { frameTreeNodeId: 23 } } as never;
+    bindSender(pip, fg.record.connectionId, 'pip');
+    set(ev({ wc: pip, id: 23 }), { toTray: 'none', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
+    warn.mockRestore();
+  });
+
+  it('with no foreground connection the default applies', () => {
+    const { fg } = boot();
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'close' });
+    setForeground(null);
+    expect(getCachedClientBehavior()).toEqual(DEFAULT_CLIENT_BEHAVIOR);
+  });
+
+  it('both channels still work from the foreground primary', () => {
+    const { window, fg } = boot();
+    handlerFor('window:setTitleBarOverlayColor')(ev(fg), {
+      color: '#000000',
+      symbolColor: '#ffffff',
+    });
+    expect(window.setTitleBarOverlay).toHaveBeenCalledTimes(1);
+    handlerFor('window:setClientBehavior')(ev(fg), { toTray: 'none', toToolbar: 'close' });
+    expect(getCachedClientBehavior()).toEqual({ toTray: 'none', toToolbar: 'close' });
   });
 });

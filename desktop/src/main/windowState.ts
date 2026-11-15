@@ -1,4 +1,4 @@
-import { app, screen, type BrowserWindow } from 'electron';
+import { app, screen, type BaseWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateBounds, type SavedState } from './windowStateValidator';
@@ -84,7 +84,7 @@ export function saveWindowState(input: {
 
 let debounceTimer: NodeJS.Timeout | null = null;
 
-export function attachWindowState(win: BrowserWindow): void {
+export function attachWindowState(win: BaseWindow): void {
   const debouncedSave = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {

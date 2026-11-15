@@ -22,7 +22,8 @@
 import { net } from 'electron';
 import { createHash } from 'node:crypto';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
-import { getPersistedApiBase } from './tokenManager';
+import { SAAS_SERVICE_ID } from '../shared/connectionIdentity';
+import { getService } from './connectionRegistry';
 import { PRODUCTION_API_BASE } from './apiBaseUrl';
 import { setSpaHash, setSpaVersion } from './spaState';
 import { getBuildSha7 } from './buildInfo';
@@ -69,7 +70,9 @@ export async function resolveSpaSource(
     return { mode: 'bundled', reason: 'pilot channel uses bundled renderer' };
   }
 
-  const apiBase = getPersistedApiBase();
+  // The renderer decided here is the `saas` connection's, so the signed-in state is
+  // that service's own custody: never another server's credential or the pointer.
+  const apiBase = getService(SAAS_SERVICE_ID)?.custody.getCredentialApiBase() ?? null;
   if (!apiBase) {
     return { mode: 'bundled', reason: 'no persisted API base (first launch or logged out)' };
   }
