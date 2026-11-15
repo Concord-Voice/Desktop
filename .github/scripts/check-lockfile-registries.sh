@@ -80,14 +80,18 @@ for f in "$@"; do
               [$k, "has a control character in its key, resolved or version", "-"]
             elif ($e.resolved | type) == "string" then
               $e.resolved as $u
-              | select(($u | startswith("file:") and (.[5:] | relpath)) or ($e.link == true and ($u | relpath)) | not)
+              | select(($u | startswith("file:") and (.[5:] | relpath)) or (($v1 | not) and $e.link == true and ($u | relpath)) | not)
               | ($u | host) as $h
               | select($h == null or ($ok | index($h)) == null)
               | [$k, (if $h == null then "is not a plain https registry URL" else "resolves to unapproved host \($h)" end), $u]
             # No resolved URL: npm resolves the entry from config. Skip the
-            # root, links, bundled entries, v1 local file: entries, and v3
-            # link targets (keys outside node_modules/).
-            elif $k == "" or $e.link == true or $e.inBundle == true or $e.bundled == true then empty
+            # root, bundled entries, v1 local file: entries, and v3 links and
+            # link targets (keys outside node_modules/). Exemptions follow the
+            # fields npm reads for each format: v1 knows `bundled` only, v3
+            # knows `link` and `inBundle`.
+            elif $k == "" then empty
+            elif $v1 and $e.bundled == true then empty
+            elif ($v1 | not) and ($e.link == true or $e.inBundle == true) then empty
             # A local file: version, but npm falls back to `from` when there is
             # no resolved or integrity, so `from` must be local too.
             elif (($e.version // "") | tostring | startswith("file:"))
