@@ -88,7 +88,11 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 2 });
+        // Pin the lowest layer. The sender's top layer only starts encoding once its
+        // bandwidth estimate ramps; until then it sends padding RTP with no frames, so
+        // the SFU treats the layer as live while no keyframe can ever arrive. Slow
+        // runners (macOS CI) never decoded. Layer 0 encodes from the first frame.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
