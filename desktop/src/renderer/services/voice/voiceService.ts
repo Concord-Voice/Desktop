@@ -3847,7 +3847,10 @@ class VoiceService {
   }
 
   /** Build VoiceParticipant list from room-join response, including video/screen state */
-  private buildParticipantList(roomJoined: RoomJoinedResponse): VoiceParticipant[] {
+  private buildParticipantList(
+    roomJoined: RoomJoinedResponse,
+    joinData: Pick<JoinResponse, 'server_muted' | 'server_deafened'>
+  ): VoiceParticipant[] {
     const producersByUser = new Map<string, { isVideoOn: boolean; isScreenSharing: boolean }>();
     for (const ep of roomJoined.existingProducers) {
       const entry = producersByUser.get(ep.userId) || { isVideoOn: false, isScreenSharing: false };
@@ -3857,7 +3860,8 @@ class VoiceService {
     }
     // The local user's own entry reflects their current choice (#242): a rebuilt
     // roster must not show a muted or deafened user as live. Peers keep the
-    // payload's deafen and learn mute from producer-paused.
+    // payload's deafen and learn mute from producer-paused. The local server flags come
+    // from the join data in the same write, so no subscriber sees them cleared (#247).
     const localUserId = useUserStore.getState().user?.id;
     const { isMuted: selfMuted, isDeafened: selfDeafened } = useVoiceStore.getState();
     return roomJoined.participants.map((p) => {
@@ -3871,8 +3875,8 @@ class VoiceService {
         isMuted: isSelf ? selfMuted : false,
         isDeafened: isSelf ? selfDeafened : (p.isDeafened ?? false),
         isTesting: p.isTesting ?? false,
-        serverMuted: false,
-        serverDeafened: false,
+        serverMuted: isSelf && joinData.server_muted === true,
+        serverDeafened: isSelf && joinData.server_deafened === true,
         isVideoOn: producerState?.isVideoOn ?? false,
         isScreenSharing: producerState?.isScreenSharing ?? false,
         isSpeaking: false,
@@ -3970,19 +3974,6 @@ class VoiceService {
   }
 
   /** Apply server enforcement flags to the local participant record. */
-  private applyEnforcementToParticipant(
-    store: ReturnType<typeof useVoiceStore.getState>,
-    joinData: JoinResponse
-  ): void {
-    if (!joinData.server_muted && !joinData.server_deafened) return;
-    const localUserId = useUserStore.getState().user?.id;
-    if (!localUserId) return;
-    store.updateParticipant(localUserId, {
-      serverMuted: joinData.server_muted || false,
-      serverDeafened: joinData.server_deafened || false,
-    });
-  }
-
   /**
    * Synthesize a channel-shaped object for DM voice joins where the server
    * response includes `conversation` instead of `channel` (#1209 plan F4
@@ -4752,10 +4743,7 @@ class VoiceService {
     this.requireJoinOwnership(recoveryOwner, cleanupGeneration);
 
     // Set participants before consuming producers
-    store.setParticipants(this.buildParticipantList(roomJoined));
-
-    // Apply enforcement flags after participants are populated
-    this.applyEnforcementToParticipant(store, joinData);
+    store.setParticipants(this.buildParticipantList(roomJoined, joinData));
 
     // Produce audio unless the server denies Speak. A listen-only member (ViewVoiceChannels|JoinVoice
     // without Speak, e.g. a listen-only role or channel override) is admitted by
