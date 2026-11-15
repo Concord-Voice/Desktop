@@ -70,10 +70,6 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           initialAvailableOutgoingBitrate: 2_000_000,
         });
         await transport.setMaxIncomingBitrate(5_000_000);
-        // Floor the transport's bandwidth estimate. On a slow runner the estimator can
-        // fall below the lowest simulcast layer before any media flows; the SFU then
-        // allocates the consumer no layer and never asks the sender for a keyframe.
-        if (body.direction !== 'send') await transport.setMinOutgoingBitrate(1_000_000);
         peer.transports.set(transport.id, transport);
         return {
           id: transport.id, iceParameters: transport.iceParameters,
@@ -102,6 +98,7 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
+        consumer.appData.transportId = body.transportId;
         // Pin the lowest layer. The sender's top layer only starts encoding once its
         // bandwidth estimate ramps; until then it sends padding RTP with no frames, so
         // the SFU treats the layer as live while no keyframe can ever arrive. Slow
@@ -114,6 +111,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
       }
       case 'resume': {
         const consumer = owned(peer.consumers, body.consumerId);
+        // The consumer's transport may still be mid-DTLS here: the client's connect RPC
+        // returns before the handshake completes. Resume only once media can flow.
+        const transport = peer.transports.get(consumer.appData.transportId);
+        for (let i = 0; transport && transport.dtlsState !== 'connected' && i < 100; i++) {
+          await new Promise((resolve) => { setTimeout(resolve, 50).unref(); });
+        }
         await consumer.resume();
         // CI diagnostics showed the SFU never asked the sender for a keyframe: the video
         // consumer stayed at currentLayers null with zero PLIs forwarded, so the receiver
@@ -138,7 +141,7 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         for (const [name, entry] of peers) {
           const transports = await Promise.all([...entry.transports.values()].map(async (t) => {
             const [stat] = await t.getStats();
-            return { availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+            return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
               sendBitrate: stat?.sendBitrate ?? null, probationSendBitrate: stat?.probationSendBitrate ?? null };
           }));
           out.push({ peer: name, transports,
