@@ -242,13 +242,16 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
     it("buildParticipantList seeds the local user's own mute and deafen state from the store", () => {
       useVoiceStore.getState().setMuted(true);
       useVoiceStore.getState().setDeafened(true);
-      const list = svc.buildParticipantList({
-        participants: [
-          { userId: LOCAL, username: 'l' },
-          { userId: PEER, username: 'p', isDeafened: false },
-        ],
-        existingProducers: [],
-      }) as VoiceParticipant[];
+      const list = svc.buildParticipantList(
+        {
+          participants: [
+            { userId: LOCAL, username: 'l' },
+            { userId: PEER, username: 'p', isDeafened: false },
+          ],
+          existingProducers: [],
+        },
+        { server_muted: false, server_deafened: false }
+      ) as VoiceParticipant[];
       const local = list.find((p) => p.userId === LOCAL);
       const peer = list.find((p) => p.userId === PEER);
       expect(local?.isMuted, 'local participant isMuted must be seeded from the store').toBe(true);
@@ -258,6 +261,44 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
       expect(peer?.isMuted, 'peer participant isMuted must stay false').toBe(false);
       expect(peer?.isDeafened, 'peer participant isDeafened must stay false').toBe(false);
     });
+
+    // regression for #247: the rebuilt roster must carry the join data's server
+    // moderation for the local user, so no store subscriber ever sees it cleared.
+    it.each([
+      ['server-muted', { server_muted: true, server_deafened: false }, true, false],
+      ['server-deafened', { server_muted: false, server_deafened: true }, false, true],
+      [
+        'server-deafened (real shape: both set)',
+        { server_muted: true, server_deafened: true },
+        true,
+        true,
+      ],
+      ['not moderated', { server_muted: false, server_deafened: false }, false, false],
+    ])(
+      'buildParticipantList seeds the local server flags from join data (%s)',
+      (_name, joinData, serverMuted, serverDeafened) => {
+        const list = svc.buildParticipantList(
+          {
+            participants: [
+              { userId: LOCAL, username: 'l' },
+              { userId: PEER, username: 'p' },
+            ],
+            existingProducers: [],
+          },
+          joinData
+        ) as VoiceParticipant[];
+        const local = list.find((p) => p.userId === LOCAL);
+        const peer = list.find((p) => p.userId === PEER);
+        expect(
+          { serverMuted: local?.serverMuted, serverDeafened: local?.serverDeafened },
+          'local entry must carry the join data server moderation'
+        ).toEqual({ serverMuted, serverDeafened });
+        expect({ serverMuted: peer?.serverMuted, serverDeafened: peer?.serverDeafened }).toEqual({
+          serverMuted: false,
+          serverDeafened: false,
+        });
+      }
+    );
 
     it('toggleDeafen with no mic producer still records mute intent', async () => {
       expect(useVoiceStore.getState().isMuted).toBe(false);

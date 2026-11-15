@@ -48,6 +48,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 ### Fixed
 
 - **Voice:** After a reconnect, a muted or deafened user's microphone stays off. Previously, in a two-person call, a deafened or server-muted user could start sending audio again when the other person rejoined, while the app still showed them as muted.
+- **Voice:** When you rejoin a call while a moderator has muted or deafened you, the app never shows you as unmoderated, even for a moment.
 - **Voice:** Unmuting while deafened now also undeafens you, so the mute button and your microphone always agree. A deafened user's microphone also stays off after a microphone test ends, and a moderator's server-deafen now stops your microphone too.
 - **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
 - **Servers:** A server connection added while the app is still starting is now remembered at the next launch.
