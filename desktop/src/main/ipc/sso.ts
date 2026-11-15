@@ -330,7 +330,10 @@ async function responseJson(response: Response, signal: AbortSignal): Promise<un
   }
 }
 
-async function revokeExplicitSession(apiBase: string, tokens: MainCompletionTokens): Promise<void> {
+async function revokeExplicitSession(
+  apiBase: string,
+  tokens: Pick<MainCompletionTokens, 'accessToken' | 'refreshToken'>
+): Promise<void> {
   try {
     // #2354 §6.4: this is the ONLY sso.ts egress that may move to the guarded Node
     // transport, because it is credentials:'omit' and writes its own headers — it needs
@@ -408,7 +411,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!credentialOwnerIsCurrent(credentialOwner)) {
       if (result.kind === 'tokens') {
         await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
-        await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
+        await revokeExplicitSession(apiBase, result);
       } else {
         await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
       }
@@ -427,7 +430,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       );
       if (storedOwner === null) {
         await revokeCookieBoundSession(apiBase, cookieBoundSessionId);
-        await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
+        await revokeExplicitSession(apiBase, result);
         return { kind: 'error', code: 'sso_cancelled' };
       }
       pendingCompletion = null;
@@ -536,9 +539,20 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       ) {
         await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
         // A challenge must not carry a session. If one came with it, that session
-        // skipped MFA: end it, do not only refuse it.
-        const smuggled = parseCompletionTokens(body);
-        if (smuggled) await revokeExplicitSession(completion.apiBase, smuggled);
+        // skipped MFA: end it, do not only refuse it. Logout needs only the two
+        // tokens, so a malformed session_id does not excuse the session. A body
+        // with only one token cannot be logged out here (logout authenticates with
+        // the access token); server-side expiry remains the backstop for that.
+        if (
+          isRecord(body) &&
+          isBoundedString(body.access_token, 32_768) &&
+          isBoundedString(body.refresh_token, 32_768)
+        ) {
+          await revokeExplicitSession(completion.apiBase, {
+            accessToken: body.access_token,
+            refreshToken: body.refresh_token,
+          });
+        }
         discardPendingCompletion(completion);
         clearTokensIfOwner(completion.credentialOwner);
         return { kind: 'error', status: 502, code: 'sso_session_rejected' };

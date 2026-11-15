@@ -879,36 +879,43 @@ describe('sso IPC handlers', () => {
       }
     );
 
-    it('revokes a full session the server smuggled beside a link challenge', async () => {
-      await beginAppleCompletion('account_link');
-      vi.mocked(net.fetch).mockResolvedValueOnce(
-        jsonResponse({
-          ...linkChallengeBody,
-          access_token: 'orphan-access',
-          refresh_token: 'orphan-refresh',
-          session_id: SUCCESS_SESSION_ID,
-        })
-      );
+    it.each([
+      ['a full token set', { session_id: SUCCESS_SESSION_ID }],
+      ['both tokens and a malformed session_id', { session_id: 'not-a-uuid' }],
+      ['both tokens and no session_id', {}],
+    ])(
+      'revokes a session the server smuggled beside a link challenge: %s',
+      async (_label, extra) => {
+        await beginAppleCompletion('account_link');
+        vi.mocked(net.fetch).mockResolvedValueOnce(
+          jsonResponse({
+            ...linkChallengeBody,
+            access_token: 'orphan-access',
+            refresh_token: 'orphan-refresh',
+            ...extra,
+          })
+        );
 
-      const result = await completeLinkHandler(
-        { senderFrame: { url: TRUSTED } },
-        SAAS_API_BASE,
-        linkPayload
-      );
-      expect(result).toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
-      expect(JSON.stringify(result)).not.toContain('orphan');
-      // The session skipped MFA: rejecting the answer is not enough, it must be ended.
-      expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
-        `${SAAS_API_BASE}/api/v1/auth/logout`,
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer orphan-access',
-            'X-Refresh-Token': 'orphan-refresh',
-          }),
-        })
-      );
-      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
-    });
+        const result = await completeLinkHandler(
+          { senderFrame: { url: TRUSTED } },
+          SAAS_API_BASE,
+          linkPayload
+        );
+        expect(result).toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+        expect(JSON.stringify(result)).not.toContain('orphan');
+        // The session skipped MFA: rejecting the answer is not enough, it must be ended.
+        expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
+          `${SAAS_API_BASE}/api/v1/auth/logout`,
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: 'Bearer orphan-access',
+              'X-Refresh-Token': 'orphan-refresh',
+            }),
+          })
+        );
+        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+      }
+    );
 
     it('keeps the first link challenge when a concurrent duplicate lands after it', async () => {
       await beginAppleCompletion('account_link');
