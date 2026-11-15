@@ -267,6 +267,12 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
     it.each([
       ['server-muted', { server_muted: true, server_deafened: false }, true, false],
       ['server-deafened', { server_muted: false, server_deafened: true }, false, true],
+      [
+        'server-deafened (real shape: both set)',
+        { server_muted: true, server_deafened: true },
+        true,
+        true,
+      ],
       ['not moderated', { server_muted: false, server_deafened: false }, false, false],
     ])(
       'buildParticipantList seeds the local server flags from join data (%s)',
