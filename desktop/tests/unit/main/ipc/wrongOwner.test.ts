@@ -175,7 +175,7 @@ beforeEach(() => {
   A = conn(ORIGIN_A, 1);
   B = conn(ORIGIN_B, 2);
   setForeground(A.record.connectionId);
-  registerSSOIPC(() => null);
+  registerSSOIPC();
 });
 
 const untouched = (c: ReturnType<typeof m.makeCustodyMock>) =>

@@ -285,10 +285,6 @@ const linkPayload = {
   password: 'account-password', // pragma: allowlist secret
 };
 
-// Ignored since #86 7B (admission reads the registry's remote-SPA source); the 7B
-// describe below still passes it.
-const getSpaBaseUrl = () => null;
-
 describe('sso IPC handlers', () => {
   let startLoopbackHandler: (event: FakeInvokeEvent) => Promise<{
     port: number;
@@ -2309,7 +2305,7 @@ describe('sso owner-scoping and session fetch (#86 7B)', () => {
     A = bound(ORIGIN_A, 1);
     B = bound(ORIGIN_B, 2);
     setForeground(A.record.connectionId);
-    registerSSOIPC(getSpaBaseUrl);
+    registerSSOIPC();
   });
 
   afterEach(() => {
