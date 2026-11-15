@@ -195,8 +195,11 @@ gitignored — it is per-platform build output, never committed.
 **The synthetic source is opt-in at CONFIGURE time, and that is constraint C10.**
 
 ```bash
-npx node-gyp rebuild -- -Daudiocap_synthetic=1   # adds concord_audiocap_synthetic.node
+npm run build:native -- --synthetic   # adds concord_audiocap_synthetic.node
 ```
+
+Do not call `node-gyp` directly. `desktop/scripts/build-native.mjs` passes
+`-Daudiocap_synthetic=1` itself, and a raw call drops the Electron runtime headers.
 
 A default build produces one target. The CI/test variant is a second `.node` with a
 second name, and `index.js` can only ever resolve `concord_audiocap.node` — so the
@@ -244,6 +247,12 @@ clang++ -std=c++17 -Wall -Wextra -Werror -fobjc-arc -pthread -I. \
     test/macos_partial_handle_test.mm -framework Foundation -framework CoreAudio \
     -o /tmp/macos_partial_handle_test && /tmp/macos_partial_handle_test
 ```
+
+The same file checks that the tap stamps callbacks in the `mach_continuous_time` domain, the one
+`uv_hrtime` reads on Electron 45. On a Mac that has not slept since boot the two clocks agree and
+that check reports VACUOUS. Add `-DCONCORD_TEST_SLEPT_SECONDS=5` to the command above to run it
+against a simulated 5 s of sleep, where it fails if either branch of `nowStampNs` is in the wrong
+domain.
 
 `rt_contract_test.cc` is the backend-contract, gate and teardown suite; it uses a bare
 `CHECK` macro and no framework, and **only its exit status is a signal**. Its printed

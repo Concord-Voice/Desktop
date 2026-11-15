@@ -143,9 +143,11 @@ function capability() {
  * COALESCED, so a signal means "there may be something to drain" and never "there
  * is exactly one thing to drain".
  *
- * A release build has no producer compiled in and returns
- * `{ ok: false, reason: 'NoBackend' }`. That resolves to video-only with a reason —
- * never to a system mix (#2161).
+ * On macOS 14.4 and above a release build has the Core Audio tap compiled in, so a
+ * start() with no target answers `{ ok: false, reason: 'NoTarget' }` (see
+ * `targetPids` below). Where there is no producer (Windows and Linux today, and
+ * macOS below the 14.4 floor) start() returns `{ ok: false, reason: 'NoBackend' }`.
+ * That resolves to video-only with a reason — never to a system mix.
  *
  * ONCE PER PROCESS: the sink gate is armed at the first start() and never replaced,
  * so any later start() — after a clean stop(), or after a start() that failed —
