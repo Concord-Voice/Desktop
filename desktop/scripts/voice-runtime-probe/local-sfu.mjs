@@ -38,6 +38,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
     await closeWorker();
     throw error;
   }
+  async function requestKeyFramesUntilLayered(consumer) {
+    for (let attempt = 0; attempt < 20 && !consumer.closed && !consumer.currentLayers; attempt++) {
+      await consumer.requestKeyFrame().catch(() => {});
+      await new Promise((resolve) => { setTimeout(resolve, 500).unref(); });
+    }
+  }
   const peers = new Map(['a', 'b'].map((id) => [id, {
     transports: new Map(), producers: new Map(), consumers: new Map(),
   }]));
@@ -98,7 +104,15 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           rtpParameters: consumer.rtpParameters,
         };
       }
-      case 'resume': await owned(peer.consumers, body.consumerId).resume(); return {};
+      case 'resume': {
+        const consumer = owned(peer.consumers, body.consumerId);
+        await consumer.resume();
+        // CI diagnostics showed the SFU never asked the sender for a keyframe: the video
+        // consumer stayed at currentLayers null with zero PLIs forwarded, so the receiver
+        // sat on undecodable packets. Ask explicitly until a layer is selected.
+        if (consumer.kind === 'video') void requestKeyFramesUntilLayered(consumer);
+        return {};
+      }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
         peer.consumers.delete(consumer.id); consumer.close(); return {};
