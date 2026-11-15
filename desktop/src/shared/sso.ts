@@ -102,6 +102,15 @@ export type SSOCompletionResult =
       credentialOwner: CredentialOwner;
     }
   | {
+      kind: 'mfa_challenge';
+      mfaChallengeToken: string;
+      methods: string[];
+      recoveryOnlyMethods?: string[];
+      webauthnOptions?: unknown;
+      defaultMethod?: string;
+      credentialOwner: CredentialOwner;
+    }
+  | {
       kind: 'error';
       status: number;
       code: string;

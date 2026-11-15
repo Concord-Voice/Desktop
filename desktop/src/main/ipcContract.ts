@@ -324,8 +324,11 @@
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.traySetStatus === 'function'`, and a shell
  *        below 33 keeps its static Open/Quit tray. Capability, not demand.
+ * - v34: SSO `complete-link` may return an MFA challenge; the existing
+ *        `sso:completeMFA` bridge verifies it and keeps refresh custody in main.
+ *        No new channel or server SPA minimum is required.
  */
-export const IPC_CONTRACT_VERSION = 33;
+export const IPC_CONTRACT_VERSION = 34;
 
 /**
  * The oldest shell this repository's RENDERER actually runs on.

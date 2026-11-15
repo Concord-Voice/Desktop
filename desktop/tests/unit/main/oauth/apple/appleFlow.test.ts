@@ -116,6 +116,22 @@ afterEach(() => {
 });
 
 describe('runAppleSignIn — happy path', () => {
+  it('uses a fresh client binding on each sign-in attempt', async () => {
+    const bindings: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const lo = makeLoopback();
+      deliverCallback(lo);
+      const { deps, controlPlaneFetch } = makeDeps(lo);
+      expect((await runAppleSignIn(deps)).kind).toBe('tokens');
+      bindings.push(
+        new Headers((controlPlaneFetch.mock.calls[0][1] as RequestInit).headers).get(
+          'X-Concord-SSO-Client-Binding'
+        )!
+      );
+    }
+    expect(bindings[0]).not.toBe(bindings[1]);
+  });
+
   it('installs the initiated state before opening the browser', async () => {
     const lo = makeLoopback();
     deliverCallback(lo);
@@ -254,6 +270,16 @@ describe('runAppleSignIn — happy path', () => {
     const initiateUrl = String(controlPlaneFetch.mock.calls[0][0]);
     expect(initiateUrl).toContain('redirect_uri=http%3A%2F%2F127.0.0.1%3A51620%2Foauth%2Fcallback');
     expect(initiateUrl).toMatch(/code_challenge=[A-Za-z0-9_-]{43}/);
+    const binding = new Headers((controlPlaneFetch.mock.calls[0][1] as RequestInit).headers).get(
+      'X-Concord-SSO-Client-Binding'
+    );
+    expect(binding).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(
+      new Headers((controlPlaneFetch.mock.calls[1][1] as RequestInit).headers).get(
+        'X-Concord-SSO-Client-Binding'
+      )
+    ).toBe(binding);
+    expect(initiateUrl).not.toContain(binding!);
 
     // token call got client_id + redirect_uri parsed from the auth_url, the
     // loopback code, and a verifier whose S256 equals the sent challenge
@@ -279,6 +305,7 @@ describe('runAppleSignIn — happy path', () => {
       state: 'state-1',
       apple_user_data: '{"name":{"firstName":"Jane"}}',
     });
+    expect(String(sessionInit.body)).not.toContain(binding!);
 
     // loopback gets the FLOW deadline, not the 60s default (spec R2)
     expect(deps.startLoopback).toHaveBeenCalledWith({
