@@ -451,9 +451,6 @@ test('50x loopback start/cancel churn on B leaves A untouched and counts return 
   );
 });
 
-test('legacy view captures when free and foreground; refused when background', () => {
-  test.fixme(
-    true,
-    'legacy SPA without the capture key cannot be booted: contextBridge freezes window.electron (ADR-0051 Known gaps 2)'
-  );
-});
+// Not an e2e row: a legacy SPA without the `capture` bridge key cannot be booted, because
+// contextBridge freezes window.electron (ADR-0051 Known gaps 2). The implicit legacy acquire
+// (free and foreground: granted; background: refused) is covered by the captureLease unit tests.
