@@ -629,6 +629,57 @@ export function registerSSOIPC(): void {
     return true;
   };
 
+  /**
+   * #223: an account link may answer with the account's existing MFA challenge instead
+   * of a session. The continuation moves to this connection's pendingMFA under the SAME
+   * reserved owner and the same connection document (`owner`), so sso:completeMFA
+   * verifies the proof in main and the refresh credential is stored in this
+   * connection's custody, never handed to the renderer. A challenge that carries any
+   * session material is not a challenge: revoke and reject it.
+   */
+  const holdLinkChallenge = async (
+    sender: ConnectionSender,
+    completion: PendingSSOCompletion,
+    fetchFn: SessionFetch,
+    response: Response,
+    body: Record<string, unknown>,
+    cookieBoundSessionId: string | null
+  ): Promise<SSOCompletionResult> => {
+    const id = sender.ref.connectionId;
+    const { custody } = sender;
+    const challenge = parseLinkChallenge(body);
+    if (
+      !challenge ||
+      response.headers.has(SESSION_ID_HEADER) ||
+      response.headers.has('set-cookie')
+    ) {
+      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
+      discardPendingCompletion(id, completion);
+      if (isOwnerCurrent(completion.owner)) {
+        custody.clearTokensIfOwner(completion.credentialOwner);
+      }
+      return { kind: 'error', status: 502, code: 'sso_session_rejected' };
+    }
+    // Identity, not presence: a newer sign-in on this connection, an abandon, or
+    // any generation advance has already dropped or replaced this completion.
+    if (
+      !custody.credentialOwnerIsCurrent(completion.credentialOwner) ||
+      pendingCompletion.get(id) !== completion
+    ) {
+      discardPendingCompletion(id, completion);
+      return { kind: 'error', status: 409, code: 'sso_cancelled' };
+    }
+    pendingMFA.set(id, {
+      apiBase: completion.apiBase,
+      credentialOwner: completion.credentialOwner,
+      provider: completion.provider,
+      mfaChallengeToken: challenge.mfaChallengeToken,
+      owner: completion.owner,
+    });
+    discardPendingCompletion(id, completion);
+    return { ...challenge, credentialOwner: completion.credentialOwner };
+  };
+
   const completeSSO = async (
     sender: ConnectionSender,
     completion: PendingSSOCompletion,
@@ -677,45 +728,8 @@ export function registerSSOIPC(): void {
       };
     }
 
-    // #223: an account link may answer with the account's existing MFA challenge
-    // instead of a session. The continuation moves to this connection's pendingMFA
-    // under the SAME reserved owner and the same connection document (`owner`), so
-    // sso:completeMFA verifies the proof in main and the refresh credential is
-    // stored in this connection's custody, never handed to the renderer. A
-    // challenge that carries any session material is not a challenge: revoke and
-    // reject it.
     if (endpoint === 'complete-link' && isRecord(body) && 'mfa_challenge_token' in body) {
-      const challenge = parseLinkChallenge(body);
-      if (
-        !challenge ||
-        response.headers.has(SESSION_ID_HEADER) ||
-        response.headers.has('set-cookie')
-      ) {
-        await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
-        discardPendingCompletion(id, completion);
-        if (isOwnerCurrent(completion.owner)) {
-          custody.clearTokensIfOwner(completion.credentialOwner);
-        }
-        return { kind: 'error', status: 502, code: 'sso_session_rejected' };
-      }
-      // Identity, not presence: a newer sign-in on this connection, an abandon, or
-      // any generation advance has already dropped or replaced this completion.
-      if (
-        !custody.credentialOwnerIsCurrent(completion.credentialOwner) ||
-        pendingCompletion.get(id) !== completion
-      ) {
-        discardPendingCompletion(id, completion);
-        return { kind: 'error', status: 409, code: 'sso_cancelled' };
-      }
-      pendingMFA.set(id, {
-        apiBase: completion.apiBase,
-        credentialOwner: completion.credentialOwner,
-        provider: completion.provider,
-        mfaChallengeToken: challenge.mfaChallengeToken,
-        owner: completion.owner,
-      });
-      discardPendingCompletion(id, completion);
-      return { ...challenge, credentialOwner: completion.credentialOwner };
+      return holdLinkChallenge(sender, completion, fetchFn, response, body, cookieBoundSessionId);
     }
 
     const tokens = parseCompletionTokens(body);
