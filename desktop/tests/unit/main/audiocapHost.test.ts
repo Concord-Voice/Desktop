@@ -599,6 +599,38 @@ describe('audiocap host reaping a child that has not spawned yet (#3245)', () =>
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(child.onceHandlers.spawn).toBeUndefined();
   });
+
+  it('re-kills a spawn that arrives long after the kill — no bound drops the listener', async () => {
+    // Fake timers first, so a timer armed by the kill is a fake one this test advances.
+    vi.useFakeTimers();
+    const { startAudiocapHost, killAudiocapHost } = await loadHost();
+    const child = makeChild({ killReturns: false });
+    fork.mockReturnValue(child);
+
+    void startAudiocapHost(1, null);
+    killAudiocapHost();
+
+    // Ten minutes pass. A timer-based bound would have dropped the listener by now.
+    vi.advanceTimersByTime(600_000);
+
+    expect(typeof child.onceHandlers.spawn).toBe('function');
+    child.onceHandlers.spawn();
+    expect(child.kill).toHaveBeenCalledTimes(2);
+  });
+
+  it('a child that exits without ever spawning is not killed again and leaves no timer', async () => {
+    vi.useFakeTimers();
+    const { startAudiocapHost, killAudiocapHost } = await loadHost();
+    const child = makeChild({ killReturns: false });
+    fork.mockReturnValue(child);
+
+    void startAudiocapHost(1, null);
+    killAudiocapHost();
+    child.handlers.exit();
+
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 /**
