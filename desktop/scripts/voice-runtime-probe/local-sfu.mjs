@@ -40,6 +40,10 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
   }
   async function requestKeyFramesUntilLayered(consumer) {
     for (let attempt = 0; attempt < 20 && !consumer.closed && !consumer.currentLayers; attempt++) {
+      // Re-pinning re-runs layer selection and the transport's bitrate allocation, which
+      // is what actually assigns the consumer a layer; the keyframe request alone is
+      // ignored while no layer is selected.
+      await consumer.setPreferredLayers({ spatialLayer: 0 }).catch(() => {});
       await consumer.requestKeyFrame().catch(() => {});
       await new Promise((resolve) => { setTimeout(resolve, 500).unref(); });
     }
