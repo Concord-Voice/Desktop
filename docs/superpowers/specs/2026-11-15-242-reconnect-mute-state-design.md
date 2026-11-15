@@ -66,7 +66,16 @@ All changes are in `desktop/src/renderer/services/voice/voiceService.ts`.
 1. **New predicate.** Add `private canResumeMic(producer): boolean`, equal to
    `!isMediaPolicyLatched(producer.id) && shouldRunMicVAD(producer.id) && hasLiveMicGraph(producer)`.
    `shouldResumeMicAfterTrackReplacement` keeps its solo-mode check and delegates the rest to
-   this predicate.
+   this predicate. This shipped in the Phase 8 review round; the first round left it unchanged.
+
+## Phase 8 review decisions
+
+- The end of a mic test (`restoreTestSuspendedProducer`) also goes through `canResumeMic`.
+- Unmuting while deafened also undeafens. A server-deafened user's unmute is refused.
+- A server-deafen pauses the mic even when the server did not also server-mute.
+- After a deafen, `enforceDeafenedMicOff` pauses a live mic, even when the mute failed.
+- Deferred: the rebuilt roster clears the local `serverMuted`/`serverDeafened` until the join
+  data restores them.
 2. **`exitSoloBandwidthSaving`.** For the mic, resume only when `producer.paused` and
    `canResumeMic(producer)` are both true. Other sources are unchanged.
 3. **`resumeLocalProducer('mic')`.** Same rule as step 2.

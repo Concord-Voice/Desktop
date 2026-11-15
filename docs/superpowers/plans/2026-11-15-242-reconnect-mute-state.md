@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `private canResumeMic(producer: mediasoupTypes.Producer): boolean`, which returns `!this.isMediaPolicyLatched(producer.id) && this.shouldRunMicVAD(producer.id) && this.hasLiveMicGraph(producer)`.
 
-- [ ] **Step 1: Write the failing reproduction test.** Name: `deafened before the mic exists, then a resume and a peer rejoin, never resumes the mic`. Setup: `setDeafened(true)` with `isMuted` false, then a paused mic `producerStub('mic-1', true)` and a live `micGraph`. Then call `svc.exitSoloBandwidthSaving()`. Assert that `emitted('resume-producer')` is `[]` and `mic.resume` is not called.
+- [ ] **Step 1: Write the failing reproduction test.** Name: `deafened before the mic exists, then the peer leaves and rejoins, never resumes the mic`. Setup: `toggleDeafen()` with no producer, then a paused mic `producerStub('mic-1', true)` and a live `micGraph`. Then drive the real `user-left` and `user-joined` handlers. Assert that `emitted('resume-producer')` is `[]` and `mic.resume` is not called.
 - [ ] **Step 2: Add the blocked/CONTROL table** for `exitSoloBandwidthSaving` and `resumeLocalProducer('mic')`, both with a paused mic and a live graph. Rows:
 
   | Row | State | `resume-producer` emits |
