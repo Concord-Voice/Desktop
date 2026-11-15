@@ -159,7 +159,7 @@ describe('red team #242: mic must stay paused while muted or deafened', () => {
       socket.emit.mockClear();
       svc.endTestSuspension();
       // The mic may now resume, and the store says unmuted and undeafened: truthful.
-      expect(emitted('resume-producer').length).toBe(1);
+      expect(emitted('resume-producer')).toHaveLength(1);
       const { isMuted, isDeafened } = useVoiceStore.getState();
       expect({ isMuted, isDeafened }).toEqual({ isMuted: false, isDeafened: false });
     });

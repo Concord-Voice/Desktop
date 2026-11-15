@@ -6844,31 +6844,36 @@ class VoiceService {
     return true;
   }
 
+  /** Mute toggle while no mic producer is mapped (codec replacement pending or failed). */
+  private toggleMuteWithoutProducer(store: ReturnType<typeof useVoiceStore.getState>): void {
+    const transport = this.sendTransport;
+    if (
+      !this.micReproduceArmed ||
+      !transport ||
+      transport.closed ||
+      !store.activeChannelId ||
+      store.mediaPolicyPaused.mic !== undefined
+    )
+      return;
+
+    // A codec replacement can have no mapped producer while pending or after
+    // a recoverable failure. Keep the latest mute intent for adoption, where
+    // the outgoing track stays disabled until current policy permits a resume.
+    if (store.isMuted && !this.canUnmuteMic(store)) return;
+    if (store.isMuted && !this.undeafenForUnmute()) return;
+    const muted = !store.isMuted;
+    store.setMuted(muted);
+    this.applyOptimisticMute(store, muted);
+    notificationSoundService.play(muted ? 'mute' : 'unmute');
+    if (muted) this.stopLocalVAD();
+  }
+
   /** Toggle mute (pause/resume mic producer) */
   async toggleMute(): Promise<void> {
     const store = useVoiceStore.getState();
     const producer = this.producers.get('mic');
     if (!producer) {
-      const transport = this.sendTransport;
-      if (
-        !this.micReproduceArmed ||
-        !transport ||
-        transport.closed ||
-        !store.activeChannelId ||
-        store.mediaPolicyPaused.mic !== undefined
-      )
-        return;
-
-      // A codec replacement can have no mapped producer while pending or after
-      // a recoverable failure. Keep the latest mute intent for adoption, where
-      // the outgoing track stays disabled until current policy permits a resume.
-      if (store.isMuted && !this.canUnmuteMic(store)) return;
-      if (store.isMuted && !this.undeafenForUnmute()) return;
-      const muted = !store.isMuted;
-      store.setMuted(muted);
-      this.applyOptimisticMute(store, muted);
-      notificationSoundService.play(muted ? 'mute' : 'unmute');
-      if (muted) this.stopLocalVAD();
+      this.toggleMuteWithoutProducer(store);
       return;
     }
     // #2153: a policed mic can only come back through a rejoin. resume-producer carries no
