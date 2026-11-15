@@ -36,8 +36,12 @@ NPMRC_ALLOWED=(install-links min-release-age)
 
 if [ "$#" -eq 0 ]; then
   cd "$HERE/../.."
-  list="$(git ls-files -- '*package-lock.json' '*npm-shrinkwrap.json' \
-    '*.npmrc' '*yarn.lock' '*pnpm-lock.yaml' '*go.mod' '*go.work' \
+  # :(icase) because npm finds `.NPMRC` on a case-insensitive filesystem
+  # (the Windows build legs). A name in other case then fails below as an
+  # unknown file type, since the `case` patterns are lower-case.
+  list="$(git ls-files -- ':(icase)*package-lock.json' ':(icase)*npm-shrinkwrap.json' \
+    ':(icase)*.npmrc' ':(icase)*yarn.lock' ':(icase)*pnpm-lock.yaml' \
+    ':(icase)*go.mod' ':(icase)*go.work' \
     ':!:.github/scripts/tests/fixtures/**')"
   # Fail closed: an empty list means git or the pathspec broke, not "clean".
   [ -n "$list" ] || { echo "::error::no lockfiles found to check"; exit 2; }

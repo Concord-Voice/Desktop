@@ -11,6 +11,8 @@ on:
       - '**/package-lock.json'
       - '**/npm-shrinkwrap.json'
       - '**/.npmrc'
+      # Mixed case too: npm finds `.NPMRC` on the Windows legs.
+      - '**/.[Nn][Pp][Mm][Rr][Cc]'
       - '**/yarn.lock'
       - '**/pnpm-lock.yaml'
       - '**/go.mod'

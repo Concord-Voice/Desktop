@@ -156,6 +156,11 @@ git -C "$repo" add -A
 rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
 report "no-arg mode checks tracked lockfiles, .npmrc and go.mod" 1 "$rc" "$out" \
   "app/package-lock.json: node_modules/is-odd" "app/.npmrc: setting 'registry'" "svc/go.mod:3"
+mkdir -p "$repo/web"
+printf 'registry=https://npm.evil.example/\n' > "$repo/web/.NPMRC"
+git -C "$repo" add -A
+rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
+report "no-arg mode catches an upper-case .NPMRC" 1 "$rc" "$out" "web/.NPMRC is not a file type"
 if [[ "$out" == *"tests/fixtures/x"* ]]; then
   echo "FAIL no-arg mode skips the test fixtures"; echo "$out"; fail=1
 else
