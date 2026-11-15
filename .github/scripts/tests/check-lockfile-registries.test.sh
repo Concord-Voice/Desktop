@@ -39,6 +39,28 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 lock="$tmp/package-lock.json"
 edit() { jq "$@" "$FIX/ok/package-lock.json" > "$lock"; }
 
+# ── dependency request specs ──────────────────────────────────────────
+spec() { # <want-exit> <name> <map> <spec> [<substring>...]
+  local want=$1 name=$2 map=$3 val=$4; shift 4
+  # shellcheck disable=SC2016  # $m and $v are jq variables
+  edit --arg m "$map" --arg v "$val" '.packages[""][$m] = {"left-pad": $v}'
+  expect "$want" "$name" "$lock" "$@"
+}
+spec 1 "a URL spec in the root dependencies fails" dependencies "https://evil.example/x.tgz" \
+  'has a dependencies spec that is not a registry range' 'left-pad@https://evil.example/x.tgz'
+spec 1 "a GitHub shorthand in devDependencies fails" devDependencies "evil/left-pad"
+spec 1 "a git spec in optionalDependencies fails" optionalDependencies "git+https://evil.example/x.git"
+spec 1 "an absolute file: spec fails" peerDependencies "file:/etc/x"
+spec 0 "a caret range passes" dependencies "^1.3.0"
+spec 0 "a compound range passes" dependencies ">=1.2 <2 || 3.x"
+spec 0 "an npm: alias passes" dependencies "npm:@scope/left-pad@^1.3.0"
+spec 0 "a relative file: spec passes" dependencies "file:../../tools/left-pad"
+spec 1 "an npm: alias to a URL fails" dependencies "npm:left-pad@https://evil.example/x.tgz"
+edit '.packages["node_modules/left-pad"].dependencies = {"dep": "https://evil.example/d.tgz"}'
+expect 1 "a URL spec in an installed entry fails" "$lock" "node_modules/left-pad has a dependencies spec"
+edit '.packages[""].dependencies = ["left-pad"]'
+expect 1 "a dependencies field that is not a map fails" "$lock" "has a dependencies that is not a map"
+
 # ── resolved URLs ─────────────────────────────────────────────────────
 bad() { # <name> <resolved> <expected substring>
   # shellcheck disable=SC2016  # $u is a jq variable
@@ -102,6 +124,10 @@ v1 '{"x": {"version": "1.0.0", "bundled": true, "from": "https://evil.example/x.
 expect 1 "v1 bundled entry with a remote from fails" "$lock"
 v1 '{"x": {"version": "1.0.0", "bundled": true, "from": "file:vendor/x"}}'
 expect 0 "v1 bundled entry with a relative file: from passes" "$lock"
+v1 '{"x": {"version": "1.0.0", "resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz", "requires": {"y": "git+https://evil.example/y.git"}}}'
+expect 1 "a git spec in v1 requires fails" "$lock" "x has a requires spec"
+v1 '{"x": {"version": "1.0.0", "resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz", "requires": {"y": "^2.0.0"}}}'
+expect 0 "a range in v1 requires passes" "$lock"
 v1 '{"x": {"version": "file:tools/x", "from": "file:tools/x"}, "y": {"version": "npm:string-width@4.2.3", "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz"}}'
 expect 0 "v1 relative file: and npm: alias pass" "$lock"
 

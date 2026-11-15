@@ -67,6 +67,15 @@ for f in "$@"; do
           def host: (capture("\\Ahttps://(?<h>[a-z0-9.-]+)/[A-Za-z0-9@._~+-]+(/[A-Za-z0-9@._~+-]+)*\\z") | .h) // null;
           def okversion: semver or (test("\\Anpm:[^:/\\s]+(/[^:/\\s]+)?@") and (sub("\\Anpm:.+@"; "") | semver))
             or (startswith("file:") and (.[5:] | relpath));
+          # A dependency request spec: a registry range or dist-tag, an npm:
+          # alias to one, or a relative file: path. npm ci fetches any other
+          # spec (a URL, git, a GitHub shorthand) even when the installed entry
+          # looks like a registry package.
+          def range: test("\\A[0-9A-Za-z.^~<>=|* +-]*\\z");
+          def okspec: type == "string"
+            and (range
+                 or test("\\Anpm:(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*@[0-9A-Za-z.^~<>=|* +-]*\\z")
+                 or (startswith("file:") and (.[5:] | relpath)));
           # Lockfile entries only: packages["<key>"], and the v1 tree
           # dependencies.<name>(.dependencies.<name>)*. A dependency map that
           # happens to hold a package named "version" is not an entry.
@@ -103,7 +112,15 @@ for f in "$@"; do
             elif $v1 or ($k | test("(\\A|/)node_modules/")) then [$k, "has no resolved URL", "-"]
             else empty end,
             ( select(($e.version | type) == "string" and ($e.version | okversion | not))
-              | [$k, "has a version that is not a registry version", $e.version] )
+              | [$k, "has a version that is not a registry version", $e.version] ),
+            # Request maps, the root included. v1 keeps them in `requires`; its
+            # `dependencies` is the entry tree, checked as entries above.
+            ( (if $v1 then ["requires"] else ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] end)[] as $m
+              | $e[$m] | select(. != null)
+              | if type != "object" then [$k, "has a \($m) that is not a map", "-"]
+                else to_entries[] | select(.value | okspec | not)
+                  | [$k, "has a \($m) spec that is not a registry range, npm: alias or relative file: path", "\(.key)@\(.value | tostring)"]
+                end )
           | @tsv' "$f")"; then
         echo "::error file=$f::$f is not readable JSON"; status=1; continue
       fi
