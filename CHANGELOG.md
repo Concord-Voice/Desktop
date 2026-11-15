@@ -47,6 +47,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Fixed
 
+- **Voice:** After a reconnect, a muted or deafened user's microphone stays off. Previously, in a two-person call, a deafened or server-muted user could start sending audio again when the other person rejoined, while the app still showed them as muted.
 - **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
 - **Servers:** A server connection added while the app is still starting is now remembered at the next launch.
 - **Window:** Closing or minimizing the window now follows your setting from the moment the app starts, not only after you change it. With more than one server connection open, it follows the connection on screen.
