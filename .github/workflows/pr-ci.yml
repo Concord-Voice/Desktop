@@ -670,6 +670,7 @@ jobs:
           # D: deployment-client.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           bash .github/scripts/tests/lint-test-suite-wiring.test.sh
           bash .github/scripts/tests/ci-scan-relevance.test.sh
+          bash .github/scripts/tests/generate-desktop-sbom.test.sh
           # D: trivy-assert-os.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.
           # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.

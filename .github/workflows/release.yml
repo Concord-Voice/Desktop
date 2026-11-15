@@ -1,6 +1,7 @@
 # Desktop release build (runbook D2, spec §2.4). A protected `v*` tag push
-# builds the six unsigned release artifacts and attests their build
-# provenance. It holds no credential and never creates or writes a release:
+# builds the six unsigned release artifacts, attests their build
+# provenance and adds an attested CycloneDX SBOM to each (#218). It holds no
+# credential and never creates or writes a release:
 # the Release Trigger App reports this run to Release-Ops, whose verify.yml
 # checks the attestations and makes the draft; the bridge then dispatches
 # Sign Desktop there automatically. Release-Ops lists this file in release-sources.json, and
@@ -721,3 +722,126 @@ jobs:
             desktop/out/make/deb/**/*.deb
             desktop/out/make/rpm/**/*.rpm
             desktop/out/make/**/*.AppImage
+
+  # SBOMs (#218). Release-Ops verify.yml refuses a release artifact without
+  # <artifact>/<artifact>.cdx.json, attested by this workflow like every other
+  # file. The two jobs split that the same way as the build: `sbom` runs the
+  # third-party scanner and holds no id-token; `attach-sbom` holds id-token,
+  # runs no npm and no scanner, and only checks, attests and re-uploads data.
+  sbom:
+    name: Generate release SBOMs
+    needs: [check-tag, release-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SYFT_VERSION: 1.55.0
+      # sha256 of syft_1.55.0_linux_amd64.tar.gz, from the release's checksums.txt.
+      SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+    steps:
+      - name: Checkout trusted commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install syft (pinned by checksum)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/syft"
+          curl -sSfL -o "$RUNNER_TEMP/syft.tar.gz" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  $RUNNER_TEMP/syft.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft" syft
+          echo "SYFT=$RUNNER_TEMP/syft/syft" >> "$GITHUB_ENV"
+          # 7z unpacks the Windows NSIS installers.
+          command -v 7z >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q p7zip-full; }
+
+      - name: Download the release artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: concord-voice-*-v${{ needs.check-tag.outputs.version }}
+          path: ${{ runner.temp }}/legs
+
+      - name: Generate one SBOM per release artifact
+        shell: bash
+        env:
+          VERSION: ${{ needs.check-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sbom"
+          # The six release-build legs. attach-sbom repeats the list as its matrix.
+          for label in windows-x64 windows-arm64 macos-arm64 macos-x64 linux-x64 linux-arm64; do
+            name="concord-voice-${label}-v${VERSION}"
+            bash .github/scripts/generate-desktop-sbom.sh "$RUNNER_TEMP/legs/$name" "$RUNNER_TEMP/sbom/$name.cdx.json"
+          done
+
+      # Not a release artifact (its name does not end in the tag), so Release-Ops
+      # wants no SBOM for it. Its files are byte-identical to the attested copies
+      # attach-sbom adds to each leg, so they verify by digest.
+      - name: Upload the SBOMs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-sboms
+          path: ${{ runner.temp }}/sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  attach-sbom:
+    name: Attest and attach SBOM (${{ matrix.label }})
+    needs: [check-tag, sbom]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        label: [windows-x64, windows-arm64, macos-arm64, macos-x64, linux-x64, linux-arm64]
+    env:
+      LEG: concord-voice-${{ matrix.label }}-v${{ needs.check-tag.outputs.version }}
+    # No checkout: nothing from the repository, npm or the scanner runs here.
+    steps:
+      - name: Download the release artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.LEG }}
+          path: ${{ runner.temp }}/leg
+
+      - name: Download the SBOMs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-sboms
+          path: ${{ runner.temp }}/sboms
+
+      # The SBOM is data from the job without id-token: checked, never executed.
+      - name: Place the SBOM at the top of the release artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          sbom="$RUNNER_TEMP/leg/$LEG.cdx.json"
+          [[ ! -e "$sbom" ]] || { echo "::error::$LEG already holds $LEG.cdx.json"; exit 1; }
+          cp "$RUNNER_TEMP/sboms/$LEG.cdx.json" "$sbom"
+          # Same check as Release-Ops verify-release.sh.
+          jq -se 'length == 1 and (.[0] | type == "object" and .bomFormat == "CycloneDX" and (.specVersion | type == "string"))' \
+            "$sbom" >/dev/null || { echo "::error::$LEG.cdx.json is not a CycloneDX JSON SBOM"; exit 1; }
+
+      - name: Attest build provenance (SBOM)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/leg/${{ env.LEG }}.cdx.json
+
+      # Replaces the artifact under the same name with the same installer files
+      # (attested by release-build, by digest) plus the SBOM at the top level.
+      - name: Re-upload the release artifact with its SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.LEG }}
+          path: ${{ runner.temp }}/leg/
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7 # #643: same window as release-build's upload

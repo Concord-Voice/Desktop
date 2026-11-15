@@ -77,8 +77,8 @@ def verify_release(workflows, unsigned_job):
         raise ValueError('release: must run only on a v* tag push')
     if release.get('permissions') != {'contents': 'read'}:
         raise ValueError('release: workflow permissions must be read-only')
-    if set(release['jobs']) != {'ioc', 'check-tag', 'release-build'}:
-        raise ValueError('release: must contain only IOC, tag check and packaging jobs')
+    if set(release['jobs']) != {'ioc', 'check-tag', 'release-build', 'sbom', 'attach-sbom'}:
+        raise ValueError('release: must contain only IOC, tag check, packaging and SBOM jobs')
     text = yaml.safe_dump(release)
     if re.search(r'\bsecrets\b|gh\s+release|git\s+push|azure/login|apple-actions/import-codesign-certs', text):
         raise ValueError('release: signing, secrets or publication is forbidden')
@@ -86,7 +86,7 @@ def verify_release(workflows, unsigned_job):
         if 'environment' in job:
             raise ValueError(f'release: {name} cannot use an environment')
         perms = job.get('permissions', {})
-        if name == 'release-build':
+        if name in ('release-build', 'attach-sbom'):
             if perms != RELEASE_PERMISSIONS:
                 raise ValueError('release: packaging may only add attestation permissions')
         elif any(v != 'read' for v in perms.values()):
@@ -107,6 +107,29 @@ def verify_release(workflows, unsigned_job):
     uploaded = sorted(p for s in uploads for p in s['with']['path'].split())
     if not attests or attested != uploaded:
         raise ValueError('release: attested paths must equal uploaded paths')
+    verify_release_sbom(release['jobs'], job)
+
+
+def verify_release_sbom(jobs, build):
+    """#218: the scanner runs without id-token; the attesting job runs only data steps."""
+    sbom, attach = jobs['sbom'], jobs['attach-sbom']
+    if sbom.get('needs') != ['check-tag', 'release-build'] or attach.get('needs') != ['check-tag', 'sbom']:
+        raise ValueError('release: SBOM jobs must follow packaging')
+    if sbom.get('permissions') != {'contents': 'read'}:
+        raise ValueError('release: the SBOM scanner job must be read-only')
+    allowed = ('actions/download-artifact@', 'actions/attest-build-provenance@', 'actions/upload-artifact@')
+    for step in attach['steps']:
+        uses = step.get('uses', '')
+        if uses and not uses.startswith(allowed):
+            raise ValueError(f'release: attach-sbom may not use {uses}')
+        if re.search(r'\b(npm|npx|node|syft|bash\s+\S|python3?|curl|wget)\b', step.get('run', '')):
+            raise ValueError('release: attach-sbom must run no tools, only checks on data')
+    labels = [leg['label'] for leg in build['strategy']['matrix']['include']]
+    if attach['strategy']['matrix'].get('label') != labels:
+        raise ValueError('release: every packaging leg needs its SBOM attached')
+    attests = [s for s in attach['steps'] if 'attest-build-provenance@' in s.get('uses', '')]
+    if len(attests) != 1:
+        raise ValueError('release: attach-sbom must attest the SBOM')
 
 
 def main():

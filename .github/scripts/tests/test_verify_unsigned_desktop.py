@@ -124,6 +124,17 @@ class UnsignedDesktopTest(unittest.TestCase):
             'step drift': lambda w: build(w)['steps'].pop(3),
             'unattested upload': lambda w: build(w).update(steps=[
                 s for s in build(w)['steps'] if s.get('name') != 'Attest build provenance (Linux)']),
+            'scanner gets id-token': lambda w: w['jobs']['sbom']['permissions'].update({'id-token': 'write'}),
+            'scanner job dropped': lambda w: w['jobs'].pop('sbom'),
+            'attach checks out code': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {
+                'uses': 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'}),
+            'attach runs npm': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'npm ci'}),
+            'attach runs the scanner': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'syft scan dir:.'}),
+            'attach misses a leg': lambda w: w['jobs']['attach-sbom']['strategy']['matrix']['label'].pop(),
+            'attach skips attestation': lambda w: w['jobs']['attach-sbom'].update(steps=[
+                s for s in w['jobs']['attach-sbom']['steps'] if 'attest' not in s.get('uses', '')]),
+            'attach before packaging': lambda w: w['jobs']['attach-sbom'].update(needs=['check-tag']),
+            'attach writes contents': lambda w: w['jobs']['attach-sbom']['permissions'].update(contents='write'),
         }
         for label, mutate in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
