@@ -2447,6 +2447,20 @@ class VoiceService {
     return localParticipant?.serverMuted !== true && localParticipant?.serverDeafened !== true;
   }
 
+  /**
+   * The one policy every mic resume must pass (#242): not latched by the media-rate
+   * policer, not muted/deafened by the user or the server, not test-suspended, and
+   * backed by a live mic graph. A resume site that checks less un-mutes the user
+   * behind a UI that still says muted.
+   */
+  private canResumeMic(producer: mediasoupTypes.Producer): boolean {
+    return (
+      !this.isMediaPolicyLatched(producer.id) &&
+      this.shouldRunMicVAD(producer.id) &&
+      this.hasLiveMicGraph(producer)
+    );
+  }
+
   private shouldResumeMicAfterTrackReplacement(producerId: string): boolean {
     return (
       !useVoiceStore.getState().isSoloBandwidthSaving &&
@@ -7660,7 +7674,7 @@ class VoiceService {
   resumeLocalProducer(source: string): void {
     const producer = this.producers.get(source);
     if (!producer?.paused || this.isMediaPolicyLatched(producer.id)) return; // #2153
-    if (source === 'mic' && !this.hasLiveMicGraph(producer)) return;
+    if (source === 'mic' && !this.canResumeMic(producer)) return; // #242
     producer.resume();
     this.socket?.emit('resume-producer', { producerId: producer.id });
   }
@@ -7716,11 +7730,11 @@ class VoiceService {
       this.soloNotificationTimer = null;
     }
 
-    // Resume all producers (start sending again)
-    // Respect current mute state — don't resume mic if user is muted
+    // Resume all producers (start sending again). The mic resumes only under the
+    // full mute/deafen/server/test policy (#242) — checking isMuted alone resumed a
+    // deafened user's mic every time the peer rejoined a two-person call.
     for (const [source, producer] of this.producers) {
-      if (source === 'mic' && store.isMuted) continue; // stay paused if intentionally muted
-      if (source === 'mic' && !this.hasLiveMicGraph(producer)) continue;
+      if (source === 'mic' && !this.canResumeMic(producer)) continue;
       if (producer.paused && !this.isMediaPolicyLatched(producer.id)) {
         producer.resume();
         this.socket?.emit('resume-producer', { producerId: producer.id });
