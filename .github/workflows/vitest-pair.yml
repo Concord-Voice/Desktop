@@ -1,0 +1,41 @@
+name: Vitest Pair
+
+# Fails a PR that splits `vitest` from `@vitest/coverage-istanbul` in an npm
+# root (#215). The plugin pins vitest as an exact peer, so a split cannot
+# install; this check says which half is behind and how to fix it.
+# Read-only by design: CI never pushes to a Dependabot branch.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - 'tools/concord-bridge/package.json'
+      - 'tools/concord-bridge/package-lock.json'
+      - '.github/scripts/check-vitest-pair.sh'
+      - '.github/scripts/tests/check-vitest-pair.test.sh'
+      - '.github/scripts/tests/fixtures/vitest-pair/**'
+      - '.github/workflows/vitest-pair.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vitest-pair-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest-pair:
+    name: Vitest pair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Self-test — the split fixture must fail
+        run: bash .github/scripts/tests/check-vitest-pair.test.sh
+
+      - name: Check the vitest pair in each npm root
+        run: bash .github/scripts/check-vitest-pair.sh desktop tools/concord-bridge

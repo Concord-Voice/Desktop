@@ -300,11 +300,13 @@ function serverUserIdClaim(accessToken: string): { serverUserId?: string } {
   return isServerUserId(userId) ? { serverUserId: userId } : {};
 }
 
+const MAX_TOKEN_LENGTH = 32_768;
+
 function parseCompletionTokens(value: unknown): MainCompletionTokens | null {
   if (
     !isRecord(value) ||
-    !isBoundedString(value.access_token, 32_768) ||
-    !isBoundedString(value.refresh_token, 32_768) ||
+    !isBoundedString(value.access_token, MAX_TOKEN_LENGTH) ||
+    !isBoundedString(value.refresh_token, MAX_TOKEN_LENGTH) ||
     !isBoundedString(value.session_id, 256) ||
     !UUID_PATTERN.test(value.session_id) ||
     (value.remember_me !== undefined && typeof value.remember_me !== 'boolean')
@@ -380,7 +382,17 @@ async function responseJson(response: Response, signal: AbortSignal): Promise<un
   }
 }
 
-async function revokeExplicitSession(apiBase: string, tokens: MainCompletionTokens): Promise<void> {
+async function revokeExplicitSession(
+  apiBase: string,
+  tokens: Partial<Pick<MainCompletionTokens, 'accessToken' | 'refreshToken'>>
+): Promise<void> {
+  // Logout accepts either token alone: a refresh token names its session, and a
+  // bearer names the session in its claims. Send only what we hold; an empty
+  // X-Refresh-Token header would make the server select nothing.
+  const headers: Record<string, string> = {};
+  if (tokens.accessToken !== undefined) headers.Authorization = `Bearer ${tokens.accessToken}`;
+  if (tokens.refreshToken !== undefined) headers['X-Refresh-Token'] = tokens.refreshToken;
+  if (Object.keys(headers).length === 0) return;
   try {
     // #2354 §6.4: this is the ONLY sso.ts egress that may move to the guarded Node
     // transport, because it is credentials:'omit' and writes its own headers — it needs
@@ -389,10 +401,7 @@ async function revokeExplicitSession(apiBase: string, tokens: MainCompletionToke
     // sites CANNOT follow it (Node's fetch has no cookie jar — see the notes below).
     await guardedRequest(`${apiBase}/api/v1/auth/logout`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${tokens.accessToken}`,
-        'X-Refresh-Token': tokens.refreshToken,
-      },
+      headers,
       // Same split as the probe: origin trust admitted this apiBase for credential
       // custody, but dialling a tier-2 address needs consent taken AT tier 2.
       isOriginApproved: (origin) => isTier2DialApproved(origin),
@@ -400,6 +409,42 @@ async function revokeExplicitSession(apiBase: string, tokens: MainCompletionToke
   } catch {
     // Best effort; the server-side expiry remains the cleanup backstop.
   }
+}
+
+/**
+ * A link challenge must not carry a session. If one came with it, that session
+ * skipped MFA: end it, do not only refuse it. Logout needs only a token, so a
+ * malformed or missing session_id does not excuse the session, and either token
+ * alone is enough. A token over the length bound is not sent; server-side expiry
+ * remains the backstop for that.
+ */
+async function revokeSmuggledSession(apiBase: string, body: unknown): Promise<void> {
+  if (!isRecord(body)) return;
+  await revokeExplicitSession(apiBase, {
+    accessToken: isBoundedString(body.access_token, MAX_TOKEN_LENGTH)
+      ? body.access_token
+      : undefined,
+    refreshToken: isBoundedString(body.refresh_token, MAX_TOKEN_LENGTH)
+      ? body.refresh_token
+      : undefined,
+  });
+}
+
+/**
+ * End every session a refused 2xx may have issued: the cookie-bound one by its ID,
+ * and any token pair in the body. The two logouts are independent (cookie jar vs
+ * credentials:'omit'), so they run together; each has its own bound.
+ */
+async function revokeRefusedSessions(
+  fetchFn: SessionFetch,
+  apiBase: string,
+  cookieBoundSessionId: string | null,
+  body: unknown
+): Promise<void> {
+  await Promise.all([
+    revokeCookieBoundSession(fetchFn, apiBase, cookieBoundSessionId),
+    revokeSmuggledSession(apiBase, body),
+  ]);
 }
 
 /** Test seam for the #2354 guarded-egress contract. Not part of the IPC surface. */
@@ -531,7 +576,7 @@ export function registerSSOIPC(): void {
     if (!isLive(ctx) || !custody.credentialOwnerIsCurrent(credentialOwner)) {
       await revokeCookieBoundSession(ctx.fetch, apiBase, cookieBoundSessionId);
       if (result.kind === 'tokens') {
-        await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
+        await revokeExplicitSession(apiBase, result);
       }
       return { kind: 'error', code: 'sso_cancelled' };
     }
@@ -549,7 +594,7 @@ export function registerSSOIPC(): void {
       );
       if (storedOwner === null) {
         await revokeCookieBoundSession(ctx.fetch, apiBase, cookieBoundSessionId);
-        await revokeExplicitSession(apiBase, { ...result, rememberMe: true });
+        await revokeExplicitSession(apiBase, result);
         return { kind: 'error', code: 'sso_cancelled' };
       }
       pendingCompletion.delete(id);
@@ -651,9 +696,11 @@ export function registerSSOIPC(): void {
     if (
       !challenge ||
       response.headers.has(SESSION_ID_HEADER) ||
+      // Defence in depth only: net.fetch may not expose set-cookie at all. The
+      // server issuing no session with a challenge is the real guard.
       response.headers.has('set-cookie')
     ) {
-      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
+      await revokeRefusedSessions(fetchFn, completion.apiBase, cookieBoundSessionId, body);
       discardPendingCompletion(id, completion);
       if (isOwnerCurrent(completion.owner)) {
         custody.clearTokensIfOwner(completion.credentialOwner);
@@ -734,7 +781,8 @@ export function registerSSOIPC(): void {
 
     const tokens = parseCompletionTokens(body);
     if (!tokens) {
-      await revokeCookieBoundSession(fetchFn, completion.apiBase, cookieBoundSessionId);
+      // A token pair that fails strict parsing is still a live session.
+      await revokeRefusedSessions(fetchFn, completion.apiBase, cookieBoundSessionId, body);
       discardPendingCompletion(id, completion);
       if (isOwnerCurrent(completion.owner)) custody.clearTokensIfOwner(completion.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
@@ -826,7 +874,8 @@ export function registerSSOIPC(): void {
 
     const tokens = parseCompletionTokens(body);
     if (!tokens) {
-      await revokeCookieBoundSession(fetchFn, mfa.apiBase, cookieBoundSessionId);
+      // A token pair that fails strict parsing is still a live session.
+      await revokeRefusedSessions(fetchFn, mfa.apiBase, cookieBoundSessionId, body);
       discardPendingMFA(id, mfa);
       if (isOwnerCurrent(mfa.owner)) custody.clearTokensIfOwner(mfa.credentialOwner);
       return { kind: 'error', status: 502, code: 'sso_session_rejected' };
