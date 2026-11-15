@@ -52,6 +52,7 @@ async function until(operation, predicate, label, timeout = 30_000) {
 // Every renderer call gets its own deadline, so a stall names the call that hung
 // instead of waiting for the run-wide watchdog.
 const RENDERER_CALL_MS = 30_000;
+const DIAGNOSE_MS = 8_000;
 function inRenderer(page, label, fn, arg) {
   return withDeadline(page.evaluate(fn, arg), RENDERER_CALL_MS, label);
 }
@@ -212,16 +213,17 @@ try {
       }
     }
   } catch (error) {
-    // Record which side starved before cleanup tears the call down.
-    result.consumeDiagnostics = [];
-    for (const [index, page] of pages.entries()) {
+    // Record which side starved before cleanup tears the call down. Both peers in
+    // parallel on a short deadline: diagnose() needs about 2 s, and a wedged
+    // renderer must not spend the cleanup headroom.
+    result.consumeDiagnostics = await Promise.all(pages.map(async (page, index) => {
       try {
-        result.consumeDiagnostics.push({ peer: index,
-          ...await inRenderer(page, `diagnose peer ${index}`, () => globalThis.mediaProbe.diagnose()) });
+        return { peer: index, ...await withDeadline(page.evaluate(() => globalThis.mediaProbe.diagnose()),
+          DIAGNOSE_MS, `diagnose peer ${index}`) };
       } catch (diagnoseError) {
-        result.consumeDiagnostics.push({ peer: index, error: diagnoseError.message });
+        return { peer: index, error: diagnoseError.message };
       }
-    }
+    }));
     process.stderr.write(`[voice-probe] consume diagnostics: ${JSON.stringify(result.consumeDiagnostics)}\n`);
     throw error;
   }
@@ -305,18 +307,27 @@ try {
 } finally {
   setStage('cleanup');
   const CLEANUP_MS = 15_000;
+  // A close that times out is not cancelled and can hold the event loop open.
+  let shutdownUnconfirmed = false;
   for (const page of pages) {
     try { await withDeadline(page.evaluate(() => globalThis.mediaProbe?.cleanup()), CLEANUP_MS, 'renderer cleanup'); }
     catch { /* renderer may have exited */ }
   }
-  try { await withDeadline(app?.close(), CLEANUP_MS, 'Electron close'); } catch { result.status = 'FAIL'; result.cleanup = 'Electron close failed'; process.exitCode = 1; }
+  try { await withDeadline(app?.close(), CLEANUP_MS, 'Electron close'); }
+  catch { result.status = 'FAIL'; result.cleanup = 'Electron close failed'; process.exitCode = 1; shutdownUnconfirmed = true; }
   if (profile) {
     try { await rm(profile, { recursive: true }); }
     catch { result.status = 'FAIL'; result.cleanup = 'Owned temporary profile cleanup failed'; process.exitCode = 1; }
   }
-  try { await withDeadline(vite?.close(), CLEANUP_MS, 'Vite close'); } catch { result.status = 'FAIL'; result.cleanup = 'Vite close failed'; process.exitCode = 1; }
+  try { await withDeadline(vite?.close(), CLEANUP_MS, 'Vite close'); }
+  catch { result.status = 'FAIL'; result.cleanup = 'Vite close failed'; process.exitCode = 1; shutdownUnconfirmed = true; }
   try { await withDeadline(sfu?.close(), CLEANUP_MS, 'SFU close'); result.nativeSubprocessClosed = Boolean(sfu); }
-  catch { result.status = 'FAIL'; result.cleanup = 'Native worker exit unconfirmed'; process.exitCode = 1; }
-  clearTimeout(watchdog);
+  catch { result.status = 'FAIL'; result.cleanup = 'Native worker exit unconfirmed'; process.exitCode = 1; shutdownUnconfirmed = true; }
   writeResult();
+  if (shutdownUnconfirmed) {
+    // The result is written; do not wait on a resource that never confirmed it closed.
+    try { app?.process()?.kill('SIGKILL'); } catch { /* engine may already be gone */ }
+    process.exit(1);
+  }
+  clearTimeout(watchdog);
 }
