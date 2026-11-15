@@ -12,6 +12,8 @@ tag and SHA. Every other file in every run artifact must also be attested.
 ## Design
 
 - `release-build` is unchanged. Its steps must stay equal to `build-desktop.yml`.
+- New job `leg-digests` (`contents: read`). It records the SHA-256 of every file in
+  each leg before the scanner runs.
 - New job `sbom` (`contents: read`, no `id-token`). It installs syft 1.55.0, pinned by
   sha256, and downloads the six release artifacts. Then it runs
   `.github/scripts/generate-desktop-sbom.sh` for each one and uploads the
@@ -25,17 +27,19 @@ tag and SHA. Every other file in every run artifact must also be attested.
   - It fails if the SBOM lists no npm package.
 - New job `attach-sbom`. It is a matrix over the six labels, with `id-token` and
   `attestations: write`, and no checkout.
-  - It downloads the leg and the SBOMs.
+  - It downloads the leg and the SBOMs, and refuses a leg whose files differ from
+    the `leg-digests` record.
   - It runs the same CycloneDX check as release verification, attests the SBOM,
     and re-uploads the leg with `overwrite: true`. The installer files keep their
     digests and their existing attestations.
 - The `desktop-sboms` files are byte-identical to the attested copies, so they
   verify by digest.
-- `verify-unsigned-desktop.py` now allows the two jobs. It enforces:
+- `verify-unsigned-desktop.py` now allows the three jobs. It enforces:
   - the scanner job is read-only;
-  - `attach-sbom` holds the release permissions, uses only the download,
-    attest and upload actions, and runs no tool;
-  - `attach-sbom` covers every packaging leg.
+  - the job order;
+  - no `defaults`;
+  - `attach-sbom` covers every packaging leg;
+  - `leg-digests` and `attach-sbom` match a pinned sha256 of each parsed job.
 
 ## Approaches
 
