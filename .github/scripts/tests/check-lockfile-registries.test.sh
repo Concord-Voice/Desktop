@@ -178,6 +178,24 @@ printf '# only a comment\n' > "$tmp/hosts.txt"
 rc=0; out="$(APPROVED_REGISTRIES="$tmp/hosts.txt" bash "$CHECK" "$FIX/ok/package-lock.json" 2>&1)" || rc=$?
 report "config without hosts exits 2" 2 "$rc" "$out" "no approved hosts"
 
+# ── package.json request maps and overrides ───────────────────────────
+pkg="$tmp/pj/package.json"; mkdir -p "$tmp/pj"
+manifest() { # <want-exit> <name> <json> [<substring>...]
+  local want=$1 name=$2; printf '%s\n' "$3" > "$pkg"; shift 3
+  expect "$want" "$name" "$pkg" "$@"
+}
+manifest 1 "a URL override fails" '{"overrides": {"left-pad": "https://evil.example/x.tgz"}}' \
+  "overrides.left-pad is not a registry range" "https://evil.example/x.tgz"
+manifest 1 "a nested URL override fails" '{"overrides": {"a": {"b": "git+https://evil.example/b.git"}}}' "overrides.a.b"
+manifest 1 "an override of the wrong type fails" '{"overrides": {"a": ["^1.0.0"]}}' "overrides.a"
+manifest 1 "overrides that are not a map fail" '{"overrides": "x"}' "overrides is not a map"
+manifest 1 "a URL dependency fails" '{"dependencies": {"x": "https://evil.example/x.tgz"}}' "dependencies.x is not a registry range"
+manifest 1 "a GitHub devDependency fails" '{"devDependencies": {"x": "evil/x"}}' "devDependencies.x"
+manifest 1 "a manifest that is not an object fails" '[]' "is not a JSON object"
+# shellcheck disable=SC2016  # "$a" is an npm override reference, not a shell expansion
+manifest 0 "ranges, aliases, file: paths and \$ references pass" \
+  '{"dependencies": {"a": "^1.0.0", "b": "npm:c@~2.1.0", "d": "file:./tools/d"}, "overrides": {"e": "$a", "f": {".": "1.2.3", "g": "file:./tools/g"}}}'
+
 # ── no-argument mode, as CI runs it ───────────────────────────────────
 repo="$tmp/repo"
 mkdir -p "$repo/.github/scripts/tests/fixtures/x" "$repo/app" "$repo/svc"
@@ -190,10 +208,11 @@ cp "$FIX/off-registry/package-lock.json" "$repo/app/package-lock.json"
 cp "$FIX/off-registry/package-lock.json" "$repo/.github/scripts/tests/fixtures/x/package-lock.json"
 printf 'registry=https://npm.evil.example/\n' > "$repo/app/.npmrc"
 printf 'module x\n\nreplace a => ../b\n' > "$repo/svc/go.mod"
+printf '{"overrides": {"x": "https://evil.example/x.tgz"}}\n' > "$repo/app/package.json"
 git -C "$repo" add -A
 rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
-report "no-arg mode checks tracked lockfiles, .npmrc and go.mod" 1 "$rc" "$out" \
-  "app/package-lock.json: node_modules/is-odd" "app/.npmrc: setting 'registry'" "svc/go.mod:3"
+report "no-arg mode checks tracked lockfiles, package.json, .npmrc and go.mod" 1 "$rc" "$out" \
+  "app/package-lock.json: node_modules/is-odd" "app/package.json: overrides.x" "app/.npmrc: setting 'registry'" "svc/go.mod:3"
 mkdir -p "$repo/web"
 printf 'registry=https://npm.evil.example/\n' > "$repo/web/.NPMRC"
 git -C "$repo" add -A

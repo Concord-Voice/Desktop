@@ -13,6 +13,11 @@ it today. Fail such a PR.
 - Fail when any `resolved` URL in a tracked `package-lock.json` is not
   `https://` on an approved host. Name the file, the package and the host.
 - Fail on any `replace` directive in a tracked `go.mod` or `go.work`.
+- Fail a dependency request spec, in a lockfile entry (the root included) or a
+  tracked `package.json`, that is not a registry range, an `npm:` alias or a
+  relative `file:` path. A `package.json` `overrides` value may also be a
+  `$name` reference. `npm ci` fetches a URL spec even when the lockfile entry
+  looks like npmjs.
 - Keep the approved hosts in one small file: `.github/scripts/approved-registries.txt`.
 - Fail a tracked `.npmrc` that uses any setting outside a short allowlist
   (`install-links`, `min-release-age` today). `registry`, `userconfig`,
@@ -40,7 +45,7 @@ it today. Fail such a PR.
 ## Design
 
 - `.github/scripts/check-lockfile-registries.sh [file...]` — with no arguments,
-  every tracked lockfile, `.npmrc`, `go.mod` and `go.work` except the
+  every tracked lockfile, `package.json`, `.npmrc`, `go.mod` and `go.work` except the
   script-test fixtures; an empty list fails closed. It reads lockfile entries
   only (v2/v3 `packages` and the v1 nested `dependencies` tree). Each rule
   accepts a short known-good shape and fails everything else:

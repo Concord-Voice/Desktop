@@ -19,6 +19,11 @@
 #   - `version` must be plain semver, an `npm:<name>@<semver>` alias, or a
 #     relative `file:` path. v1 git, URL and GitHub `user/repo#sha` specs fail.
 #   - an installed entry with no `resolved` fails: npm resolves it from config.
+#   - every dependency request map (dependencies, devDependencies,
+#     optionalDependencies, peerDependencies; v1: requires), the root's too,
+#     holds only registry ranges, npm: aliases or relative file: paths.
+# package.json — the same rule for its request maps, and every `overrides`
+#   value may also be a `$name` reference. npm ci reads both.
 # .npmrc — only the settings in NPMRC_ALLOWED may appear. registry, userconfig,
 #   globalconfig and others can all move npm's fetches.
 # yarn.lock / pnpm-lock.yaml — fail as unsupported.
@@ -41,7 +46,7 @@ if [ "$#" -eq 0 ]; then
   # unknown file type, since the `case` patterns are lower-case.
   list="$(git ls-files -- ':(icase)*package-lock.json' ':(icase)*npm-shrinkwrap.json' \
     ':(icase)*.npmrc' ':(icase)*yarn.lock' ':(icase)*pnpm-lock.yaml' \
-    ':(icase)*go.mod' ':(icase)*go.work' \
+    ':(icase)*go.mod' ':(icase)*go.work' ':(icase)*package.json' \
     ':!:.github/scripts/tests/fixtures/**')"
   # Fail closed: an empty list means git or the pathspec broke, not "clean".
   [ -n "$list" ] || { echo "::error::no lockfiles found to check"; exit 2; }
@@ -53,6 +58,21 @@ approved="$(jq -Rnc '[inputs | select(test("^\\s*(#|$)") | not) | gsub("\\s"; ""
 [ "$approved" != "[]" ] || { echo "::error file=$CONFIG::no approved hosts in $CONFIG"; exit 2; }
 approved_list="$(jq -r 'join(", ")' <<<"$approved")"
 
+# jq definitions shared by the lockfile and package.json checks. Anchor with
+# \A and \z, not ^ and $: in jq ^ also matches just after a newline.
+# A dependency request spec is a registry range or dist-tag, an npm: alias to
+# one, or a relative file: path. npm ci fetches any other spec (a URL, git, a
+# GitHub shorthand) even when the installed lockfile entry looks like a
+# registry package.
+SPEC_DEFS='
+  def relpath: test("\\A[^/\\\\:\\s][^:\\\\\\s]*\\z");
+  def range: test("\\A[0-9A-Za-z.^~<>=|* +-]*\\z");
+  def okspec: type == "string"
+    and (range
+         or test("\\Anpm:(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*@[0-9A-Za-z.^~<>=|* +-]*\\z")
+         or (startswith("file:") and (.[5:] | relpath)));
+'
+
 status=0
 for f in "$@"; do
   if [ ! -f "$f" ]; then
@@ -60,22 +80,12 @@ for f in "$@"; do
   fi
   case "$f" in
     *package-lock.json|*npm-shrinkwrap.json)
-      if ! bad="$(jq -r --argjson ok "$approved" '
+      if ! bad="$(jq -r --argjson ok "$approved" "$SPEC_DEFS"'
           # Anchor with \A, not ^: in jq ^ also matches just after a newline.
-          def relpath: test("\\A[^/\\\\:\\s][^:\\\\\\s]*\\z");
           def semver: test("\\A[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.+-]+)?\\z");
           def host: (capture("\\Ahttps://(?<h>[a-z0-9.-]+)/[A-Za-z0-9@._~+-]+(/[A-Za-z0-9@._~+-]+)*\\z") | .h) // null;
           def okversion: semver or (test("\\Anpm:[^:/\\s]+(/[^:/\\s]+)?@") and (sub("\\Anpm:.+@"; "") | semver))
             or (startswith("file:") and (.[5:] | relpath));
-          # A dependency request spec: a registry range or dist-tag, an npm:
-          # alias to one, or a relative file: path. npm ci fetches any other
-          # spec (a URL, git, a GitHub shorthand) even when the installed entry
-          # looks like a registry package.
-          def range: test("\\A[0-9A-Za-z.^~<>=|* +-]*\\z");
-          def okspec: type == "string"
-            and (range
-                 or test("\\Anpm:(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*@[0-9A-Za-z.^~<>=|* +-]*\\z")
-                 or (startswith("file:") and (.[5:] | relpath)));
           # Lockfile entries only: packages["<key>"], and the v1 tree
           # dependencies.<name>(.dependencies.<name>)*. A dependency map that
           # happens to hold a package named "version" is not an entry.
@@ -127,6 +137,33 @@ for f in "$@"; do
       while IFS=$'\t' read -r pkg why url; do
         [ -n "$pkg" ] || continue
         echo "::error file=$f,title=off-registry package::$f: $pkg $why ($url). Approved hosts: $approved_list — see .github/scripts/approved-registries.txt."
+        status=1
+      done <<<"$bad"
+      ;;
+    *package.json)
+      # The manifest's own request maps and npm `overrides`: npm ci fetches a
+      # URL there even when the lockfile entry looks like npmjs. An override
+      # value may also be a `$name` reference to a root dependency.
+      if ! bad="$(jq -r "$SPEC_DEFS"'
+          def okover: okspec or (type == "string" and test("\\A\\$[A-Za-z0-9@/._-]+\\z"));
+          if type != "object" then ["-", "is not a JSON object", "-"] | @tsv else
+          ( ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"][] as $m
+            | .[$m] | select(. != null)
+            | if type != "object" then [$m, "is not a map", "-"]
+              else to_entries[] | select(.value | okspec | not)
+                | ["\($m).\(.key)", "is not a registry range, npm: alias or relative file: path", (.value | tostring)]
+              end ),
+          ( .overrides | select(. != null)
+            | if type != "object" then ["overrides", "is not a map", "-"]
+              else paths(type != "object") as $p | getpath($p) as $v | select($v | okover | not)
+                | ["overrides.\($p | map(tostring) | join("."))", "is not a registry range, npm: alias, relative file: path or $reference", ($v | tostring)]
+              end )
+          | @tsv end' "$f")"; then
+        echo "::error file=$f::$f is not readable JSON"; status=1; continue
+      fi
+      while IFS=$'\t' read -r pkg why url; do
+        [ -n "$pkg" ] || continue
+        echo "::error file=$f,title=off-registry dependency spec::$f: $pkg $why ($url)."
         status=1
       done <<<"$bad"
       ;;
