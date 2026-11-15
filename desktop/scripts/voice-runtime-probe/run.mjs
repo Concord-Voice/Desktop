@@ -49,6 +49,13 @@ async function until(operation, predicate, label, timeout = 30_000) {
   throw new Error(`Missing runtime witness: ${label}`);
 }
 
+// Every renderer call gets its own deadline, so a stall names the call that hung
+// instead of waiting for the run-wide watchdog.
+const RENDERER_CALL_MS = 30_000;
+function inRenderer(page, label, fn, arg) {
+  return withDeadline(page.evaluate(fn, arg), RENDERER_CALL_MS, label);
+}
+
 function writeResult() {
   const text = `${JSON.stringify(result, null, 2)}\n`;
   if (process.env.MEDIA_PROBE_OUTPUT) {
@@ -60,9 +67,11 @@ function writeResult() {
 }
 
 // A stuck renderer, worker or close call must still produce a result that names
-// its stage, before the CI step limit kills the process without one.
+// its stage, before the CI step limit kills the process without one. Kept ref'd:
+// a stuck await with no live handle behind it would otherwise let Node exit
+// (code 13) before the finally block writes anything. Cleared after cleanup.
 const watchdogMs = watchdogBudgetMs(duration);
-setTimeout(() => {
+const watchdog = setTimeout(() => {
   result.status = 'FAIL';
   result.stage = stage;
   result.reason = `Watchdog: no result within ${watchdogMs} ms`;
@@ -70,7 +79,7 @@ setTimeout(() => {
   try { app?.process()?.kill('SIGKILL'); } catch { /* engine may already be gone */ }
   writeResult();
   process.exit(1);
-}, watchdogMs).unref();
+}, watchdogMs);
 
 try {
   const mediaLock = JSON.parse(await readFile(path.join(media, 'package-lock.json'), 'utf8'));
@@ -148,13 +157,13 @@ try {
     };
     return app.windows().length;
   }, (count) => count === 2, 'two isolated renderer windows');
-  result.versions = { ...result.versions, ...await app.evaluate(({ BrowserWindow }) => ({
+  result.versions = { ...result.versions, ...await withDeadline(app.evaluate(({ BrowserWindow }) => ({
     electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node,
     sandbox: BrowserWindow.getAllWindows().every((window) => {
       const preferences = window.webContents.getLastWebPreferences();
       return preferences.sandbox && preferences.contextIsolation && !preferences.nodeIntegration && preferences.webSecurity;
     }),
-  })) };
+  })), RENDERER_CALL_MS, 'engine versions') };
   requireElectronAlignment({ ...electronBinding, runtime: result.versions.electron }, require('semver').satisfies);
   assert(result.versions.sandbox, 'Renderer isolation is required');
   await app.context().route('**/*', (route) => {
@@ -187,27 +196,31 @@ try {
     });
     await page.goto(`${origin}/__voice_runtime_probe?peer=${index === 0 ? 'a' : 'b'}`);
     await page.waitForFunction(() => Boolean(globalThis.mediaProbe));
-    const setup = await withDeadline(page.evaluate((key) => globalThis.mediaProbe.setup(key), testKey),
-      30_000, 'renderer setup');
+    const setup = await inRenderer(page, 'renderer setup', (key) => globalThis.mediaProbe.setup(key), testKey);
     assert.equal(setup.nodeVisibleInRenderer, false);
   }
   setStage('publish-consume');
   const descriptors = [];
-  for (const page of pages) descriptors.push(await page.evaluate(() => globalThis.mediaProbe.publish()));
+  for (const [index, page] of pages.entries()) {
+    descriptors.push(await inRenderer(page, `publish peer ${index}`, () => globalThis.mediaProbe.publish()));
+  }
   for (let index = 0; index < pages.length; index++) {
     for (const descriptor of descriptors[1 - index]) {
-      await pages[index].evaluate((entry) => globalThis.mediaProbe.consume(entry), descriptor);
+      await inRenderer(pages[index], `consume peer ${index}`, (entry) => globalThis.mediaProbe.consume(entry), descriptor);
     }
   }
   const readWitnesses = async () => {
-    const witnesses = await Promise.all(pages.map((page) => page.evaluate(() => globalThis.mediaProbe.witness())));
+    const witnesses = await Promise.all(pages.map((page, index) =>
+      inRenderer(page, `witness peer ${index}`, () => globalThis.mediaProbe.witness())));
     await Promise.all([...pendingMarkers]);
     result.runtimeDiagnostics.peers = summarizeRuntimeWitnesses(witnesses);
     result.runtimeDiagnostics.verifiedConsumers = verifiedByPeer.map((ids) => ids.size);
     return witnesses;
   };
   await until(readWitnesses, (witnesses) => witnesses.every((entry) => entry.audioSignalPresent && entry.decodedVideoPresent && entry.e2eeEntered.every((count) => count > 0)), 'decrypted audio and video');
-  for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.updatePriority());
+  for (const [index, page] of pages.entries()) {
+    await inRenderer(page, `updatePriority peer ${index}`, () => globalThis.mediaProbe.updatePriority());
+  }
   await until(readWitnesses, (witnesses) => witnesses.every((entry) => entry.layeredPriorityApplied), 'live layered encoding priority update');
   const initialWitnesses = await until(readWitnesses, (witnesses) => witnesses.every((entry, index) =>
     initialConsumersVerified(entry, verifiedByPeer[index])), 'each original audio/video consumer production verification');
@@ -215,7 +228,7 @@ try {
   setStage('continuous-call');
   const progress = pages.map(() => createVideoProgressGate());
   (await readWitnesses()).forEach((entry, index) => progress[index](entry));
-  for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.arm());
+  for (const [index, page] of pages.entries()) await inRenderer(page, `arm peer ${index}`, () => globalThis.mediaProbe.arm());
   // No getStats replacement, mocked RTC or manually advanced observation counter.
   const continuousStartedAtMs = performance.now();
   for (;;) {
@@ -245,11 +258,16 @@ try {
   result.detectorFaultControl = 'PASS: separate copied-report 2 ms/s injection; production RTC/sampler untouched';
   setStage('camera-reproduce');
   const previousVideoIds = result.witnesses.map((entry) => entry.videoConsumerId);
-  for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.closeRemoteVideo());
+  for (const [index, page] of pages.entries()) {
+    await inRenderer(page, `closeRemoteVideo peer ${index}`, () => globalThis.mediaProbe.closeRemoteVideo());
+  }
   const replacement = [];
-  for (const page of pages) replacement.push(await page.evaluate(() => globalThis.mediaProbe.reproduceVideo()));
+  for (const [index, page] of pages.entries()) {
+    replacement.push(await inRenderer(page, `reproduceVideo peer ${index}`, () => globalThis.mediaProbe.reproduceVideo()));
+  }
   for (let index = 0; index < pages.length; index++) {
-    await pages[index].evaluate((entry) => globalThis.mediaProbe.consume(entry), replacement[1 - index]);
+    await inRenderer(pages[index], `consume replacement peer ${index}`, (entry) => globalThis.mediaProbe.consume(entry),
+      replacement[1 - index]);
   }
   const replacementProgress = pages.map(() => createVideoProgressGate());
   result.replacementWitnesses = await until(readWitnesses, (witnesses) => witnesses.every((entry, index) => {
@@ -283,5 +301,6 @@ try {
   try { await withDeadline(vite?.close(), CLEANUP_MS, 'Vite close'); } catch { result.status = 'FAIL'; result.cleanup = 'Vite close failed'; process.exitCode = 1; }
   try { await withDeadline(sfu?.close(), CLEANUP_MS, 'SFU close'); result.nativeSubprocessClosed = Boolean(sfu); }
   catch { result.status = 'FAIL'; result.cleanup = 'Native worker exit unconfirmed'; process.exitCode = 1; }
+  clearTimeout(watchdog);
   writeResult();
 }
