@@ -38,5 +38,11 @@
       "self-hosted": "Concord-Voice/Self-Hosted"
     },
     "sentinel_prefix": "concord-feedback-triage"
+  },
+  "review_coverage": {
+    "reviewer_bots": [
+      "gitar-bot[bot]",
+      "chatgpt-codex-connector[bot]"
+    ]
   }
 }
