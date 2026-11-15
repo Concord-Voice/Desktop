@@ -175,9 +175,9 @@ interface DeviceTestLeaseRowProps {
  */
 export const DeviceTestLeaseRow: React.FC<DeviceTestLeaseRowProps> = ({ id, message }) =>
   message ? (
-    <div id={id} role="status" className="settings-device-test-lease">
+    <output id={id} className="settings-device-test-lease">
       {message}
-    </div>
+    </output>
   ) : null;
 
 interface AudioDeviceSettingsProps {

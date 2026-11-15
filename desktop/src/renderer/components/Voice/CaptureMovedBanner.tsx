@@ -45,7 +45,7 @@ function focusTargetAfter(banner: HTMLElement): HTMLElement | null {
 const CaptureMovedBannerBody: React.FC = () => {
   const visible = useSyncExternalStore(subscribeVisibility, isDocumentVisible);
   const [shown, setShown] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLOutputElement>(null);
 
   // #3394 pattern: the region is in the tree empty, and the text arrives one frame after
   // the document is visible. Latched, so hiding the document again does not clear it.
@@ -70,7 +70,7 @@ const CaptureMovedBannerBody: React.FC = () => {
   };
 
   return (
-    <div ref={rootRef} className="capture-moved-banner" role="status">
+    <output ref={rootRef} className="capture-moved-banner">
       <span className="capture-moved-banner__message">
         <Info size={16} aria-hidden="true" className="capture-moved-banner__glyph" />
         <span className="capture-moved-banner__text">{shown ? CAPTURE_LEASE_COPY.banner : ''}</span>
@@ -78,7 +78,7 @@ const CaptureMovedBannerBody: React.FC = () => {
       <button type="button" className="capture-moved-banner__dismiss" onClick={handleDismiss}>
         {CAPTURE_LEASE_COPY.dismiss}
       </button>
-    </div>
+    </output>
   );
 };
 

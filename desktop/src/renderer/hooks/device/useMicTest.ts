@@ -469,6 +469,45 @@ export function useMicTest(): UseMicTestReturn {
     [stopTest]
   );
 
+  /** The mic capture, tracked in the settlement barrier; null when this generation went stale. */
+  const captureMicStream = useCallback(
+    async (
+      adv: MicTestAudioSettings,
+      voiceState: MicTestVoiceState,
+      useProcessing: boolean,
+      generation: number
+    ): Promise<MediaStream | null> => {
+      const attempt = attemptRef.current;
+      if (attempt) attempt.capturing = true;
+      try {
+        const stream = await trackDeviceCapture(
+          navigator.mediaDevices.getUserMedia({
+            audio: buildMicConstraints(adv, voiceState, useProcessing),
+          })
+        );
+        if (generation !== generationRef.current) {
+          stopStreamTracks(stream);
+          return null;
+        }
+        return stream;
+      } finally {
+        settleCapture(attempt);
+      }
+    },
+    []
+  );
+
+  /** Undo a pipeline whose loopback never came up: release the mic and close its context. */
+  const abandonLoopback = useCallback(async (stream: MediaStream, ctx: AudioContext) => {
+    if (micStreamRef.current === stream) {
+      stopStreamTracks(stream);
+      micStreamRef.current = null;
+    }
+    if (audioContextRef.current !== ctx) return;
+    audioContextRef.current = null;
+    if (ctx.state !== 'closed') await ctx.close().catch(() => {});
+  }, []);
+
   const startMicPipeline = useCallback(
     async (
       adv: MicTestAudioSettings,
@@ -476,25 +515,8 @@ export function useMicTest(): UseMicTestReturn {
       useProcessing: boolean,
       generation: number
     ): Promise<boolean> => {
-      const attempt = attemptRef.current;
-      if (attempt) attempt.capturing = true;
-      let stream: MediaStream;
-      try {
-        stream = await trackDeviceCapture(
-          navigator.mediaDevices.getUserMedia({
-            audio: buildMicConstraints(adv, voiceState, useProcessing),
-          })
-        );
-      } catch (err) {
-        settleCapture(attempt);
-        throw err;
-      }
-      if (generation !== generationRef.current) {
-        stopStreamTracks(stream);
-        settleCapture(attempt);
-        return false;
-      }
-      settleCapture(attempt);
+      const stream = await captureMicStream(adv, voiceState, useProcessing, generation);
+      if (!stream) return false;
       micStreamRef.current = stream;
       observeCaptureLoss(stream, generation);
 
@@ -551,20 +573,15 @@ export function useMicTest(): UseMicTestReturn {
       );
       if (generation !== generationRef.current) return false;
       if (!loopbackReady) {
-        if (micStreamRef.current === stream) {
-          stopStreamTracks(stream);
-          micStreamRef.current = null;
-        }
-        if (audioContextRef.current === ctx) {
-          audioContextRef.current = null;
-          if (ctx.state !== 'closed') await ctx.close().catch(() => {});
-        }
+        await abandonLoopback(stream, ctx);
         return false;
       }
       processor.setWindowReporting(true);
       return true;
     },
     [
+      abandonLoopback,
+      captureMicStream,
       connectInputVolume,
       createLoopbackAudio,
       createRunningAudioContext,
@@ -593,6 +610,50 @@ export function useMicTest(): UseMicTestReturn {
     [stopTest]
   );
 
+  /** #87: asks main for the device-test claim before any OS prompt or getUserMedia. */
+  const acquireTestLease = useCallback(
+    async (generation: number): Promise<boolean> => {
+      const lease = await acquire('device-test');
+      // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
+      const leaseEpoch = currentDeviceTestEpoch();
+      if (generation !== generationRef.current) {
+        // Stopped while main answered. This grant owns nothing: give its count back. A
+        // successor's own acquire is already counted, so the claim survives for it.
+        if (lease.status === 'granted') void release('device-test', leaseEpoch);
+        return false;
+      }
+      if (lease.status !== 'granted') {
+        stopTest({ reason: 'competing-test' });
+        if (lease.status === 'held') setStoppedReason('held');
+        else setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
+        return false;
+      }
+      attemptRef.current = {
+        epoch: leaseEpoch,
+        released: false,
+        capturing: false,
+        cancelled: false,
+      };
+      return true;
+    },
+    [stopTest]
+  );
+
+  /** JIT permission check (#197): request mic access on macOS before getUserMedia. */
+  const grantMicPermission = useCallback(
+    async (generation: number): Promise<boolean> => {
+      if (await ensureMicPermission(generation)) return true;
+      if (generation === generationRef.current) {
+        stopTest();
+        setError(
+          'Microphone access denied. Grant permission in System Settings > Privacy & Security.'
+        );
+      }
+      return false;
+    },
+    [ensureMicPermission, stopTest]
+  );
+
   const startOwner = useCallback(
     async (callbacks?: MicCalibrationCallbacks): Promise<MicCalibrationSession | null> => {
       const keepCallSuspension = callSuspensionRef.current;
@@ -615,39 +676,8 @@ export function useMicTest(): UseMicTestReturn {
       const useProcessing = !adv.musicMode;
 
       try {
-        // #87: the capture lease is asked for before any OS prompt or getUserMedia.
-        const lease = await acquire('device-test');
-        // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
-        const leaseEpoch = currentDeviceTestEpoch();
-        if (generation !== generationRef.current) {
-          // Stopped while main answered. This grant owns nothing: give its count back. A
-          // successor's own acquire is already counted, so the claim survives for it.
-          if (lease.status === 'granted') void release('device-test', leaseEpoch);
-          return null;
-        }
-        if (lease.status !== 'granted') {
-          stopTest({ reason: 'competing-test' });
-          if (lease.status === 'held') setStoppedReason('held');
-          else
-            setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
-          return null;
-        }
-        attemptRef.current = {
-          epoch: leaseEpoch,
-          released: false,
-          capturing: false,
-          cancelled: false,
-        };
-        // JIT permission check (#197): request mic access on macOS before getUserMedia.
-        if (!(await ensureMicPermission(generation))) {
-          if (generation === generationRef.current) {
-            stopTest();
-            setError(
-              'Microphone access denied. Grant permission in System Settings > Privacy & Security.'
-            );
-          }
-          return null;
-        }
+        if (!(await acquireTestLease(generation))) return null;
+        if (!(await grantMicPermission(generation))) return null;
         if (generation !== generationRef.current) return null;
         ensureCallSuspensionForTest(inVoiceCall);
         if (!(await startMicPipeline(adv, voiceState, useProcessing, generation))) {
@@ -671,9 +701,10 @@ export function useMicTest(): UseMicTestReturn {
       }
     },
     [
+      acquireTestLease,
       calibrationSession,
       ensureCallSuspensionForTest,
-      ensureMicPermission,
+      grantMicPermission,
       releaseCallTestSuspension,
       startMicPipeline,
       subscribeToRestarts,

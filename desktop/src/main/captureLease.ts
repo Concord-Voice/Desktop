@@ -420,6 +420,27 @@ function ownedBy(
 }
 
 /**
+ * A navigation hold keeps the PRE-navigation ref, but the surviving document speaks under the
+ * generation the navigation start advanced to: its releases apply to the held claims instead of
+ * being rejected and then undone by the restore (Codex P2). The sender is this connection's
+ * current primary, admitted by the registry, which is all the hold needs.
+ */
+function releaseDuringNavHold(
+  d: CaptureLeaseDeps,
+  h: Handoff,
+  held: HolderEntry,
+  intent: CaptureIntent
+): boolean {
+  if (!held.claims.delete(intent)) return false;
+  if (held.claims.size === 0) {
+    effect(() => d.revokeAudiocapShare());
+    // The document is not the foreground necessarily: it is told its lease is gone.
+    completeHandoff(d, h, null, h.from.connectionId);
+  }
+  return true;
+}
+
+/**
  * `capture:release` (§3.2): drops one claim; the lease frees when none is left. From
  * the document a handoff is waiting on, any release is the ack. No lease token
  * crosses IPC (R3): the holder is resolved from the sender's binding. Never throws.
@@ -439,18 +460,7 @@ export function release(
     return true;
   }
   if (h?.navHeld !== undefined && sender.ref.connectionId === h.from.connectionId) {
-    // A navigation hold keeps the PRE-navigation ref, but the surviving document speaks under
-    // the generation the navigation start advanced to: its releases apply to the held claims
-    // instead of being rejected and then undone by the restore (Codex P2). The sender is this
-    // connection's current primary, admitted by the registry, which is all the hold needs.
-    const held = h.navHeld;
-    if (!held.claims.delete(input.intent)) return false;
-    if (held.claims.size === 0) {
-      effect(() => d.revokeAudiocapShare());
-      // The document is not the foreground necessarily: it is told its lease is gone.
-      completeHandoff(d, h, null, h.from.connectionId);
-    }
-    return true;
+    return releaseDuringNavHold(d, h, h.navHeld, input.intent);
   }
   const entry = holder;
   if (entry === null || !sameRef(sender.ref, entry.ref)) return false;

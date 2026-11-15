@@ -3,6 +3,7 @@
 /* Why a microphone or camera test cannot run here, or why it stopped. Shared by
    the Audio and Video Configuration test rows. Existing tokens only. */
 .settings-device-test-lease {
+  display: block;
   margin: 0 0 8px;
   padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
   background: var(--bg-tertiary);

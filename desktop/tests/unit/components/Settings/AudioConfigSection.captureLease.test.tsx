@@ -85,7 +85,7 @@ describe('AudioConfigSection capture lease rows (#87)', () => {
     act(() => useVoiceStore.setState({ captureLease: 'other' }));
     render(<AudioConfigSection />);
     const row = screen.getByText(CAPTURE_LEASE_COPY.deviceTestHeld);
-    expect(row.closest('[role="status"]')).not.toBeNull();
+    expect(row.closest('output')).not.toBeNull();
     expect(mockStartMicTest).not.toHaveBeenCalled();
   });
 
@@ -107,11 +107,11 @@ describe('AudioConfigSection capture lease rows (#87)', () => {
     expect(screen.getByText(CAPTURE_LEASE_COPY.deviceTestHeld)).toBeInTheDocument();
   });
 
-  it('shows the backgrounded copy in a role="status" row', () => {
+  it('shows the backgrounded copy in a status (output) row', () => {
     micStoppedReason = 'backgrounded';
     render(<AudioConfigSection />);
     const row = screen.getByText(CAPTURE_LEASE_COPY.deviceTestBackgrounded);
-    expect(row.closest('[role="status"]')).not.toBeNull();
+    expect(row.closest('output')).not.toBeNull();
     expect(screen.queryByText(CAPTURE_LEASE_COPY.deviceTestHeld)).not.toBeInTheDocument();
   });
 });
