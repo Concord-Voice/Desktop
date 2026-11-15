@@ -12386,3 +12386,5 @@ if (globalThis.window) {
     voiceService.emergencyCleanup();
   });
 }
+
+// probe control run: no behaviour change
