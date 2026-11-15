@@ -392,6 +392,9 @@ export function refOf(record: ConnectionRecord): ConnectionRef {
 }
 
 function notify(notification: PendingNotification): void {
+  // The spread is a deliberate snapshot: a listener may subscribe or unsubscribe while it is
+  // being delivered to, and a live Set iterator would then visit a late subscriber or skip an
+  // unsubscribed one mid-delivery.
   if (notification.kind === 'foreground') {
     for (const listener of [...foregroundListeners]) {
       try {

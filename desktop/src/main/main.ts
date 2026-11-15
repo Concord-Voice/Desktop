@@ -3476,7 +3476,7 @@ function destroyPipWindowsForQuit(): void {
  */
 function closePipsPinnedToStaleOrigin(): void {
   const current = getRemoteSpaBaseUrl();
-  for (const { window: pip } of [...pipWindows.values()]) {
+  for (const { window: pip } of pipWindows.values()) {
     if (pip.isDestroyed()) continue;
     const pinned = pipSpaOriginFor(pip.webContents);
     if (pinned !== null && pinned !== current) destroyPip(pip.webContents);

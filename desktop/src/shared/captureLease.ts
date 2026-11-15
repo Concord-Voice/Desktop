@@ -32,15 +32,15 @@ export interface CaptureLeaseRevoked {
   reason: 'moved' | 'backgrounded';
 }
 
-const INTENTS: readonly string[] = ['voice-join', 'device-test'];
-const REJECT_REASONS: readonly string[] = [
+const INTENTS: ReadonlySet<string> = new Set(['voice-join', 'device-test']);
+const REJECT_REASONS: ReadonlySet<string> = new Set([
   'untrusted-sender',
   'not-foreground',
   'busy',
   'superseded',
   'unavailable',
-];
-const REVOKE_REASONS: readonly string[] = ['moved', 'backgrounded'];
+]);
+const REVOKE_REASONS: ReadonlySet<string> = new Set(['moved', 'backgrounded']);
 
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -52,7 +52,7 @@ function hasExactKeys(v: Record<string, unknown>, keys: readonly string[]): bool
 }
 
 export function isCaptureIntent(v: unknown): v is CaptureIntent {
-  return typeof v === 'string' && INTENTS.includes(v);
+  return typeof v === 'string' && INTENTS.has(v);
 }
 
 export function isCaptureAcquireInput(v: unknown): v is CaptureAcquireInput {
@@ -65,7 +65,7 @@ export function isCaptureAcquireResult(v: unknown): v is CaptureAcquireResult {
     return (
       hasExactKeys(v, ['status', 'reason']) &&
       typeof v.reason === 'string' &&
-      REJECT_REASONS.includes(v.reason)
+      REJECT_REASONS.has(v.reason)
     );
   }
   return (
@@ -88,6 +88,6 @@ export function isCaptureLeaseRevoked(v: unknown): v is CaptureLeaseRevoked {
     isPlainRecord(v) &&
     hasExactKeys(v, ['reason']) &&
     typeof v.reason === 'string' &&
-    REVOKE_REASONS.includes(v.reason)
+    REVOKE_REASONS.has(v.reason)
   );
 }

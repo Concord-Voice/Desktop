@@ -221,7 +221,7 @@ export async function settleDeviceCaptures(maxMs: number): Promise<boolean> {
     timer = setTimeout(() => resolve(false), maxMs);
   });
   const settled = await Promise.race([
-    Promise.allSettled([...pendingDeviceCaptures]).then(() => true as const),
+    Promise.allSettled(pendingDeviceCaptures).then(() => true as const),
     limit,
   ]);
   clearTimeout(timer);

@@ -1038,7 +1038,7 @@ export function registerSSOIPC(): void {
       const entry = active.get(id);
       // Another connection's port, or this connection's superseded one, answers exactly
       // like an unknown one.
-      if (!entry || entry.handle.port !== port || requireOwner(event, entry.owner) === null) {
+      if (entry?.handle.port !== port || requireOwner(event, entry.owner) === null) {
         throw new Error('sso:awaitCallback: unknown port');
       }
       try {
@@ -1056,7 +1056,7 @@ export function registerSSOIPC(): void {
     (sender, event, port: number): void => {
       const id = sender.ref.connectionId;
       const entry = active.get(id);
-      if (!entry || entry.handle.port !== port || requireOwner(event, entry.owner) === null) {
+      if (entry?.handle.port !== port || requireOwner(event, entry.owner) === null) {
         return;
       }
       active.delete(id);
