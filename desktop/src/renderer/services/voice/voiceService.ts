@@ -5867,8 +5867,7 @@ class VoiceService {
     // BOTH conditions, never either: the user must have asked for audio AND the target
     // must be able to carry it. `wantAudio` alone would reintroduce #2161 on a window;
     // the prefix check alone would ignore an explicit opt-out.
-    const videoOnly = () =>
-      callCapture.getUserMedia({ audio: false, video: videoConstraints });
+    const videoOnly = () => callCapture.getUserMedia({ audio: false, video: videoConstraints });
 
     // `canCarryScreenAudio`, not a bare prefix test. The prefix half alone left the
     // platform gate in `produceScreen`'s caller-side computation, which

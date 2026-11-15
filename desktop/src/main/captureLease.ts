@@ -458,11 +458,7 @@ export function release(
   if (entry.claims.size > 0) {
     // A call ended on a connection that went to the background while a device test also ran:
     // `onForeground` kept both claims then, but a hidden test alone does not survive (R12).
-    if (
-      entry.claims.size === 1 &&
-      entry.claims.has('device-test') &&
-      !isForeground(d, entry.ref)
-    ) {
+    if (entry.claims.size === 1 && entry.claims.has('device-test') && !isForeground(d, entry.ref)) {
       beginHandoff(d, entry, null, 'backgrounded', null);
     }
     return true;
@@ -554,7 +550,13 @@ function watchForCommit(d: CaptureLeaseDeps, id: ConnectionId): () => void {
   const onCommit = (): void => {
     committed.add(id);
   };
-  const onFail = (_e: unknown, errorCode: number, _d: string, _u: string, isMain: boolean): void => {
+  const onFail = (
+    _e: unknown,
+    errorCode: number,
+    _d: string,
+    _u: string,
+    isMain: boolean
+  ): void => {
     if (isMain && errorCode !== -3) committed.add(id);
   };
   contents.prependListener('did-navigate', onCommit);

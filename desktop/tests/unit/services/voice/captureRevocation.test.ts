@@ -85,9 +85,8 @@ afterEach(() => {
 
 describe('installCaptureRevocationHandler', () => {
   it('a withhold left by a torn-down handler is lifted on dispose and on reinstall (Gitar)', async () => {
-    const { withholdReleases, release } = await import(
-      '@/renderer/services/voice/captureLeaseClient'
-    );
+    const { withholdReleases, release } =
+      await import('@/renderer/services/voice/captureLeaseClient');
     withholdReleases(true);
     dispose(); // cleanup lifts it
     releaseFn.mockClear();

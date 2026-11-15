@@ -79,69 +79,66 @@ export function useCameraTest(): UseCameraTestReturn {
     setStoppedReason(null);
   }, []);
 
-  const startTest = useCallback(
-    async (generation: number) => {
-      setError(null);
-      setStoppedReason(null);
-      const lease = await acquire('device-test');
-      // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
-      const leaseEpoch = currentDeviceTestEpoch();
+  const startTest = useCallback(async (generation: number) => {
+    setError(null);
+    setStoppedReason(null);
+    const lease = await acquire('device-test');
+    // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
+    const leaseEpoch = currentDeviceTestEpoch();
+    if (generation !== generationRef.current) {
+      // Stopped while main answered. This grant owns nothing: give its count back. A
+      // successor's own acquire is already counted, so the claim survives for it.
+      if (lease.status === 'granted') void release('device-test', leaseEpoch);
+      return;
+    }
+    if (lease.status !== 'granted') {
+      pendingRef.current = false;
+      if (lease.status === 'held') setStoppedReason('held');
+      else setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
+      return;
+    }
+    const attempt: LeaseAttempt = {
+      epoch: leaseEpoch,
+      released: false,
+      capturing: true,
+      cancelled: false,
+    };
+    attemptRef.current = attempt;
+    try {
+      const deviceId = useVoiceStore.getState().videoDeviceId;
+      const next = await trackDeviceCapture(
+        navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId } } : true,
+        })
+      );
       if (generation !== generationRef.current) {
-        // Stopped while main answered. This grant owns nothing: give its count back. A
-        // successor's own acquire is already counted, so the claim survives for it.
-        if (lease.status === 'granted') void release('device-test', leaseEpoch);
+        attempt.cancelled = true;
+        for (const track of next.getTracks()) track.stop();
         return;
       }
-      if (lease.status !== 'granted') {
-        pendingRef.current = false;
-        if (lease.status === 'held') setStoppedReason('held');
-        else setError(captureLeaseMessage(lease.status === 'rejected' ? lease.reason : 'unknown'));
+      streamRef.current = next;
+      setStream(next);
+      setIsTesting(true);
+    } catch (err) {
+      if (generation !== generationRef.current) {
+        attempt.cancelled = true;
         return;
       }
-      const attempt: LeaseAttempt = {
-        epoch: leaseEpoch,
-        released: false,
-        capturing: true,
-        cancelled: false,
-      };
-      attemptRef.current = attempt;
-      try {
-        const deviceId = useVoiceStore.getState().videoDeviceId;
-        const next = await trackDeviceCapture(
-          navigator.mediaDevices.getUserMedia({
-            video: deviceId ? { deviceId: { exact: deviceId } } : true,
-          })
-        );
-        if (generation !== generationRef.current) {
-          attempt.cancelled = true;
-          for (const track of next.getTracks()) track.stop();
-          return;
-        }
-        streamRef.current = next;
-        setStream(next);
-        setIsTesting(true);
-      } catch (err) {
-        if (generation !== generationRef.current) {
-          attempt.cancelled = true;
-          return;
-        }
-        attemptRef.current = null;
-        releaseAttempt(attempt);
-        const msg =
-          err instanceof DOMException && err.name === 'NotAllowedError'
-            ? 'Camera access denied'
-            : 'Failed to access camera';
-        setError(msg);
-        setIsTesting(false);
-      } finally {
-        attempt.capturing = false;
-        // Cancelled while the capture was pending: its stream is stopped now, so release.
-        if (attempt.cancelled) releaseAttempt(attempt);
-        if (generation === generationRef.current) pendingRef.current = false;
-      }
-    },
-    []
-  );
+      attemptRef.current = null;
+      releaseAttempt(attempt);
+      const msg =
+        err instanceof DOMException && err.name === 'NotAllowedError'
+          ? 'Camera access denied'
+          : 'Failed to access camera';
+      setError(msg);
+      setIsTesting(false);
+    } finally {
+      attempt.capturing = false;
+      // Cancelled while the capture was pending: its stream is stopped now, so release.
+      if (attempt.cancelled) releaseAttempt(attempt);
+      if (generation === generationRef.current) pendingRef.current = false;
+    }
+  }, []);
 
   const toggleTest = useCallback(async () => {
     if (streamRef.current || pendingRef.current) {
