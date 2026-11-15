@@ -21,15 +21,13 @@ import { isConnectionId, isGeneration, type ConnectionRef } from '../shared/conn
 import { boundRecordFor, recordFor, type ConnectionRecord } from './connectionRegistry';
 import { senderMainFrame } from './ipc/frameValidation';
 
-export type CapabilityKind =
-  'audiocap' | 'sso-loopback' | 'tray' | 'capture-lease' | 'notification';
+export type CapabilityKind = 'audiocap' | 'sso-loopback' | 'tray' | 'capture-lease';
 
 const CAPABILITY_KINDS: ReadonlySet<string> = new Set<CapabilityKind>([
   'audiocap',
   'sso-loopback',
   'tray',
   'capture-lease',
-  'notification',
 ]);
 
 export interface OwnerBinding {

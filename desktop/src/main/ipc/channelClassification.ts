@@ -126,9 +126,6 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   'app:setBadgeCount': 'connection-bound',
   'app:flashFrame': 'connection-bound',
   'app:focusWindow': 'app-global-mutate',
-  // #86 C11: a bound primary asks main to show a notification. Showing activates nothing;
-  // only main's own click handler (ipc/notifications.ts) activates the owning connection.
-  'notification:show': 'connection-bound',
   'spa:requestSelfHeal': 'connection-bound',
   'pip:open': 'app-global-mutate',
 

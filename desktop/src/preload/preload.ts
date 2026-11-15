@@ -34,13 +34,6 @@ import type { SpaFallbackDiagnostic } from '../shared/spaIpcTypes';
 import { isAudiocapInterrupted, type AudiocapInterrupted } from '../shared/audiocapProtocol';
 import { AUDIOCAP_PORT_TAG, installAudiocapRelay, type AudiocapRelayWindow } from './audiocapRelay';
 import { createSetZoomFactor } from './uiZoom';
-import {
-  NOTIFICATION_CLICKED,
-  NOTIFICATION_SHOW,
-  isNotificationClicked,
-  type NotificationClicked,
-  type NotificationShowPayload,
-} from '../shared/desktopNotification';
 // `connectionIdentity` is import-free by contract (its own header says the preload
 // bundle inlines it). It supplies the exact-key identity codec, so the `whoAmI` answer
 // and every `connection:generation` push narrow against the same anchor main and the
@@ -529,26 +522,6 @@ contextBridge.exposeInMainWorld('electron', {
   setBadgeCount: (count: number) => ipcRenderer.invoke('app:setBadgeCount', count),
   flashFrame: (flash: boolean) => ipcRenderer.invoke('app:flashFrame', flash),
   focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
-  /**
-   * #86 C11 (contract v36): main shows the notification and resolves `false` when it did
-   * not. A click main observed on it arrives through `onNotificationClicked` with the id
-   * this document chose. Neither call activates a connection or focuses the window.
-   */
-  showNotification: (payload: NotificationShowPayload): Promise<boolean> =>
-    ipcRenderer.invoke(NOTIFICATION_SHOW, payload),
-  onNotificationClicked: (callback: (data: NotificationClicked) => void) => {
-    let subscribed = true;
-    const handler = (_event: Electron.IpcRendererEvent, data: unknown) => {
-      if (!subscribed || !isNotificationClicked(data)) return;
-      // A new object from the validated field, never the IPC payload itself.
-      callback({ id: data.id });
-    };
-    ipcRenderer.on(NOTIFICATION_CLICKED, handler);
-    return () => {
-      subscribed = false;
-      ipcRenderer.removeListener(NOTIFICATION_CLICKED, handler);
-    };
-  },
 
   /**
    * Push the closed-enum tray snapshot to main (tray-status spec §4). A PASS-THROUGH
@@ -1066,9 +1039,6 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => Promise<void>;
   flashFrame: (flash: boolean) => Promise<void>;
   focusWindow: () => Promise<void>;
-  /** Contract v36 (#86 C11). Absent on an older shell. */
-  showNotification?: (payload: NotificationShowPayload) => Promise<boolean>;
-  onNotificationClicked?: (callback: (data: NotificationClicked) => void) => () => void;
 
   // Status-aware tray (tray-status spec §4).
   /** Resolves `false` only when main's rate limit dropped the snapshot. */

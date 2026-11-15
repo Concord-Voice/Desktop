@@ -14,15 +14,6 @@ interface NotifyOptions {
   senderId: string;
 }
 
-interface ClickTarget {
-  readonly targetType: NotifyOptions['targetType'];
-  readonly targetId: string;
-  readonly serverId?: string;
-}
-
-/** Click targets kept for main-owned notifications, oldest dropped first. */
-const MAX_CLICK_TARGETS = 50;
-
 interface ShouldNotifyOptions {
   type: NotificationType;
   isWindowFocused: boolean;
@@ -127,64 +118,8 @@ class DesktopNotificationService {
       body = body.slice(0, 97) + '...';
     }
 
-    if (this.showThroughMain(options, content.title, body)) {
-      this.flashForAttention();
-      return;
-    }
-    this.showWebNotification(options, content.title, body);
-  }
-
-  /**
-   * #86 C11 (contract v36): main shows the notification and, when the user clicks it,
-   * activates THIS connection, reveals the window and sends back the id chosen here.
-   * Only the id crosses; the navigation target stays in this map. `false` when the
-   * shell predates the bridge.
-   */
-  private showThroughMain(options: NotifyOptions, title: string, body: string): boolean {
-    const bridge = globalThis.electron;
-    const show = bridge?.showNotification;
-    const subscribe = bridge?.onNotificationClicked;
-    if (!bridge || typeof show !== 'function' || typeof subscribe !== 'function') return false;
-    if (!this.clickSubscribed) {
-      subscribe.call(bridge, ({ id }) => this.handleMainClick(id));
-      this.clickSubscribed = true;
-    }
-    const id = crypto.randomUUID();
-    this.clickTargets.set(id, {
-      targetType: options.targetType,
-      targetId: options.targetId,
-      serverId: options.serverId,
-    });
-    // Oldest first; main keeps a bounded number per connection too.
-    while (this.clickTargets.size > MAX_CLICK_TARGETS) {
-      const oldest = this.clickTargets.keys().next();
-      if (oldest.done) break;
-      this.clickTargets.delete(oldest.value);
-    }
-    const fallBack = (): void => {
-      // Main did not show it (unsupported platform or a refused sender): show it here.
-      if (this.clickTargets.delete(id)) this.showWebNotification(options, title, body);
-    };
-    show
-      .call(bridge, { id, title, body })
-      .then((shown) => {
-        if (!shown) fallBack();
-      })
-      .catch(fallBack);
-    return true;
-  }
-
-  private handleMainClick(id: string): void {
-    const target = this.clickTargets.get(id);
-    if (!target) return;
-    this.clickTargets.delete(id);
-    // Main has already activated this connection and revealed the window.
-    this.queueNavigation(target.targetType, target.targetId, target.serverId);
-  }
-
-  private showWebNotification(options: NotifyOptions, title: string, body: string): void {
     try {
-      const notification = new Notification(title, {
+      const notification = new Notification(content.title, {
         body,
         silent: true, // We handle sounds separately via notificationSoundService
       });
@@ -203,9 +138,6 @@ class DesktopNotificationService {
       console.warn('desktop notification failed:', err instanceof Error ? err.message : 'unknown');
     }
   }
-
-  private clickSubscribed = false;
-  private readonly clickTargets = new Map<string, ClickTarget>();
 
   private flashActive = false;
 
@@ -290,36 +222,28 @@ class DesktopNotificationService {
   }
 
   /**
-   * A web Notification's click (an older shell, or main could not show it): queue the
-   * navigation and ask main to focus the window. Since #86 RT6 main honours that only for
-   * the foreground connection; a background one's click is revealed only on the
-   * main-owned path above.
+   * Handle notification click — focus window and navigate to target.
    */
   private handleClick(
     targetType: NotifyOptions['targetType'],
     targetId: string,
     serverId?: string
   ): void {
-    this.queueNavigation(targetType, targetId, serverId);
-    void globalThis.electron?.focusWindow?.();
-  }
+    if (targetType !== 'account') {
+      // Import dynamically to avoid circular deps
+      void import('../../stores/ui/notificationNavigationStore').then(
+        ({ useNotificationNavigationStore }) => {
+          useNotificationNavigationStore.getState().setPendingNavigation({
+            type: targetType,
+            targetId,
+            serverId,
+          });
+        }
+      );
+    }
 
-  private queueNavigation(
-    targetType: NotifyOptions['targetType'],
-    targetId: string,
-    serverId?: string
-  ): void {
-    if (targetType === 'account') return;
-    // Import dynamically to avoid circular deps
-    void import('../../stores/ui/notificationNavigationStore').then(
-      ({ useNotificationNavigationStore }) => {
-        useNotificationNavigationStore.getState().setPendingNavigation({
-          type: targetType,
-          targetId,
-          serverId,
-        });
-      }
-    );
+    // Focus the app window
+    void globalThis.electron?.focusWindow?.();
   }
 
   /**
