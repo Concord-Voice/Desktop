@@ -218,6 +218,17 @@ printf 'registry=https://npm.evil.example/\n' > "$repo/web/.NPMRC"
 git -C "$repo" add -A
 rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
 report "no-arg mode catches an upper-case .NPMRC" 1 "$rc" "$out" "web/.NPMRC is not a file type"
+mkdir -p "$repo/link"  # not web/: web/.NPMRC would collide on a case-insensitive disk
+printf 'install-links=true\n' > "$repo/link/allowed.txt"
+ln -s allowed.txt "$repo/link/.npmrc"
+git -C "$repo" add -A
+rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
+report "no-arg mode refuses a symlinked .npmrc with an allowed target" 1 "$rc" "$out" "link/.npmrc is a symlink"
+# What a core.symlinks=false checkout leaves: a plain file holding the link
+# text, while git still records mode 120000.
+unlink "$repo/link/.npmrc"; printf 'allowed.txt' > "$repo/link/.npmrc"
+rc=0; out="$(bash "$repo/.github/scripts/check-lockfile-registries.sh" 2>&1)" || rc=$?
+report "a link checked out as a plain file is refused by its git mode" 1 "$rc" "$out" "link/.npmrc is a symlink"
 if [[ "$out" == *"tests/fixtures/x"* ]]; then
   echo "FAIL no-arg mode skips the test fixtures"; echo "$out"; fail=1
 else

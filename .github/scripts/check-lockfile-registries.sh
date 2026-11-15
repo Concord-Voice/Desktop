@@ -75,6 +75,15 @@ SPEC_DEFS='
 
 status=0
 for f in "$@"; do
+  # A symlink is refused before it is read, whatever it points at. Here the
+  # target is read, but a checkout with core.symlinks=false (Windows) writes
+  # the link text into the file, and npm then reads that text as settings.
+  # git's mode catches the link even in such a checkout.
+  mode="$(git -C "$(dirname "$f")" ls-files -s -- "$(basename "$f")" 2>/dev/null | cut -d' ' -f1)" || mode=""
+  if [ -L "$f" ] || [ "$mode" = 120000 ]; then
+    echo "::error file=$f,title=symlinked file::$f is a symlink. Commit the file itself, not a link."
+    status=1; continue
+  fi
   if [ ! -f "$f" ]; then
     echo "::error file=$f::$f not found"; status=1; continue
   fi
