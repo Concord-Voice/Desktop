@@ -53,6 +53,6 @@ it today. Fail such a PR.
 - `.github/scripts/tests/check-lockfile-registries.test.sh` — the off-registry
   fixture must fail; plus a case for each rule above, the fail-closed errors,
   and the no-argument mode CI runs (in a scratch git repository).
-- `.github/workflows/lockfile-registries.yml` — runs on every PR that changes a
-  lockfile, `.npmrc`, `go.mod`, `go.work`, the config or the guard.
-  `contents: read`.
+- `.github/workflows/lockfile-registries.yml` — runs on every PR, with no paths
+  filter (the check takes seconds, and a filter would have to match every case
+  variant npm reads on Windows). `contents: read`.
