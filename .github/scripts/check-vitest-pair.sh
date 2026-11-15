@@ -30,7 +30,8 @@ for root in "$@"; do
       if (.packages | type) != "object" then error("no packages map") else . end
       | [.packages["node_modules/vitest"].version // "",
          .packages["node_modules/@vitest/coverage-istanbul"].version // ""]
-      | if all(test("^[0-9A-Za-z.+-]*$")) then join(" ")
+      # \A and \z, not ^ and $: in jq those also match around a newline.
+      | if all(test("\\A[0-9A-Za-z.+-]*\\z")) then join(" ")
         else error("a version is not plain semver") end' "$lock" 2>&1)"; then
     echo "::error file=$lock::$lock: cannot read the vitest pair (${pair//$'\n'/ })"
     status=1; continue

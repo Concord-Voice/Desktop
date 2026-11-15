@@ -53,8 +53,36 @@ if grep -q '^::notice::' <<<"$out" || [[ "$out" != *"not plain semver"* ]]; then
 else
   echo "ok   newline in a version cannot start a workflow command"
 fi
+mkdir -p "$tmp/plugin-prerelease" "$tmp/newline"
+jq '.packages["node_modules/@vitest/coverage-istanbul"].version = "5.1.0-beta.1"' \
+  "$FIX/matched/package-lock.json" > "$tmp/plugin-prerelease/package-lock.json"
+expect 1 "pre-release plugin is behind its release" "$tmp/plugin-prerelease" \
+  "@vitest/coverage-istanbul is behind" "vitest@5.1.0 @vitest/coverage-istanbul@5.1.0"
+jq '.packages["node_modules/@vitest/coverage-istanbul"].version = "5.1.0\n"' \
+  "$FIX/matched/package-lock.json" > "$tmp/newline/package-lock.json"
+expect 1 "trailing newline in a version fails" "$tmp/newline" "not plain semver"
 expect 0 "root without the plugin passes" "$tmp/no-plugin"
 expect 1 "plugin without vitest fails" "$tmp/no-vitest" "vitest missing"
 expect 1 "missing lockfile fails" "$tmp/missing" "not found"
+
+# Several roots in one run: every root is checked, and one split fails the run.
+out="$(bash "$CHECK" "$FIX/matched" "$FIX/split" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 1 ] && [[ "$out" == *"ok   $FIX/matched"* && "$out" == *"$FIX/split: vitest 5.0.5"* ]]; then
+  echo "ok   several roots are all checked"
+else
+  echo "FAIL several roots are all checked: exit $rc"; echo "$out"; fail=1
+fi
+out="$(bash "$CHECK" "$FIX/split" "$FIX/matched" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 1 ] && [[ "$out" == *"ok   $FIX/matched"* ]]; then
+  echo "ok   a split root does not stop later roots"
+else
+  echo "FAIL a split root does not stop later roots: exit $rc"; echo "$out"; fail=1
+fi
+out="$(bash "$CHECK" 2>&1)" && rc=0 || rc=$?
+if [ "$rc" -eq 2 ] && [[ "$out" == *"usage:"* ]]; then
+  echo "ok   no arguments prints usage and exits 2"
+else
+  echo "FAIL no arguments prints usage and exits 2: exit $rc"; echo "$out"; fail=1
+fi
 
 exit "$fail"

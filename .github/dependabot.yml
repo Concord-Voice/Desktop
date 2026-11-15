@@ -205,7 +205,7 @@ updates:
         # here only for a pair whose split cannot be merged.
         #
         # This group is REQUIRED in every npm entry that groups the pair; the
-        # other three carry a pointer back to this comment.
+        # tools/concord-bridge entry carries a pointer back to this comment.
         applies-to: security-updates
         dependency-type: "development"
         patterns:
