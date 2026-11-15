@@ -1,0 +1,161 @@
+// regression for #242
+// desktop/tests/unit/services/voiceService.reconnectMuteState.test.ts
+/**
+ * Oracle: while the local user is deafened, server-muted, server-deafened or
+ * test-suspended (even when not self-muted), neither exitSoloBandwidthSaving() nor
+ * resumeLocalProducer('mic') emits resume-producer or calls mic.resume().
+ * Harness: real voiceService singleton + stub socket (voiceService.mediaPolicy.test.ts).
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { voiceService } from '@/renderer/services/voice/voiceService';
+import { resetAllStores } from '../../helpers/store-helpers';
+import { useVoiceStore, type VoiceParticipant } from '@/renderer/stores/voice/voiceStore';
+import { useUserStore } from '@/renderer/stores/auth/userStore';
+
+const LOCAL = 'local-user';
+const PEER = 'peer-user';
+
+const producerStub = (id: string, paused = false) => ({
+  id,
+  closed: false,
+  paused,
+  close: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn().mockResolvedValue(undefined),
+  replaceTrack: vi.fn().mockResolvedValue(undefined),
+  on: vi.fn(),
+});
+
+const participant = (userId: string, over: Partial<VoiceParticipant> = {}): VoiceParticipant => ({
+  userId,
+  username: userId,
+  isMuted: false,
+  isDeafened: false,
+  serverMuted: false,
+  serverDeafened: false,
+  isVideoOn: false,
+  isScreenSharing: false,
+  isSpeaking: false,
+  ...over,
+});
+
+const liveGraph = () => ({
+  failed: false,
+  track: { readyState: 'live' },
+  settings: { musicMode: false, autoGainControl: true },
+});
+
+describe('voiceService reconnect mute-state resume guard (#242)', () => {
+  /* eslint-disable @typescript-eslint/no-explicit-any -- private members under test. */
+  let svc: any;
+  let socket: {
+    emit: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+    io: { on: ReturnType<typeof vi.fn> };
+  };
+
+  const handler = (event: string): ((...args: unknown[]) => unknown) => {
+    const call = socket.on.mock.calls.find((c: unknown[]) => c[0] === event);
+    if (!call) throw new Error(`no handler registered for ${event}`);
+    return call[1] as (...args: unknown[]) => unknown;
+  };
+  const emitted = (event: string) =>
+    socket.emit.mock.calls.filter((c: unknown[]) => c[0] === event);
+
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    useUserStore.setState({ user: { id: LOCAL } as any });
+    svc = voiceService as any;
+    svc.producers.clear();
+    svc.micGraph = null;
+    svc.consumers = new Map();
+    svc.consumerMeta = new Map();
+    svc.testSuspendedProducerIds.clear();
+    svc.testRestoreEligibleProducerIds.clear();
+    socket = { emit: vi.fn(), on: vi.fn(), disconnect: vi.fn(), io: { on: vi.fn() } };
+    svc.socket = socket;
+    svc.drainSendTransportQueue = vi.fn().mockResolvedValue(undefined);
+    useVoiceStore.getState().setParticipants([participant(LOCAL), participant(PEER)]);
+    svc.setupSocketListeners();
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const paths: Array<[string, () => void]> = [
+    ['exitSoloBandwidthSaving', () => svc.exitSoloBandwidthSaving()],
+    ["resumeLocalProducer('mic')", () => svc.resumeLocalProducer('mic')],
+  ];
+
+  const states: Array<[string, () => void, number]> = [
+    ['CONTROL (nothing set)', () => {}, 1],
+    ['muted', () => useVoiceStore.getState().setMuted(true), 0],
+    ['deafened (not self-muted)', () => useVoiceStore.getState().setDeafened(true), 0],
+    [
+      'serverMuted',
+      () =>
+        useVoiceStore
+          .getState()
+          .setParticipants([participant(LOCAL, { serverMuted: true }), participant(PEER)]),
+      0,
+    ],
+    [
+      'serverDeafened',
+      () =>
+        useVoiceStore
+          .getState()
+          .setParticipants([participant(LOCAL, { serverDeafened: true }), participant(PEER)]),
+      0,
+    ],
+    ['test-suspended', () => svc.testSuspendedProducerIds.add('mic-1'), 0],
+    ['latched', () => useVoiceStore.getState().setMediaPolicyPaused('mic', 'mic-1'), 0],
+  ];
+
+  describe.each(paths)('%s', (pathName, run) => {
+    it.each(states)('%s', (stateName, arrange, expectedEmits) => {
+      const mic = producerStub('mic-1', true);
+      svc.producers.set('mic', mic);
+      svc.micGraph = liveGraph();
+      arrange();
+      run();
+      const resumes = emitted('resume-producer');
+      expect(
+        resumes.length,
+        `${pathName} must emit ${expectedEmits} resume-producer while ${stateName}`
+      ).toBe(expectedEmits);
+      if (expectedEmits === 1) {
+        expect(resumes[0], `${pathName} CONTROL must resume mic-1`).toEqual([
+          'resume-producer',
+          { producerId: 'mic-1' },
+        ]);
+      }
+      expect(
+        mic.resume.mock.calls.length,
+        `${pathName} must ${expectedEmits ? '' : 'not '}call mic.resume() while ${stateName}`
+      ).toBe(expectedEmits);
+    });
+  });
+
+  it('deafened before the mic exists, then the peer leaves and rejoins, never resumes the mic', async () => {
+    // 1. deafen with no producer present
+    svc.toggleDeafen();
+    // 2. mic + live graph appear afterwards (reconnect path)
+    const mic = producerStub('mic-1', true);
+    svc.producers.set('mic', mic);
+    svc.micGraph = liveGraph();
+    // 3. peer leaves (enters solo) and rejoins (exits solo) through the real handlers
+    await handler('user-left')({ userId: PEER });
+    await handler('user-joined')({ userId: PEER, username: PEER });
+    // 4.
+    expect(
+      emitted('resume-producer').filter((c) => (c[1] as any)?.producerId === 'mic-1'),
+      "peer rejoin must not emit resume-producer for a deafened user's mic"
+    ).toEqual([]);
+    expect(
+      mic.resume,
+      "peer rejoin must not locally resume a deafened user's mic"
+    ).not.toHaveBeenCalled();
+  });
+});
