@@ -242,13 +242,16 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
     it("buildParticipantList seeds the local user's own mute and deafen state from the store", () => {
       useVoiceStore.getState().setMuted(true);
       useVoiceStore.getState().setDeafened(true);
-      const list = svc.buildParticipantList({
-        participants: [
-          { userId: LOCAL, username: 'l' },
-          { userId: PEER, username: 'p', isDeafened: false },
-        ],
-        existingProducers: [],
-      }) as VoiceParticipant[];
+      const list = svc.buildParticipantList(
+        {
+          participants: [
+            { userId: LOCAL, username: 'l' },
+            { userId: PEER, username: 'p', isDeafened: false },
+          ],
+          existingProducers: [],
+        },
+        { server_muted: false, server_deafened: false }
+      ) as VoiceParticipant[];
       const local = list.find((p) => p.userId === LOCAL);
       const peer = list.find((p) => p.userId === PEER);
       expect(local?.isMuted, 'local participant isMuted must be seeded from the store').toBe(true);

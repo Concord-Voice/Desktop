@@ -4296,7 +4296,10 @@ describe('VoiceService Extended', () => {
         ],
       });
 
-      const participants = svc.buildParticipantList(roomJoined);
+      const participants = svc.buildParticipantList(roomJoined, {
+        server_muted: false,
+        server_deafened: false,
+      });
       expect(participants).toHaveLength(3);
 
       const user2 = participants.find((p: any) => p.userId === 'user-2');
