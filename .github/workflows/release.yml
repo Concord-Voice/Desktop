@@ -725,12 +725,43 @@ jobs:
 
   # SBOMs (#218). Release-Ops verify.yml refuses a release artifact without
   # <artifact>/<artifact>.cdx.json, attested by this workflow like every other
-  # file. The two jobs split that the same way as the build: `sbom` runs the
+  # file. The jobs split that the same way as the build: `sbom` runs the
   # third-party scanner and holds no id-token; `attach-sbom` holds id-token,
   # runs no npm and no scanner, and only checks, attests and re-uploads data.
+  # `leg-digests` records every file before the scanner runs, and attach-sbom
+  # re-uploads a leg only if it still matches. verify-unsigned-desktop.py pins
+  # leg-digests and attach-sbom exactly: change them only with that pin.
+  leg-digests:
+    name: Record the release artifact digests
+    needs: [check-tag, release-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
+    steps:
+      - name: Download the release artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: concord-voice-*-v${{ needs.check-tag.outputs.version }}
+          path: ${{ runner.temp }}/legs
+
+      - name: Record every file's SHA-256 per release artifact
+        id: digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/legs"
+          json=$(for leg in */; do
+            (cd "$leg" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) \
+              | jq -Rn --arg l "${leg%/}" '{($l): [inputs]}'
+          done | jq -sc add)
+          echo "digests=$json" >> "$GITHUB_OUTPUT"
+
   sbom:
     name: Generate release SBOMs
-    needs: [check-tag, release-build]
+    needs: [check-tag, leg-digests]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -772,7 +803,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sbom"
-          # The six release-build legs. attach-sbom repeats the list as its matrix.
+          # The six release-build legs. attach-sbom repeats the list as its matrix,
+          # and a leg missing here fails there at the copy.
           for label in windows-x64 windows-arm64 macos-arm64 macos-x64 linux-x64 linux-arm64; do
             name="concord-voice-${label}-v${VERSION}"
             bash .github/scripts/generate-desktop-sbom.sh "$RUNNER_TEMP/legs/$name" "$RUNNER_TEMP/sbom/$name.cdx.json"
@@ -791,7 +823,7 @@ jobs:
 
   attach-sbom:
     name: Attest and attach SBOM (${{ matrix.label }})
-    needs: [check-tag, sbom]
+    needs: [check-tag, leg-digests, sbom]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -811,6 +843,18 @@ jobs:
         with:
           name: ${{ env.LEG }}
           path: ${{ runner.temp }}/leg
+
+      # The scanner job could replace an artifact while it runs. Re-upload
+      # only the exact files release-build uploaded.
+      - name: Check the release artifact is unchanged since release-build
+        shell: bash
+        env:
+          DIGESTS: ${{ needs.leg-digests.outputs.digests }}
+        run: |
+          set -euo pipefail
+          expected=$(jq -r --arg l "$LEG" '.[$l] // empty | .[]' <<<"$DIGESTS")
+          actual=$(cd "$RUNNER_TEMP/leg" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum)
+          [[ -n "$expected" && "$actual" == "$expected" ]] || { echo "::error::$LEG changed after release-build"; exit 1; }
 
       - name: Download the SBOMs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -837,6 +881,8 @@ jobs:
 
       # Replaces the artifact under the same name with the same installer files
       # (attested by release-build, by digest) plus the SBOM at the top level.
+      # overwrite deletes the old artifact first. If this step fails, the leg's
+      # artifact is gone: re-run all jobs, not only the failed ones.
       - name: Re-upload the release artifact with its SBOM
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

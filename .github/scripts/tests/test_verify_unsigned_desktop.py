@@ -134,6 +134,18 @@ class UnsignedDesktopTest(unittest.TestCase):
             'attach skips attestation': lambda w: w['jobs']['attach-sbom'].update(steps=[
                 s for s in w['jobs']['attach-sbom']['steps'] if 'attest' not in s.get('uses', '')]),
             'attach before packaging': lambda w: w['jobs']['attach-sbom'].update(needs=['check-tag']),
+            'attach runs a python shell': lambda w: w['jobs']['attach-sbom']['steps'][0].update(shell='python {0}'),
+            'attach runs sh': lambda w: w['jobs']['attach-sbom']['steps'].insert(0, {'run': 'sh x'}),
+            'attach attests a wider path': lambda w: next(
+                s for s in w['jobs']['attach-sbom']['steps'] if 'attest' in s.get('uses', ''))['with'].update(
+                {'subject-path': '${{ runner.temp }}/leg/**'}),
+            'attach skips the digest check': lambda w: w['jobs']['attach-sbom'].update(steps=[
+                s for s in w['jobs']['attach-sbom']['steps'] if 'unchanged' not in s.get('name', '')]),
+            'attach in a container': lambda w: w['jobs']['attach-sbom'].update(container='node:24'),
+            'workflow run defaults': lambda w: w.update(defaults={'run': {'shell': 'python {0}'}}),
+            'digests job dropped': lambda w: w['jobs'].pop('leg-digests'),
+            'scanner before digests': lambda w: w['jobs']['sbom'].update(needs=['check-tag', 'release-build']),
+            'digests job runs a tool': lambda w: w['jobs']['leg-digests']['steps'].append({'run': 'npx x'}),
             'attach writes contents': lambda w: w['jobs']['attach-sbom']['permissions'].update(contents='write'),
         }
         for label, mutate in mutations.items():

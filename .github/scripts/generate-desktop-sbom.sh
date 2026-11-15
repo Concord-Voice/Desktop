@@ -18,8 +18,8 @@ set -euo pipefail
 
 die() { echo "::error::generate-desktop-sbom: $*" >&2; exit 1; }
 [ $# -eq 2 ] || die "usage: generate-desktop-sbom.sh ARTIFACT_DIR OUT_FILE"
-dir=$1 out=$2
-[ -d "$dir" ] || die "no artifact directory $dir"
+out=$2
+dir=$(cd "$1" 2>/dev/null && pwd) || die "no artifact directory $1"
 name=$(basename "$dir")
 
 work=$(mktemp -d)
@@ -35,9 +35,9 @@ exes=$(count "$dir" '*Setup.exe') zips=$(count "$dir" '*.zip') debs=$(count "$di
 case "$exes$zips$debs" in
   100)
     # NSIS keeps the app as $PLUGINSDIR/app-<arch>.7z inside the installer.
-    7z x -y -bd -o"$work/nsis" "$(find "$dir" -type f -name '*Setup.exe')" >/dev/null
+    7z x -y -bd -snl- -o"$work/nsis" "$(find "$dir" -type f -name '*Setup.exe')" >/dev/null
     [ "$(count "$work/nsis" 'app-*.7z')" -eq 1 ] || die "$name: expected one app-*.7z in the installer"
-    7z x -y -bd -o"$root" "$(find "$work/nsis" -type f -name 'app-*.7z')" >/dev/null ;;
+    7z x -y -bd -snl- -o"$root" "$(find "$work/nsis" -type f -name 'app-*.7z')" >/dev/null ;;
   010)
     unzip -q "$(find "$dir" -type f -name '*.zip')" -x '__MACOSX/*' -d "$root" ;;
   001)
@@ -87,8 +87,10 @@ PY
 "${SYFT:-syft}" scan "dir:$root" --override-default-catalogers image \
   --source-name "$name" -q -o "cyclonedx-json=$work/syft.json"
 
-# The .node addons, by path under the install root and SHA-256.
+# The .node addons, by path under the install root and SHA-256. The list is
+# taken first, so a find failure stops the script instead of dropping addons.
 addons='[]'
+nodes=$(cd "$root" && find . -type f -name '*.node' | LC_ALL=C sort)
 while IFS= read -r f; do
   [ -n "$f" ] || continue
   sum=$( (sha256sum "$root/$f" 2>/dev/null || shasum -a 256 "$root/$f") | cut -d' ' -f1)
@@ -96,12 +98,14 @@ while IFS= read -r f; do
     '. + [{type: "library", name: ($p | split("/") | last | sub("[.]node$"; "")),
            hashes: [{alg: "SHA-256", content: $s}],
            properties: [{name: "concord:installPath", value: $p}]}]' <<<"$addons")
-done < <(cd "$root" && find . -type f -name '*.node' | LC_ALL=C sort)
+done <<<"$nodes"
 
 jq --argjson addons "$addons" '.components = ((.components // []) + $addons)' "$work/syft.json" > "$out"
 
-# Fail rather than publish an empty SBOM: a cataloger change in syft would
-# otherwise pass silently.
-jq -e '.bomFormat == "CycloneDX" and ([.components[] | select((.purl // "") | startswith("pkg:npm/"))] | length > 0)' \
-  "$out" >/dev/null || die "$name: the SBOM lists no npm package"
+# Fail rather than publish an empty or gutted SBOM: a cataloger change in syft
+# would otherwise pass silently. v0.3.1 ships 198 npm packages per leg.
+# ponytail: a fixed floor; raise it if the app's dependency tree grows a lot.
+MIN_NPM=${MIN_NPM:-100}
+jq -e --argjson min "$MIN_NPM" '.bomFormat == "CycloneDX" and ([.components[] | select((.purl // "") | startswith("pkg:npm/"))] | length >= $min)' \
+  "$out" >/dev/null || die "$name: the SBOM lists fewer than $MIN_NPM npm packages"
 echo "$name: $(jq '[.components[] | select((.purl // "") | startswith("pkg:npm/"))] | length' "$out") npm package(s), $(jq length <<<"$addons") .node addon(s)"

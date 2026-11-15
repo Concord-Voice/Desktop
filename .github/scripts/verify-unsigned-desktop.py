@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Desktop D1: unsigned artifacts cannot acquire release capabilities."""
+import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -77,7 +79,7 @@ def verify_release(workflows, unsigned_job):
         raise ValueError('release: must run only on a v* tag push')
     if release.get('permissions') != {'contents': 'read'}:
         raise ValueError('release: workflow permissions must be read-only')
-    if set(release['jobs']) != {'ioc', 'check-tag', 'release-build', 'sbom', 'attach-sbom'}:
+    if set(release['jobs']) != {'ioc', 'check-tag', 'release-build', 'leg-digests', 'sbom', 'attach-sbom'}:
         raise ValueError('release: must contain only IOC, tag check, packaging and SBOM jobs')
     text = yaml.safe_dump(release)
     if re.search(r'\bsecrets\b|gh\s+release|git\s+push|azure/login|apple-actions/import-codesign-certs', text):
@@ -107,30 +109,41 @@ def verify_release(workflows, unsigned_job):
     uploaded = sorted(p for s in uploads for p in s['with']['path'].split())
     if not attests or attested != uploaded:
         raise ValueError('release: attested paths must equal uploaded paths')
-    verify_release_sbom(release['jobs'], job)
+    verify_release_sbom(release, job)
 
 
-def verify_release_sbom(jobs, build):
-    """#218: the scanner runs without id-token; the attesting job runs only data steps."""
-    sbom, attach = jobs['sbom'], jobs['attach-sbom']
-    if sbom.get('needs') != ['check-tag', 'release-build'] or attach.get('needs') != ['check-tag', 'sbom']:
-        raise ValueError('release: SBOM jobs must follow packaging')
-    if sbom.get('permissions') != {'contents': 'read'}:
+def job_digest(job):
+    return hashlib.sha256(json.dumps(job, sort_keys=True).encode()).hexdigest()
+
+
+# #218: the two jobs that see release bytes next to id-token are pinned exactly,
+# so no step, shell, container or path can change without a reviewed update
+# here. After reviewing a change to either job, set its new digest (printed by
+# the error) below.
+PINNED_JOBS = {
+    'leg-digests': '0e8ad7028daeb2ef05b30e8f4a9a91e3e8b718fb62da7ee0524dc87e4a12a6fa',
+    'attach-sbom': '19faef6f7f1116003ef9e8f4837bff57f9957665622438514ecf1ac0e2d84c08',
+}
+
+
+def verify_release_sbom(release, build):
+    """#218: the scanner runs without id-token; the jobs around it are pinned."""
+    jobs = release['jobs']
+    if 'defaults' in release or any('defaults' in job for job in jobs.values()):
+        raise ValueError('release: defaults would change every run step')
+    if (jobs['leg-digests'].get('needs') != ['check-tag', 'release-build']
+            or jobs['sbom'].get('needs') != ['check-tag', 'leg-digests']
+            or jobs['attach-sbom'].get('needs') != ['check-tag', 'leg-digests', 'sbom']):
+        raise ValueError('release: digests, scanner and attach must run in that order after packaging')
+    if jobs['sbom'].get('permissions') != {'contents': 'read'}:
         raise ValueError('release: the SBOM scanner job must be read-only')
-    allowed = ('actions/download-artifact@', 'actions/attest-build-provenance@', 'actions/upload-artifact@')
-    for step in attach['steps']:
-        uses = step.get('uses', '')
-        if uses and not uses.startswith(allowed):
-            raise ValueError(f'release: attach-sbom may not use {uses}')
-        if re.search(r'\b(npm|npx|node|syft|bash\s+\S|python3?|curl|wget)\b', step.get('run', '')):
-            raise ValueError('release: attach-sbom must run no tools, only checks on data')
     labels = [leg['label'] for leg in build['strategy']['matrix']['include']]
-    if attach['strategy']['matrix'].get('label') != labels:
+    if jobs['attach-sbom']['strategy']['matrix'].get('label') != labels:
         raise ValueError('release: every packaging leg needs its SBOM attached')
-    attests = [s for s in attach['steps'] if 'attest-build-provenance@' in s.get('uses', '')]
-    if len(attests) != 1:
-        raise ValueError('release: attach-sbom must attest the SBOM')
-
+    for name, pin in PINNED_JOBS.items():
+        digest = job_digest(jobs[name])
+        if digest != pin:
+            raise ValueError(f'release: {name} changed (sha256 {digest}); review it, then update PINNED_JOBS')
 
 def main():
     if len(sys.argv) > 2:

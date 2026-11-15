@@ -62,7 +62,7 @@ chmod +x "$WORK/bin/syft" "$WORK/bin/7z"
 
 run() { # $1 = artifact dir; sets OUT, RC, SBOM
   SBOM="$(mktemp "$WORK/out.XXXXXX")"
-  OUT=$(PATH="$WORK/bin:$PATH" bash "$SCRIPT" "$1" "$SBOM" 2>&1); RC=$?
+  OUT=$(PATH="$WORK/bin:$PATH" MIN_NPM="${MIN_NPM:-1}" bash "$SCRIPT" "$1" "$SBOM" 2>&1); RC=$?
 }
 leg() { # $1 = label; prints a new, empty release-artifact directory
   local d; d="$(mktemp -d "$WORK/leg.XXXXXX")/concord-voice-$1-v9.9.9"; mkdir "$d"; echo "$d"
@@ -152,8 +152,19 @@ run "$D"
 D=$(leg windows-x64)
 printf 'exe' > "$D/ConcordVoice-9.9.9-windows-x64-Setup.exe"
 SYFT_STUB_EMPTY=1 run "$D"
-[ "$RC" -ne 0 ] && grep -q 'lists no npm package' <<<"$OUT" \
+[ "$RC" -ne 0 ] && grep -q 'fewer than 1 npm packages' <<<"$OUT" \
   && ok "an SBOM with no npm package fails" || bad "an empty SBOM must fail" "$OUT"
+
+D=$(leg windows-x64)
+printf 'exe' > "$D/ConcordVoice-9.9.9-windows-x64-Setup.exe"
+MIN_NPM=2 run "$D"
+[ "$RC" -ne 0 ] && grep -q 'fewer than 2 npm packages' <<<"$OUT" \
+  && ok "an SBOM below the npm package floor fails" || bad "a gutted SBOM must fail" "$OUT"
+
+D=$(leg windows-x64)
+printf 'exe' > "$D/ConcordVoice-9.9.9-windows-x64-Setup.exe"
+OUT=$(cd "$(dirname "$D")" && PATH="$WORK/bin:$PATH" MIN_NPM=1 bash "$SCRIPT" "$(basename "$D")" "$WORK/rel.cdx.json" 2>&1); RC=$?
+[ "$RC" -eq 0 ] && ok "a relative artifact directory works" || bad "a relative artifact directory must work" "$OUT"
 
 echo "─────────────────────────────────"
 echo "generate-desktop-sbom test: $pass passed, $fail failed"
