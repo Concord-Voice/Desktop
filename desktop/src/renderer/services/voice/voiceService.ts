@@ -6882,7 +6882,12 @@ class VoiceService {
     if (this.isMediaPolicyLatched(producer.id)) return;
 
     const wasMuted = store.isMuted;
-    if (wasMuted && this.canUnmuteMic(store) && !this.undeafenForUnmute()) return;
+    // Undeafen only when the unmute can proceed; a dead mic graph would leave the user
+    // undeafened but still muted (#242 review).
+    if (wasMuted && this.canUnmuteMic(store)) {
+      if (!this.hasLiveMicGraph(producer)) return;
+      if (!this.undeafenForUnmute()) return;
+    }
     try {
       if (wasMuted) {
         await this.unmuteMicProducer(store, producer);

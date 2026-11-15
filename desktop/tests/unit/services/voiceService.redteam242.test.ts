@@ -181,6 +181,20 @@ describe('red team #242: mic must stay paused while muted or deafened', () => {
     expect(emitted('resume-producer')).toEqual([['resume-producer', { producerId: 'mic-1' }]]);
   });
 
+  it('toggleMute (unmute) while deafened with a dead mic graph changes nothing', async () => {
+    const mic = statefulMic('mic-1', true);
+    svc.producers.set('mic', mic);
+    svc.micGraph = { ...liveGraph(), failed: true };
+    useVoiceStore.getState().setDeafened(true);
+    useVoiceStore.getState().setMuted(true);
+    socket.emit.mockClear();
+    await svc.toggleMute();
+    const { isMuted, isDeafened } = useVoiceStore.getState();
+    expect({ isMuted, isDeafened }).toEqual({ isMuted: true, isDeafened: true });
+    expect(emitted('set-deafen')).toEqual([]);
+    expect(emitted('resume-producer')).toEqual([]);
+  });
+
   it('toggleMute (unmute) while server-deafened is refused: stays deafened and paused', async () => {
     const mic = statefulMic('mic-1', true);
     svc.producers.set('mic', mic);
