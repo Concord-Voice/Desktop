@@ -741,9 +741,10 @@ deliberately.** `releaseScreenAudioBridge` closes only the renderer's end of the
 the interrupt claim; `stopScreenAudioHost` does that AND reaps the capture child over the
 `audiocap:stop` invoke. `handleScreenAudioInterrupt` calls `releaseScreenAudioBridge` alone, never
 `stopScreenAudioHost`, because main has ALREADY retired the child by the time the push reaches the
-renderer — `retire()` in `audiocapHost.ts` reaps the child first and publishes the interrupt last
-(see [`electron.md`](electron.md) § "IPC contract v30"). An `audiocap:stop` invoke here would ask
-main to stop a session that no longer exists — harmless (main resolves which child to reap from its
+renderer — `retire()` in `audiocapHost.ts` publishes the interrupt last, after the child is gone:
+on a crash the child has already exited and is not killed or reaped, and every other cause reaps
+it first, then settles, then publishes (see [`electron.md`](electron.md) § "IPC contract v30").
+An `audiocap:stop` invoke here would ask main to stop a session that no longer exists — harmless (main resolves which child to reap from its
 own session state and finds none) but a wasted round trip. Every OTHER local teardown — the user
 turning audio off, switching source, ending the share — still routes through `stopScreenAudioHost`,
 because in each of those the renderer itself is the one ending a still-live child.

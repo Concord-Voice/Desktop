@@ -77,7 +77,8 @@
 //     'capturing'` (the start promise already settled `ok:true`, so the renderer
 //     holds a bridge that nothing else will tell it is dead). The decision is
 //     taken at entry, before `retire` forgets the session; the listener runs
-//     last, after the child is reaped and the promise settled, inside a
+//     last, after the child is reaped (on the crash path it has already
+//     exited, so there is nothing to reap) and the promise settled, inside a
 //     try/catch. At most once per session: the first retire forgets it, and the
 //     `session !== live` fence drops everything that child says afterwards.
 //
@@ -252,6 +253,11 @@ interface HostSession {
   /** Armed on entering `starting`; cleared by `started`, and by `clearTimers` on every exit. */
   startAckTimer: NodeJS.Timeout | null;
   capability: AudiocapCapability | null;
+  /**
+   * Set only by the fork-time `exit` listener, just before it calls `retire`: the child
+   * has already exited, so `retire` does not reap it. See `reapChild`.
+   */
+  childExited: boolean;
 }
 
 /**
@@ -410,8 +416,9 @@ function settleOnce(live: HostSession, result: AudiocapStartResult): void {
 }
 
 /**
- * Terminal for THIS session: stop its timers, forget it, kill its child, and --
- * only for the involuntary end of a live capture -- tell main (I7).
+ * Terminal for THIS session: stop its timers, forget it, kill its child unless the
+ * child has already exited, and -- only for the involuntary end of a live capture --
+ * tell main (I7).
  *
  * Killing after forgetting is what makes the kill safe to issue from anywhere —
  * the `exit` that follows finds `session !== live` and does nothing.
@@ -436,8 +443,9 @@ function retire(
   clearTimers(live);
   // `reapChild`, not a bare `kill()`: a handshake timeout can fire while the
   // child is still spawning, and a bare kill there returns false and leaves it
-  // to come up unreachable. See `reapChild`.
-  reapChild(live.child);
+  // to come up unreachable. Skipped on the crash path only, where the child has
+  // already exited; every other cause reaps, `error` included. See `reapChild`.
+  if (!live.childExited) reapChild(live.child);
   settleOnce(live, result);
   // LAST, so a listener that throws cannot skip the reap or the settle, and one
   // that re-enters `startAudiocapHost` finds this session already forgotten.
@@ -707,7 +715,7 @@ export function stopAudiocapHost(): void {
  * and killing in the same tick:
  *
  *     A same-tick kill() returned: false
- *     A after 2.5s: spawned=true exited=false pid=7659
+ *     A after 2.5s: spawned=true exited=false
  *     B post-spawn kill() returned: true      <- control
  *     B after 1.5s: exited=true
  *
@@ -728,9 +736,32 @@ export function stopAudiocapHost(): void {
  * two starts in quick succession open it exactly as described above -- which is why it
  * was fixed ahead of the share path rather than left for that path to inherit.
  *
+ * WHY THE FIRST `kill()` RETURNS FALSE. In Electron 45's source the JS handle exists
+ * from the constructor, so before launch the `false` comes from native Kill, which has
+ * no pid yet. Measured on Electron 45.2.3 (the version the lockfile pins) and 45.0.0,
+ * on Linux: `kill()` straight after `fork` returns false, and a second `kill()` inside
+ * the `spawn` listener returns true. That second call is the listener below.
+ *
  * `once('spawn')` rather than a timer: the event is the precise moment the OS
- * process exists, and an unreaped listener on a child that never spawns costs
- * nothing because the child is unreachable either way.
+ * process exists. In the same runs, a fork that fails at launch emitted `exit` and
+ * nothing else (no `spawn`, no `error`, nothing in the 2 s after it), and `spawn`
+ * never followed `exit`, also in the runs whose launch failed after `spawn`. Nothing
+ * holds the wrapper after `exit`: a forced GC collected it in those runs, so an
+ * unfired listener is collected with it. A timer would be worse: a `spawn` that
+ * arrives after it fires strands a live process nothing can kill.
+ *
+ * NOT CALLED ON THE CRASH PATH. In the same source the handle is cleared in a
+ * `finally` AFTER the `exit` emit, so a `kill()` from inside an `exit` listener passes
+ * the null-handle check and reaches native Kill for a child that is already gone. The
+ * measured runs returned false there, but the host does not rely on it: it never kills
+ * a child from inside that child's `exit`. The fork-time `exit` listener sets
+ * `childExited`, and `retire` skips the reap. Every other caller reaps, `error`
+ * included.
+ *
+ * Re-verify these properties on every Electron major bump with
+ * `desktop/scripts/utility-process-probe/`. The decision record is ADR-0043, "Record
+ * correction: issue 213, the `reapChild` spawn-listener residual is settled
+ * (2026-11-15)".
  */
 function reapChild(child: UtilityProcess): void {
   if (child.kill()) return;
@@ -1108,6 +1139,7 @@ export function startAudiocapHost(
       handshakeTimer: null,
       startAckTimer: null,
       capability: null,
+      childExited: false,
     };
     session = live;
     hostState = 'handshaking';
@@ -1129,11 +1161,14 @@ export function startAudiocapHost(
     // Mid-share, the same death is published as `child-crash` (I7).
     child.on('exit', () => {
       if (session !== live) return;
+      // The child is already gone, so `retire` must not reap it (see `reapChild`).
+      live.childExited = true;
       retire(live, { ok: false, reason: 'child-crash' }, 'faulted', 'child-crash');
     });
 
     // 'error' carries a Node diagnostic report; none of its arguments is read,
-    // let alone logged (C8).
+    // let alone logged (C8). It keeps the reap: a child that raised `error` may
+    // still be running.
     child.on('error', () => {
       if (session !== live) return;
       retire(live, { ok: false, reason: 'child-crash' }, 'faulted', 'child-crash');
