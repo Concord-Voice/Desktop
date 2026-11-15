@@ -10,6 +10,7 @@ import { captureRuntimeServerSelection } from '@/renderer/services/system/runtim
 import Modal from '@/renderer/components/ui/Modal';
 import MFAChallengeModal from '@/renderer/components/Auth/MFAChallengeModal';
 import AttestationFailedModalHost from '@/renderer/components/AttestationFailedModal';
+import type * as SsoService from '@/renderer/services/system/ssoService';
 import { useAttestationFailureStore } from '@/renderer/stores/auth/attestationFailureStore';
 import {
   installTopLayerEmulation,
@@ -23,7 +24,7 @@ import {
 // regression test never submits a code, so none of these are actually
 // invoked — they exist purely so the module graph resolves in jsdom.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoService>();
   return { ...actual, completeSSOMFA: vi.fn(), abandonSSOReservation: vi.fn() };
 });
 
