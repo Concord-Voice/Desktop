@@ -73,6 +73,7 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
     svc.micGraph = null;
     svc.consumers = new Map();
     svc.consumerMeta = new Map();
+    svc.testSuspensionDepth = 0;
     svc.testSuspendedProducerIds.clear();
     svc.testRestoreEligibleProducerIds.clear();
     socket = { emit: vi.fn(), on: vi.fn(), disconnect: vi.fn(), io: { on: vi.fn() } };
@@ -109,7 +110,15 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
           .setParticipants([participant(LOCAL, { serverDeafened: true }), participant(PEER)]),
       0,
     ],
-    ['test-suspended', () => svc.testSuspendedProducerIds.add('mic-1'), 0],
+    [
+      'test-suspended',
+      () => {
+        // A real suspension always has depth > 0 (shouldKeepProducerSuspendedForTest).
+        svc.testSuspensionDepth = 1;
+        svc.testSuspendedProducerIds.add('mic-1');
+      },
+      0,
+    ],
     ['latched', () => useVoiceStore.getState().setMediaPolicyPaused('mic', 'mic-1'), 0],
   ];
 
