@@ -74,8 +74,9 @@ All changes are in `desktop/src/renderer/services/voice/voiceService.ts`.
 - Unmuting while deafened also undeafens. A server-deafened user's unmute is refused.
 - A server-deafen pauses the mic even when the server did not also server-mute.
 - After a deafen, `enforceDeafenedMicOff` pauses a live mic, even when the mute failed.
-- Deferred: the rebuilt roster clears the local `serverMuted`/`serverDeafened` until the join
-  data restores them.
+- The rebuilt roster cleared the local `serverMuted`/`serverDeafened` until the join data restored
+  them. Fixed in the companion change for #247: `buildParticipantList` seeds them from the join
+  data in the same write.
 2. **`exitSoloBandwidthSaving`.** For the mic, resume only when `producer.paused` and
    `canResumeMic(producer)` are both true. Other sources are unchanged.
 3. **`resumeLocalProducer('mic')`.** Same rule as step 2.
