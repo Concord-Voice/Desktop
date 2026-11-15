@@ -729,8 +729,13 @@ export function stopAudiocapHost(): void {
  * was fixed ahead of the share path rather than left for that path to inherit.
  *
  * `once('spawn')` rather than a timer: the event is the precise moment the OS
- * process exists, and an unreaped listener on a child that never spawns costs
- * nothing because the child is unreachable either way.
+ * process exists. In Electron 45 a fork that never launches emits `exit` and never
+ * `spawn`, `spawn` cannot follow `exit`, and nothing holds the wrapper after `exit`,
+ * so the listener is collected with it. The same holds on the crash path, where
+ * `retire` reaps an already-exited child, `kill()` returns false, and the inert
+ * listener goes with the child. A timer would be worse: a `spawn` after it fires
+ * strands a live process nothing can kill. See ADR-0043, "Record correction: issue
+ * 213, the `reapChild` spawn-listener residual is settled (2026-11-15)".
  */
 function reapChild(child: UtilityProcess): void {
   if (child.kill()) return;
