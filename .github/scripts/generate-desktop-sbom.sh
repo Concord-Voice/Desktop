@@ -32,21 +32,21 @@ exes=$(count "$dir" '*Setup.exe') zips=$(count "$dir" '*.zip') debs=$(count "$di
 
 # One installer per leg. macOS ships a .dmg with the same app as the .zip, and
 # Linux an .rpm and AppImage with the same app as the .deb.
-case "$exes$zips$debs" in
-  100)
-    # NSIS keeps the app as $PLUGINSDIR/app-<arch>.7z inside the installer.
-    7z x -y -bd -snl- -o"$work/nsis" "$(find "$dir" -type f -name '*Setup.exe')" >/dev/null
-    [ "$(count "$work/nsis" 'app-*.7z')" -eq 1 ] || die "$name: expected one app-*.7z in the installer"
-    7z x -y -bd -snl- -o"$root" "$(find "$work/nsis" -type f -name 'app-*.7z')" >/dev/null ;;
-  010)
-    unzip -q "$(find "$dir" -type f -name '*.zip')" -x '__MACOSX/*' -d "$root" ;;
-  001)
-    (cd "$work" && ar x "$(find "$dir" -type f -name '*.deb')")
-    [ "$(count "$work" 'data.tar*')" -eq 1 ] || die "$name: expected one data.tar in the .deb"
-    tar -xf "$(find "$work" -maxdepth 1 -type f -name 'data.tar*')" -C "$root" ;;
-  *)
-    die "$name: expected exactly one *Setup.exe, .zip or .deb (found $exes, $zips, $debs)" ;;
-esac
+# (if/elif, not case: Semgrep's bash parser fails on this case block.)
+if [ "$exes$zips$debs" = 100 ]; then
+  # NSIS keeps the app as $PLUGINSDIR/app-<arch>.7z inside the installer.
+  7z x -y -bd -snl- -o"$work/nsis" "$(find "$dir" -type f -name '*Setup.exe')" >/dev/null
+  [ "$(count "$work/nsis" 'app-*.7z')" -eq 1 ] || die "$name: expected one app-*.7z in the installer"
+  7z x -y -bd -snl- -o"$root" "$(find "$work/nsis" -type f -name 'app-*.7z')" >/dev/null
+elif [ "$exes$zips$debs" = 010 ]; then
+  unzip -q "$(find "$dir" -type f -name '*.zip')" -x '__MACOSX/*' -d "$root"
+elif [ "$exes$zips$debs" = 001 ]; then
+  (cd "$work" && ar x "$(find "$dir" -type f -name '*.deb')")
+  [ "$(count "$work" 'data.tar*')" -eq 1 ] || die "$name: expected one data.tar in the .deb"
+  tar -xf "$(find "$work" -maxdepth 1 -type f -name 'data.tar*')" -C "$root"
+else
+  die "$name: expected exactly one *Setup.exe, .zip or .deb (found $exes, $zips, $debs)"
+fi
 
 [ "$(count "$root" app.asar)" -eq 1 ] || die "$name: expected exactly one app.asar in the installer"
 asar=$(find "$root" -type f -name app.asar)

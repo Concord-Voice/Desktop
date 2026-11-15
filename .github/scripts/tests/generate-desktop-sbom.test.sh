@@ -98,15 +98,14 @@ cp "$WORK/app.asar" "$WORK/deb/data/usr/lib/concord-voice/resources/app.asar"
 printf '2.0\n' > "$WORK/deb/pkg/debian-binary"
 mkdir -p "$D/deb/x64"
 # Written by hand: the ar on macOS adds a symbol table and drops non-Mach-O members.
-python3 - "$WORK/deb/pkg" "$D/deb/x64/concord-voice_9.9.9_amd64.deb" <<'PY2'
-import os, sys
-src, out = sys.argv[1], sys.argv[2]
-with open(out, 'wb') as o:
-    o.write(b'!<arch>\n')
-    for name in ('debian-binary', 'control.tar.gz', 'data.tar.gz'):
-        data = open(os.path.join(src, name), 'rb').read()
-        o.write(f'{name:<16}{0:<12}{0:<6}{0:<6}{"100644":<8}{len(data):<10}`\n'.encode() + data + b'\n' * (len(data) % 2))
-PY2
+DEB="$D/deb/x64/concord-voice_9.9.9_amd64.deb"
+printf '!<arch>\n' > "$DEB"
+for m in debian-binary control.tar.gz data.tar.gz; do
+  size=$(wc -c < "$WORK/deb/pkg/$m" | tr -d ' ')
+  printf '%-16s%-12s%-6s%-6s%-8s%-10s\140\n' "$m" 0 0 0 100644 "$size" >> "$DEB"
+  cat "$WORK/deb/pkg/$m" >> "$DEB"
+  [ $((size % 2)) -eq 0 ] || printf '\n' >> "$DEB"
+done
 printf 'rpm' > "$D/concord-voice-9.9.9.x86_64.rpm"
 run "$D"
 [ "$RC" -eq 0 ] && [ "$(npm_names)" = "dep" ] && [ -z "$(addon path)" ] \
