@@ -517,6 +517,23 @@ describe('focus once the read has landed (focusOnReady)', () => {
   });
 });
 
+describe('SSO trust error mapping', () => {
+  it.each([
+    ['invalid_credentials', 'Incorrect passphrase.'],
+    ['would_lock_out', 'That change would lock you out. Link an SSO provider first.'],
+  ])('preserves the %s message', async (errorCode, expected) => {
+    installStepUpApi(mockApiFetch, {
+      route: () => jsonResponse(403, { error_code: errorCode }),
+    });
+    renderDialog({ kind: 'ssoTrustEnable' });
+
+    await userEvent.type(await passwordField(), FIXTURE_PW);
+    await userEvent.click(screen.getByRole('button', { name: 'Enable trust' }));
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+});
+
 // The parent keys the dialog with this, so a dialog is never re-pointed at
 // another action while its credentials belong to the first.
 describe('sessionStepUpKey', () => {

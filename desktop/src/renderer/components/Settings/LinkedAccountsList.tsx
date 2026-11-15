@@ -101,6 +101,8 @@ const LinkedAccountsList: React.FC = () => {
         <ul className="linked-accounts__list">
           {identities.map((identity) => {
             const lastUsed = relativeTime(identity.last_used_at);
+            const unlinking =
+              stepUpAction?.kind === 'ssoUnlink' && stepUpAction.provider === identity.provider;
             return (
               <li key={identity.provider} className="linked-accounts__row">
                 <div className="linked-accounts__info">
@@ -118,9 +120,9 @@ const LinkedAccountsList: React.FC = () => {
                   onClick={() =>
                     setStepUpAction({ kind: 'ssoUnlink', provider: identity.provider })
                   }
-                  disabled={stepUpAction?.kind === 'ssoUnlink'}
+                  disabled={unlinking}
                 >
-                  {stepUpAction?.kind === 'ssoUnlink' ? 'Unlinking...' : 'Unlink'}
+                  {unlinking ? 'Unlinking...' : 'Unlink'}
                 </button>
               </li>
             );

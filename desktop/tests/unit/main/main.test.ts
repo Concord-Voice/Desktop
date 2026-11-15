@@ -3614,6 +3614,28 @@ describe('main.ts', () => {
       expect(erasureConfirmations()).toEqual([{ requestId: nextRequestId, token: ERASURE_TOKEN }]);
     });
 
+    it('only arms erasure delivery from the trusted main frame', () => {
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+
+      signalErasureReady({
+        sender: mockWebContents,
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 78 },
+      });
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady({
+        sender: mockWebContents,
+        senderFrame: { url: 'https://untrusted.example/', frameTreeNodeId: 77 },
+      });
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+    });
+
     it('caps the pending queue at 8 entries, dropping oldest', () => {
       resetDeepLinkState();
       vi.useFakeTimers();

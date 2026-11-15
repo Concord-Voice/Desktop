@@ -241,4 +241,28 @@ describe('LinkedAccountsList', () => {
     expect(await screen.findByRole('dialog', { name: 'Unlink SSO account' })).toBeInTheDocument();
     expect(screen.getByText(/google/i)).toBeInTheDocument();
   });
+  it('keeps other providers available while confirming one unlink', async () => {
+    const identities = ['google', 'apple'].map((provider) => ({
+      provider,
+      provider_email: provider + '@example.test',
+      is_relay_email: false,
+      linked_at: '2026-01-01T00:00:00Z',
+      last_used_at: null,
+    }));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: async () => ({ identities }),
+      text: async () => JSON.stringify({ identities }),
+    });
+
+    render(<LinkedAccountsList />);
+    const buttons = await screen.findAllByRole('button', { name: 'Unlink' });
+    fireEvent.click(buttons[0]);
+
+    expect(buttons[0]).toHaveTextContent('Unlinking...');
+    expect(buttons[1]).toHaveTextContent('Unlink');
+    expect(buttons[1]).not.toBeDisabled();
+  });
 });

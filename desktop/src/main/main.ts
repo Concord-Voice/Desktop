@@ -3242,13 +3242,7 @@ ipcMain.on('deeplink:renderer-ready', (event) => {
 });
 
 ipcMain.on('deeplink:account-erasure-ready', (event) => {
-  if (
-    !mainWindow ||
-    event.sender !== mainWindow.webContents ||
-    !isPermittedFrameUrl(event.senderFrame?.url ?? '', getRemoteSpaBaseUrl())
-  ) {
-    return;
-  }
+  if (!isTrustedMainWindowSender(event, () => mainWindow, getRemoteSpaBaseUrl)) return;
   erasureRendererReady = true;
   drainErasureConfirmations();
 });

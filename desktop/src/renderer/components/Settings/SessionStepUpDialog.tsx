@@ -219,12 +219,20 @@ async function sendSessionRequest(
     );
     if (res.ok) return { kind: 'accepted' };
     const body: unknown = await res.json().catch(() => null);
-    if (
-      spec.purpose === 'account.sso_unlink' &&
-      typeof body === 'object' &&
-      body !== null &&
-      (body as { error_code?: unknown }).error_code === 'would_lock_out'
-    ) {
+    const errorCode =
+      typeof body === 'object' && body !== null
+        ? (body as { error_code?: unknown }).error_code
+        : undefined;
+    if (spec.purpose === 'account.sso_trust_enable') {
+      if (errorCode === 'invalid_credentials')
+        return { kind: 'failed', message: 'Incorrect passphrase.' };
+      if (errorCode === 'would_lock_out')
+        return {
+          kind: 'failed',
+          message: 'That change would lock you out. Link an SSO provider first.',
+        };
+    }
+    if (spec.purpose === 'account.sso_unlink' && errorCode === 'would_lock_out') {
       return {
         kind: 'failed',
         message:
