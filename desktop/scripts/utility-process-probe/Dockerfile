@@ -4,7 +4,7 @@
 #
 # The base image is pinned by digest (the multi-arch index, so amd64 and arm64 hosts both
 # resolve it). Bump the digest on purpose, never by floating the tag.
-FROM node:22-bookworm@sha256:e13726ca604184d7a91fcacab1fc09eefd642dc28e79ac34e85540dd93b78cfb
+FROM node:25-bookworm@sha256:78839ac448c23517f8eab2e8f7943d9b4f73979eb7f8bed2c73dbf72ff869e7b
 
 # The Electron under test, exact x.y.z. Required: there is deliberately no default, so a probe
 # run can never silently measure a version nobody chose.
