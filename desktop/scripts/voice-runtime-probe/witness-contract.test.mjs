@@ -448,3 +448,24 @@ test('a ninety-second override cannot reduce the requested ninety-five-second ga
     assert.throws(() => requireDuration(bad), /95000\.\.180000/);
   }
 });
+
+test('withDeadline passes a settled value through and rejects a stuck call by label', async () => {
+  assert.equal(await contract.withDeadline(Promise.resolve(7), 1_000, 'fast'), 7);
+  await assert.rejects(contract.withDeadline(Promise.reject(new Error('own failure')), 1_000, 'fails'), /own failure/);
+  await assert.rejects(contract.withDeadline(new Promise(() => {}), 20, 'renderer cleanup'),
+    /Timed out after 20 ms: renderer cleanup/);
+});
+
+test('withDeadline clears its timer so a settled call does not hold the process open', async () => {
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { withDeadline } from ${JSON.stringify(new URL('./witness-contract.mjs', import.meta.url).href)};
+     await withDeadline(Promise.resolve(), 60_000, 'settled');`], { timeout: 10_000, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.error, undefined);
+});
+
+test('the watchdog budget leaves setup and teardown headroom inside the CI step limit', () => {
+  assert.equal(contract.watchdogBudgetMs(contract.MIN_DURATION_MS), 240_000);
+  // The workflow probe step allows 5 minutes for the unit tests and this run.
+  assert(contract.watchdogBudgetMs(contract.MIN_DURATION_MS) < 300_000);
+});

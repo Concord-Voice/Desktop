@@ -29,7 +29,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-This release adds groundwork for verifying account keys and protects remembered sessions from being redirected to another server. Existing remembered sessions require signing in again.
+This release adds groundwork for verifying account keys, protects remembered sessions from being redirected to another server, and asks for fresh proof before sensitive account changes. Existing remembered sessions require signing in again.
 
 ### Added
 
@@ -62,6 +62,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 ### Security
 
+- **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure asks you to confirm any owned servers that have other members and complete an emailed confirmation link, including while ordinary email verification is pending ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
 - **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Sign-in:** If a server sends session tokens with an account-link MFA challenge, or session tokens the app refuses, the app now signs that session out instead of only refusing it ([#226](https://github.com/Concord-Voice/Desktop/pull/226)).

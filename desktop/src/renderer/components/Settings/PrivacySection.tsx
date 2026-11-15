@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useUserStore } from '../../stores/auth/userStore';
+import { useServerStore } from '../../stores/chat/serverStore';
 import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { useClientConfigStore } from '../../stores/ui/clientConfigStore';
 import CollapsibleSection from './CollapsibleSection';
@@ -12,6 +13,16 @@ import ActivityHistoryCard from './ActivityHistoryCard';
 import PresenceHistorySection from '../Profile/PresenceHistorySection';
 import ToggleSwitch from './ToggleSwitch';
 import PurgeFenceStepUpDialog from './PurgeFenceStepUpDialog';
+import AccountErasureStepUpDialog from './AccountErasureStepUpDialog';
+import {
+  getProtectedOwnedServers,
+  type AccountErasureResult,
+  type ProtectedOwnedServer,
+} from '../../api/privacy';
+import {
+  apiRequestContextIsCurrent,
+  captureApiRequestContext,
+} from '../../services/system/requestContext';
 import {
   setDraftContentProtection,
   useDraftContentProtection,
@@ -26,12 +37,31 @@ const PURGE_AUTH_LABEL_ID = 'requireAuthBeforePurge-label';
 const CONTENT_PROTECTION_LABEL_ID = 'contentProtection-label';
 const CONTENT_PROTECTION_HINT_ID = 'contentProtection-hint';
 
-interface PrivacySectionProps {
-  onActivityHistoryAvailabilityChange?: (available: boolean) => void;
+export interface AccountErasureConfirmation {
+  requestId: string;
+  token: string;
+  expiresAt: number;
 }
 
-const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvailabilityChange }) => {
+interface PrivacySectionProps {
+  erasureOnly?: boolean;
+  onActivityHistoryAvailabilityChange?: (available: boolean) => void;
+  accountErasureConfirmation?: AccountErasureConfirmation | null;
+  onClearAccountErasureConfirmation?: () => void;
+}
+
+const PrivacySection: React.FC<PrivacySectionProps> = ({
+  erasureOnly = false,
+  onActivityHistoryAvailabilityChange,
+  accountErasureConfirmation = null,
+  onClearAccountErasureConfirmation,
+}) => {
   const userId = useUserStore((s) => s.user?.id ?? null);
+  const logout = useUserStore((s) => s.logout);
+  const fetchUser = useUserStore((s) => s.fetchUser);
+  const userError = useUserStore((s) => s.error);
+  const servers = useServerStore((s) => s.servers);
+  const fetchServers = useServerStore((s) => s.fetchServers);
   const activityHistoryCapability = useClientConfigStore(
     (state) => state.activityHistoryCapability
   );
@@ -83,6 +113,105 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
   // here is what stops the flip from failing silently.
   const [purgeAuthError, setPurgeAuthError] = useState<string | null>(null);
   const [purgeFenceStepUpOpen, setPurgeFenceStepUpOpen] = useState(false);
+  const [acknowledgedServerIds, setAcknowledgedServerIds] = useState<Set<string>>(() => new Set());
+  const [erasureDialogOpen, setErasureDialogOpen] = useState(false);
+  const [emailConfirmation, setEmailConfirmation] = useState<{
+    requestId: string;
+    token: string;
+    expiresAt: number;
+  } | null>(null);
+  const [erasureNotice, setErasureNotice] = useState<string | null>(null);
+  const [restrictedOwnedServers, setRestrictedOwnedServers] = useState<{
+    userId: string;
+    servers: ProtectedOwnedServer[];
+  } | null>(null);
+  const [restrictedReadErrorForUser, setRestrictedReadErrorForUser] = useState<string | null>(null);
+  const [serverReadAttempt, setServerReadAttempt] = useState(0);
+  const [profileReadAttempt, setProfileReadAttempt] = useState(0);
+  const erasureUserIdRef = useRef(userId);
+  const protectedOwnedServers = useMemo(() => {
+    if (erasureOnly) {
+      if (restrictedOwnedServers?.userId !== userId) return [];
+      return restrictedOwnedServers.servers;
+    }
+    return servers.filter((server) => server.owner_id === userId && server.member_count > 1);
+  }, [erasureOnly, restrictedOwnedServers, servers, userId]);
+  const protectedOwnedServerIds = useMemo(
+    () => new Set(protectedOwnedServers.map((server) => server.id)),
+    [protectedOwnedServers]
+  );
+  const confirmedOwnedServerIds = useMemo(
+    () =>
+      [...acknowledgedServerIds]
+        .filter((id) => protectedOwnedServerIds.has(id))
+        .sort((left, right) => left.localeCompare(right)),
+    [acknowledgedServerIds, protectedOwnedServerIds]
+  );
+  const ownedServersReady = !erasureOnly || restrictedOwnedServers?.userId === userId;
+
+  useEffect(() => {
+    if (erasureOnly && userId === null) void fetchUser();
+  }, [erasureOnly, userId, fetchUser, profileReadAttempt]);
+
+  useEffect(() => {
+    if (!erasureOnly || userId === null) return;
+    let active = true;
+    const context = captureApiRequestContext();
+    void getProtectedOwnedServers(context).then(
+      (ownedServers) => {
+        if (!active || !apiRequestContextIsCurrent(context)) return;
+        setRestrictedReadErrorForUser(null);
+        setRestrictedOwnedServers({ userId, servers: ownedServers });
+      },
+      () => {
+        if (active && apiRequestContextIsCurrent(context)) setRestrictedReadErrorForUser(userId);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [erasureOnly, userId, serverReadAttempt]);
+
+  useEffect(() => {
+    // A server removed from this mounted pane must also lose its acknowledgement.
+    /* eslint-disable @eslint-react/set-state-in-effect -- reconcile server deletion */
+    setAcknowledgedServerIds((current) => {
+      const retained = new Set([...current].filter((id) => protectedOwnedServerIds.has(id)));
+      return retained.size === current.size ? current : retained;
+    });
+    /* eslint-enable @eslint-react/set-state-in-effect -- reconciliation ends here */
+  }, [protectedOwnedServerIds]);
+
+  useEffect(() => {
+    if (accountErasureConfirmation === null) return;
+    /* eslint-disable @eslint-react/set-state-in-effect -- transient bearer handoff from the authenticated host */
+    setEmailConfirmation(accountErasureConfirmation);
+    setErasureNotice('Email confirmed. Review your acknowledgements and erase your account.');
+    /* eslint-enable @eslint-react/set-state-in-effect -- transient bearer handoff from the authenticated host */
+  }, [accountErasureConfirmation]);
+
+  useEffect(() => {
+    if (emailConfirmation === null) return;
+    const timeout = globalThis.setTimeout(
+      () => {
+        setEmailConfirmation(null);
+        onClearAccountErasureConfirmation?.();
+        setErasureNotice('The email confirmation expired. Start over to request another link.');
+      },
+      Math.max(0, emailConfirmation.expiresAt - Date.now())
+    );
+    return () => globalThis.clearTimeout(timeout);
+  }, [emailConfirmation, onClearAccountErasureConfirmation]);
+
+  useEffect(() => {
+    // Account changes, logout and renderer resets must not retain a bearer link.
+    if (erasureUserIdRef.current !== null && erasureUserIdRef.current !== userId) {
+      setEmailConfirmation(null);
+      setAcknowledgedServerIds(new Set());
+      onClearAccountErasureConfirmation?.();
+    }
+    erasureUserIdRef.current = userId;
+  }, [userId, onClearAccountErasureConfirmation]);
 
   const setRequireAuthBeforePurge = useCallback(
     async (next: boolean) => {
@@ -104,9 +233,46 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
     [updatePrivacy]
   );
 
+  const handleErasureResult = useCallback(
+    async (result: AccountErasureResult) => {
+      setErasureDialogOpen(false);
+      if (result.kind === 'email_confirmation_required') {
+        setEmailConfirmation(null);
+        onClearAccountErasureConfirmation?.();
+        setErasureNotice('Check your email for a confirmation link.');
+        return;
+      }
+      setEmailConfirmation(null);
+      onClearAccountErasureConfirmation?.();
+      const forgetDeepLinks = globalThis.electron?.forgetDeepLinks;
+      if (forgetDeepLinks) void forgetDeepLinks().catch(() => undefined);
+      await logout();
+    },
+    [logout, onClearAccountErasureConfirmation]
+  );
+
+  const handleStaleOwnedServers = useCallback(() => {
+    setAcknowledgedServerIds(new Set());
+    setEmailConfirmation(null);
+    onClearAccountErasureConfirmation?.();
+    if (erasureOnly) {
+      setRestrictedOwnedServers(null);
+      setServerReadAttempt((attempt) => attempt + 1);
+    } else {
+      void fetchServers();
+    }
+  }, [erasureOnly, fetchServers, onClearAccountErasureConfirmation]);
+
+  const handleStaleEmailConfirmation = useCallback(() => {
+    setEmailConfirmation(null);
+    onClearAccountErasureConfirmation?.();
+    setErasureDialogOpen(false);
+    setErasureNotice('The email confirmation expired. Start over to request another link.');
+  }, [onClearAccountErasureConfirmation]);
+
   useEffect(() => {
-    void fetchPrivacy();
-  }, [fetchPrivacy]);
+    if (!erasureOnly) void fetchPrivacy();
+  }, [erasureOnly, fetchPrivacy]);
 
   const renderContentProtectionControl = () =>
     contentProtectionLoaded &&
@@ -137,6 +303,95 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
         />
       </div>
     );
+
+  const erasureSection = (
+    <CollapsibleSection id="section-account-erasure" title="Danger Zone">
+      <p className="settings-section-description">
+        Account erasure is irreversible. It can remove servers you own and direct-message
+        conversations that affect other people.
+      </p>
+      {protectedOwnedServers.length > 0 && (
+        <>
+          <p className="settings-section-description">
+            Transfer ownership or remove other members before erasing. Acknowledge each multi-member
+            server that will be affected.
+          </p>
+          <ul>
+            {protectedOwnedServers.map((server) => (
+              <li key={server.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={acknowledgedServerIds.has(server.id)}
+                    onChange={(event) => {
+                      setAcknowledgedServerIds((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(server.id);
+                        else next.delete(server.id);
+                        return next;
+                      });
+                    }}
+                  />{' '}
+                  I understand that {server.name} has other members.
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {erasureNotice && <p role="alert">{erasureNotice}</p>}
+      {erasureOnly && userId === null && userError && (
+        <p role="alert">
+          Could not load your account.{' '}
+          <button type="button" onClick={() => setProfileReadAttempt((attempt) => attempt + 1)}>
+            Retry
+          </button>
+        </p>
+      )}
+      {erasureOnly && restrictedReadErrorForUser === userId && (
+        <p role="alert">
+          Could not load owned servers.{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setRestrictedOwnedServers(null);
+              setRestrictedReadErrorForUser(null);
+              setServerReadAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn btn-danger"
+        disabled={
+          !ownedServersReady ||
+          protectedOwnedServers.some((server) => !acknowledgedServerIds.has(server.id))
+        }
+        onClick={() => setErasureDialogOpen(true)}
+      >
+        {emailConfirmation ? 'Review and erase account' : 'Erase account'}
+      </button>
+      {erasureDialogOpen && (
+        <AccountErasureStepUpDialog
+          confirmedOwnedServerIds={confirmedOwnedServerIds}
+          emailConfirmation={
+            emailConfirmation === null
+              ? null
+              : { requestId: emailConfirmation.requestId, token: emailConfirmation.token }
+          }
+          onResult={(result) => void handleErasureResult(result)}
+          onStaleOwnedServers={handleStaleOwnedServers}
+          onStaleEmailConfirmation={handleStaleEmailConfirmation}
+          onClose={() => setErasureDialogOpen(false)}
+        />
+      )}
+    </CollapsibleSection>
+  );
+
+  if (erasureOnly) return erasureSection;
 
   return (
     <>
@@ -202,6 +457,8 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({ onActivityHistoryAvaila
         <ContentSafetyControls />
         <SearchVisibilityControls />
       </CollapsibleSection>
+
+      {erasureSection}
 
       <PresenceSettingsSection />
 

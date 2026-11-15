@@ -4715,12 +4715,18 @@ describe('main.ts', () => {
     ];
     const FRIEND_CODE = 'AbCdEfGh';
     const INVITE_CODE = 'AbCdEfGj';
+    const ERASURE_REQUEST_ID = '550e8400-e29b-41d4-a716-446655440000';
+    const ERASURE_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const rendererEvent = trustedIpcEvent;
+    // #86: erasure readiness is saas-only, so its trusted sender is the bound saas
+    // view's main frame, the same fixture the invite and friend arms use.
+    const erasureRendererEvent = trustedIpcEvent;
 
     let DEEP_LINK_EMIT_WINDOW_MS: number;
     let deliverDeepLink: (url: string) => void;
     let signalInviteReady: CallbackFn;
     let signalFriendReady: CallbackFn;
+    let signalErasureReady: CallbackFn;
     let simulateReload: CallbackFn;
 
     beforeAll(async () => {
@@ -4732,6 +4738,7 @@ describe('main.ts', () => {
       };
       signalInviteReady = ipcListener('invite:renderer-ready');
       signalFriendReady = ipcListener('deeplink:renderer-ready');
+      signalErasureReady = ipcListener('deeplink:account-erasure-ready');
 
       const didStartLoading = mockWebContents.on.mock.calls.find(
         (c: unknown[]) => c[0] === 'did-start-loading'
@@ -4793,6 +4800,252 @@ describe('main.ts', () => {
         .filter((c: unknown[]) => c[0] === channel)
         .map((c: unknown[]) => (c[1] as { code: string }).code);
     }
+
+    function erasureConfirmations(): Array<{ requestId: string; token: string }> {
+      return mockWebContents.send.mock.calls
+        .filter((c: unknown[]) => c[0] === 'deeplink:account-erasure-confirmation')
+        .map((c: unknown[]) => c[1] as { requestId: string; token: string });
+    }
+
+    function erasureDeepLink(requestId = ERASURE_REQUEST_ID, token = ERASURE_TOKEN): string {
+      return `concord://account-erasure/confirm/${requestId}/${token}`;
+    }
+
+    it('delivers a cold-start erasure link only after the persisted session is restored', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: null,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+      simulateReload(); // The first window load must not destroy the queued link.
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([]);
+
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 42,
+        pendingE2EEUnlock: false,
+      });
+      await handlers.get('auth:restoreSession')!(trustedIpcEvent);
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+      deliverDeepLink(erasureDeepLink());
+      expect(erasureConfirmations()).toHaveLength(1);
+    });
+
+    it('does not adopt an ownerless erasure link during a fresh sign-in', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: null,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+      signalErasureReady(erasureRendererEvent);
+
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 42,
+        pendingE2EEUnlock: false,
+      });
+      await handlers.get('auth:storeRefreshToken')!(trustedIpcEvent, {
+        refreshToken: 'tok',
+        rememberMe: true,
+        apiBase: SAAS_DEV_API_BASE,
+      });
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([]);
+    });
+
+    it('allows the same erasure link to be delivered after a renderer reload', () => {
+      resetDeepLinkState();
+      signalErasureReady(erasureRendererEvent);
+      deliverDeepLink(erasureDeepLink());
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+
+      simulateReload();
+      deliverDeepLink(erasureDeepLink());
+      // A replacement renderer has not installed its listener yet.
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+    });
+
+    it('queues a new erasure link until the replacement renderer is ready', () => {
+      resetDeepLinkState();
+      signalErasureReady(erasureRendererEvent);
+      simulateReload();
+      const nextRequestId = '550e8400-e29b-41d4-a716-446655440001';
+      deliverDeepLink(erasureDeepLink(nextRequestId));
+
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([{ requestId: nextRequestId, token: ERASURE_TOKEN }]);
+    });
+
+    it('only arms erasure delivery from the trusted main frame', () => {
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+
+      signalErasureReady({
+        sender: mockWebContents,
+        senderFrame: {
+          url: 'http://localhost:3001/',
+          frameTreeNodeId: 78,
+          parent: trustedIpcEvent.senderFrame,
+        },
+      });
+      expect(erasureConfirmations()).toEqual([]);
+
+      // Parentless but not the view's main frame (a fenced frame, say).
+      signalErasureReady({
+        sender: mockWebContents,
+        senderFrame: { url: 'http://localhost:3001/', frameTreeNodeId: 78, parent: null },
+      });
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady({
+        sender: mockWebContents,
+        senderFrame: { url: 'https://untrusted.example/', frameTreeNodeId: 77, parent: null },
+      });
+      expect(erasureConfirmations()).toEqual([]);
+
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+    });
+
+    it('paces a live erasure-link burst and bounds its pending queue', () => {
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        const ids = Array.from(
+          { length: 10 },
+          (_, i) => `550e8400-e29b-41d4-a716-44665544${String(i).padStart(4, '0')}`
+        );
+        for (const id of ids) deliverDeepLink(erasureDeepLink(id));
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([ids[0]]);
+
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS - 1);
+        expect(erasureConfirmations()).toHaveLength(1);
+        vi.advanceTimersByTime(1);
+        // The second link was the oldest waiting entry when the 8-slot queue filled.
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([ids[0], ids[2]]);
+        vi.advanceTimersByTime(7 * DEEP_LINK_EMIT_WINDOW_MS);
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([
+          ids[0],
+          ...ids.slice(2),
+        ]);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
+    it('reopens a dismissed erasure link after the short duplicate window', () => {
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        deliverDeepLink(erasureDeepLink());
+        deliverDeepLink(erasureDeepLink());
+        expect(erasureConfirmations()).toHaveLength(1);
+
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS);
+        deliverDeepLink(erasureDeepLink());
+        expect(erasureConfirmations()).toHaveLength(2);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
+    it('drops a paced erasure link if the credential owner changes before delivery', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 41,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        deliverDeepLink(erasureDeepLink());
+        deliverDeepLink(erasureDeepLink('550e8400-e29b-41d4-a716-446655440001'));
+
+        (getCredentialCustodyState as Mock).mockReturnValue({
+          credentialOwner: 42,
+          pendingE2EEUnlock: false,
+        });
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS);
+        expect(erasureConfirmations()).toEqual([
+          { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+        ]);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
+    // resetDeepLinkDelivery keeps an ownerless cold-start link across a reload, so
+    // the restore can bind it. A crashed saas renderer or a closed window has no
+    // renderer to restore into: both forget it, and a later restore delivers nothing.
+    it.each(['the saas renderer is gone', 'the window closed'] as const)(
+      'forgets a cold-start erasure link when %s',
+      async (teardown) => {
+        const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+        (getCredentialCustodyState as Mock).mockReturnValue({
+          credentialOwner: null,
+          pendingE2EEUnlock: false,
+        });
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          resetDeepLinkState();
+          deliverDeepLink(erasureDeepLink());
+          simulateReload(); // A reload alone keeps it (the cold-start test above).
+          if (teardown === 'the window closed') {
+            const closed = mockMainWindow.on.mock.calls.find(
+              (c: unknown[]) => c[0] === 'closed'
+            )?.[1] as CallbackFn;
+            closed();
+            // Restore the shared fixture the way the closed-handler test does.
+            appOnCallbacks.get('activate')!();
+          } else {
+            for (const [event, listener] of mockWebContents.on.mock.calls) {
+              if (event === 'render-process-gone') {
+                (listener as CallbackFn)({}, { reason: 'crashed', exitCode: 1 });
+              }
+            }
+          }
+          signalErasureReady(erasureRendererEvent);
+          (getCredentialCustodyState as Mock).mockReturnValue({
+            credentialOwner: 42,
+            pendingE2EEUnlock: false,
+          });
+          await handlers.get('auth:restoreSession')!(trustedIpcEvent);
+          expect(erasureConfirmations()).toEqual([]);
+        } finally {
+          error.mockRestore();
+          (getCredentialCustodyState as Mock).mockReturnValue({
+            credentialOwner: 41,
+            pendingE2EEUnlock: false,
+          });
+          simulateReload();
+        }
+      }
+    );
 
     it('caps the pending queue at 8 entries, dropping oldest', () => {
       resetDeepLinkState();
@@ -7954,6 +8207,87 @@ describe('#86 connection-isolated main semantics', () => {
           warn.mockRestore();
           connectionRegistry.disposeConnection(S.record.connectionId);
           reset();
+          mockWebContents.send.mockClear();
+        }
+      }
+    );
+
+    it.each(['open-url', 'second-instance'] as const)(
+      'a %s erasure link reaches the saas view alone, never invite routing, and only after saas signals ready',
+      async (entry) => {
+        const { ipcMain } = await import('electron');
+        const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+        (getCredentialCustodyState as Mock).mockReturnValue({
+          credentialOwner: 41,
+          pendingE2EEUnlock: false,
+        });
+        const onCall = (ch: string): CallbackFn => {
+          const call = (ipcMain.on as Mock).mock.calls.find((c: unknown[]) => c[0] === ch);
+          expect(call, `ipcMain.on('${ch}') was never registered`).toBeDefined();
+          return call![1] as CallbackFn;
+        };
+        const reload = mockWebContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'did-start-loading'
+        )?.[1] as CallbackFn;
+        const deliver = (url: string): void => {
+          if (entry === 'open-url')
+            appOnCallbacks.get('open-url')!({ preventDefault: vi.fn() }, url);
+          else appOnCallbacks.get('second-instance')!({}, ['/app', url]);
+        };
+        const requestId = '550e8400-e29b-41d4-a716-446655440077';
+        const token = 'a'.repeat(43);
+        const S = openFakeSelfHosted(`https://erasure-${entry}.lan`);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        try {
+          // A clean erasure queue: deeplink:forget empties it, then a reload drops readiness.
+          await handlers.get('deeplink:forget')!(saasEvent());
+          reload();
+          connectionRegistry.setForeground(S.record.connectionId);
+          mockMainWindow.focus.mockClear();
+          mockWebContents.send.mockClear();
+
+          // A malformed erasure link is refused and moves nothing, focus included.
+          deliver('concord://account-erasure/confirm/not-a-uuid/short');
+          expect(connectionRegistry.foreground()?.connectionId).toBe(S.record.connectionId);
+          if (entry === 'open-url') expect(mockMainWindow.focus).not.toHaveBeenCalled();
+
+          deliver(`concord://account-erasure/confirm/${requestId}/${token}`);
+          // #86 C8: the saas view is put on screen and the window brought forward.
+          expect(connectionRegistry.foreground()?.serviceId).toBe(saasServiceId);
+          expect(mockMainWindow.focus).toHaveBeenCalled();
+
+          // The self-hosted primary's signal neither arms delivery nor receives the link.
+          onCall('deeplink:account-erasure-ready')(S.event);
+          expect(mockWebContents.send).not.toHaveBeenCalledWith(
+            'deeplink:account-erasure-confirmation',
+            expect.anything()
+          );
+
+          onCall('deeplink:account-erasure-ready')(saasEvent());
+          // Exactly { requestId, token }, to the saas view, once.
+          expect(
+            mockWebContents.send.mock.calls.filter(
+              (c: unknown[]) => c[0] === 'deeplink:account-erasure-confirmation'
+            )
+          ).toEqual([['deeplink:account-erasure-confirmation', { requestId, token }]]);
+          // Never handed to invite or friend routing.
+          expect(mockWebContents.send).not.toHaveBeenCalledWith(
+            'invite:received',
+            expect.anything()
+          );
+          expect(mockWebContents.send).not.toHaveBeenCalledWith(
+            'deeplink:friend-code',
+            expect.anything()
+          );
+          expect(S.wc.send.mock.calls.filter((c: unknown[]) => c[0] !== 'capture:lease')).toEqual(
+            []
+          );
+        } finally {
+          warn.mockRestore();
+          debug.mockRestore();
+          connectionRegistry.disposeConnection(S.record.connectionId);
+          reload();
           mockWebContents.send.mockClear();
         }
       }

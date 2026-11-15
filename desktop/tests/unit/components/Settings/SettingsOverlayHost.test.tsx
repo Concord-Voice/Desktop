@@ -3,6 +3,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 import { useDraftSettingsStore } from '@/renderer/stores/ui/draftSettingsStore';
 import { useSettingsCollapsibleStore } from '@/renderer/stores/ui/settingsCollapsibleStore';
+import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { openForeignModal } from '../../../helpers/foreignModal';
 
 vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
@@ -10,12 +11,21 @@ vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
   const { default: PresenceExceptionModal } =
     await import('@/renderer/components/Settings/PresenceExceptionModal');
 
-  function SettingsPageHarness() {
+  function SettingsPageHarness({
+    accountErasureConfirmation,
+  }: {
+    accountErasureConfirmation?: { requestId: string; token: string; expiresAt: number } | null;
+  }) {
     const [childOpen, setChildOpen] = ReactModule.useState(false);
     const triggerRef = ReactModule.useRef<HTMLButtonElement>(null);
     return (
       <div data-testid="mock-settings-page">
         SettingsPage
+        {accountErasureConfirmation && (
+          <output data-testid="account-erasure-confirmation">
+            {accountErasureConfirmation.requestId}:{accountErasureConfirmation.token}
+          </output>
+        )}
         <button ref={triggerRef} type="button" onClick={() => setChildOpen(true)}>
           Open exception editor
         </button>
@@ -37,6 +47,18 @@ vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
 vi.mock('@/renderer/components/Servers/ServerSettingsPage', () => ({
   default: ({ serverId }: { serverId: string }) => (
     <div data-testid="mock-server-settings-page">ServerSettingsPage:{serverId}</div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Settings/PrivacySection', () => ({
+  default: ({
+    onClearAccountErasureConfirmation,
+  }: {
+    onClearAccountErasureConfirmation: () => void;
+  }) => (
+    <button type="button" onClick={onClearAccountErasureConfirmation}>
+      Reject confirmation
+    </button>
   ),
 }));
 
@@ -86,6 +108,10 @@ describe('SettingsOverlayHost', () => {
   beforeEach(() => {
     resetAllStores();
     useDraftSettingsStore.setState({ contentProtectionApplying: false });
+    Object.assign(globalThis.electron ?? {}, {
+      onAccountErasureConfirmation: undefined,
+      accountErasureRendererReady: undefined,
+    });
     document.body.style.overflow = '';
     showModalOrder.length = 0;
   });
@@ -183,6 +209,80 @@ describe('SettingsOverlayHost', () => {
     expect(getDialog().hasAttribute('open')).toBe(true);
     expect(getDialog()).toHaveAttribute('data-modal-portal-host', 'true');
   });
+
+  it('opens Privacy settings for an account-erasure link received while Settings is closed', async () => {
+    let confirmationHandler: ((value: { requestId: string; token: string }) => void) | undefined;
+    const rendererReady = vi.fn();
+    Object.assign(globalThis.electron ?? {}, {
+      onAccountErasureConfirmation: vi.fn(
+        (handler: (value: { requestId: string; token: string }) => void) => {
+          confirmationHandler = handler;
+          return vi.fn();
+        }
+      ),
+      accountErasureRendererReady: rendererReady,
+    });
+
+    render(<SettingsOverlayHost />);
+    expect(useSettingsOverlayStore.getState().open).toBeNull();
+    expect(rendererReady).toHaveBeenCalledTimes(1);
+
+    act(() => confirmationHandler?.({ requestId: 'request-1', token: 'confirmation-token' }));
+
+    expect(useSettingsOverlayStore.getState().open).toBe('app');
+    expect(await screen.findByTestId('mock-settings-page')).toBeInTheDocument();
+    expect(screen.getByTestId('account-erasure-confirmation')).toHaveTextContent(
+      'request-1:confirmation-token'
+    );
+  });
+
+  it.each(['backdrop', 'native close', 'cancel'])(
+    'reattaches %s after restricted erasure remounts',
+    async (dismiss) => {
+      useAuthStore.getState().setEmailVerified(false);
+      let confirmationHandler: ((value: { requestId: string; token: string }) => void) | undefined;
+      Object.assign(globalThis.electron ?? {}, {
+        onAccountErasureConfirmation: vi.fn(
+          (handler: (value: { requestId: string; token: string }) => void) => {
+            confirmationHandler = handler;
+            return vi.fn();
+          }
+        ),
+      });
+      render(<SettingsOverlayHost />);
+
+      act(() => confirmationHandler?.({ requestId: 'first', token: 'first-token' }));
+      await screen.findByRole('button', { name: 'Reject confirmation' });
+      const firstDialog = getDialog();
+      act(() => firstDialog.dispatchEvent(new Event('cancel', { cancelable: true })));
+      expect(useSettingsOverlayStore.getState().open).toBe('app');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reject confirmation' }));
+      await waitFor(() =>
+        expect(document.querySelector('dialog.settings-overlay-host')).toBeNull()
+      );
+      expect(useSettingsOverlayStore.getState().open).toBe('app');
+
+      act(() => confirmationHandler?.({ requestId: 'second', token: 'second-token' }));
+      await screen.findByRole('button', { name: 'Reject confirmation' });
+      const secondDialog = getDialog();
+      expect(secondDialog).not.toBe(firstDialog);
+      expect(secondDialog).toHaveAttribute('open');
+
+      if (dismiss === 'cancel') {
+        useDraftSettingsStore.setState({ contentProtectionApplying: true });
+        const cancel = new Event('cancel', { cancelable: true });
+        act(() => secondDialog.dispatchEvent(cancel));
+        expect(cancel.defaultPrevented).toBe(true);
+        expect(useSettingsOverlayStore.getState().open).toBe('app');
+        return;
+      }
+      if (dismiss === 'backdrop') fireEvent.click(secondDialog, { target: secondDialog });
+      else act(() => secondDialog.close());
+
+      expect(useSettingsOverlayStore.getState().open).toBeNull();
+    }
+  );
 
   it('renders ServerSettingsPage with serverId when open === "server"', async () => {
     render(<SettingsOverlayHost />);

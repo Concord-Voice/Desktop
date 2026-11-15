@@ -104,6 +104,25 @@ export function planContinuousCallPoll(elapsedMs) {
   };
 }
 
+/**
+ * Reject when `promise` has not settled within `ms`. Playwright evaluate calls
+ * and fixture close calls have no timeout of their own, so one stuck renderer
+ * or worker otherwise hangs the probe until the CI step limit kills it.
+ */
+export function withDeadline(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms} ms: ${label}`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** Total run budget: the required call duration plus setup and teardown headroom. */
+export function watchdogBudgetMs(durationMs) {
+  // ponytail: fixed headroom; passing runs take ~115-130 s at the 95 s duration.
+  return durationMs + 145_000;
+}
+
 export function launchProbeElectron(electron, options) {
   // Playwright otherwise prepends --no-sandbox on Linux, which this fixture refuses.
   return electron.launch({ ...options, chromiumSandbox: true });

@@ -144,6 +144,7 @@ export const CHANNEL_CLASSES: Readonly<Record<string, AdmissionClass>> = Object.
   // saas only: deep links, the remote-SPA cache and billing.
   'deeplink:forget': 'saas-only',
   'deeplink:renderer-ready': 'saas-only',
+  'deeplink:account-erasure-ready': 'saas-only',
   'invite:renderer-ready': 'saas-only',
   'spa:reloadLatest': 'saas-only',
   'spa:checkForUpdate': 'saas-only',

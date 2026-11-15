@@ -135,6 +135,7 @@ import {
 import { mintPipSessionToken } from './pipSession';
 import {
   extractInviteDeepLinkFromArgv,
+  normalizeAccountErasureDeepLink,
   normalizeInviteDeepLink,
   type DeepLinkKind,
 } from './deepLink';
@@ -461,6 +462,105 @@ const DEEP_LINK_KINDS: readonly DeepLinkKind[] = ['invite', 'friend'];
 export const PENDING_DEEP_LINK_CAP = 8;
 const pendingDeepLinks: Record<DeepLinkKind, string[]> = { invite: [], friend: [] };
 
+type PendingErasureConfirmation = {
+  requestId: string;
+  token: string;
+  owner: CredentialOwner | null;
+};
+
+let erasureRendererReady = false;
+const pendingErasureConfirmations: PendingErasureConfirmation[] = [];
+let lastErasureSentKey: string | null = null;
+let lastErasureSentAt = -Infinity;
+let erasureDrainTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearErasureDelivery(): void {
+  if (erasureDrainTimer !== null) clearTimeout(erasureDrainTimer);
+  erasureDrainTimer = null;
+  pendingErasureConfirmations.length = 0;
+  lastErasureSentKey = null;
+  lastErasureSentAt = -Infinity;
+}
+
+function forgetErasureConfirmations(): void {
+  erasureRendererReady = false;
+  clearErasureDelivery();
+}
+
+function scheduleErasureDrain(delay: number): void {
+  erasureDrainTimer = setTimeout(() => {
+    erasureDrainTimer = null;
+    drainErasureConfirmations();
+  }, delay);
+}
+
+// #86: erasure links are saas-only like every deep link (§3.7). The only target is
+// the live saas primary, resolved the way sendDeepLink resolves it, and the owner
+// that fences a confirmation is the saas custody's (liveCredentialOwner). A
+// self-hosted view can never arm, drain or receive one, and a colliding owner
+// number from another custody is never read.
+function drainErasureConfirmations(): void {
+  if (!erasureRendererReady || saasDeliveryTarget() === null) return;
+  if (pendingErasureConfirmations.length === 0) return;
+  // A cold-start link has no owner until the persisted session is verified.
+  if (pendingErasureConfirmations.some((confirmation) => confirmation.owner === null)) return;
+  if (erasureDrainTimer !== null) return;
+  const wait = DEEP_LINK_EMIT_WINDOW_MS - (performance.now() - lastErasureSentAt);
+  if (wait > 0) {
+    scheduleErasureDrain(wait);
+    return;
+  }
+  const saas = saasPrimary();
+  if (!saas) return;
+  const currentOwner = liveCredentialOwner();
+  while (pendingErasureConfirmations.length > 0) {
+    const confirmation = pendingErasureConfirmations.shift();
+    if (!confirmation) return;
+    if (currentOwner !== confirmation.owner) {
+      console.warn('[AccountErasureDeepLink] stale_session');
+      continue;
+    }
+    sendToConnection(refOf(saas), 'deeplink:account-erasure-confirmation', {
+      requestId: confirmation.requestId,
+      token: confirmation.token,
+    });
+    lastErasureSentKey = `${confirmation.owner}:${confirmation.requestId}:${confirmation.token}`;
+    lastErasureSentAt = performance.now();
+    if (pendingErasureConfirmations.length > 0) scheduleErasureDrain(DEEP_LINK_EMIT_WINDOW_MS);
+    return;
+  }
+}
+
+function queueErasureConfirmation(raw: string | undefined): boolean {
+  const result = normalizeAccountErasureDeepLink(raw);
+  if (!result.ok) {
+    if (result.reason !== 'empty') console.warn('[AccountErasureDeepLink] invalid_shape');
+    return false;
+  }
+  // Ownerless while the saas session restore is in flight: its owner is not yet
+  // verified, and a successful restore binds the link (auth:restoreSession).
+  const owner = saasRestoreInFlight() ? null : liveCredentialOwner();
+  const key = `${owner}:${result.requestId}:${result.token}`;
+  if (
+    (key === lastErasureSentKey &&
+      performance.now() - lastErasureSentAt < DEEP_LINK_EMIT_WINDOW_MS) ||
+    pendingErasureConfirmations.some(
+      (confirmation) =>
+        confirmation.owner === owner &&
+        confirmation.requestId === result.requestId &&
+        confirmation.token === result.token
+    )
+  )
+    return true;
+  pendingErasureConfirmations.push({ ...result, owner });
+  while (pendingErasureConfirmations.length > PENDING_DEEP_LINK_CAP) {
+    pendingErasureConfirmations.shift();
+  }
+  drainErasureConfirmations();
+  console.debug('[AccountErasureDeepLink] accepted');
+  return true;
+}
+
 // Delivery after renderer-ready is otherwise unbounded: a page the user merely
 // visits can fire N concord:// links and get N IPC sends, N forced modal
 // re-opens, and N authenticated preview calls — each modal prefilled with an
@@ -671,6 +771,16 @@ function resetDeepLinkDelivery(): void {
   // turns it red. One fence per delivery path, not two per path.
   inviteRendererReady = false;
   friendRendererReady = false;
+  // A delivered bearer link may not survive its renderer's reload. A cold-start
+  // link has never been delivered, so retain it for session restoration.
+  erasureRendererReady = false;
+  if (erasureDrainTimer !== null) clearTimeout(erasureDrainTimer);
+  erasureDrainTimer = null;
+  lastErasureSentAt = -Infinity;
+  lastErasureSentKey = null;
+  for (let i = pendingErasureConfirmations.length - 1; i >= 0; i -= 1) {
+    if (pendingErasureConfirmations[i]?.owner !== null) pendingErasureConfirmations.splice(i, 1);
+  }
   // Read ONCE for the whole reset, not per kind. NOT cleared here (RED-TEAM
   // F2): the arming belongs to whichever applySpaDecisionCarryingDeepLink call
   // took it out and is released by that call's `finally`. Clearing it on the
@@ -894,6 +1004,7 @@ function forgetDeliveredDeepLinks(): void {
     }
     pendingDeepLinks[kind].length = 0;
   }
+  forgetErasureConfirmations();
 }
 
 function isRendererReadyFor(kind: DeepLinkKind): boolean {
@@ -1126,6 +1237,23 @@ function handleInviteDeepLink(raw: string | undefined, source: string): boolean 
   return false;
 }
 
+// #86 C8, as in handleInviteDeepLink: an erasure confirmation is delivered to the
+// saas view alone, so put that view on screen. After the queue, and only for a link
+// that parsed: a rejected one must not move the view.
+function handleErasureDeepLink(raw: string): boolean {
+  if (!queueErasureConfirmation(raw)) return false;
+  showSaasForDeepLink();
+  return true;
+}
+
+// True only for a link that parsed and was queued (invite, friend or erasure).
+function handleProtocolDeepLink(raw: string | undefined, source: string): boolean {
+  // Erasure links are a separate closed capability surface. Once their host is
+  // selected, never hand the token-shaped path to invite/friend routing.
+  if (raw?.startsWith('concord://account-erasure/')) return handleErasureDeepLink(raw);
+  return handleInviteDeepLink(raw, source);
+}
+
 function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, source: string): void {
   const result = extractInviteDeepLinkFromArgv(argv);
   if (result.ok) {
@@ -1149,6 +1277,20 @@ function handleInviteDeepLinksFromArgv(argv: readonly string[] | undefined, sour
   } else if (result.reason !== 'empty') {
     console.warn('[DeepLink] rejected deep link argv', 'source', source, 'reason', result.reason);
   }
+}
+
+function handleProtocolDeepLinksFromArgv(
+  argv: readonly string[] | undefined,
+  source: string
+): void {
+  if (!Array.isArray(argv)) return;
+  for (const arg of argv) {
+    if (arg.startsWith('concord://account-erasure/')) {
+      handleErasureDeepLink(arg);
+      return;
+    }
+  }
+  handleInviteDeepLinksFromArgv(argv, source);
 }
 
 // Set true by the before-quit handler so the [X] close intercept can
@@ -1516,7 +1658,11 @@ function wireConnectionView(contents: WebContents, service: ServiceRecord): void
 
   // Log renderer crashes to diagnose voice join segfaults. Deep links are saas-only.
   contents.on('render-process-gone', (_event, details) => {
-    if (service.kind === 'saas') resetDeepLinkDelivery();
+    if (service.kind === 'saas') {
+      resetDeepLinkDelivery();
+      // A crashed renderer takes any erasure capability with it, cold-start ones too.
+      forgetErasureConfirmations();
+    }
     console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
   });
 }
@@ -1627,6 +1773,9 @@ const createWindow = async (): Promise<void> => {
       cancelActiveAppleFlow();
       cancelActiveGoogleFlow();
       resetDeepLinkDelivery();
+      // resetDeepLinkDelivery keeps an ownerless cold-start erasure link for a reload;
+      // a closed window has no renderer to restore it into, so it goes too.
+      forgetErasureConfirmations();
     },
     wireView: wireConnectionView,
     // X1 (#86): a packaged build restores views onto the bundled app, never the dev server.
@@ -2998,6 +3147,9 @@ registerIpc('auth:storeRefreshToken', 'connection-bound', (sender, _event, data:
     ...data,
     apiBase: sender.service.origin,
   });
+  // A fresh sign-in must not adopt an ownerless startup erasure capability. Erasure
+  // links are saas-only like every deep link (#86), so only a saas sign-in clears them.
+  if (sender.service.serviceId === SAAS_SERVICE_ID) clearErasureDelivery();
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -3043,6 +3195,12 @@ const restoreSessionByConnection = new Map<
   ConnectionRef['connectionId'],
   { generation: ConnectionRef['generation']; promise: Promise<RestoreSessionResult> }
 >();
+
+/** Whether the live saas primary has a session restore in flight (erasure owner fence). */
+function saasRestoreInFlight(): boolean {
+  const saas = saasPrimary();
+  return saas !== null && restoreSessionByConnection.has(saas.connectionId);
+}
 
 function rejectWrongOwner(channel: string): { status: 'rejected'; reason: 'wrong-owner' } {
   console.warn(`[${channel}] rejected — apiBase names a different service`);
@@ -3159,6 +3317,12 @@ function isCredentialOwner(value: unknown): value is CredentialOwner {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
+/** Gives ownerless (cold-start) erasure links the restored saas owner, then delivers them. */
+function bindOwnerlessErasureLinks(owner: CredentialOwner): void {
+  for (const confirmation of pendingErasureConfirmations) confirmation.owner ??= owner;
+  drainErasureConfirmations();
+}
+
 registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
   const connectionId = sender.ref.connectionId;
   const inFlight = restoreSessionByConnection.get(connectionId);
@@ -3214,6 +3378,10 @@ registerIpc('auth:restoreSession', 'connection-bound', (sender) => {
       if (!isSenderCurrent(sender) || state.credentialOwner !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
+      // Only the saas restore verifies the owner an erasure link is fenced by: owner
+      // numbers are not unique across custodies (#86 S3), so a self-hosted restore
+      // must never bind a saas link.
+      if (isSaas) bindOwnerlessErasureLinks(restoreOwner);
       return {
         status: 'restored',
         accessToken: refreshResult.accessToken,
@@ -3822,11 +3990,24 @@ registerIpc(
   { method: 'on' }
 );
 
+// The erasure arm's own readiness signal, saas-only like the two above: a
+// self-hosted view or a subframe can neither arm delivery nor drain the queue.
+registerIpc(
+  'deeplink:account-erasure-ready',
+  'saas-only',
+  (sender) => {
+    if (!saasRendererReady(sender)) return;
+    erasureRendererReady = true;
+    drainErasureConfirmations();
+  },
+  { method: 'on' }
+);
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (gotTheLock) {
-  handleInviteDeepLinksFromArgv(process.argv, 'argv');
+  handleProtocolDeepLinksFromArgv(process.argv, 'argv');
 
   // Bring the shell window forward (restore a minimized one, then focus).
   const focusShellWindow = (): void => {
@@ -3839,13 +4020,13 @@ if (gotTheLock) {
 
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    // #86 C8: a valid link has switched to the saas view; bring the window with it.
-    // A rejected or empty link changes nothing, focus included.
-    if (handleInviteDeepLink(url, 'open-url')) focusShellWindow();
+    // #86 C8: a valid invite, friend or erasure link has switched to the saas view;
+    // bring the window with it. A rejected or empty link changes nothing, focus included.
+    if (handleProtocolDeepLink(url, 'open-url')) focusShellWindow();
   });
 
   app.on('second-instance', (_event, argv: string[]) => {
-    handleInviteDeepLinksFromArgv(argv, 'second-instance');
+    handleProtocolDeepLinksFromArgv(argv, 'second-instance');
     // Someone tried to run a second instance, focus our window
     focusShellWindow();
   });

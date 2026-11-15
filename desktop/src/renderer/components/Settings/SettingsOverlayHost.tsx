@@ -8,9 +8,12 @@ import { ModalPortalHostContext } from '../ui/ModalContext';
 import './SettingsOverlayHost.css';
 import { keyTargetsForeignModal } from '../../utils/ui/keyTargetsForeignModal';
 import { focusTargetIn } from '../ui/focusTarget';
+import type { AccountErasureConfirmation } from './PrivacySection';
+import { useAuthStore } from '../../stores/auth/authStore';
 
 const SettingsPage = lazy(() => import('./SettingsPage'));
 const ServerSettingsPage = lazy(() => import('../Servers/ServerSettingsPage'));
+const PrivacySection = lazy(() => import('./PrivacySection'));
 
 // Mirror SyntaxHelpModal's probe: jsdom does not fire native dialog cancel/close
 // on Escape, while Electron/Chrome do. Keep the fallback out of production so
@@ -52,53 +55,89 @@ function chatFocusTarget(): HTMLElement | null {
 }
 
 const SettingsOverlayHost: React.FC = () => {
+  const emailVerified = useAuthStore((s) => s.emailVerified);
   const open = useSettingsOverlayStore((s) => s.open);
   const payload = useSettingsOverlayStore((s) => s.payload);
   const close = useSettingsOverlayStore((s) => s.close);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [portalHost, setPortalHost] = useState<HTMLDialogElement | null>(null);
+  const [accountErasureConfirmation, setAccountErasureConfirmation] =
+    useState<AccountErasureConfirmation | null>(null);
+  const visibleOpen =
+    open !== null && (emailVerified || (open === 'app' && accountErasureConfirmation !== null));
+  const clearAccountErasureConfirmation = useCallback(
+    () => setAccountErasureConfirmation(null),
+    []
+  );
   const setDialogRef = useCallback((dialog: HTMLDialogElement | null) => {
     dialogRef.current = dialog;
     setPortalHost(dialog);
   }, []);
 
+  // This host stays mounted for the authenticated session even while Settings
+  // is closed. Receiving the bearer link here prevents a normal launch from
+  // waiting forever for PrivacySection to mount.
+  useEffect(() => {
+    const subscribe = globalThis.electron?.onAccountErasureConfirmation;
+    if (typeof subscribe !== 'function') return undefined;
+    const unsubscribe = subscribe((confirmation) => {
+      setAccountErasureConfirmation({
+        requestId: confirmation.requestId,
+        token: confirmation.token,
+        expiresAt: Date.now() + 15 * 60_000,
+      });
+      useSettingsOverlayStore.getState().openSettings('app');
+    });
+    globalThis.electron?.accountErasureRendererReady?.();
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (accountErasureConfirmation === null) return undefined;
+    const timeout = globalThis.setTimeout(
+      clearAccountErasureConfirmation,
+      Math.max(0, accountErasureConfirmation.expiresAt - Date.now())
+    );
+    return () => globalThis.clearTimeout(timeout);
+  }, [accountErasureConfirmation, clearAccountErasureConfirmation]);
+
   // Drive the native <dialog> open state from the store
   useEffect(() => {
     const dlg = dialogRef.current;
     if (!dlg) return;
-    if (open && !dlg.open) {
+    if (visibleOpen && !dlg.open) {
       dlg.showModal();
-    } else if (!open && dlg.open) {
+    } else if (!visibleOpen && dlg.open) {
       dlg.close();
     }
-  }, [open]);
+  }, [visibleOpen]);
 
   // After every close, whatever path it took (the store, Escape, the backdrop):
   // the native dialog's own focus return has already run by now, so focus left
   // on <body> means its invoker is gone.
-  const wasOpenRef = useRef(Boolean(open));
+  const wasOpenRef = useRef(visibleOpen);
   useEffect(() => {
-    const closed = wasOpenRef.current && !open;
-    wasOpenRef.current = Boolean(open);
+    const closed = wasOpenRef.current && !visibleOpen;
+    wasOpenRef.current = visibleOpen;
     if (!closed) return;
     const active = document.activeElement;
     if (active === null || active === document.body) chatFocusTarget()?.focus();
-  }, [open]);
+  }, [visibleOpen]);
 
   // Lock body scroll while open (showModal already inerts the rest of the
   // tree, but this prevents background scroll on platforms that don't honor
   // inert)
   useEffect(() => {
-    if (!open) return;
+    if (!visibleOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [visibleOpen]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!visibleOpen) return;
     if (dialogCancelsOnEscape) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (keyTargetsForeignModal(e, dialogRef.current)) return;
@@ -111,14 +150,14 @@ const SettingsOverlayHost: React.FC = () => {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, close]);
+  }, [visibleOpen, close]);
 
   // Native <dialog> fires a 'close' event on ESC; bridge it to the store.
   // Backdrop clicks land on the dialog element itself (not on the inner
   // panel), so we close on click when target === dialog. Listeners are
   // attached imperatively rather than via JSX props.
   useEffect(() => {
-    const dlg = dialogRef.current;
+    const dlg = portalHost;
     if (!dlg) return;
     const dismissBlocked = () =>
       isSettingsOverlayDismissBlocked(useSettingsOverlayStore.getState().open);
@@ -146,14 +185,27 @@ const SettingsOverlayHost: React.FC = () => {
       dlg.removeEventListener('close', handleClose);
       dlg.removeEventListener('click', handleClick);
     };
-  }, [open, close]);
+  }, [portalHost, close]);
 
   let content: React.ReactNode = null;
   if (open === 'app') {
-    content = <SettingsPage />;
-  } else if (open === 'server' && payload?.serverId) {
+    content = emailVerified ? (
+      <SettingsPage
+        accountErasureConfirmation={accountErasureConfirmation}
+        onClearAccountErasureConfirmation={clearAccountErasureConfirmation}
+      />
+    ) : (
+      <PrivacySection
+        erasureOnly
+        accountErasureConfirmation={accountErasureConfirmation}
+        onClearAccountErasureConfirmation={clearAccountErasureConfirmation}
+      />
+    );
+  } else if (emailVerified && open === 'server' && payload?.serverId) {
     content = <ServerSettingsPage serverId={payload.serverId} />;
   }
+
+  if (!emailVerified && !visibleOpen) return null;
 
   return createPortal(
     <dialog
@@ -165,7 +217,7 @@ const SettingsOverlayHost: React.FC = () => {
       {/* eslint-disable-next-line @eslint-react/no-context-provider -- Context.Provider keeps this compatible with the repository's current React context style */}
       <ModalPortalHostContext.Provider value={portalHost}>
         <div className="settings-overlay-host__panel">
-          <Suspense fallback={null}>{open && portalHost ? content : null}</Suspense>
+          <Suspense fallback={null}>{visibleOpen && portalHost ? content : null}</Suspense>
         </div>
       </ModalPortalHostContext.Provider>
     </dialog>,

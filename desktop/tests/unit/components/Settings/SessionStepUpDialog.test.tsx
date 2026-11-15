@@ -13,7 +13,8 @@ import {
 // The session step-up dialog (#7, plan 2026-10-07 §3): single revoke, revoke-all
 // and the revocation-mode change on one dialog. It reads the requirements itself,
 // never `users.mfa_methods` (C2), and reads the route's answers
-// through `adaptSessionsRefusal` (exact strings, C5), never the seam classifier.
+// through `adaptSessionsRefusal` (exact strings, C5). The newer SSO actions use
+// the shared step-up classifier for their flagged refusals.
 //
 // `apiFetch` is mocked at the module boundary and answers by path, so the
 // hook's read and the dialog's own request never compete for a queued response.
@@ -514,6 +515,60 @@ describe('focus once the read has landed (focusOnReady)', () => {
 
     await waitFor(() => expect(password).toHaveFocus());
     expect(within(screen.getByRole('dialog')).getByLabelText('Password')).toBe(password);
+  });
+});
+
+describe('SSO trust error mapping', () => {
+  it.each([
+    ['invalid_credentials', 'Incorrect passphrase.'],
+    ['would_lock_out', 'That change would lock you out. Link an SSO provider first.'],
+  ])('preserves the %s message', async (errorCode, expected) => {
+    installStepUpApi(mockApiFetch, {
+      route: () => jsonResponse(403, { error_code: errorCode }),
+    });
+    renderDialog({ kind: 'ssoTrustEnable' });
+
+    await userEvent.type(await passwordField(), FIXTURE_PW);
+    await userEvent.click(screen.getByRole('button', { name: 'Enable trust' }));
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+});
+
+describe('SSO shared step-up refusals', () => {
+  it.each([
+    [{ kind: 'ssoUnlink', provider: 'google' } as const, 'Confirm & Unlink'],
+    [{ kind: 'ssoTrustEnable' } as const, 'Enable trust'],
+  ])('offers the required factor after a failed read for %j', async (action, button) => {
+    mockClassify.mockReturnValue({ kind: 'mfaRequired', methods: ['totp'] });
+    installStepUpApi(mockApiFetch, {
+      read: () => jsonResponse(503),
+      route: () => jsonResponse(403, { mfa_required: true, methods: ['totp'] }),
+    });
+    renderDialog(action);
+
+    await userEvent.type(await passwordField(), FIXTURE_PW);
+    await userEvent.click(screen.getByRole('button', { name: button }));
+
+    expect(await codeField()).toBeInTheDocument();
+    expect(mockClassify).toHaveBeenCalledWith(403, { mfa_required: true, methods: ['totp'] });
+  });
+
+  it('ends an SSO attempt that requires factor enrollment', async () => {
+    mockClassify.mockReturnValue({ kind: 'enrollmentRequired' });
+    installStepUpApi(mockApiFetch, {
+      read: () => jsonResponse(503),
+      route: () => jsonResponse(403, { mfa_enrollment_required: true }),
+    });
+    renderDialog({ kind: 'ssoTrustEnable' });
+
+    await userEvent.type(await passwordField(), FIXTURE_PW);
+    await userEvent.click(screen.getByRole('button', { name: 'Enable trust' }));
+
+    expect(
+      await screen.findByText('Set up an authenticator app or security key in Settings to do this.')
+    ).toBeInTheDocument();
+    expect(mockClassify).toHaveBeenCalledWith(403, { mfa_enrollment_required: true });
   });
 });
 

@@ -371,8 +371,13 @@ import type {
  *        The SERVER's spaIpcContract stays 19: the renderer feature-detects
  *        `typeof globalThis.electron?.capture?.acquire === 'function'`; a shell
  *        below 36 keeps today's behaviour. Capability, not demand.
+ * - v37: Account-erasure confirmation deep link: dedicated
+ *        `deeplink:account-erasure-confirmation` main-to-renderer event plus
+ *        `deeplink:account-erasure-ready` readiness signal. The payload carries
+ *        only `{ requestId, token }`, is sender/session fenced in main, and never
+ *        passes through invite/friend routing or persistent storage.
  */
-export const IPC_CONTRACT_VERSION = 36;
+export const IPC_CONTRACT_VERSION = 37;
 
 export type {
   CaptureAcquireResult,
