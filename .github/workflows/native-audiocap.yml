@@ -282,7 +282,8 @@ jobs:
       #   - the SHIPPED target refuses a start that names no target: NoBackend off
       #     darwin (no producer is compiled in), NoTarget on darwin (the process-tap
       #     backend is present and refuses for want of a target)
-      #   - the SYNTHETIC target does -> ok:true, so the define really took effect
+      #   - the SYNTHETIC target starts anyway -> ok:true (its producer needs no
+      #     target), so the define really took effect
       # A release build that started emitting a test tone, or a synthetic build
       # that silently lost its backend, both turn this red.
       # The floor check below can fail for two reasons and names both. This is

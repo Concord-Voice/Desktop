@@ -1832,6 +1832,13 @@ then sit outside the process tree of the app window being shared, so an M4 share
 `signalTotal` 0 with or without the exclusion. Launch the sharing client in the foreground of a
 shell that stays alive, and check its ancestry with `ps -o ppid=` before trusting the result.
 
+**The matrix probe is kept (2026-11-15).** `desktop/scripts/audiocap-matrix-probe/` (issue 75)
+is a committed probe that is re-run by hand, not a throwaway. M1–M6 above were one-off runs; the
+matrix is the only check that runs the real capture child, under the bundle's own identity,
+against the real grants, and macOS changes process-tap and privacy-grant behaviour between
+releases. Re-run it on each new macOS major release and whenever the tap backend changes. Remove
+it only in the same change as an ADR-0043 entry that retires the macOS process-tap backend.
+
 ### Record corrections carried by this PR
 
 §5 rows 1–7 above are Corrected in place, all citing the E1–E4 evidence: the "screen grant does not

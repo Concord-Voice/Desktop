@@ -19,13 +19,12 @@
 //   - Load the addon. Main reads grants and enumerates windows only; the child
 //     owns the addon (ADR-0043 D5).
 //
-// KEPT, NOT THROWAWAY (decided 2026-11-15). This directory stays as a committed,
-// re-runnable probe, as native/concord-audiocap/test/resolve_window_owner_probe.js
-// does. macOS changes process-tap and privacy-grant behaviour between releases, and
-// this matrix is the only check that runs the real capture child against the real
-// grants. Re-run it on each new macOS major release and whenever the tap backend
-// changes. Remove it only in the same change as an ADR-0043 entry that retires the
-// macOS process-tap backend.
+// KEPT, NOT THROWAWAY (decided 2026-11-15; recorded in ADR-0043 after the M1-M6
+// checks). A committed probe re-run by hand, like scripts/audiocap-target-probe/.
+// It is the only check that runs the real capture child, under the bundle's own
+// identity, against the real grants, and macOS changes both between releases. Re-run
+// it on each new macOS major release and whenever the tap backend changes; remove it
+// only with an ADR-0043 entry that retires the macOS process-tap backend.
 //
 // USAGE. Development build, darwin only; it refuses when packaged.
 //
