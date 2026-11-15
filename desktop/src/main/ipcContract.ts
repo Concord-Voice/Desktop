@@ -352,8 +352,18 @@ import type {
  *        `electron.connection` bridge runs the legacy single-connection path, and
  *        only a bridge that answers null renders "connection unavailable".
  *        Capability, not demand.
+ *
+ * v36 — main-owned desktop notifications (#86 C11). One connection-bound invoke,
+ *        `notification:show` ({ id, title, body } → boolean), and one push,
+ *        `notification:clicked` ({ id }), sent to the owning connection's view only
+ *        while the generation that asked is current. Main shows an Electron
+ *        `Notification`; on its OS click main activates THAT connection, restores and
+ *        focuses the window, and pushes the id. `app:focusWindow` stays
+ *        foreground-only (RT6). The SERVER's spaIpcContract stays 19: a renderer that
+ *        finds no `showNotification` bridge keeps its web Notification. Capability,
+ *        not demand.
  */
-export const IPC_CONTRACT_VERSION = 35;
+export const IPC_CONTRACT_VERSION = 36;
 
 /** `connection:create` reply (#86 §3.7). The renderer never learns more than the reason. */
 export type ConnectionCreateResult =

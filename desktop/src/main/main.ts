@@ -26,6 +26,7 @@ import {
   setTrayWindowFocused,
 } from './tray';
 import { attachTrayResetHooks, registerTrayStatusIpc, trayActionTarget } from './ipc/trayStatus';
+import { registerNotificationIpc } from './ipc/notifications';
 import { TRAY_ACTION } from '../shared/trayStatus';
 import {
   audiocapMachineCapability,
@@ -52,6 +53,7 @@ import {
   desktopCapturer,
   dialog,
   nativeImage,
+  Notification,
   powerMonitor,
   protocol,
   screen,
@@ -2534,6 +2536,24 @@ registerIpc(
   },
   { refusal: () => undefined }
 );
+
+// #86 C11: main-owned desktop notifications. The renderer asks main to show one; only
+// main's own click handler activates the owning connection and reveals the window, so
+// app:focusWindow above stays foreground-only (RT6) and no renderer call brings a view
+// forward.
+registerNotificationIpc({
+  create: (options) => (Notification.isSupported() ? new Notification(options) : null),
+  activate: (serviceId) => activateConnection(serviceId),
+  reveal: () => {
+    const win = shellWindow();
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    // A close-to-tray window is hidden, not minimized.
+    win.show();
+    win.focus();
+  },
+  send: (ref, channel, payload) => sendToConnection(ref, channel, payload),
+});
 
 // ─── Auto-Update IPC ──────────────────────────────────────────────────
 

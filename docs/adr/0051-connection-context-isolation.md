@@ -518,9 +518,27 @@ is the notification click (`desktopNotificationService.handleClick`). The foregr
 connection's click still focuses the window. A background connection's click now records its
 pending navigation and does not focus the window. Before the fix that click focused the window
 onto the foreground connection, not onto the clicked one, so it never took the user to the
-target either. **Residual (RT6):** a click on a background connection's notification does not
-bring the app forward. Doing that would need main to own the notification and to switch to that
-connection on the click (main-owned activation). That is a design change, not built here.
+target either. **Residual (RT6), closed by C11:** a click on a background connection's
+notification did not bring the app forward.
+
+**C11 — main-owned notifications (contract v36).** The renderer now asks main to show the
+notification (`notification:show` `{ id, title, body }` → boolean, `connection-bound`), and main
+shows an Electron `Notification` (`desktop/src/main/ipc/notifications.ts`). Main records the
+sender's `ConnectionRef` as an owner binding (`notification`) and its `ServiceId`. On the OS
+click, which only main observes and the renderer cannot forge, main drops the click unless that
+owner is still current, then calls `activateConnection` for THAT service, restores, shows and
+focuses the window, and pushes `notification:clicked` `{ id }` to the owner's view; the renderer
+maps the id to its own pending navigation, so no navigation data passes through main. Showing a
+notification activates nothing, and `app:focusWindow` stays `app-global-mutate`, so an
+unsolicited focus request from a background view is still refused. Main holds at most 20
+notifications per connection (Electron needs the object referenced for its click to arrive, and
+on Windows `close` also fires on the timeout that moves a toast to Action Center, so `close` does
+not release one), forgets a connection's notifications on any generation advance and closes them
+on `disposed`. A shell without the bridge, or a `false` answer, keeps the web `Notification` and
+its RT6 behaviour. What a connection can do after C11 that it could not before: bring itself to
+the foreground, but only when the user clicks a notification it showed, whose title and body it
+chose. A self-hosted connection could word that notification as if it came from another
+connection; the notification carries no connection label (see the report on #86 C11).
 
 **RT7 — A background connection could stop another connection's taskbar flash (LOW, Phase-4
 red-team).** `app:flashFrame` wrote the window directly, so B's `flashFrame(false)` cancelled the
@@ -567,6 +585,7 @@ Each row is a security decision taken in review. The table of record is
 | `sso:appleSignIn`, `sso:googleSignIn` | `app-global-mutate`; the handler also refuses while another connection owns that provider's flow | RT2, RT1 |
 | `spa:requestSelfHeal` (and the `did-fail-load` self-heal trigger, no channel) | `connection-bound`; `attemptSelfHeal` acts only when the requester is the saas view, and `did-fail-load` reaches it only from the saas primary's main frame | RT3 |
 | `app:focusWindow` | `app-global-mutate` | RT6 |
+| `notification:show` | `connection-bound` | C11: shows only; main's own click handler activates the owner |
 | `app:flashFrame` | `connection-bound`; one flash request per connection, so a connection withdraws only its own | RT7 |
 | `image:saveAs` | `app-global-mutate` | the native Save dialog is modal over the shared window and the path the user picks receives the sender's bytes, so a hidden view must not raise it over the foreground one |
 | `open-external` | `app-global-mutate` | the OS browser opens over every connection, so a hidden view must not launch phishing pages behind the visible one (C6); a PiP stays refused, as under `connection-bound` |

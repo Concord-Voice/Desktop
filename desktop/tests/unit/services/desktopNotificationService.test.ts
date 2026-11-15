@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { useNotificationStore } from '../../../src/renderer/stores/ui/notificationStore';
 
 // Mock the dynamic import of notificationNavigationStore
@@ -538,6 +538,87 @@ describe('DesktopNotificationService', () => {
   });
 
   // ── isInQuietHours ────────────────────────────────────────────────
+
+  // #86 C11: on a v36 shell main owns the notification. Its click comes back from main,
+  // which has already activated THIS connection and revealed the window, so the renderer
+  // only queues the navigation. app:focusWindow is foreground-only (RT6) and is not asked.
+  describe('main-owned notifications (contract v36)', () => {
+    const bridge = globalThis.electron as unknown as Record<string, unknown>;
+    const mockShowNotification = vi.fn();
+    let clicked: ((data: { id: string }) => void) | null = null;
+    const mockOnNotificationClicked = vi.fn((callback: (data: { id: string }) => void) => {
+      clicked = callback;
+      return () => undefined;
+    });
+    const dm = {
+      title: 'Alice',
+      senderDisplayName: 'Alice',
+      body: 'Hello there!',
+      targetType: 'dm' as const,
+      targetId: 'dm-123',
+      senderId: 'user-1',
+    };
+    const shownId = (): string => {
+      const payload = mockShowNotification.mock.calls.at(-1)?.[0] as { id: string } | undefined;
+      if (!payload) throw new Error('showNotification was not called');
+      return payload.id;
+    };
+    const click = (id: string): void => {
+      if (!clicked) throw new Error('no click subscription');
+      clicked({ id });
+    };
+
+    beforeEach(() => {
+      useNotificationStore.setState({ notificationContent: 'full' });
+      mockShowNotification.mockResolvedValue(true);
+      bridge.showNotification = mockShowNotification;
+      bridge.onNotificationClicked = mockOnNotificationClicked;
+    });
+    afterEach(() => {
+      delete bridge.showNotification;
+      delete bridge.onNotificationClicked;
+    });
+
+    it('shows through main, not as a web Notification', () => {
+      desktopNotificationService.notify(dm);
+      expect(mockShowNotification).toHaveBeenCalledWith({
+        id: expect.stringMatching(/^[A-Za-z0-9-]{1,64}$/),
+        title: 'Alice',
+        body: 'Hello there!',
+      });
+      expect(MockNotification.instances).toHaveLength(0);
+    });
+
+    it('a click from main queues the navigation and does not ask main to focus the window', async () => {
+      desktopNotificationService.notify(dm);
+      click(shownId());
+      await vi.waitFor(() =>
+        expect(mockSetPendingNavigation).toHaveBeenCalledWith({
+          type: 'dm',
+          targetId: 'dm-123',
+          serverId: undefined,
+        })
+      );
+      expect(mockFocusWindow).not.toHaveBeenCalled();
+    });
+
+    it('an unknown or repeated click id navigates at most once', async () => {
+      desktopNotificationService.notify(dm);
+      const id = shownId();
+      click('not-shown');
+      click(id);
+      click(id);
+      await vi.waitFor(() => expect(mockSetPendingNavigation).toHaveBeenCalledTimes(1));
+      await Promise.resolve();
+      expect(mockSetPendingNavigation).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to a web Notification when main does not show it', async () => {
+      mockShowNotification.mockResolvedValueOnce(false);
+      desktopNotificationService.notify(dm);
+      await vi.waitFor(() => expect(MockNotification.instances).toHaveLength(1));
+    });
+  });
 
   describe('isInQuietHours', () => {
     it('handles same-day range (08:00-22:00)', () => {

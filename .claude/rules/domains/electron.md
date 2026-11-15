@@ -1115,6 +1115,34 @@ keeps its static Open/Quit tray. Capability, not demand.
   builds and sends a synthetic snapshot through the real channel. Main adds ` [dev]` to the
   tooltip when `!app.isPackaged`.
 
+### IPC contract v36 — main-owned desktop notifications (#86 C11)
+
+`IPC_CONTRACT_VERSION` moved 35 → 36. `SPA_MIN_CONTRACT` stays **19**: the renderer
+feature-detects `typeof globalThis.electron?.showNotification === 'function'` (and
+`onNotificationClicked`), and a shell below 36 keeps the web `Notification`, whose click can
+focus the window only for the foreground connection (RT6). Capability, not demand.
+
+- **One renderer → main invoke, `notification:show`** (`connection-bound`), payload
+  `{ id, title, body }` → `boolean`. `isNotificationShowPayload` (`src/shared/desktopNotification.ts`)
+  requires exactly those three own data keys, an id of 1-64 `[A-Za-z0-9-]`, a title of at most
+  256 characters and a body of at most 1024; anything else, and an unsupported platform, resolve
+  `false` and show nothing. No icon, sound or action crosses: main sets `silent: true`, because
+  sounds stay with `notificationSoundService`, and a renderer-chosen icon path would be a file read
+  in main.
+- **One main → renderer push, `notification:clicked`** `{ id }`, sent with `sendToConnection` to
+  the owning view at the generation that asked. The preload re-validates it and copies the field.
+- **Only main's click handler activates, and only the owner.** The click is Electron's
+  main-process `Notification` `click` event; the renderer cannot raise it. `notification:show`
+  activates nothing, and `app:focusWindow` stays `app-global-mutate`. Do not route a click through
+  a renderer-callable channel, and do not widen `app:focusWindow` for notifications: either hands a
+  hidden view a focus primitive at a moment it chooses (RT6).
+- **Lifetime.** At most 20 per connection, oldest closed first. A click, an eviction or any
+  generation advance releases one; `disposed` also closes it. `close` does not, because on Windows
+  it fires on the timeout that moves a toast to Action Center, where the user can still click it.
+- **The id is the renderer's.** `desktopNotificationService` maps it to the pending navigation
+  (at most 50 kept) and, on the click, queues that navigation without calling `focusWindow`:
+  main has already activated the connection and revealed the window. See ADR-0051 § C11.
+
 ### IPC contract v35 — connection context isolation (#86)
 
 `IPC_CONTRACT_VERSION` moved 33 → 34. `SPA_MIN_CONTRACT` stays **19**: a renderer that
