@@ -28,7 +28,7 @@ Per the repo's operational discipline (and the org defaults):
 
 ## Prep mode — flow
 
-The prep mode runs Phases 0 → 3.6 of the main SKILL.md, then writes the digest, then exits. The triage follow-up runs on its own independent cron — prep does NOT schedule it (see Step P7 below).
+The prep mode runs Phases 0 → 3.7 of the main SKILL.md, then writes the digest, then exits. The triage follow-up runs on its own independent cron — prep does NOT schedule it (see Step P7 below).
 
 ### Step P1: Discover
 
@@ -45,6 +45,10 @@ Run Phase 3.5 (the confidence-assessment step). The autonomous mode adds **one e
 - Community-signal lookup verdict is `LOW` (advisory affecting the bumped-to version, or strong-negative release-note keyword match)
 
 This is already encoded in Phase 3.5's conditions in SKILL.md; just confirming it applies in autonomous mode too.
+
+### Step P3a: Record review coverage
+
+Run SKILL.md Step 3.7.1 for every PR. Prep records only: zero coverage gets its line in the digest and nothing else, because when Copilot is available it is requested in Step P4 and needs the window until triage; when it is not, triage closes the gap.
 
 ### Step P4: Request Copilot review (idempotent)
 
@@ -101,6 +105,7 @@ Per `pinned-issue-digest.md`, find the pinned issue by exact title (`.weekly_dep
 - Community signal section (advisories, release-note flags)
 - Copilot review requests (what was requested, what was skipped)
 - Rebase commands sent
+- Review coverage: one line per PR from Step P3a
 - Recommendation for the developer's interactive run
 
 ```bash
@@ -191,7 +196,11 @@ Per Phase 4.0 of SKILL.md, apply the auto-dismiss rules:
 - Test-coverage finding on a dev-only (e.g. `devDependencies`) patch → dismiss
 - Behavioral change / deprecation affecting shipped code / breaking-change call-out / supply-chain anomaly → surface
 
-For each PR, count `(dismissed, surfaced)`. For Tier C PRs, do NOT auto-process via the deep-review skill in autonomous mode — that's a subagent dispatch which should run interactively. Just summarize Copilot's review state and inline-finding counts; surface to the digest for the developer to act on in the interactive run.
+For each PR, count `(dismissed, surfaced)`. For Tier C PRs, do NOT auto-process via the deep-review skill in autonomous mode — its reconciliation and merge decision need the developer. Just summarize Copilot's review state and inline-finding counts; surface to the digest for the developer to act on in the interactive run.
+
+### Step T4a: Re-check review coverage
+
+Re-run SKILL.md Step 3.7.1 for every open PR. A rebase since prep moves the head SHA, so prep's lines may be stale. Record only: a PR still at ZERO coverage keeps its ZERO line for the developer's interactive pass, which runs the first-party suite before the merge prompt (SKILL.md Step 3.7.2). Triage never runs that suite, because it would read untrusted Dependabot and release-note text with no human present (SKILL.md, **No unattended suite**).
 
 ### Step T5: Update the digest comment
 
@@ -200,6 +209,7 @@ Per `pinned-issue-digest.md`, edit the prep-run comment in place:
 1. Update front-matter `routine-triage-run` timestamp
 2. Update the status table (Triage → ✅ Complete)
 3. Add the "🤖 Copilot reconciliation" section with the auto-dismiss/surface table
+4. Replace the "🛡 Review coverage" lines with Step T4a's re-checked lines
 
 Keep all prep-run content intact. The triage run is additive, not replacing.
 
@@ -218,6 +228,7 @@ No follow-up schedule. The next prep run is the next scheduled cron.
 | Triage cron didn't fire (e.g., platform outage) | n/a — prep doesn't schedule triage | The developer re-invokes `/weekly-deps --mode=triage` manually via the routine UI's "Run now" |
 | Prep-run comment not found | n/a | Abort; possible cause: prep didn't run, or comment was edited externally |
 | Copilot review still pending on N PRs | n/a | Flag "awaiting" in digest, skip auto-dismiss for those |
+| `review-coverage.sh` exits 2 (UNKNOWN) | Line reads `coverage UNKNOWN`, continue | Same; re-check next run |
 | Digest edit fails | n/a | Write to `/tmp/weekly-deps-triage-$WEEK_TAG.md`, exit non-zero |
 
 In all failure cases, the routine never proceeds to a merge action, never creates a new PR, never modifies the repo's code. The worst-case outcome of a failed routine run is "the developer doesn't have the weekly digest; they run `/weekly-deps` interactively from scratch" — exactly the pre-routine baseline.
