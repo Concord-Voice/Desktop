@@ -90,7 +90,9 @@ v1 '{"x": {"version": "1.0.0", "resolved": "https://evil.example/x.tgz\nhttps://
 expect 1 "newline inside resolved fails" "$lock" "x has a control character"
 v1 '{"x": {"version": "1.0.0"}}'
 expect 1 "v1 entry with no resolved fails" "$lock" "x has no resolved URL"
-v1 '{"x": {"version": "file:tools/x"}, "y": {"version": "npm:string-width@4.2.3", "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz"}}'
+v1 '{"x": {"version": "file:tools/x.tgz", "from": "https://evil.example/x.tgz"}}'
+expect 1 "v1 local version with a remote from fails" "$lock" "x has no resolved URL"
+v1 '{"x": {"version": "file:tools/x", "from": "file:tools/x"}, "y": {"version": "npm:string-width@4.2.3", "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz"}}'
 expect 0 "v1 relative file: and npm: alias pass" "$lock"
 
 # ── go.mod / go.work ──────────────────────────────────────────────────

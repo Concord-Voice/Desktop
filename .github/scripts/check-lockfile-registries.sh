@@ -88,7 +88,11 @@ for f in "$@"; do
             # root, links, bundled entries, v1 local file: entries, and v3
             # link targets (keys outside node_modules/).
             elif $k == "" or $e.link == true or $e.inBundle == true or $e.bundled == true then empty
-            elif (($e.version // "") | tostring | startswith("file:")) then empty
+            # A local file: version, but npm falls back to `from` when there is
+            # no resolved or integrity, so `from` must be local too.
+            elif (($e.version // "") | tostring | startswith("file:"))
+                 and ($e.from == null or (($e.from | type) == "string" and ($e.from | startswith("file:")) and ($e.from[5:] | relpath)))
+              then empty
             elif $v1 or ($k | test("(\\A|/)node_modules/")) then [$k, "has no resolved URL", "-"]
             else empty end,
             ( select(($e.version | type) == "string" and ($e.version | okversion | not))
