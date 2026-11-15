@@ -1123,17 +1123,36 @@ half is `.claude/rules/media-plane.md` § "Media-rate policer (#2153)" — read 
   announcement, the tile may clear
   briefly until the replacement attaches. Do not claim that event order is
   flicker-free or that an unattached pending replacement preserves the tile.
-- **No `resume-producer` is ever emitted for a latched producer — all FOUR emit sites are guarded**:
-  `toggleMute`, `restoreTestSuspendedProducer`, `resumeLocalProducer` and the solo-exit loop. The
+- **No `resume-producer` is ever emitted for a latched producer — all FIVE emit sites are guarded**:
+  `toggleMute`, `restoreTestSuspendedProducer`, `resumeLocalProducer`, the solo-exit loop and the
+  live mic track replacement. The
   server refuses the resume too, but that emit carries no ack, so without the client guard the
   refusal would be a silent local resume of a dead producer. Each site has a CONTROL/latched test
   pair in `voiceService.mediaPolicy.test.ts`; the solo-exit and test-restore pairs exist because
   deleting those guards once survived every case.
+- **A mic resume needs the WHOLE privacy policy, not just the latch (#242).** The latch is one
+  condition of five. The solo-exit loop and `resumeLocalProducer('mic')` used to check only
+  `isMuted` or the latch, so a deafened, server-muted or test-suspended user started transmitting
+  whenever the peer rejoined a two-person call — every reconnect is a leave-and-rejoin — while the
+  UI still said muted. Every automatic mic resume now passes `canResumeMic`, which is the latch,
+  `shouldRunMicVAD` (self mute/deafen, server mute/deafen, test suspension) and a live mic graph:
+  the solo-exit loop, `resumeLocalProducer('mic')`, the end of a mic test
+  (`restoreTestSuspendedProducer`; the suspension depth is already 0 there), and
+  `adoptMicProducer` plus live track replacement through `shouldResumeMicAfterTrackReplacement`,
+  which adds the solo-mode check. Any new mic-resume site calls `canResumeMic`. Do not re-derive a
+  subset. The user's own unmute is the one site that does not: it resumes on an explicit click,
+  and **unmuting while deafened also undeafens** (`undeafenForUnmute`), so the click and the UI
+  agree; a server-deafened user's unmute is refused. A deafen pauses the mic through
+  `enforceDeafenedMicOff` even when `toggleMute` could not act or failed, and a server-deafen
+  pauses it even without a server-mute. A client-paused producer sends silence (mediasoup-client
+  `disableTrackOnPause` defaults to true), so only a `resume()` leaks audio. CONTROL/blocked rows
+  are in `voiceService.reconnectMuteState.test.ts` and `voiceService.redteam242.test.ts`.
 - **Only the MIC locks in the toolbar.** Mute and unmute pause and resume the SAME producer, so no
   mic toggle can clear a latch — its remedy is leave-and-rejoin, and the notice says so. Camera,
   screen and sound Off/On close and re-produce, which retires the latch, so locking them would remove
-  the remedy. The mic notice also sets `isMuted` (via `setMuted` + `applyOptimisticMute`), which is
-  what keeps the solo-exit loop from resuming it and the owner's own tile from showing "speaking".
+  the remedy. The mic notice also sets `isMuted` (via `setMuted` + `applyOptimisticMute`), which
+  keeps the owner's own tile from showing "speaking"; `canResumeMic`'s latch check is what keeps
+  the solo-exit loop from resuming it.
 - **`mediaPolicyInterrupt` survives `voiceStore.reset()` by design.** A media-policy
   `force-disconnect` lands before the `io server disconnect` that runs `emergencyCleanup()` →
   `reset()`, and `handleJoinFailure` resets before its `'error'` transition; clearing it there would

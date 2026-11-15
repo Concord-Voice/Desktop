@@ -2447,12 +2447,22 @@ class VoiceService {
     return localParticipant?.serverMuted !== true && localParticipant?.serverDeafened !== true;
   }
 
-  private shouldResumeMicAfterTrackReplacement(producerId: string): boolean {
+  /**
+   * The one policy every mic resume must pass (#242): not latched by the media-rate
+   * policer, not muted/deafened by the user or the server, not test-suspended, and
+   * backed by a live mic graph. A resume site that checks less un-mutes the user
+   * behind a UI that still says muted.
+   */
+  private canResumeMic(producer: mediasoupTypes.Producer): boolean {
     return (
-      !useVoiceStore.getState().isSoloBandwidthSaving &&
-      !this.isMediaPolicyLatched(producerId) &&
-      this.shouldRunMicVAD(producerId)
+      !this.isMediaPolicyLatched(producer.id) &&
+      this.shouldRunMicVAD(producer.id) &&
+      this.hasLiveMicGraph(producer)
     );
+  }
+
+  private shouldResumeMicAfterTrackReplacement(producer: mediasoupTypes.Producer): boolean {
+    return !useVoiceStore.getState().isSoloBandwidthSaving && this.canResumeMic(producer);
   }
 
   private hasLiveMicGraph(producer: mediasoupTypes.Producer): boolean {
@@ -2641,8 +2651,7 @@ class VoiceService {
       replaceSeq === this.liveAudioTrackReplaceSeq &&
       producerTrackSafe &&
       graph !== null &&
-      this.hasLiveMicGraph(producer) &&
-      this.shouldResumeMicAfterTrackReplacement(producer.id)
+      this.shouldResumeMicAfterTrackReplacement(producer)
     ) {
       graph.track.enabled = true;
       producer.resume();
@@ -3846,15 +3855,21 @@ class VoiceService {
       if (ep.source === 'screen') entry.isScreenSharing = true;
       producersByUser.set(ep.userId, entry);
     }
+    // The local user's own entry reflects their current choice (#242): a rebuilt
+    // roster must not show a muted or deafened user as live. Peers keep the
+    // payload's deafen and learn mute from producer-paused.
+    const localUserId = useUserStore.getState().user?.id;
+    const { isMuted: selfMuted, isDeafened: selfDeafened } = useVoiceStore.getState();
     return roomJoined.participants.map((p) => {
       const producerState = producersByUser.get(p.userId);
+      const isSelf = p.userId === localUserId;
       return {
         userId: p.userId,
         username: p.username,
         displayName: p.displayName,
         avatarUrl: p.avatarUrl,
-        isMuted: false,
-        isDeafened: p.isDeafened ?? false,
+        isMuted: isSelf ? selfMuted : false,
+        isDeafened: isSelf ? selfDeafened : (p.isDeafened ?? false),
         isTesting: p.isTesting ?? false,
         serverMuted: false,
         serverDeafened: false,
@@ -4980,8 +4995,11 @@ class VoiceService {
   private restorePostResumeMuteState(socket: Socket): void {
     const postResume = useVoiceStore.getState();
     const mic = this.producers.get('mic');
-    if (postResume.isMuted && mic && !mic.paused) {
-      mic.pause();
+    // Emit the pause even when the client producer is already paused (#242):
+    // adoption pauses it locally, but a pause emitted on a socket that was
+    // mid-reconnect is dropped, and peers must not see a muted user as live.
+    if (mic && !this.shouldRunMicVAD(mic.id)) {
+      if (!mic.paused) mic.pause();
       socket.emit('pause-producer', { producerId: mic.id });
       this.stopLocalVAD();
     }
@@ -5225,7 +5243,7 @@ class VoiceService {
 
     // The outbound track was disabled before transport.produce. Only current
     // policy may enable it; muted and test-suspended producers stay paused.
-    if (this.shouldResumeMicAfterTrackReplacement(producer.id)) {
+    if (this.shouldResumeMicAfterTrackReplacement(producer)) {
       producer.resume();
     } else {
       producer.pause();
@@ -6695,7 +6713,7 @@ class VoiceService {
     if (this.isMediaPolicyLatched(producer.id)) return; // #2153: never resume a policed producer
     if (policy.keepProducersPaused) return;
     if (source === 'mic' && policy.keepMicPaused) return;
-    if (source === 'mic' && !this.hasLiveMicGraph(producer)) return;
+    if (source === 'mic' && !this.canResumeMic(producer)) return; // #242: deafen too
 
     producer.resume();
     this.socket?.emit('resume-producer', { producerId: producer.id });
@@ -6815,30 +6833,47 @@ class VoiceService {
     }
   }
 
+  /**
+   * Unmuting while deafened also undeafens (#242), so the mic and the UI agree.
+   * Returns false when the user is server-deafened and cannot undeafen.
+   */
+  private undeafenForUnmute(): boolean {
+    if (!useVoiceStore.getState().isDeafened) return true;
+    if (this.isServerDeafenBlocked()) return false;
+    this.toggleDeafen();
+    return true;
+  }
+
+  /** Mute toggle while no mic producer is mapped (codec replacement pending or failed). */
+  private toggleMuteWithoutProducer(store: ReturnType<typeof useVoiceStore.getState>): void {
+    const transport = this.sendTransport;
+    if (
+      !this.micReproduceArmed ||
+      !transport ||
+      transport.closed ||
+      !store.activeChannelId ||
+      store.mediaPolicyPaused.mic !== undefined
+    )
+      return;
+
+    // A codec replacement can have no mapped producer while pending or after
+    // a recoverable failure. Keep the latest mute intent for adoption, where
+    // the outgoing track stays disabled until current policy permits a resume.
+    if (store.isMuted && !this.canUnmuteMic(store)) return;
+    if (store.isMuted && !this.undeafenForUnmute()) return;
+    const muted = !store.isMuted;
+    store.setMuted(muted);
+    this.applyOptimisticMute(store, muted);
+    notificationSoundService.play(muted ? 'mute' : 'unmute');
+    if (muted) this.stopLocalVAD();
+  }
+
   /** Toggle mute (pause/resume mic producer) */
   async toggleMute(): Promise<void> {
     const store = useVoiceStore.getState();
     const producer = this.producers.get('mic');
     if (!producer) {
-      const transport = this.sendTransport;
-      if (
-        !this.micReproduceArmed ||
-        !transport ||
-        transport.closed ||
-        !store.activeChannelId ||
-        store.mediaPolicyPaused.mic !== undefined
-      )
-        return;
-
-      // A codec replacement can have no mapped producer while pending or after
-      // a recoverable failure. Keep the latest mute intent for adoption, where
-      // the outgoing track stays disabled until current policy permits a resume.
-      if (store.isMuted && (!this.canUnmuteMic(store) || store.isDeafened)) return;
-      const muted = !store.isMuted;
-      store.setMuted(muted);
-      this.applyOptimisticMute(store, muted);
-      notificationSoundService.play(muted ? 'mute' : 'unmute');
-      if (muted) this.stopLocalVAD();
+      this.toggleMuteWithoutProducer(store);
       return;
     }
     // #2153: a policed mic can only come back through a rejoin. resume-producer carries no
@@ -6847,6 +6882,12 @@ class VoiceService {
     if (this.isMediaPolicyLatched(producer.id)) return;
 
     const wasMuted = store.isMuted;
+    // Undeafen only when the unmute can proceed; a dead mic graph would leave the user
+    // undeafened but still muted (#242 review).
+    if (wasMuted && this.canUnmuteMic(store)) {
+      if (!this.hasLiveMicGraph(producer)) return;
+      if (!this.undeafenForUnmute()) return;
+    }
     try {
       if (wasMuted) {
         await this.unmuteMicProducer(store, producer);
@@ -6905,9 +6946,34 @@ class VoiceService {
       }
     }
 
-    // Also mute self when deafened
+    // Also mute self when deafened. toggleMute returns without muting when it
+    // cannot act on a producer (none yet, or latched); record the intent anyway so
+    // the mute button stays truthful and no later path reads "unmuted" (#242).
     if (newDeafened && !store.isMuted) {
-      void this.toggleMute();
+      void this.toggleMute()
+        .catch((error: unknown) => {
+          console.error('[VoiceService] deafen mute failed:', errorMessage(error));
+        })
+        .then(() => this.enforceDeafenedMicOff());
+    }
+  }
+
+  /**
+   * After a deafen, the mic must be paused and the store muted, even when toggleMute
+   * could not act (no producer, latched) or failed and its revert resumed the mic (#242).
+   */
+  private enforceDeafenedMicOff(): void {
+    const after = useVoiceStore.getState();
+    if (!after.isDeafened) return;
+    const mic = this.producers.get('mic');
+    if (mic && !mic.closed && !mic.paused) {
+      mic.pause();
+      this.socket?.emit('pause-producer', { producerId: mic.id });
+      this.stopLocalVAD();
+    }
+    if (!after.isMuted) {
+      after.setMuted(true);
+      this.applyOptimisticMute(after, true);
     }
   }
 
@@ -7660,7 +7726,7 @@ class VoiceService {
   resumeLocalProducer(source: string): void {
     const producer = this.producers.get(source);
     if (!producer?.paused || this.isMediaPolicyLatched(producer.id)) return; // #2153
-    if (source === 'mic' && !this.hasLiveMicGraph(producer)) return;
+    if (source === 'mic' && !this.canResumeMic(producer)) return; // #242
     producer.resume();
     this.socket?.emit('resume-producer', { producerId: producer.id });
   }
@@ -7716,11 +7782,11 @@ class VoiceService {
       this.soloNotificationTimer = null;
     }
 
-    // Resume all producers (start sending again)
-    // Respect current mute state — don't resume mic if user is muted
+    // Resume all producers (start sending again). The mic resumes only under the
+    // full mute/deafen/server/test policy (#242) — checking isMuted alone resumed a
+    // deafened user's mic every time the peer rejoined a two-person call.
     for (const [source, producer] of this.producers) {
-      if (source === 'mic' && store.isMuted) continue; // stay paused if intentionally muted
-      if (source === 'mic' && !this.hasLiveMicGraph(producer)) continue;
+      if (source === 'mic' && !this.canResumeMic(producer)) continue;
       if (producer.paused && !this.isMediaPolicyLatched(producer.id)) {
         producer.resume();
         this.socket?.emit('resume-producer', { producerId: producer.id });
@@ -10246,7 +10312,8 @@ class VoiceService {
         }
         store.setDeafened(true);
       }
-      if (muted) {
+      // #242: a server-deafened user may not transmit either.
+      if (muted || serverDeafened) {
         const micProducer = this.producers.get('mic');
         if (micProducer && !micProducer.paused) {
           micProducer.pause();
