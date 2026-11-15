@@ -98,6 +98,10 @@ v1 '{"x": {"version": "1.0.0", "link": true, "resolved": "tools/x"}}'
 expect 1 "v1 link does not exempt a local resolved" "$lock" "x is not a plain https registry URL"
 v1 '{"x": {"version": "1.0.0", "bundled": true}}'
 expect 0 "v1 bundled entry without resolved passes" "$lock"
+v1 '{"x": {"version": "1.0.0", "bundled": true, "from": "https://evil.example/x.tgz"}}'
+expect 1 "v1 bundled entry with a remote from fails" "$lock"
+v1 '{"x": {"version": "1.0.0", "bundled": true, "from": "file:vendor/x"}}'
+expect 0 "v1 bundled entry with a relative file: from passes" "$lock"
 v1 '{"x": {"version": "file:tools/x", "from": "file:tools/x"}, "y": {"version": "npm:string-width@4.2.3", "resolved": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz"}}'
 expect 0 "v1 relative file: and npm: alias pass" "$lock"
 

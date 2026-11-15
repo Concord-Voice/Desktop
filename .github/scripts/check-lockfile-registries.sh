@@ -90,13 +90,16 @@ for f in "$@"; do
             # fields npm reads for each format: v1 knows `bundled` only, v3
             # knows `link` and `inBundle`.
             elif $k == "" then empty
+            # v1 falls back to `from` when there is no resolved or integrity, so
+            # every exemption below needs `from` absent or a local file: path.
+            # v3 entries carry no `from`; one that does is held to the same rule.
+            elif ($e.from != null)
+                 and ((($e.from | type) == "string" and ($e.from | startswith("file:")) and ($e.from[5:] | relpath)) | not)
+              then [$k, "has no resolved URL and a from that is not a relative file: path", ($e.from | tostring)]
             elif $v1 and $e.bundled == true then empty
             elif ($v1 | not) and ($e.link == true or $e.inBundle == true) then empty
-            # A local file: version, but npm falls back to `from` when there is
-            # no resolved or integrity, so `from` must be local too.
-            elif (($e.version // "") | tostring | startswith("file:"))
-                 and ($e.from == null or (($e.from | type) == "string" and ($e.from | startswith("file:")) and ($e.from[5:] | relpath)))
-              then empty
+            # A local file: version (its v1 `from` was checked above).
+            elif (($e.version // "") | tostring | startswith("file:")) then empty
             elif $v1 or ($k | test("(\\A|/)node_modules/")) then [$k, "has no resolved URL", "-"]
             else empty end,
             ( select(($e.version | type) == "string" and ($e.version | okversion | not))
