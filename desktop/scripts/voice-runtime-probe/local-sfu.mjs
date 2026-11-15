@@ -70,6 +70,10 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           initialAvailableOutgoingBitrate: 2_000_000,
         });
         await transport.setMaxIncomingBitrate(5_000_000);
+        // Floor the transport's bandwidth estimate. On a slow runner the estimator can
+        // fall below the lowest simulcast layer before any media flows; the SFU then
+        // allocates the consumer no layer and never asks the sender for a keyframe.
+        if (body.direction !== 'send') await transport.setMinOutgoingBitrate(1_000_000);
         peer.transports.set(transport.id, transport);
         return {
           id: transport.id, iceParameters: transport.iceParameters,
@@ -132,7 +136,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           firCount: entry.firCount ?? null, nackCount: entry.nackCount ?? null, score: entry.score ?? null });
         const out = [];
         for (const [name, entry] of peers) {
-          out.push({ peer: name,
+          const transports = await Promise.all([...entry.transports.values()].map(async (t) => {
+            const [stat] = await t.getStats();
+            return { availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+              sendBitrate: stat?.sendBitrate ?? null, probationSendBitrate: stat?.probationSendBitrate ?? null };
+          }));
+          out.push({ peer: name, transports,
             producers: await Promise.all([...entry.producers.values()].map(async (p) => ({
               kind: p.kind, type: p.type, paused: p.paused, score: p.score,
               stats: (await p.getStats()).map(trim) }))),
