@@ -167,4 +167,65 @@ describe('voiceService reconnect mute-state resume guard (#242)', () => {
       "peer rejoin must not locally resume a deafened user's mic"
     ).not.toHaveBeenCalled();
   });
+
+  describe('state after a resume (#242 Task 2)', () => {
+    it('restorePostResumeMuteState re-emits pause-producer when muted even if the mic is already paused', () => {
+      const mic = producerStub('mic-1', true);
+      svc.producers.set('mic', mic);
+      svc.micGraph = liveGraph();
+      useVoiceStore.getState().setMuted(true);
+      svc.restorePostResumeMuteState(socket);
+      expect(
+        emitted('pause-producer'),
+        'muted resume must re-emit pause-producer for an already-paused mic so the fresh server session learns it'
+      ).toEqual([['pause-producer', { producerId: 'mic-1' }]]);
+    });
+
+    it('restorePostResumeMuteState re-emits pause-producer when deafened-only even if the mic is already paused', () => {
+      const mic = producerStub('mic-1', true);
+      svc.producers.set('mic', mic);
+      svc.micGraph = liveGraph();
+      useVoiceStore.getState().setDeafened(true);
+      svc.restorePostResumeMuteState(socket);
+      expect(
+        emitted('pause-producer'),
+        'deafened-only resume must emit one pause-producer for mic-1'
+      ).toEqual([['pause-producer', { producerId: 'mic-1' }]]);
+      expect(emitted('set-deafen'), 'deafened resume must still rebroadcast set-deafen').toEqual([
+        ['set-deafen', { isDeafened: true }],
+      ]);
+    });
+
+    it("buildParticipantList seeds the local user's own mute and deafen state from the store", () => {
+      useVoiceStore.getState().setMuted(true);
+      useVoiceStore.getState().setDeafened(true);
+      const list = svc.buildParticipantList({
+        participants: [
+          { userId: LOCAL, username: 'l' },
+          { userId: PEER, username: 'p', isDeafened: false },
+        ],
+        existingProducers: [],
+      }) as VoiceParticipant[];
+      const local = list.find((p) => p.userId === LOCAL);
+      const peer = list.find((p) => p.userId === PEER);
+      expect(local?.isMuted, 'local participant isMuted must be seeded from the store').toBe(true);
+      expect(local?.isDeafened, 'local participant isDeafened must be seeded from the store').toBe(
+        true
+      );
+      expect(peer?.isMuted, 'peer participant isMuted must stay false').toBe(false);
+      expect(peer?.isDeafened, 'peer participant isDeafened must stay false').toBe(false);
+    });
+
+    it('toggleDeafen with no mic producer still records mute intent', async () => {
+      expect(useVoiceStore.getState().isMuted).toBe(false);
+      svc.toggleDeafen();
+      expect(useVoiceStore.getState().isDeafened, 'toggleDeafen must set isDeafened').toBe(true);
+      await vi.waitFor(() =>
+        expect(
+          useVoiceStore.getState().isMuted,
+          'deafen must record mute intent even when toggleMute cannot act'
+        ).toBe(true)
+      );
+    });
+  });
 });
