@@ -16,6 +16,7 @@ import {
   type ApiRequestContext,
 } from '../../services/system/requestContext';
 import { adaptSessionsRefusal, serverErrorText } from '../../services/system/stepUpRouteAdapters';
+import { classifyStepUpRefusal } from '../../services/system/stepUpRefusal';
 import ErrorBanner from './ErrorBanner';
 
 /**
@@ -27,7 +28,9 @@ import ErrorBanner from './ErrorBanner';
 export type SessionStepUpAction =
   | { kind: 'revoke'; sessionId: string }
   | { kind: 'revokeAll' }
-  | { kind: 'modeChange'; mode: 'simple' | 'secure' };
+  | { kind: 'modeChange'; mode: 'simple' | 'secure' }
+  | { kind: 'ssoUnlink'; provider: string }
+  | { kind: 'ssoTrustEnable' };
 
 /**
  * The dialog's React `key`: one instance per action, so a dialog is never
@@ -42,6 +45,10 @@ export function sessionStepUpKey(action: SessionStepUpAction): string {
       return 'revokeAll';
     case 'modeChange':
       return `modeChange:${action.mode}`;
+    case 'ssoUnlink':
+      return `ssoUnlink:${action.provider}`;
+    case 'ssoTrustEnable':
+      return 'ssoTrustEnable';
   }
 }
 
@@ -77,7 +84,9 @@ interface ActionSpec {
   /** The sentence for an answer that is not a step-up refusal and says nothing itself. */
   failure: string;
   path: string;
-  method: 'POST' | 'PUT' | 'DELETE';
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /** Legacy SSO security keeps its established passphrase spelling. */
+  passwordField?: 'password' | 'current_passphrase';
   /** The request body before the credentials join it. */
   body: Record<string, unknown>;
 }
@@ -127,6 +136,34 @@ function specFor(action: SessionStepUpAction): ActionSpec {
         method: 'PUT',
         body: { mode: action.mode },
       };
+    case 'ssoUnlink':
+      return {
+        purpose: 'account.sso_unlink',
+        title: 'Unlink SSO account',
+        description: 'Confirm it is you before unlinking this sign-in provider.',
+        cancel: 'Cancel',
+        confirm: 'Confirm & Unlink',
+        confirming: 'Unlinking...',
+        failure: 'Failed to unlink account',
+        path: `/api/v1/users/me/sso-identities/${encodeURIComponent(action.provider)}`,
+        method: 'DELETE',
+        body: {},
+      };
+    case 'ssoTrustEnable':
+      return {
+        purpose: 'account.sso_trust_enable',
+        title: 'Trust SSO provider verification',
+        description:
+          'Concord will skip its own MFA after a successful SSO sign-in. Confirm it is you to enable this.',
+        cancel: 'Cancel',
+        confirm: 'Enable trust',
+        confirming: 'Enabling...',
+        failure: 'Failed to update SSO security',
+        path: '/api/v1/users/me/security',
+        method: 'PATCH',
+        passwordField: 'current_passphrase',
+        body: { trust_sso_security: true },
+      };
   }
 }
 
@@ -145,13 +182,29 @@ const SESSION_EXPIRED_TEXT = 'Your session has expired. Sign in again to continu
 const NETWORK_TEXT = "Couldn't reach the server. Check your connection and try again.";
 const RATE_LIMITED_TEXT = 'Too many attempts. Try again in a few minutes.';
 
-/**
- * A non-2xx response through the route adapter. It reads exact strings only
- * (C5), so a response it does not own (`null`) shows the server's own sentence.
- */
-function refusedResult(status: number, body: unknown, failure: string): SessionResult {
-  const refusal = adaptSessionsRefusal(status, body);
-  if (refusal === null) return { kind: 'failed', message: serverErrorText(body) ?? failure };
+/** The SSO routes use the shared step-up seam; the session routes predate it. */
+function ssoRefusal(status: number, body: unknown): StepUpFactorRefusal | null {
+  if (status === 401) return { kind: 'sessionExpired' };
+  if (status === 429) return { kind: 'rateLimited' };
+  if (status !== 403) return null;
+  const refusal = classifyStepUpRefusal(status, body);
+  switch (refusal.kind) {
+    case 'passwordRequired':
+    case 'mfaRequired':
+    case 'invalidPassword':
+    case 'invalidMfaCode':
+    case 'enrollmentRequired':
+      return refusal;
+    default:
+      return null;
+  }
+}
+
+/** Unknown refusals show the route's own sentence or its fixed fallback. */
+function refusedResult(status: number, body: unknown, spec: ActionSpec): SessionResult {
+  const sso = spec.purpose === 'account.sso_unlink' || spec.purpose === 'account.sso_trust_enable';
+  const refusal = sso ? ssoRefusal(status, body) : adaptSessionsRefusal(status, body);
+  if (refusal === null) return { kind: 'failed', message: serverErrorText(body) ?? spec.failure };
   // A 401 included: the hook ends the stage in its terminal state, which drops
   // the password and says why. As `failed` the stage stayed live and could only
   // send the credentials again under a dead session.
@@ -169,7 +222,7 @@ async function sendSessionRequest(
   context: ApiRequestContext
 ): Promise<SessionResult> {
   const payload: Record<string, unknown> = { ...spec.body };
-  if (password) payload.password = password;
+  if (password) payload[spec.passwordField ?? 'password'] = password;
   if (mfa) payload.mfa_code = mfa;
   try {
     const res = await apiFetchInContext(
@@ -183,7 +236,27 @@ async function sendSessionRequest(
     );
     if (res.ok) return { kind: 'accepted' };
     const body: unknown = await res.json().catch(() => null);
-    return refusedResult(res.status, body, spec.failure);
+    const errorCode =
+      typeof body === 'object' && body !== null
+        ? (body as { error_code?: unknown }).error_code
+        : undefined;
+    if (spec.purpose === 'account.sso_trust_enable') {
+      if (errorCode === 'invalid_credentials')
+        return { kind: 'failed', message: 'Incorrect passphrase.' };
+      if (errorCode === 'would_lock_out')
+        return {
+          kind: 'failed',
+          message: 'That change would lock you out. Link an SSO provider first.',
+        };
+    }
+    if (spec.purpose === 'account.sso_unlink' && errorCode === 'would_lock_out') {
+      return {
+        kind: 'failed',
+        message:
+          'Removing this would lock you out. Set a passphrase first or link another provider before unlinking this one.',
+      };
+    }
+    return refusedResult(res.status, body, spec);
   } catch (err) {
     return isAbortError(err) ? { kind: 'aborted' } : { kind: 'transport' };
   }

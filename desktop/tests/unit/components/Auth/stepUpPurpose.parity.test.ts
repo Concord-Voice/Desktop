@@ -91,4 +91,18 @@ describe('StepUpPurpose Go/TS parity (#3455)', () => {
   it('the mirror has no duplicate purposes', () => {
     expect(new Set(STEP_UP_PURPOSES).size).toBe(STEP_UP_PURPOSES.length);
   });
+
+  it('includes every #158 route purpose and keeps them out of password-token purposes', () => {
+    const freshPurposes = [
+      'privacy.account_erase',
+      'mfa_settings.webauthn_delete',
+      'account.sso_unlink',
+      'account.sso_trust_enable',
+      'ownership.transfer_confirm',
+    ];
+    for (const purpose of freshPurposes) {
+      expect(STEP_UP_PURPOSES).toContain(purpose);
+      expect(PASSWORD_STEP_UP_PURPOSES).not.toContain(purpose);
+    }
+  });
 });

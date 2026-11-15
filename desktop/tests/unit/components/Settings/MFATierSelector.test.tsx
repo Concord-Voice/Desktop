@@ -922,9 +922,9 @@ describe('MFATierSelector', () => {
     });
   });
 
-  // ── Action modal — revoke-webauthn is password only (D10) ─────────────────
+  // ── Action modal — revoke-webauthn needs exact-purpose step-up ────────────
 
-  describe('action modal — revoke-webauthn takes the password alone', () => {
+  describe('action modal — revoke-webauthn requires a factor', () => {
     const key = {
       id: 'cred-1',
       credential_name: 'Key A',
@@ -947,170 +947,23 @@ describe('MFATierSelector', () => {
       return onRevokeWebAuthnKey;
     };
 
-    // Mutant: revoke-webauthn runs the factor hook, so it reads and shows a factor.
-    it('issues no requirements read and shows no factor, whatever the account holds', async () => {
+    it('reads and renders the offered factor before it can revoke a key', async () => {
       renderRevoke();
       typePassword('pw');
-      await untilActionable('Confirm');
-      // Let any read that was wrongly started land before asserting it did not.
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(readCalls()).toHaveLength(0);
-      expect(screen.queryByLabelText('Authenticator app code')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Backup code')).not.toBeInTheDocument();
-      expect(screen.queryByText('Passkey or security key')).not.toBeInTheDocument();
-      expect(screen.queryByRole('status')).not.toBeInTheDocument();
-    });
-
-    it('sends (credentialId, password, undefined, context) on the password alone', async () => {
-      const onRevoke = renderRevoke();
-      typePassword('pw');
-      await submitConfirm();
-      expect(onRevoke).toHaveBeenCalledWith('cred-1', 'pw', undefined, expect.anything());
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
-
-    // Mutant: the revoke capturing at the click. revoke-webauthn runs no
-    // factor hook, so nothing else binds the typed password to the account the
-    // modal opened under; it would go out under the next one.
-    it('sends nothing, and says so, when the account changed after the modal opened', async () => {
-      const onRevoke = renderRevoke();
-      typePassword('pw');
-      act(() => useAuthStore.setState((s) => ({ authGeneration: s.authGeneration + 1 })));
-      await submitConfirm();
-
-      expect(await screen.findByText(/Sign in again to continue/)).toBeInTheDocument();
-      expect(onRevoke).not.toHaveBeenCalled();
-    });
-
-    // The key revoke has no stage to end, so its banner says it. Mutant: the
-    // stage-less path using `stepUpBanner`, which leaves a dead session unsaid.
-    it('a dead session is said in the banner and locks Confirm', async () => {
-      const onRevoke = renderRevoke(vi.fn().mockResolvedValue({ kind: 'sessionExpired' }));
-      typePassword('pw');
-      await submitConfirm();
-      expect(
-        await screen.findByText('Your session has expired. Sign in again to continue.')
-      ).toBeInTheDocument();
+      expect(await screen.findByLabelText('Authenticator app code')).toBeInTheDocument();
+      expect(readCalls()).toHaveLength(1);
       expect(screen.getByRole('button', { name: 'Confirm' })).toHaveAttribute(
         'aria-disabled',
         'true'
       );
-      expect(onRevoke).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps Confirm aria-disabled and sends nothing without a password', async () => {
-      const onRevoke = renderRevoke();
-      expect(screen.getByRole('button', { name: 'Confirm' })).toHaveAttribute(
-        'aria-disabled',
-        'true'
-      );
-      await submitConfirm();
-      expect(onRevoke).not.toHaveBeenCalled();
-    });
-
-    it('a refused password is a field error, empties the field and takes focus back', async () => {
-      const onRevoke = renderRevoke(vi.fn().mockResolvedValue({ kind: 'invalidPassword' }));
-      typePassword('wrong');
-      await submitConfirm();
-      expect(await screen.findByText('That password is not correct.')).toBeInTheDocument();
-      expect(screen.getByLabelText('Password')).toHaveValue('');
-      await vi.waitFor(() =>
-        expect(document.activeElement).toBe(screen.getByLabelText('Password'))
-      );
-      expect(onRevoke).toHaveBeenCalledTimes(1);
-    });
-
-    // `revoking` is state, so two activations in one tick both read it false.
-    // Each is dispatched natively inside ONE act, so no render runs between them.
-    // Mutant: the single-flight latch never set.
-    it.each([
-      ['a double click', (field: HTMLElement, button: HTMLElement) => [button, button]],
-      ['Enter then a click', (field: HTMLElement, button: HTMLElement) => [field, button]],
-    ])('%s sends exactly one revoke', async (_name, targets) => {
-      const gate = deferred<{ kind: 'accepted'; data: null }>();
-      const onRevoke = renderRevoke(vi.fn(() => gate.promise));
-      typePassword('pw');
-      const field = screen.getByLabelText('Password');
-      const button = screen.getByRole('button', { name: 'Confirm' });
-
-      act(() => {
-        for (const target of targets(field, button)) {
-          if (target === field) {
-            target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-          } else {
-            target.click();
-          }
-        }
-      });
-
-      expect(onRevoke).toHaveBeenCalledTimes(1);
-      await act(async () => gate.resolve({ kind: 'accepted', data: null }));
-    });
-
-    // The password is this modal's only input, so Enter must submit it as the
-    // stage's fields do (`isPlainEnter`).
-    // Mutant: the field's Enter handler not pressing the primary.
-    it('a plain Enter in the password field presses Confirm', async () => {
+    it('sends the typed factor to the revoke handler', async () => {
       const onRevoke = renderRevoke();
       typePassword('pw');
-      await act(async () => {
-        fireEvent.keyDown(screen.getByLabelText('Password'), { key: 'Enter' });
-      });
-      expect(onRevoke).toHaveBeenCalledWith('cred-1', 'pw', undefined, expect.anything());
-    });
-
-    // Positive control: the case above shows a plain Enter on this field does press.
-    it.each([
-      ['Shift', { shiftKey: true }],
-      ['Ctrl', { ctrlKey: true }],
-      ['Alt', { altKey: true }],
-      ['Meta', { metaKey: true }],
-      ['an auto-repeat', { repeat: true }],
-    ])('%s Enter does not press Confirm', async (_name, modifiers) => {
-      const onRevoke = renderRevoke();
-      typePassword('pw');
-      await act(async () => {
-        fireEvent.keyDown(screen.getByLabelText('Password'), { key: 'Enter', ...modifiers });
-      });
-      expect(onRevoke).not.toHaveBeenCalled();
-    });
-
-    // Revoking a key verifies the password alone, so nothing on it may mint a
-    // security-key token or name a purpose a token could be spent on.
-    it('sends no security-key begin and names no purpose, even for a key-only account', async () => {
-      const onRevoke = vi.fn().mockResolvedValue({ kind: 'accepted', data: null });
-      serveApi({ read: readOffers(['webauthn']), begin: () => json({ publicKey: {} }) });
-      render(
-        <MFATierSelector
-          {...defaultProps}
-          activeMethods={['webauthn']}
-          webauthnCredentials={[key]}
-          onRevokeWebAuthnKey={onRevoke}
-        />
-      );
-      fireEvent.click(screen.getByText('Revoke'));
-      typePassword('pw');
+      typeCode(await screen.findByLabelText('Authenticator app code'));
       await submitConfirm();
-
-      expect(onRevoke).toHaveBeenCalledWith('cred-1', 'pw', undefined, expect.anything());
-      expect(beginCalls()).toHaveLength(0);
-      expect(readCalls()).toHaveLength(0);
-      expect(calls.some((c) => c.body !== null && 'purpose' in c.body)).toBe(false);
-    });
-
-    it('a rate limit locks Confirm', async () => {
-      renderRevoke(vi.fn().mockResolvedValue({ kind: 'rateLimited' }));
-      typePassword('pw');
-      await submitConfirm();
-      expect(
-        await screen.findByText('Too many attempts. Try again in a few minutes.')
-      ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Confirm' })).toHaveAttribute(
-        'aria-disabled',
-        'true'
-      );
+      expect(onRevoke).toHaveBeenCalledWith('cred-1', 'pw', '123456', expect.anything());
     });
   });
 
@@ -1141,6 +994,26 @@ describe('MFATierSelector', () => {
       render(<MFATierSelector {...defaultProps} activeMethods={['totp', 'webauthn']} />);
       expect(await purposeOf(() => fireEvent.click(screen.getByText('Reset')), 'Confirm')).toBe(
         'mfa_settings.totp_disable'
+      );
+    });
+
+    it('names the WebAuthn delete route for Revoke', async () => {
+      render(
+        <MFATierSelector
+          {...defaultProps}
+          activeMethods={['webauthn']}
+          webauthnCredentials={[
+            {
+              id: 'cred-1',
+              credential_name: 'Key A',
+              credential_type: 'hardware',
+              created_at: '2026-01-01T00:00:00Z',
+            },
+          ]}
+        />
+      );
+      expect(await purposeOf(() => fireEvent.click(screen.getByText('Revoke')), 'Confirm')).toBe(
+        'mfa_settings.webauthn_delete'
       );
     });
 
@@ -1377,7 +1250,7 @@ describe('MFATierSelector', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('revoke-webauthn → onRevokeWebAuthnKey(credentialId, password, undefined, context) on the password alone', async () => {
+    it('revoke-webauthn → onRevokeWebAuthnKey(credentialId, password, code, context)', async () => {
       const onRevokeWebAuthnKey = accepted();
       render(
         <MFATierSelector
@@ -1396,14 +1269,9 @@ describe('MFATierSelector', () => {
       );
       fireEvent.click(screen.getByText('Revoke'));
       typePassword();
+      typeCode(await screen.findByLabelText('Authenticator app code'));
       await submitConfirm();
-      expect(onRevokeWebAuthnKey).toHaveBeenCalledWith(
-        'cred-1',
-        'pw',
-        undefined,
-        expect.anything()
-      );
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(onRevokeWebAuthnKey).toHaveBeenCalledWith('cred-1', 'pw', '123456', expect.anything());
     });
 
     it('toggle-recovery-only → onToggleRecoveryOnly(method, value, password, code, context), code required', async () => {
