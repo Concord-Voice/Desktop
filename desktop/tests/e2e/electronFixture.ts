@@ -110,6 +110,34 @@ function launchEnv(home: string): Record<string, string> {
   return env;
 }
 
+/**
+ * Chromium's synthetic microphone and camera, so a capture test needs no hardware and
+ * raises no macOS TCC prompt. NEVER `--use-fake-ui-for-media-stream`: it grants capture
+ * without calling either permission handler (capture-gate spike, results/macos-arm64.md
+ * row 5), so every lease test would pass with no gate at all.
+ */
+const MEDIA_SWITCHES = ['--use-fake-device-for-media-stream'] as const;
+const FAKE_UI_SWITCH = 'use-fake-ui-for-media-stream';
+
+/** Refuses to run unless the shell has the fake device and does NOT have the fake UI. */
+async function assertMediaSwitches(app: ElectronApplication): Promise<void> {
+  const seen = await app.evaluate(
+    ({ app: electronApp }, fakeUi) => ({
+      argv: process.argv,
+      fakeUi: electronApp.commandLine.hasSwitch(fakeUi),
+      fakeDevice: electronApp.commandLine.hasSwitch('use-fake-device-for-media-stream'),
+    }),
+    FAKE_UI_SWITCH
+  );
+  const fakeUiArg = seen.argv.some((a) => a.startsWith(`--${FAKE_UI_SWITCH}`));
+  if (!seen.argv.includes(MEDIA_SWITCHES[0]) || !seen.fakeDevice) {
+    throw new Error(`shell launched without ${MEDIA_SWITCHES[0]}: ${JSON.stringify(seen.argv)}`);
+  }
+  if (fakeUiArg || seen.fakeUi) {
+    throw new Error(`shell has --${FAKE_UI_SWITCH}, which bypasses the capture gate — refusing`);
+  }
+}
+
 function seedProfile(home: string, origins: string[]): { userData: string; serviceIds: string[] } {
   const result = spawnSync(
     ELECTRON_BINARY,
@@ -155,11 +183,12 @@ export const test = base.extend<Fixtures, WorkerFixtures>({
         throw new Error(`seeded userData ${seeded.userData} is outside ${home}`);
       }
       app = await _electron.launch({
-        args: ['--use-mock-keychain', path.join(DIST_MAIN, 'main.js')],
+        args: [...MEDIA_SWITCHES, '--use-mock-keychain', path.join(DIST_MAIN, 'main.js')],
         cwd: DESKTOP_DIR,
         env: launchEnv(home),
         timeout: 60_000,
       });
+      await assertMediaSwitches(app);
       await installMainRequire(app);
       const userData = await app.evaluate(({ app: electronApp }) =>
         electronApp.getPath('userData')
@@ -393,4 +422,93 @@ export async function execIn<T>(
     },
     { id: webContentsId, src: code }
   ) as Promise<T>;
+}
+
+// ── Capture-lease helpers (#87 Task 8) ─────────────────────────────────────────────
+// `view` is a primary webContents id (see `primaryOf`). Renderer probes run in the
+// view's main world through `execIn`, like the rest of this file.
+
+/**
+ * Answers the next capture-move ceremonies with `response` (0 Stay, 1 Join) instead of
+ * the native dialog, through `captureCeremony`'s e2e seam on the shell's OWN module
+ * instance. Each answer bumps `__e2eCeremonies` in main so a test can prove the
+ * ceremony actually ran.
+ */
+export async function injectCeremony(app: ElectronApplication, response: 0 | 1): Promise<void> {
+  await app.evaluate((_electron, r) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    const g = globalThis as unknown as { __e2eCeremonies?: number };
+    g.__e2eCeremonies = 0;
+    req('captureCeremony')._setShowMessageBoxForTesting(async () => {
+      g.__e2eCeremonies = (g.__e2eCeremonies ?? 0) + 1;
+      return { response: r };
+    });
+  }, response);
+}
+
+/** How many ceremonies the injected dialog has answered since `injectCeremony`. */
+export async function ceremoniesShown(app: ElectronApplication): Promise<number> {
+  return app.evaluate(
+    () => (globalThis as unknown as { __e2eCeremonies?: number }).__e2eCeremonies ?? 0
+  );
+}
+
+/** Installs a `beforeunload` veto in the view's document. */
+export async function vetoUnload(app: ElectronApplication, view: number): Promise<void> {
+  await execIn<boolean>(
+    app,
+    view,
+    `(() => {
+       window.addEventListener('beforeunload', (e) => { e.preventDefault(); e.returnValue = ''; });
+       return true;
+     })()`
+  );
+}
+
+/**
+ * The hostile holder: schedules an endless loop on the view's main thread and returns
+ * before it starts, so the document can never ack a revocation. Touch the view again
+ * only after it has been crashed and reloaded.
+ */
+export async function wedgeRenderer(app: ElectronApplication, view: number): Promise<void> {
+  await execIn<boolean>(
+    app,
+    view,
+    `(() => { setTimeout(() => { for (;;) {} }, 0); return true; })()`
+  );
+}
+
+export type TrackState = 'live' | 'ended';
+
+/** `readyState` of every track the test captured in this document (`window.__e2eTracks`). */
+export async function trackStates(app: ElectronApplication, view: number): Promise<TrackState[]> {
+  return execIn<TrackState[]>(app, view, '(window.__e2eTracks || []).map((t) => t.readyState)');
+}
+
+export interface MainResourceCounts {
+  readonly captureHolder: 0 | 1;
+  readonly handoffPending: 0 | 1;
+  readonly loopbacks: number;
+  readonly traySnapshots: number;
+  readonly audiocapCapture: 0 | 1;
+}
+
+/**
+ * `mainResourceCounts()` from the shell's main process. main.ts does not import
+ * `mainResourceCounts` itself, so it is not in the require cache; it is loaded here,
+ * but only after each module it reads from has been proven loaded, so its imports
+ * resolve to the shell's live instances and never to a second copy.
+ */
+export async function leaseCounts(app: ElectronApplication): Promise<MainResourceCounts> {
+  return app.evaluate((_electron, dir) => {
+    const req = (globalThis as unknown as { __e2eRequire: MainRequire }).__e2eRequire;
+    for (const dep of ['captureLease', 'audiocapHost', 'ipc/sso', 'ipc/trayStatus']) req(dep);
+    const main = (process as unknown as { mainModule?: NodeJS.Module }).mainModule;
+    if (!main) throw new Error('no main module in the shell process');
+    const join = (main.require('node:path') as typeof import('node:path')).join;
+    const counts = main.require(join(dir, 'mainResourceCounts.js')) as {
+      mainResourceCounts(): MainResourceCounts;
+    };
+    return counts.mainResourceCounts();
+  }, DIST_MAIN);
 }

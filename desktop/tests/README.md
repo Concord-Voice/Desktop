@@ -111,7 +111,7 @@ Tests run in GitHub Actions via `.github/workflows/build.yml`, invoked via `work
 
 ### E2E (Playwright)
 
-The 13 e2e specs in `tests/e2e/` run **manually**: 12 through `npm run test:e2e`, and `connectionIsolation.spec.ts` through `npm run test:e2e:electron` (see [Electron e2e](#electron-e2e) below; `playwright.config.ts` ignores that spec). #1435 removed CI enforcement, because the signal was advisory-only and macOS visual baselines were flaky. See the historical playwright ADR-0011.
+The 15 e2e specs in `tests/e2e/` run **manually**: 13 through `npm run test:e2e`, and `connectionIsolation.spec.ts` and `captureArbitration.spec.ts` through `npm run test:e2e:electron` (see [Electron e2e](#electron-e2e) below; `playwright.config.ts` ignores those two). #1435 removed CI enforcement, because the signal was advisory-only and macOS visual baselines were flaky. See the historical playwright ADR-0011.
 
 No Playwright CI job exists for the desktop client — that change deleted `playwright.yml`, so nothing below runs on a PR. The only Playwright in CI is the Admin Portal's own browser-test step in `build.yml` (`.github/workflows/build.yml:717-723`). The tags below still help a local run:
 
@@ -159,7 +159,9 @@ REDIS_URL="${REDIS_URL:?set the control-plane's isolated Redis URL}" \
 
 #### Electron e2e
 
-`tests/e2e/connectionIsolation.spec.ts` is the one spec that drives the real Electron shell (Playwright `_electron`), through its own config, `playwright.electron.config.ts`. It covers connection-context isolation (#86, ADR-0051): two self-hosted connections with separate cookie jars, storage, IPC authority and pushes.
+`tests/e2e/connectionIsolation.spec.ts` and `tests/e2e/captureArbitration.spec.ts` drive the real Electron shell (Playwright `_electron`), through their own config, `playwright.electron.config.ts`. `connectionIsolation.spec.ts` covers connection-context isolation (#86, ADR-0051): two self-hosted connections with separate cookie jars, storage, IPC authority and pushes. `captureArbitration.spec.ts` covers the exclusive capture lease (#87, ADR-0052).
+
+**No fake-UI flag.** `--use-fake-ui-for-media-stream` bypasses the permission handlers, so no e2e or manual capture check may use it. A run with it grants capture with no gate at all and proves nothing about the lease (ADR-0052 § T0 results, row 5). `--use-fake-device-for-media-stream` is fine: it replaces the devices, not the permission decision.
 
 ```bash
 cd desktop

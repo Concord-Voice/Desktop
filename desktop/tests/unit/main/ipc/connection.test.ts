@@ -3,7 +3,7 @@ import type * as SelfHostedProfileModule from '../../../../src/main/selfHostedPr
 // @vitest-environment node
 // connection:* channels (spec 2026-11-09-86-connection-context-isolation §3.7;
 // plan Task 7A step 4): whoAmI, create, activate and the generation push.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcMainInvokeEvent } from 'electron';
 
 const { handlers, mockIpcMain, regDeps } = vi.hoisted(() => {
@@ -59,6 +59,11 @@ import {
   serviceIdForApiBase,
 } from '../../../../src/main/selfHostedProfile';
 import { _resetIpcRegistryForTesting } from '../../../../src/main/ipc/registry';
+import {
+  _resetModalMutexForTesting,
+  modalInFlight,
+  tryAcquireModal,
+} from '../../../../src/main/modalMutex';
 import { registerConnectionIpc } from '../../../../src/main/ipc/connection';
 import {
   requireConnectionSender,
@@ -454,6 +459,109 @@ describe('connection:create', () => {
     const result = (await call('connection:create', ev(saas.wc), NEW)) as { status: string };
     expect(result.status).toBe('rejected');
     expect(deps.openConnectionView).not.toHaveBeenCalled();
+  });
+});
+
+// #87 R13: the approval dialog and the capture-move dialog share one modal slot. The
+// probe has already run by the time approve() asks for the slot, so "probe not called"
+// would be the wrong assertion; nothing after it runs, and no ceremony token is spent.
+describe('connection:create under the cross-kind modal mutex (#87)', () => {
+  function saasForeground() {
+    const saas = conn(SAAS_ORIGIN, 1);
+    setForeground(saas.record.connectionId);
+    return saas;
+  }
+
+  beforeEach(() => {
+    _resetModalMutexForTesting();
+  });
+  afterEach(() => {
+    _resetModalMutexForTesting();
+  });
+
+  it('refuses busy while the capture ceremony holds the modal, spending no ceremony token', async () => {
+    const saas = saasForeground();
+    const releaseCapture = tryAcquireModal('capture');
+    expect(releaseCapture).not.toBeNull();
+
+    expect(await call('connection:create', ev(saas.wc), NEW)).toEqual({
+      status: 'rejected',
+      reason: 'busy',
+    });
+    expect(deps.probe).toHaveBeenCalledTimes(1);
+    expect(consumeCeremonyToken).not.toHaveBeenCalled();
+    expect(deps.ceremony).not.toHaveBeenCalled();
+    expect(commitSelfHostedApproval).not.toHaveBeenCalled();
+    expect(registerService).not.toHaveBeenCalledWith(NEW, expect.anything());
+    expect(modalInFlight()).toBe('capture');
+
+    releaseCapture?.();
+    expect(await call('connection:create', ev(saas.wc), NEW)).toMatchObject({ status: 'opened' });
+  });
+
+  it('holds the self-hosted-approval slot for the ceremony and releases it afterwards', async () => {
+    const saas = saasForeground();
+    let during: string | null = null;
+    deps.ceremony.mockImplementationOnce(async () => {
+      during = modalInFlight();
+      return { approved: true, address: '203.0.113.10' };
+    });
+    expect(await call('connection:create', ev(saas.wc), NEW)).toMatchObject({ status: 'opened' });
+    expect(during).toBe('self-hosted-approval');
+    expect(modalInFlight()).toBeNull();
+  });
+
+  it('a capture acquire while the approval dialog is open is refused', async () => {
+    const saas = saasForeground();
+    let captureDuring: (() => void) | null | undefined;
+    deps.ceremony.mockImplementationOnce(async () => {
+      captureDuring = tryAcquireModal('capture');
+      return { approved: false };
+    });
+    await call('connection:create', ev(saas.wc), NEW);
+    expect(captureDuring).toBeNull();
+    expect(tryAcquireModal('capture')).not.toBeNull();
+  });
+
+  it('releases the slot when the ceremony throws', async () => {
+    const saas = saasForeground();
+    let during: string | null = null;
+    deps.ceremony.mockImplementationOnce(async () => {
+      during = modalInFlight();
+      throw new Error('native dialog failed');
+    });
+    // createConnection maps a thrown create to 'declined'.
+    expect(await call('connection:create', ev(saas.wc), NEW)).toEqual({
+      status: 'rejected',
+      reason: 'declined',
+    });
+    expect(during).toBe('self-hosted-approval');
+    expect(modalInFlight()).toBeNull();
+  });
+
+  it('takes the slot before the token, and releases it when the budget refuses', async () => {
+    const saas = saasForeground();
+    let during: string | null = null;
+    vi.mocked(consumeCeremonyToken).mockImplementationOnce(() => {
+      during = modalInFlight();
+      return false;
+    });
+    expect(await call('connection:create', ev(saas.wc), NEW)).toEqual({
+      status: 'rejected',
+      reason: 'busy',
+    });
+    expect(during).toBe('self-hosted-approval');
+    expect(deps.ceremony).not.toHaveBeenCalled();
+    expect(modalInFlight()).toBeNull();
+  });
+
+  it('an origin that needs no approval takes no slot and opens while the capture modal is held', async () => {
+    const saas = saasForeground();
+    deps.probe.mockResolvedValueOnce({ status: 'ok', needsApproval: false });
+    tryAcquireModal('capture');
+    expect(await call('connection:create', ev(saas.wc), NEW)).toMatchObject({ status: 'opened' });
+    expect(deps.ceremony).not.toHaveBeenCalled();
+    expect(modalInFlight()).toBe('capture');
   });
 });
 

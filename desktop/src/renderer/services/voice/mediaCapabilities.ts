@@ -6,6 +6,14 @@
  */
 
 import { h264ProfileClass, type H264ProfileClass } from './voiceCodecSelection';
+import {
+  acquire,
+  currentDeviceTestEpoch,
+  trackDeviceCapture,
+  release,
+  captureRevokedEvents,
+  CAPTURE_REVOKED_EVENT,
+} from './captureLeaseClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -293,19 +301,48 @@ export async function enumerateWebcamCapabilities(deviceId: string): Promise<Web
     return cached;
   }
 
+  // #87: the probe opens the camera, so it holds the `device-test` capture claim.
+  // A non-grant answers no capabilities and is not cached; a revoked lease ends
+  // the probe early and its partial answer is not cached either.
+  const lease = await acquire('device-test');
+  if (lease.status !== 'granted') return [];
+  // After the reply: it and a revoke push are ordered (see currentDeviceTestEpoch).
+  const leaseEpoch = currentDeviceTestEpoch();
+  let revoked = false;
+  const onCaptureRevoked = () => {
+    revoked = true;
+  };
+  captureRevokedEvents.addEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
+  try {
+    const capabilities = await probeWebcamCapabilities(deviceId, () => revoked);
+    if (!revoked) cachedWebcamCaps.set(deviceId, capabilities);
+    return capabilities;
+  } finally {
+    captureRevokedEvents.removeEventListener(CAPTURE_REVOKED_EVENT, onCaptureRevoked);
+    void release('device-test', leaseEpoch);
+  }
+}
+
+async function probeWebcamCapabilities(
+  deviceId: string,
+  isRevoked: () => boolean
+): Promise<WebcamCapability[]> {
   const capabilities: WebcamCapability[] = [];
 
   for (const res of PROBE_RESOLUTIONS) {
     for (const fps of PROBE_FRAMERATES) {
+      if (isRevoked()) return capabilities;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: deviceId },
-            width: { exact: res.width },
-            height: { exact: res.height },
-            frameRate: { exact: fps },
-          },
-        });
+        const stream = await trackDeviceCapture(
+          navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: deviceId },
+              width: { exact: res.width },
+              height: { exact: res.height },
+              frameRate: { exact: fps },
+            },
+          })
+        );
 
         // Success — this combination is supported
         capabilities.push({
@@ -323,7 +360,6 @@ export async function enumerateWebcamCapabilities(deviceId: string): Promise<Web
     }
   }
 
-  cachedWebcamCaps.set(deviceId, capabilities);
   return capabilities;
 }
 

@@ -1727,6 +1727,12 @@
   opacity: 0.85;
 }
 
+/* #87: waiting on the capture prompt. Focusable (aria-disabled), so no native :disabled. */
+.dm-chat-header-join-call-btn[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 /* ─── Group Info Panel (right side) ───────────────────────────────────── */
 
 .group-info-panel {

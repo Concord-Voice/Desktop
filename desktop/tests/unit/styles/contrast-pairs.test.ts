@@ -31,7 +31,9 @@ import { readFileSync } from 'node:fs';
 
 import {
   ALLOWLIST,
+  FLOOR,
   baseSelectorOf,
+  collectRules,
   expandVars,
   winningDeclaration,
   contrastRatio,
@@ -136,6 +138,48 @@ describe('theme contrast pairs', () => {
     // covers the resolvable subset only. If this number collapses toward zero,
     // the extractor has probably broken rather than the tree having improved.
     expect(unresolvable).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Capture-lease surfaces (#87 §3.8). The moved banner's wrapper must be a pair the scan
+ * above actually measures, and the four token pairs the spec named as unmeasured are held
+ * here explicitly in every theme block, including `[data-high-contrast='true']`: text at
+ * 4.5:1 and the `--state-focused` ring as WCAG 1.4.11 non-text at 3:1.
+ */
+describe('capture lease surfaces (#87)', () => {
+  const NON_TEXT_FLOOR = 3;
+  const blocks = parseThemeBlocks();
+  const pairs = inheritStateColors(mergeBySelector(collectRules())).filter(
+    (r) => r.color && r.background
+  );
+
+  it('the pair scan discovers the moved-banner wrapper (--text-primary on --bg-secondary)', () => {
+    const wrapper = pairs.find(
+      (r) => r.file.endsWith('CaptureMovedBanner.css') && r.selector === '.capture-moved-banner'
+    );
+    expect(wrapper?.color).toContain('--text-primary');
+    expect(wrapper?.background).toContain('--bg-secondary');
+  });
+
+  it('measures the high-contrast block alongside every scheme and theme', () => {
+    expect(blocks.some((b) => b.selector === "[data-high-contrast='true']")).toBe(true);
+  });
+
+  it.each([
+    ['--text-primary', '--bg-secondary', FLOOR],
+    ['--text-primary', '--bg-tertiary', FLOOR],
+    ['--state-focused', '--bg-secondary', NON_TEXT_FLOOR],
+    ['--state-focused', '--bg-tertiary', NON_TEXT_FLOOR],
+  ])('%s on %s holds in every theme block', (fg, bg, floor) => {
+    const failing = blocks.flatMap((block) => {
+      const f = toRgb(expandVars(block.tokens, `var(${fg})`));
+      const b = toRgb(expandVars(block.tokens, `var(${bg})`));
+      if (!f || !b) return [`${block.selector}: unresolved`];
+      const ratio = contrastRatio(f, b);
+      return ratio < floor ? [`${block.selector}: ${ratio.toFixed(2)}:1`] : [];
+    });
+    expect(failing).toEqual([]);
   });
 });
 

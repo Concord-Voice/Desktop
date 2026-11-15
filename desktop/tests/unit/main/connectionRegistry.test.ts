@@ -22,6 +22,7 @@ vi.mock('../../../src/main/selfHostedProfile', async () => {
 import {
   MAX_LIVE_CONNECTIONS,
   _resetConnectionRegistryForTesting,
+  _setServiceCapabilitiesForTesting,
   advanceGeneration,
   bindSender,
   bindingFor,
@@ -38,7 +39,9 @@ import {
   refOf,
   registerService,
   serviceForOrigin,
+  serviceMediaCapability,
   setForeground,
+  type ConnectionRecord,
 } from '../../../src/main/connectionRegistry';
 
 const SAAS_ORIGIN = 'https://api.concordvoice.chat';
@@ -439,5 +442,142 @@ describe('hardening (guards added beyond the plan matrix)', () => {
     expect(primaries()).toEqual([]);
     bindSender(wcObj(9), rec.connectionId, 'primary'); // a primary that is not record.webContents
     expect(primaries()).toEqual([]);
+  });
+});
+
+describe('onForegroundChanged (#87, RC-9)', () => {
+  type Change = [ConnectionRecord | null, ConnectionRecord | null];
+
+  it('receives (prev, next) synchronously inside setForeground', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const b = mustOpen(mustRegister(B).serviceId, wcObj(2));
+    const seen: Change[] = [];
+    onForegroundChanged((prev, next) => seen.push([prev, next]));
+    setForeground(a.connectionId);
+    expect(seen).toEqual([[null, a]]);
+    setForeground(b.connectionId);
+    expect(seen).toEqual([
+      [null, a],
+      [a, b],
+    ]);
+  });
+
+  it('is not fired when the foreground does not change', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const l = vi.fn();
+    onForegroundChanged(l);
+    setForeground(null);
+    expect(l).not.toHaveBeenCalled();
+    setForeground(a.connectionId);
+    setForeground(a.connectionId);
+    expect(l).toHaveBeenCalledTimes(1);
+  });
+
+  it('is fired with next === null on setForeground(null)', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    setForeground(a.connectionId);
+    const seen: Change[] = [];
+    onForegroundChanged((prev, next) => seen.push([prev, next]));
+    setForeground(null);
+    expect(seen).toEqual([[a, null]]);
+    expect(foreground()).toBeNull();
+  });
+
+  it("disposing the foreground fires (prev, null) after the 'disposed' listeners ran", () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    setForeground(a.connectionId);
+    const order: string[] = [];
+    onGenerationAdvanced((_id, _from, _to, reason) => order.push(`generation:${reason}`));
+    onForegroundChanged((prev, next) => {
+      order.push(`foreground:${prev?.state ?? 'none'}->${next === null ? 'null' : 'record'}`);
+      expect(prev).toBe(a);
+      expect(foreground()).toBeNull();
+    });
+    disposeConnection(a.connectionId);
+    expect(order).toEqual(['generation:disposed', 'foreground:disposed->null']);
+  });
+
+  it('disposing a background connection fires nothing', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const b = mustOpen(mustRegister(B).serviceId, wcObj(2));
+    setForeground(a.connectionId);
+    const l = vi.fn();
+    onForegroundChanged(l);
+    disposeConnection(b.connectionId);
+    expect(l).not.toHaveBeenCalled();
+  });
+
+  it('a dispose made inside a generation listener is announced after that delivery drains', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    setForeground(a.connectionId);
+    const order: string[] = [];
+    onGenerationAdvanced((id, _from, _to, reason) => {
+      order.push(`first:${reason}`);
+      if (reason === 'credential-end') disposeConnection(id);
+    });
+    onGenerationAdvanced((_id, _from, _to, reason) => order.push(`second:${reason}`));
+    onForegroundChanged((prev) => order.push(`foreground:${prev?.state ?? 'none'}`));
+    advanceGeneration(a.connectionId, 'credential-end');
+    expect(order).toEqual([
+      'first:credential-end',
+      'second:credential-end',
+      'first:disposed',
+      'second:disposed',
+      'foreground:disposed',
+    ]);
+  });
+
+  it('stops delivery after unsubscribe, and one throwing listener does not starve the rest', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    const b = mustOpen(mustRegister(B).serviceId, wcObj(2));
+    onForegroundChanged(() => {
+      throw new Error('listener failure');
+    });
+    const l = vi.fn();
+    const off = onForegroundChanged(l);
+    setForeground(a.connectionId);
+    expect(l).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    off();
+    setForeground(b.connectionId);
+    expect(l).toHaveBeenCalledTimes(1);
+    expect(foreground()).toBe(b);
+    warn.mockRestore();
+  });
+
+  it('the test reset fires nothing', () => {
+    const a = mustOpen(mustRegister(A).serviceId, wcObj(1));
+    setForeground(a.connectionId);
+    const l = vi.fn();
+    onForegroundChanged(l);
+    _resetConnectionRegistryForTesting();
+    expect(l).not.toHaveBeenCalled();
+    expect(foreground()).toBeNull();
+  });
+});
+
+describe('serviceMediaCapability (#87, SH#112 seam)', () => {
+  it('is undefined while the service declares no capabilities', () => {
+    const rec = mustOpen(mustRegister(A).serviceId);
+    expect(getService(rec.serviceId)?.capabilities).toBeUndefined();
+    expect(serviceMediaCapability(rec.connectionId)).toBeUndefined();
+  });
+
+  it('is false only when the service sets media: false', () => {
+    const rec = mustOpen(mustRegister(A).serviceId);
+    _setServiceCapabilitiesForTesting(rec.serviceId, {});
+    expect(serviceMediaCapability(rec.connectionId)).toBeUndefined();
+    _setServiceCapabilitiesForTesting(rec.serviceId, { media: true });
+    expect(serviceMediaCapability(rec.connectionId)).toBe(true);
+    _setServiceCapabilitiesForTesting(rec.serviceId, { media: false });
+    expect(serviceMediaCapability(rec.connectionId)).toBe(false);
+  });
+
+  it('is undefined for a connection that is not live', () => {
+    const rec = mustOpen(mustRegister(A).serviceId);
+    _setServiceCapabilitiesForTesting(rec.serviceId, { media: false });
+    disposeConnection(rec.connectionId);
+    expect(serviceMediaCapability(rec.connectionId)).toBeUndefined();
   });
 });

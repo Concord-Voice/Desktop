@@ -8,6 +8,7 @@ const h = vi.hoisted(() => {
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setDevicePermissionHandler: vi.fn(),
+    setDisplayMediaRequestHandler: vi.fn(),
     webRequest: { onBeforeSendHeaders: vi.fn() },
     on: vi.fn(),
     fetch: vi.fn(),
@@ -166,7 +167,7 @@ describe('permission request handler', () => {
     expect(defaultCaptureArbiter.decide(ref, 'media', {})).toBe(true);
   });
 
-  it('check handler: a document check resolves its binding; an off-document check keeps the static policy', () => {
+  it('check handler: a document check resolves its binding', () => {
     const ses = setup();
     const check = ses.setPermissionCheckHandler.mock.calls[0][0];
     const c = wc();
@@ -174,9 +175,62 @@ describe('permission request handler', () => {
     bindings.set(c, { connectionId: 'c1', role: 'primary' });
     expect(check(c, 'media', '', { isMainFrame: true })).toBe(true);
     expect(check(c, 'geolocation', '', { isMainFrame: true })).toBe(false);
+  });
+
+  // #87 RC-5: rewritten on purpose. #86 pinned the off-document branch to the static
+  // policy, which answered `true` for `media` / `display-capture` with no binding and
+  // no arbiter. Capture is now denied there; the rest keep the static policy.
+  it('check handler: an off-document check denies capture without the arbiter and keeps the static policy for the rest', () => {
+    const ses = setup();
+    const check = ses.setPermissionCheckHandler.mock.calls[0][0];
+    const decide = vi.fn(() => true);
+    setCaptureArbiter({ decide });
     // Electron passes null for notification and service-worker checks.
+    expect(check(null, 'media', '', { isMainFrame: false })).toBe(false);
+    expect(check(null, 'display-capture', '', { isMainFrame: false })).toBe(false);
     expect(check(null, 'notifications', '', { isMainFrame: false })).toBe(true);
     expect(check(null, 'geolocation', '', { isMainFrame: false })).toBe(false);
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('passes an ArbiterContext: phase, the binding role and isMainFrame', () => {
+    const ses = setup();
+    const check = ses.setPermissionCheckHandler.mock.calls[0][0];
+    const request = ses.setPermissionRequestHandler.mock.calls[0][0];
+    const decide = vi.fn(() => true);
+    setCaptureArbiter({ decide });
+    const c = wc();
+    bindings.set(c, { connectionId: 'c1', role: 'primary' });
+    const checkDetails = { isMainFrame: true };
+    check(c, 'media', '', checkDetails);
+    expect(decide).toHaveBeenLastCalledWith(
+      expect.objectContaining({ connectionId: 'c1', generation: 1 }),
+      'media',
+      checkDetails,
+      { phase: 'check', role: 'primary', isMainFrame: true }
+    );
+    const pip = wc({ id: 2 });
+    bindings.set(pip, { connectionId: 'c1', role: 'pip' });
+    request(pip, 'display-capture', vi.fn(), { isMainFrame: 'yes' });
+    expect(decide).toHaveBeenLastCalledWith(
+      expect.objectContaining({ connectionId: 'c1' }),
+      'display-capture',
+      { isMainFrame: 'yes' },
+      { phase: 'request', role: 'pip', isMainFrame: false }
+    );
+    const unbound = wc({ id: 3 });
+    request(unbound, 'media', vi.fn(), undefined);
+    expect(decide).toHaveBeenLastCalledWith(null, 'media', undefined, {
+      phase: 'request',
+      role: null,
+      isMainFrame: false,
+    });
+  });
+
+  it('never installs a display-media request handler', () => {
+    const ses = setup();
+    expect(ses.setDisplayMediaRequestHandler).not.toHaveBeenCalled();
+    expect(h.defaultSession.setDisplayMediaRequestHandler).not.toHaveBeenCalled();
   });
 
   it('setCaptureArbiter overrides the decision and its unsubscribe restores the default', () => {

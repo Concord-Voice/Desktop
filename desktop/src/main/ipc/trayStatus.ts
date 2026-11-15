@@ -50,7 +50,12 @@ import type {
   GenerationReason,
 } from '../../shared/connectionIdentity';
 import { applyTraySnapshot } from '../tray';
-import { foreground, onForegroundChanged, onGenerationAdvanced } from '../connectionRegistry';
+import {
+  foreground,
+  onForegroundChanged,
+  onGenerationAdvanced,
+  recordFor,
+} from '../connectionRegistry';
 import { bindOwner, isOwnerCurrent, type OwnerBinding } from '../connectionCapability';
 
 import { CHANNEL_CLASSES } from './channelClassification';
@@ -157,13 +162,26 @@ function forget(connectionId: ConnectionId): void {
 function onGeneration(
   connectionId: ConnectionId,
   _from: Generation,
-  _to: Generation,
+  to: Generation,
   reason: GenerationReason
 ): void {
-  if (reason === 'disposed') {
-    forget(connectionId);
-    buckets.delete(connectionId);
+  // A lost renderer ends the session the snapshot described, so it goes now rather than
+  // waiting for the matching webContents hook (#87 RC-2).
+  if (reason === 'disposed' || reason === 'renderer-gone') forget(connectionId);
+  // `document` advances at a navigation's START, which main may still cancel, leaving the
+  // same document and call alive (#86 shellWindow). The snapshot therefore survives under
+  // the new generation; the commit or real load failure forgets it through
+  // `attachTrayResetHooks`, which runs before the generation hooks on the same event.
+  // Forgetting here left the tray neutral after a cancelled navigation, because the
+  // renderer sends only on change and never resent the unchanged snapshot (Codex P2).
+  // A credential advance re-keys the SAME running document (#87 RC-14): its call and snapshot
+  // go on, and the renderer sends only on change, so the snapshot moves to the new generation
+  // or the tray owner (re-keyed by the capture lease) would reject it and show neutral.
+  if (reason === 'document' || reason === 'credential-start' || reason === 'credential-end') {
+    const entry = kept.get(connectionId);
+    if (entry) kept.set(connectionId, { snapshot: entry.snapshot, generation: to });
   }
+  if (reason === 'disposed') buckets.delete(connectionId);
   // An owner whose connection advanced is stale from here, so it shows nobody.
   refreshTray();
 }
@@ -178,18 +196,41 @@ function bucketFor(connectionId: ConnectionId): () => boolean {
 }
 
 /**
- * Where a `tray:action` goes (#86 B1): the foreground primary, and only while the tray
- * shows that connection's snapshot. Null while the tray is neutral (its Open/Quit menu
- * offers no client action) or shows an owner other than the foreground, so an action
- * never reaches a connection the tray is not showing (B3: #87 routes those to the
- * owner). What breaks it: sending to the foreground without this check.
+ * Where a `tray:action` goes (#86 B1, #87 RC-2): the connection whose snapshot the tray
+ * shows, so the controls act on the session they display. That is the foreground primary
+ * with no owner, or the capture-lease holder while it is the owner. Null while the tray
+ * is neutral (its Open/Quit menu offers no client action), including a stale owner, so an
+ * action never reaches a connection the tray is not showing. What breaks it: sending to
+ * the foreground without asking what is displayed.
  */
 export function trayActionTarget(): WebContents | null {
   const shown = displayed;
-  const fg = foreground();
-  if (shown === null || fg?.connectionId !== shown.connectionId) return null;
-  if (fg.state === 'disposed' || fg.webContents.isDestroyed()) return null;
-  return fg.webContents;
+  if (shown === null) return null;
+  const record = recordFor(shown.connectionId);
+  if (!record || record.state === 'disposed' || record.webContents.isDestroyed()) return null;
+  return record.webContents;
+}
+
+/** The connection the tray currently renders, or null while it is neutral (#87 resource counts). */
+export function displayedTrayConnection(): ConnectionId | null {
+  return displayed?.connectionId ?? null;
+}
+
+/** One connection's kept snapshot (a copy), or null. */
+export function traySnapshotFor(id: ConnectionId): TrayStatusSnapshot | null {
+  const entry = kept.get(id);
+  return entry ? { ...entry.snapshot } : null;
+}
+
+/** How many connections currently hold a kept snapshot (#87 resource counts). */
+export function traySnapshotCount(): number {
+  return kept.size;
+}
+
+/** Forgets one connection's snapshot; the tray goes neutral only if it was showing it. */
+export function dropTraySnapshot(id: ConnectionId): void {
+  forget(id);
+  refreshTray();
 }
 
 /**

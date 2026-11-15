@@ -742,6 +742,13 @@ fail-closed frame drop.
 and the v5 implementation plan
 `2026-07-15-h264-hdr-media-pipeline.md`.
 
+**One document holds the media key context (#87).** The capture lease grants the microphone
+to one connection document at a time. The media key context (E2EE worker and `mediaEncryption`
+keys) exists only in the lease holder's document. It is destroyed before main grants another
+document: a `moved` revocation runs `voiceService.emergencyCleanup()`, which reaches
+`teardownSharedE2EEState`, and only then releases the lease. A holder that does not release
+within the handoff timeout is crashed, so process death destroys it.
+
 ### Attachment crypto v2/v3 (chunked, #2157)
 
 Attachments larger than a single request can carry use a **chunked AES-GCM envelope**.

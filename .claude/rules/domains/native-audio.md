@@ -252,6 +252,20 @@ not see through, such as a `/System/Volumes/Data` firmlink spelling of the check
 It refuses to run when `app.isPackaged`, and it deletes the stage on every exit the probe controls;
 a hard kill of the probe itself can leave the temp directory behind.
 
+## Who may start a capture, and who ends one (#87 capture lease)
+
+- **`audiocap:start` requires the capture lease.** The handler in `desktop/src/main/ipc/audiocap.ts`
+  admits only the connection `isHolder()` names. That holder gate replaces #86's rule, which
+  refused a start while another connection owned a share. A non-holder is refused before
+  anything reaches the capture child.
+- **A lease handoff calls `revokeAudiocapShare()`.** It ends the outgoing holder's share through
+  `killAudiocapCapture()`, which kills the capture child and spares the windowless app-start
+  probe (ADR-0043 A9), so the machine-capability snapshot survives a handoff.
+- **A generation advance is not the lease's to handle.** When the owning document reloads,
+  navigates or crashes, the generation listener in `ipc/audiocap.ts` ends the share with the
+  graceful `stopAudiocapHost()`, which still reads the addon's `status()`. The lease never
+  tears down a share on an advance; it only calls `revokeAudiocapShare()` on a handoff.
+
 ## Non-negotiable, independent of JSF++
 
 - **The ring buffer is fuzzed.** It is the one component reachable across a trust boundary.
