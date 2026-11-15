@@ -207,7 +207,7 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
 
   useEffect(() => {
     // Account changes, logout and renderer resets must not retain a bearer link.
-    if (erasureUserIdRef.current !== userId) {
+    if (erasureUserIdRef.current !== null && erasureUserIdRef.current !== userId) {
       setEmailConfirmation(null);
       setAcknowledgedServerIds(new Set());
       onClearAccountErasureConfirmation?.();

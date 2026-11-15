@@ -254,6 +254,40 @@ it('clears a consumed email confirmation before requesting another link', async 
   expect(screen.getByRole('button', { name: 'Erase account' })).toBeEnabled();
 });
 
+it('retains a restored-session confirmation through initial profile hydration', async () => {
+  const clear = vi.fn();
+  const confirmation = {
+    requestId: 'request-1',
+    token: 'confirmation-token',
+    expiresAt: Date.now() + 60_000,
+  };
+  useUserStore.setState({ user: null, fetchUser: vi.fn().mockResolvedValue(undefined) });
+  server.use(
+    http.get(`${API_BASE}/privacy/erase-account/owned-servers`, () =>
+      HttpResponse.json({ servers: [] })
+    )
+  );
+  render(
+    <PrivacySection
+      erasureOnly
+      accountErasureConfirmation={confirmation}
+      onClearAccountErasureConfirmation={clear}
+    />
+  );
+  expect(
+    await screen.findByText(/Email confirmed\. Review your acknowledgements/)
+  ).toBeInTheDocument();
+
+  act(() =>
+    useUserStore.setState({
+      user: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', username: 'pilot' },
+    })
+  );
+
+  expect(clear).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Review and erase account' })).toBeInTheDocument();
+});
+
 it('clears the confirmation and logs out after erasure succeeds', async () => {
   const clear = vi.fn();
   const logout = vi.fn().mockResolvedValue(undefined);
