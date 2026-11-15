@@ -3685,6 +3685,79 @@ describe('main.ts', () => {
       ]);
     });
 
+    it('paces a live erasure-link burst and bounds its pending queue', () => {
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        const ids = Array.from(
+          { length: 10 },
+          (_, i) => `550e8400-e29b-41d4-a716-44665544${String(i).padStart(4, '0')}`
+        );
+        for (const id of ids) deliverDeepLink(erasureDeepLink(id));
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([ids[0]]);
+
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS - 1);
+        expect(erasureConfirmations()).toHaveLength(1);
+        vi.advanceTimersByTime(1);
+        // The second link was the oldest waiting entry when the 8-slot queue filled.
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([ids[0], ids[2]]);
+        vi.advanceTimersByTime(7 * DEEP_LINK_EMIT_WINDOW_MS);
+        expect(erasureConfirmations().map(({ requestId }) => requestId)).toEqual([
+          ids[0],
+          ...ids.slice(2),
+        ]);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
+    it('reopens a dismissed erasure link after the short duplicate window', () => {
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        deliverDeepLink(erasureDeepLink());
+        deliverDeepLink(erasureDeepLink());
+        expect(erasureConfirmations()).toHaveLength(1);
+
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS);
+        deliverDeepLink(erasureDeepLink());
+        expect(erasureConfirmations()).toHaveLength(2);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
+    it('drops a paced erasure link if the credential owner changes before delivery', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 41,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      vi.useFakeTimers();
+      try {
+        signalErasureReady(erasureRendererEvent);
+        deliverDeepLink(erasureDeepLink());
+        deliverDeepLink(erasureDeepLink('550e8400-e29b-41d4-a716-446655440001'));
+
+        (getCredentialCustodyState as Mock).mockReturnValue({
+          credentialOwner: 42,
+          pendingE2EEUnlock: false,
+        });
+        vi.advanceTimersByTime(DEEP_LINK_EMIT_WINDOW_MS);
+        expect(erasureConfirmations()).toEqual([
+          { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+        ]);
+      } finally {
+        simulateReload();
+        vi.useRealTimers();
+      }
+    });
+
     it('caps the pending queue at 8 entries, dropping oldest', () => {
       resetDeepLinkState();
       vi.useFakeTimers();

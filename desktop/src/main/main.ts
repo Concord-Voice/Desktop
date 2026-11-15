@@ -407,20 +407,45 @@ type PendingErasureConfirmation = {
 
 let erasureRendererReady = false;
 const pendingErasureConfirmations: PendingErasureConfirmation[] = [];
-let lastErasureConfirmationKey: string | null = null;
+let lastErasureSentKey: string | null = null;
+let lastErasureSentAt = -Infinity;
+let erasureDrainTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearErasureDelivery(): void {
+  if (erasureDrainTimer !== null) clearTimeout(erasureDrainTimer);
+  erasureDrainTimer = null;
+  pendingErasureConfirmations.length = 0;
+  lastErasureSentKey = null;
+  lastErasureSentAt = -Infinity;
+}
 
 function forgetErasureConfirmations(): void {
   erasureRendererReady = false;
-  pendingErasureConfirmations.length = 0;
-  lastErasureConfirmationKey = null;
+  clearErasureDelivery();
+}
+
+function scheduleErasureDrain(delay: number): void {
+  erasureDrainTimer = setTimeout(() => {
+    erasureDrainTimer = null;
+    drainErasureConfirmations();
+  }, delay);
 }
 
 function drainErasureConfirmations(): void {
   if (!erasureRendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  if (pendingErasureConfirmations.length === 0) return;
   // A cold-start link has no owner until the persisted session is verified.
   if (pendingErasureConfirmations.some((confirmation) => confirmation.owner === null)) return;
+  if (erasureDrainTimer !== null) return;
+  const wait = DEEP_LINK_EMIT_WINDOW_MS - (performance.now() - lastErasureSentAt);
+  if (wait > 0) {
+    scheduleErasureDrain(wait);
+    return;
+  }
   const currentOwner = getCredentialCustodyState().credentialOwner;
-  for (const confirmation of pendingErasureConfirmations.splice(0)) {
+  while (pendingErasureConfirmations.length > 0) {
+    const confirmation = pendingErasureConfirmations.shift();
+    if (!confirmation) return;
     if (currentOwner !== confirmation.owner) {
       console.warn('[AccountErasureDeepLink] stale_session');
       continue;
@@ -429,6 +454,10 @@ function drainErasureConfirmations(): void {
       requestId: confirmation.requestId,
       token: confirmation.token,
     });
+    lastErasureSentKey = `${confirmation.owner}:${confirmation.requestId}:${confirmation.token}`;
+    lastErasureSentAt = performance.now();
+    if (pendingErasureConfirmations.length > 0) scheduleErasureDrain(DEEP_LINK_EMIT_WINDOW_MS);
+    return;
   }
 }
 
@@ -440,8 +469,17 @@ function queueErasureConfirmation(raw: string | undefined): boolean {
   }
   const owner = restoreSessionPromise ? null : getCredentialCustodyState().credentialOwner;
   const key = `${owner}:${result.requestId}:${result.token}`;
-  if (key === lastErasureConfirmationKey) return true;
-  lastErasureConfirmationKey = key;
+  if (
+    (key === lastErasureSentKey &&
+      performance.now() - lastErasureSentAt < DEEP_LINK_EMIT_WINDOW_MS) ||
+    pendingErasureConfirmations.some(
+      (confirmation) =>
+        confirmation.owner === owner &&
+        confirmation.requestId === result.requestId &&
+        confirmation.token === result.token
+    )
+  )
+    return true;
   pendingErasureConfirmations.push({ ...result, owner });
   while (pendingErasureConfirmations.length > PENDING_DEEP_LINK_CAP) {
     pendingErasureConfirmations.shift();
@@ -664,10 +702,13 @@ function resetDeepLinkDelivery(): void {
   // A delivered bearer link may not survive its renderer's reload. A cold-start
   // link has never been delivered, so retain it for session restoration.
   erasureRendererReady = false;
+  if (erasureDrainTimer !== null) clearTimeout(erasureDrainTimer);
+  erasureDrainTimer = null;
+  lastErasureSentAt = -Infinity;
+  lastErasureSentKey = null;
   for (let i = pendingErasureConfirmations.length - 1; i >= 0; i -= 1) {
     if (pendingErasureConfirmations[i]?.owner !== null) pendingErasureConfirmations.splice(i, 1);
   }
-  if (pendingErasureConfirmations.length === 0) lastErasureConfirmationKey = null;
   // Read ONCE for the whole reset, not per kind. NOT cleared here (RED-TEAM
   // F2): the arming belongs to whichever applySpaDecisionCarryingDeepLink call
   // took it out and is released by that call's `finally`. Clearing it on the
@@ -2632,8 +2673,7 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
 
   const credentialOwner = storeRefreshToken(data);
   // A fresh sign-in must not adopt an ownerless startup erasure capability.
-  pendingErasureConfirmations.length = 0;
-  lastErasureConfirmationKey = null;
+  clearErasureDelivery();
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -2822,9 +2862,6 @@ ipcMain.handle('auth:restoreSession', (event) => {
       }
       for (const confirmation of pendingErasureConfirmations) {
         if (confirmation.owner === null) confirmation.owner = restoreOwner;
-      }
-      if (lastErasureConfirmationKey?.startsWith('null:')) {
-        lastErasureConfirmationKey = `${restoreOwner}:${lastErasureConfirmationKey.slice(5)}`;
       }
       drainErasureConfirmations();
       return {
