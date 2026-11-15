@@ -73,6 +73,23 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
     allowBackup: true,
   });
 
+  const handlePrivacyError = (err: PrivacyApiError): StepUpSubmitOutcome => {
+    if (err.code === 'email_confirmation_stale') {
+      onStaleEmailConfirmation();
+      return { kind: 'answered' };
+    }
+    if (err.status === 403 && isStepUpFactorRefusal(err.stepUpRefusal)) {
+      if (err.stepUpRefusal.kind === 'invalidPassword') setPassword('');
+      return { kind: 'refusal', refusal: err.stepUpRefusal };
+    }
+    if (err.status === 403 && err.stepUpRefusal.kind === 'enrollmentRequired') {
+      return { kind: 'refusal', refusal: err.stepUpRefusal };
+    }
+    if (err.code === 'owned_server_confirmation_stale') onStaleOwnedServers();
+    setError(erasureErrorMessage(err));
+    return { kind: 'answered' };
+  };
+
   const submit: StepUpSubmit = async (mfa, context): Promise<StepUpSubmitOutcome> => {
     setError(null);
     try {
@@ -86,22 +103,7 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
       // The request belongs to the context captured by the factor hook. A late
       // refusal must not clear or refetch state for whoever signed in since.
       if (!apiRequestContextIsCurrent(context)) return { kind: 'answered' };
-      if (err instanceof PrivacyApiError) {
-        if (err.code === 'email_confirmation_stale') {
-          onStaleEmailConfirmation();
-          return { kind: 'answered' };
-        }
-        if (err.status === 403 && isStepUpFactorRefusal(err.stepUpRefusal)) {
-          if (err.stepUpRefusal.kind === 'invalidPassword') setPassword('');
-          return { kind: 'refusal', refusal: err.stepUpRefusal };
-        }
-        if (err.status === 403 && err.stepUpRefusal.kind === 'enrollmentRequired') {
-          return { kind: 'refusal', refusal: err.stepUpRefusal };
-        }
-        if (err.code === 'owned_server_confirmation_stale') onStaleOwnedServers();
-        setError(erasureErrorMessage(err));
-        return { kind: 'answered' };
-      }
+      if (err instanceof PrivacyApiError) return handlePrivacyError(err);
       setError("Couldn't reach the server. Check your connection and try again.");
       return { kind: 'transport' };
     }
