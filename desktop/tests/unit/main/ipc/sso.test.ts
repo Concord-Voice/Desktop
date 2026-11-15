@@ -703,6 +703,71 @@ describe('sso IPC handlers', () => {
       });
     });
 
+    it('defers a linked account session until main verifies MFA under the reserved owner', async () => {
+      await beginAppleCompletion('account_link');
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            mfa_challenge_token: 'link-mfa-token',
+            methods: ['totp'],
+            recovery_only_methods: ['backup_code'],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      const challenge = await completeLinkHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        linkPayload
+      );
+      expect(challenge).toEqual({
+        kind: 'mfa_challenge',
+        mfaChallengeToken: 'link-mfa-token',
+        methods: ['totp'],
+        recoveryOnlyMethods: ['backup_code'],
+        credentialOwner: 41,
+      });
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+      expect(JSON.stringify(challenge)).not.toContain('refresh_token');
+      await expect(
+        completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
+      ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'linked-after-mfa',
+            refresh_token: 'main-only-refresh',
+            session_id: SUCCESS_SESSION_ID,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+      const completion = await completeMFAHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        {
+          provider: 'apple',
+          mfaChallengeToken: 'link-mfa-token',
+          credentialOwner: 41,
+          method: 'totp',
+          code: '123456',
+        }
+      );
+      expect(completion).toEqual({
+        kind: 'tokens',
+        accessToken: 'linked-after-mfa',
+        sessionId: SUCCESS_SESSION_ID,
+        credentialOwner: 41,
+      });
+      expect(JSON.stringify(completion)).not.toContain('main-only-refresh');
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ refreshToken: 'main-only-refresh' }),
+        41
+      );
+    });
+
     it('returns only allowlisted server error fields and never leaks refresh material', async () => {
       await beginAppleCompletion();
       vi.mocked(net.fetch).mockResolvedValueOnce(

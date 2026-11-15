@@ -41,6 +41,9 @@ export interface SSOCompletionResult {
   credentialOwner: CredentialOwner;
 }
 
+export type SSOLinkCompletionResult =
+  SSOCompletionResult | Extract<SSOResult, { kind: 'mfa_required' }>;
+
 export type SSOResult =
   | {
       kind: 'logged_in';
@@ -103,6 +106,9 @@ function unwrapCompletionResult(
       `${failurePrefix}_${result.status}`,
       result.body ? { ...result.body } : { error_code: result.code }
     );
+  }
+  if (result.kind !== 'tokens') {
+    throw new Error(`${failurePrefix}_unexpected_challenge`);
   }
   return {
     accessToken: result.accessToken,
@@ -197,11 +203,20 @@ export async function completeSSORegistration(
 export async function completeSSOLink(
   params: SSOCompleteLinkPayload,
   serverSelection: RuntimeServerSelection
-): Promise<SSOCompletionResult> {
-  return unwrapCompletionResult(
-    await globalThis.electron.sso.completeLink(serverSelection.apiBase, params),
-    'sso_complete_link_failed'
-  );
+): Promise<SSOLinkCompletionResult> {
+  const result = await globalThis.electron.sso.completeLink(serverSelection.apiBase, params);
+  if (result.kind === 'mfa_challenge') {
+    return {
+      kind: 'mfa_required',
+      mfaChallengeToken: result.mfaChallengeToken,
+      methods: result.methods,
+      recoveryOnlyMethods: result.recoveryOnlyMethods,
+      webauthnOptions: result.webauthnOptions,
+      defaultMethod: result.defaultMethod,
+      credentialOwner: result.credentialOwner,
+    };
+  }
+  return unwrapCompletionResult(result, 'sso_complete_link_failed');
 }
 
 /**

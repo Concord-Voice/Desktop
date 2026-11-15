@@ -57,11 +57,14 @@ This release adds groundwork for verifying account keys, protects remembered ses
 ### Security
 
 - **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure asks you to confirm any owned servers that have other members and complete an emailed confirmation link ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
+- **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
+- **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.
 - **Sign-in:** Limited authentication response sizes and wait times to keep the app responsive.
 - **Sessions:** Bound remembered sessions to their server; existing remembered sessions require signing in again.
+- **Sessions:** Session revocation and revocation-mode changes now require your password and configured verification method ([#224](https://github.com/Concord-Voice/Desktop/pull/224)).
 - **Sign-in:** Google and Apple sign-in now open only the expected provider authorization pages.
 - **Voice:** Picture-in-picture windows now have safer creation limits and show an error when a window cannot open.
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
