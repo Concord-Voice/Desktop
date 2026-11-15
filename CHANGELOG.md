@@ -61,6 +61,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 
 ### Security
 
+- **Desktop:** The main-branch SonarQube scan now analyzes dependencies for known vulnerabilities. The pull request scan leaves this off, so it never resolves a pull request's dependency files.
 - **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure asks you to confirm any owned servers that have other members and complete an emailed confirmation link, including while ordinary email verification is pending ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
 - **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
