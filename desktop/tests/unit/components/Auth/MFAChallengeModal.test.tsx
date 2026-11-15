@@ -8,6 +8,7 @@ import { completeSSOMFA, abandonSSOReservation } from '@/renderer/services/syste
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { recordIssuerOnPublish } from '../../../helpers/challengeIssuer';
 import { __resetChallengeIssuersForTests } from '@/renderer/services/system/challengeIssuer';
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -18,7 +19,7 @@ vi.stubGlobal('fetch', mockFetch);
 // #2394 adds abandonSSOReservation to the same partial mock so the Cancel
 // purpose-gate can be observed without an Electron bridge.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return { ...actual, completeSSOMFA: vi.fn(), abandonSSOReservation: vi.fn() };
 });
 
