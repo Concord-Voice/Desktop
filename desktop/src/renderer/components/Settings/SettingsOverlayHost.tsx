@@ -157,7 +157,7 @@ const SettingsOverlayHost: React.FC = () => {
   // panel), so we close on click when target === dialog. Listeners are
   // attached imperatively rather than via JSX props.
   useEffect(() => {
-    const dlg = dialogRef.current;
+    const dlg = portalHost;
     if (!dlg) return;
     const dismissBlocked = () =>
       isSettingsOverlayDismissBlocked(useSettingsOverlayStore.getState().open);
@@ -185,7 +185,7 @@ const SettingsOverlayHost: React.FC = () => {
       dlg.removeEventListener('close', handleClose);
       dlg.removeEventListener('click', handleClick);
     };
-  }, [open, close]);
+  }, [portalHost, close]);
 
   let content: React.ReactNode = null;
   if (open === 'app') {

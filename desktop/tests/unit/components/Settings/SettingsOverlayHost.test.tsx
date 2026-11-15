@@ -3,6 +3,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 import { useDraftSettingsStore } from '@/renderer/stores/ui/draftSettingsStore';
 import { useSettingsCollapsibleStore } from '@/renderer/stores/ui/settingsCollapsibleStore';
+import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { openForeignModal } from '../../../helpers/foreignModal';
 
 vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
@@ -46,6 +47,18 @@ vi.mock('@/renderer/components/Settings/SettingsPage', async () => {
 vi.mock('@/renderer/components/Servers/ServerSettingsPage', () => ({
   default: ({ serverId }: { serverId: string }) => (
     <div data-testid="mock-server-settings-page">ServerSettingsPage:{serverId}</div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Settings/PrivacySection', () => ({
+  default: ({
+    onClearAccountErasureConfirmation,
+  }: {
+    onClearAccountErasureConfirmation: () => void;
+  }) => (
+    <button type="button" onClick={onClearAccountErasureConfirmation}>
+      Reject confirmation
+    </button>
   ),
 }));
 
@@ -222,6 +235,54 @@ describe('SettingsOverlayHost', () => {
       'request-1:confirmation-token'
     );
   });
+
+  it.each(['backdrop', 'native close', 'cancel'])(
+    'reattaches %s after restricted erasure remounts',
+    async (dismiss) => {
+      useAuthStore.getState().setEmailVerified(false);
+      let confirmationHandler: ((value: { requestId: string; token: string }) => void) | undefined;
+      Object.assign(globalThis.electron ?? {}, {
+        onAccountErasureConfirmation: vi.fn(
+          (handler: (value: { requestId: string; token: string }) => void) => {
+            confirmationHandler = handler;
+            return vi.fn();
+          }
+        ),
+      });
+      render(<SettingsOverlayHost />);
+
+      act(() => confirmationHandler?.({ requestId: 'first', token: 'first-token' }));
+      await screen.findByRole('button', { name: 'Reject confirmation' });
+      const firstDialog = getDialog();
+      act(() => firstDialog.dispatchEvent(new Event('cancel', { cancelable: true })));
+      expect(useSettingsOverlayStore.getState().open).toBe('app');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reject confirmation' }));
+      await waitFor(() =>
+        expect(document.querySelector('dialog.settings-overlay-host')).toBeNull()
+      );
+      expect(useSettingsOverlayStore.getState().open).toBe('app');
+
+      act(() => confirmationHandler?.({ requestId: 'second', token: 'second-token' }));
+      await screen.findByRole('button', { name: 'Reject confirmation' });
+      const secondDialog = getDialog();
+      expect(secondDialog).not.toBe(firstDialog);
+      expect(secondDialog).toHaveAttribute('open');
+
+      if (dismiss === 'cancel') {
+        useDraftSettingsStore.setState({ contentProtectionApplying: true });
+        const cancel = new Event('cancel', { cancelable: true });
+        act(() => secondDialog.dispatchEvent(cancel));
+        expect(cancel.defaultPrevented).toBe(true);
+        expect(useSettingsOverlayStore.getState().open).toBe('app');
+        return;
+      }
+      if (dismiss === 'backdrop') fireEvent.click(secondDialog, { target: secondDialog });
+      else act(() => secondDialog.close());
+
+      expect(useSettingsOverlayStore.getState().open).toBeNull();
+    }
+  );
 
   it('renders ServerSettingsPage with serverId when open === "server"', async () => {
     render(<SettingsOverlayHost />);
