@@ -7,12 +7,13 @@
  * Concord password; the server then permanently links the SSO identity to it.
  *
  * Submitting calls `POST /api/v1/auth/sso/{provider}/complete-link` via the
- * `completeSSOLink` service helper. On 423 the server has temporarily locked
- * the account after too many failed attempts; we surface a distinct, action-
- * oriented message so the user understands the wait is server-imposed (not
- * "wrong password again"). Only a 401/403 reads as a wrong password; main's own
- * cancelled/rejected codes get their own copy, and anything else a generic
- * failure, without leaking the underlying status code.
+ * `completeSSOLink` service helper. The server spends the single-use SSO token
+ * before it checks the password, so once a request has reached the server this
+ * form cannot succeed again: every such failure is terminal and offers only a way
+ * back to sign-in. Only a failure that may never have reached the server (no
+ * status) keeps the form open for a retry. Copy is chosen by the server's or
+ * main's `error_code` first and by status only as a fallback, and never shows
+ * the status code itself.
  *
  * Cancel resets the SSO store back to `idle`, which causes AuthFlow (Task 21)
  * to re-render the standard login screen — the user can choose to register a
@@ -50,32 +51,52 @@ import {
 import type { CredentialOwner } from '../../../main/ipcContract';
 import './SSOAccountLinkConfirm.css';
 
-// Codes main's sso:completeLink raises itself: the completion it held is gone
-// (409) or the server's answer was refused (502). Retrying the same password
-// cannot succeed after either.
-const LINK_MAIN_ERRORS: Record<string, string> = {
+const WRONG_PASSWORD = 'Wrong password. Sign in again to try once more.';
+const LOCKED = 'Too many failed attempts. Try again in 15 minutes.';
+
+// Copy by `error_code`: the server's complete-link codes, then the two main
+// raises itself (409 completion gone, 502 server answer refused).
+const LINK_ERRORS: Record<string, string> = {
+  invalid_credentials: WRONG_PASSWORD,
+  sso_token_invalid: 'This sign-in expired. Please sign in again.',
+  account_locked: LOCKED,
+  account_disabled: 'This account is disabled.',
   sso_cancelled: 'This sign-in was cancelled. Please sign in again.',
   sso_session_rejected: "The account couldn't be linked. Please sign in again.",
 };
-const LINK_GENERIC_ERROR = "Couldn't link your account. Please try again.";
+// Fallbacks by status, for a server that sends no recognised code.
+const LINK_STATUS_ERRORS: Record<number, string> = { 401: WRONG_PASSWORD, 423: LOCKED };
+const LINK_TERMINAL_ERROR = "Couldn't link your account. Please sign in again.";
+const LINK_RETRYABLE_ERROR = "Couldn't reach the server. Please try again.";
+
+interface LinkError {
+  message: string;
+  /** The SSO token is spent (or the completion gone), so the form cannot retry. */
+  terminal: boolean;
+}
 
 /**
- * Map a completeSSOLink failure to the user-facing error copy. ssoService throws
+ * Map a completeSSOLink failure to user-facing copy. ssoService throws
  * SSOServiceError carrying the status and either the server's sanitized body or
- * main's own `error_code`. 423 means the server applied a brute-force lockout;
- * only 401/403 mean the password was wrong; main's codes get their own copy; and
- * anything else (a network failure, a 5xx, an unexpected shape) is a generic
- * failure, without leaking the status code. Kept out of handleSubmit's catch so
- * the decode does not add to its cognitive complexity (S3776).
+ * main's own `error_code`. The code is server-controlled, so it is matched only
+ * against our own keys (`Object.hasOwn`): a code such as `__proto__` must not
+ * select an inherited property. Status 0 means main never got an HTTP answer, so
+ * the token may be unspent and a retry is offered; anything else is terminal.
+ * Kept out of handleSubmit's catch so the decode does not add to its cognitive
+ * complexity (S3776).
  */
-function mapCompleteLinkError(err: unknown): string {
-  if (!(err instanceof SSOServiceError)) return LINK_GENERIC_ERROR;
-  if (err.status === 423) {
-    return 'Too many failed attempts. Try again in 15 minutes.';
+function mapCompleteLinkError(err: unknown): LinkError {
+  if (!(err instanceof SSOServiceError) || err.status === 0) {
+    return { message: LINK_RETRYABLE_ERROR, terminal: false };
   }
-  if (err.status === 401 || err.status === 403) return 'Wrong password';
-  const code = typeof err.body?.error_code === 'string' ? err.body.error_code : '';
-  return LINK_MAIN_ERRORS[code] ?? LINK_GENERIC_ERROR;
+  const code = err.body?.error_code;
+  if (typeof code === 'string' && Object.hasOwn(LINK_ERRORS, code)) {
+    return { message: LINK_ERRORS[code], terminal: true };
+  }
+  const message = Object.hasOwn(LINK_STATUS_ERRORS, err.status)
+    ? LINK_STATUS_ERRORS[err.status]
+    : LINK_TERMINAL_ERROR;
+  return { message, terminal: true };
 }
 
 const SSOAccountLinkConfirm: React.FC = () => {
@@ -85,6 +106,7 @@ const SSOAccountLinkConfirm: React.FC = () => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [terminal, setTerminal] = useState(false);
 
   // Defensive: only render in the link_required phase. Any other phase
   // routing is the responsibility of AuthFlow (Task 21).
@@ -94,7 +116,7 @@ const SSOAccountLinkConfirm: React.FC = () => {
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (submitting || password.length === 0) {
+    if (submitting || terminal || password.length === 0) {
       return;
     }
     const requestSelection = captureRuntimeServerSelection();
@@ -137,11 +159,14 @@ const SSOAccountLinkConfirm: React.FC = () => {
       }
       // Leaving the challenge unfinished, by a cancel or by a failure to raise
       // it, retires main's reservation while this request is still current; a
-      // stale one clears only its own owner.
-      const abandonChallenge = async () => {
+      // stale one clears only its own owner. A cancel returns to sign-in; a
+      // failure to raise the challenge says so on the SSO error screen.
+      const abandonChallenge = async (raiseFailed: boolean) => {
         if (requestIsCurrent()) {
           void abandonSSOReservation();
-          setSSOState({ phase: 'idle' });
+          setSSOState(
+            raiseFailed ? { phase: 'error', message: 'sso_mfa_failed' } : { phase: 'idle' }
+          );
         } else {
           await cleanupIssuedSession();
         }
@@ -167,12 +192,13 @@ const SSOAccountLinkConfirm: React.FC = () => {
           );
       } catch {
         // The phase is already mfa_required, which this form does not render:
-        // without this the user is left on a challenge nothing shows.
-        await abandonChallenge();
+        // without this the user is left on a challenge nothing shows. The store's
+        // showChallenge does not reject today; this guards a future change.
+        await abandonChallenge(true);
         return null;
       }
       if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
-        await abandonChallenge();
+        await abandonChallenge(false);
         return null;
       }
       return mfaResult.ssoCompletion;
@@ -228,7 +254,12 @@ const SSOAccountLinkConfirm: React.FC = () => {
     } catch (err) {
       await cleanupIssuedSession();
       if (!requestIsCurrent()) return;
-      setError(mapCompleteLinkError(err));
+      const failure = mapCompleteLinkError(err);
+      // A spent token cannot be retried: release main's reservation now, and
+      // leave only the way back to sign-in.
+      if (failure.terminal) void abandonSSOReservation();
+      setTerminal(failure.terminal);
+      setError(failure.message);
       setSubmitting(false);
     }
   };
@@ -262,7 +293,7 @@ const SSOAccountLinkConfirm: React.FC = () => {
             value={password}
             onChange={(ev) => setPassword(ev.target.value)}
             autoComplete="current-password"
-            disabled={submitting}
+            disabled={submitting || terminal}
           />
         </div>
 
@@ -279,22 +310,24 @@ const SSOAccountLinkConfirm: React.FC = () => {
             onClick={handleCancel}
             disabled={submitting}
           >
-            Cancel
+            {terminal ? 'Back to sign in' : 'Cancel'}
           </button>
-          <button
-            type="submit"
-            className="sso-link-confirm__submit"
-            disabled={submitting || password.length === 0}
-          >
-            {submitting ? (
-              <>
-                Linking…
-                <LoadingSpinner size="small" inline />
-              </>
-            ) : (
-              'Link account'
-            )}
-          </button>
+          {!terminal && (
+            <button
+              type="submit"
+              className="sso-link-confirm__submit"
+              disabled={submitting || password.length === 0}
+            >
+              {submitting ? (
+                <>
+                  Linking…
+                  <LoadingSpinner size="small" inline />
+                </>
+              ) : (
+                'Link account'
+              )}
+            </button>
+          )}
         </div>
       </form>
     </div>

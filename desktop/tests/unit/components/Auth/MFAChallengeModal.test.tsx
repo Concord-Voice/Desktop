@@ -265,6 +265,16 @@ describe('MFAChallengeModal', () => {
       { error_code: 'mfa_code_invalid' },
       'Verification failed. Please try again.',
     ],
+    [
+      'the generic message for a prototype-key code',
+      { error_code: '__proto__' },
+      'Verification failed. Please try again.',
+    ],
+    [
+      'the generic message for an inherited-method code',
+      { error_code: 'toString' },
+      'Verification failed. Please try again.',
+    ],
   ])('keeps the SSO modal open on a failed proof and shows %s (#2424)', async (_, body, shown) => {
     const { SSOServiceError } = await vi.importActual<
       typeof import('@/renderer/services/system/ssoService')

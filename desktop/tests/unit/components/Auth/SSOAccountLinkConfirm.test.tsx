@@ -224,12 +224,40 @@ describe('SSOAccountLinkConfirm', () => {
       fireEvent.click(screen.getByRole('button', { name: /link account/i }));
 
       await waitFor(() => expect(abandonSSOReservation).toHaveBeenCalledTimes(1));
-      // Not stranded on a challenge phase nothing renders.
-      expect(useSSOStore.getState().state.phase).toBe('idle');
+      // Not stranded on a challenge phase nothing renders, and not dropped to
+      // sign-in silently either: the SSO error screen says what happened.
+      expect(useSSOStore.getState().state).toEqual({ phase: 'error', message: 'sso_mfa_failed' });
       expect(useAuthStore.getState().accessToken).toBeNull();
     } finally {
       useMFAChallengeStore.setState({ showChallenge });
     }
+  });
+
+  it('a stale challenge that ends unverified clears only its own owner', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'stale-unverified-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+    await waitFor(() =>
+      expect(useMFAChallengeStore.getState().challengeToken).toBe('stale-unverified-challenge')
+    );
+
+    setRuntimeServerBase('https://server-b.example');
+    setRuntimeServerBase('http://localhost:8080');
+    useMFAChallengeStore
+      .getState()
+      .completeChallenge({ verified: false }, 'stale-unverified-challenge');
+
+    await waitFor(() => expect(clearTokensIfOwner).toHaveBeenCalledWith(41));
+    // A newer request may own the reservation now; a stale one must not retire it.
+    expect(abandonSSOReservation).not.toHaveBeenCalled();
   });
 
   it('discards a verified link MFA session after the server selection changes', async () => {
@@ -356,11 +384,11 @@ describe('SSOAccountLinkConfirm', () => {
     expect(useSSOStore.getState().state.phase).toBe('link_required');
   });
 
-  it('does not admit and re-enables retry when main rejects completion', async () => {
+  it('keeps the form open for a retry when no HTTP answer arrived', async () => {
     completeLink.mockResolvedValueOnce({
       kind: 'error',
-      status: 500,
-      code: 'session_store_failed',
+      status: 0,
+      code: 'sso_complete-link_failed',
     });
 
     render(<SSOAccountLinkConfirm />);
@@ -370,31 +398,66 @@ describe('SSOAccountLinkConfirm', () => {
     fireEvent.click(screen.getByRole('button', { name: /link account/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      "Couldn't link your account. Please try again."
+      "Couldn't reach the server. Please try again."
     );
     expect(screen.getByRole('button', { name: /link account/i })).toBeEnabled();
+    expect(abandonSSOReservation).not.toHaveBeenCalled();
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 
+  // The server spends the SSO token before it checks the password, so any answer
+  // it gave leaves nothing to retry: the copy says why, and the form offers only
+  // the way back. Codes are the server's real complete-link codes.
   it.each([
-    [401, 'password_invalid', 'Wrong password'],
-    [403, 'forbidden', 'Wrong password'],
-    [409, 'sso_cancelled', 'This sign-in was cancelled. Please sign in again.'],
-    [502, 'sso_session_rejected', "The account couldn't be linked. Please sign in again."],
-    [0, 'sso_complete-link_failed', "Couldn't link your account. Please try again."],
-    [500, 'internal', "Couldn't link your account. Please try again."],
-  ])('maps a %i %s completion failure to its own copy', async (status, code, copy) => {
-    completeLink.mockResolvedValueOnce({ kind: 'error', status, code });
+    [401, { error_code: 'invalid_credentials' }, 'Wrong password. Sign in again to try once more.'],
+    [401, { error_code: 'sso_token_invalid' }, 'This sign-in expired. Please sign in again.'],
+    [401, undefined, 'Wrong password. Sign in again to try once more.'],
+    [403, { error_code: 'account_disabled' }, 'This account is disabled.'],
+    [423, undefined, 'Too many failed attempts. Try again in 15 minutes.'],
+    [
+      500,
+      { error_code: 'password_verify_failed' },
+      "Couldn't link your account. Please sign in again.",
+    ],
+    // main's own codes, which arrive as { error_code: code }
+    [409, undefined, 'This sign-in was cancelled. Please sign in again.', 'sso_cancelled'],
+    [
+      502,
+      undefined,
+      "The account couldn't be linked. Please sign in again.",
+      'sso_session_rejected',
+    ],
+    // the code decides over the status
+    [401, { error_code: 'sso_cancelled' }, 'This sign-in was cancelled. Please sign in again.'],
+    // unknown or hostile codes fall back without selecting an inherited property
+    [409, { error_code: 'something_new' }, "Couldn't link your account. Please sign in again."],
+    [400, { error_code: '__proto__' }, "Couldn't link your account. Please sign in again."],
+    [400, { error_code: 'constructor' }, "Couldn't link your account. Please sign in again."],
+  ])(
+    'treats a %i (%j) completion failure as final',
+    async (status, body, copy, code = 'sso_complete-link_failed') => {
+      completeLink.mockResolvedValueOnce({
+        kind: 'error',
+        status,
+        code,
+        ...(body ? { body } : {}),
+      });
 
-    render(<SSOAccountLinkConfirm />);
-    fireEvent.change(screen.getByLabelText(/password/i), {
-      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
-    });
-    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+      render(<SSOAccountLinkConfirm />);
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+      });
+      fireEvent.click(screen.getByRole('button', { name: /link account/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(copy);
-    expect(useAuthStore.getState().accessToken).toBeNull();
-  });
+      expect(await screen.findByRole('alert')).toHaveTextContent(copy);
+      expect(screen.queryByRole('button', { name: /link account/i })).toBeNull();
+      expect(screen.getByLabelText(/password/i)).toBeDisabled();
+      expect(abandonSSOReservation).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole('button', { name: /back to sign in/i }));
+      expect(useSSOStore.getState().state.phase).toBe('idle');
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    }
+  );
 
   it('shows lockout message on 423', async () => {
     completeLink.mockResolvedValueOnce({

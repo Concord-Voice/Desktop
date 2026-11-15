@@ -792,45 +792,79 @@ describe('sso IPC handlers', () => {
       });
 
     it.each([
-      ['a refresh_token beside the challenge', { ...linkChallengeBody, refresh_token: 'leak' }, {}],
-      ['an access_token beside the challenge', { ...linkChallengeBody, access_token: 'leak' }, {}],
-      ['an empty methods list', { ...linkChallengeBody, methods: [] }, {}],
-      ['an issued session ID header', linkChallengeBody, { 'X-Concord-Session-ID': SESSION_ID }],
-      ['a set-cookie header', linkChallengeBody, { 'set-cookie': 'concord_refresh=leak' }],
-    ])('fails closed on a link challenge carrying %s', async (_label, body, headers) => {
-      await beginAppleCompletion('account_link');
-      vi.mocked(net.fetch).mockResolvedValueOnce(jsonResponse(body, headers));
-      if ('X-Concord-Session-ID' in headers) {
-        vi.mocked(net.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
-      }
+      [
+        'a refresh_token beside the challenge',
+        { ...linkChallengeBody, refresh_token: 'leak' },
+        {},
+        { 'X-Refresh-Token': 'leak' },
+      ],
+      [
+        'an access_token beside the challenge',
+        { ...linkChallengeBody, access_token: 'leak' },
+        {},
+        { Authorization: 'Bearer leak' },
+      ],
+      [
+        'a token pair with an oversized access token',
+        { ...linkChallengeBody, access_token: 'x'.repeat(32_769), refresh_token: 'leak' },
+        {},
+        { 'X-Refresh-Token': 'leak' },
+      ],
+      ['an empty methods list', { ...linkChallengeBody, methods: [] }, {}, null],
+      [
+        'an issued session ID header',
+        linkChallengeBody,
+        { 'X-Concord-Session-ID': SESSION_ID },
+        null,
+      ],
+      ['a set-cookie header', linkChallengeBody, { 'set-cookie': 'concord_refresh=leak' }, null],
+    ] as const)(
+      'fails closed on a link challenge carrying %s',
+      async (_label, body, headers, explicitHeaders) => {
+        await beginAppleCompletion('account_link');
+        vi.mocked(net.fetch).mockResolvedValueOnce(jsonResponse(body, headers));
+        if ('X-Concord-Session-ID' in headers) {
+          vi.mocked(net.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+        }
 
-      await expect(
-        completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
-      ).resolves.toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
-      // Revocation is keyed on the session ID the response issued: with one it
-      // logs that session out, without one there is no server session to end.
-      if ('X-Concord-Session-ID' in headers) {
-        expect(net.fetch).toHaveBeenLastCalledWith(
-          `${SAAS_API_BASE}/api/v1/auth/logout`,
-          expect.objectContaining({
-            credentials: 'include',
-            headers: { 'X-Session-ID': SESSION_ID },
-          })
-        );
-      } else {
-        expect(net.fetch).toHaveBeenCalledTimes(1);
-      }
-      expect(tokenMocks.clearTokensIfOwner).toHaveBeenCalledWith(41);
-      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+        await expect(
+          completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
+        ).resolves.toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+        // Revocation is keyed on the session ID the response issued: with one it
+        // logs that session out, without one there is no server session to end.
+        if ('X-Concord-Session-ID' in headers) {
+          expect(net.fetch).toHaveBeenLastCalledWith(
+            `${SAAS_API_BASE}/api/v1/auth/logout`,
+            expect.objectContaining({
+              credentials: 'include',
+              headers: { 'X-Session-ID': SESSION_ID },
+            })
+          );
+        } else {
+          expect(net.fetch).toHaveBeenCalledTimes(1);
+        }
+        // Logout takes either token alone, so any in-bounds token is revoked;
+        // an over-long one is not sent.
+        if (explicitHeaders === null) {
+          expect(guardedMocks.guardedRequest).not.toHaveBeenCalled();
+        } else {
+          expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
+            `${SAAS_API_BASE}/api/v1/auth/logout`,
+            expect.objectContaining({ headers: explicitHeaders })
+          );
+        }
+        expect(tokenMocks.clearTokensIfOwner).toHaveBeenCalledWith(41);
+        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
 
-      // No pendingMFA: the challenge token completes nothing.
-      vi.mocked(net.fetch).mockClear();
-      await expect(
-        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
-      ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
-      expect(net.fetch).not.toHaveBeenCalled();
-      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
-    });
+        // No pendingMFA: the challenge token completes nothing.
+        vi.mocked(net.fetch).mockClear();
+        await expect(
+          completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+        ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+        expect(net.fetch).not.toHaveBeenCalled();
+        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+      }
+    );
 
     it.each([
       ['the credential is superseded', () => tokenMocks.supersedeCredential()],
@@ -872,10 +906,8 @@ describe('sso IPC handlers', () => {
           completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
         ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
         expect(net.fetch).not.toHaveBeenCalled();
-        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalledWith(
-          expect.objectContaining({ refreshToken: 'main-only-refresh' }),
-          expect.anything()
-        );
+        // A newer sign-in may store its own credential; the late challenge's owner gets none.
+        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalledWith(expect.anything(), 41);
       }
     );
 
@@ -1092,6 +1124,34 @@ describe('sso IPC handlers', () => {
         })
       );
       timeout.mockRestore();
+    });
+
+    it('revokes a token pair whose session_id fails parsing on a completion', async () => {
+      await beginAppleCompletion('account_link');
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'bad-sid-access',
+            refresh_token: 'bad-sid-refresh',
+            session_id: 'nope',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await expect(
+        completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
+      ).resolves.toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+      expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
+        `${SAAS_API_BASE}/api/v1/auth/logout`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer bad-sid-access',
+            'X-Refresh-Token': 'bad-sid-refresh',
+          }),
+        })
+      );
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
     });
 
     it('revokes a cookie-bound session when completion returns malformed 2xx JSON', async () => {
@@ -1349,6 +1409,30 @@ describe('sso IPC handlers', () => {
       await expect(
         completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, totpPayload)
       ).resolves.toMatchObject({ kind: 'tokens', credentialOwner: 41 });
+    });
+
+    it('revokes a token pair whose session_id fails parsing on an MFA verify', async () => {
+      await beginGoogleMFA();
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: 'mfa-bad-access', refresh_token: 'mfa-bad-refresh' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, totpPayload)
+      ).resolves.toMatchObject({ kind: 'error', code: 'sso_session_rejected' });
+      expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
+        `${SAAS_API_BASE}/api/v1/auth/logout`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer mfa-bad-access',
+            'X-Refresh-Token': 'mfa-bad-refresh',
+          }),
+        })
+      );
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
     });
 
     it('stores nothing and revokes the session when the body stops mid-read', async () => {

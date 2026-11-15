@@ -67,7 +67,8 @@ function resolveMfaProofError(err: unknown, timedOut: boolean): string {
   if (err instanceof SSOServiceError) {
     if (typeof err.body?.error === 'string' && err.body.error) return err.body.error;
     const code = typeof err.body?.error_code === 'string' ? err.body.error_code : '';
-    return SSO_PROOF_ERRORS[code] ?? GENERIC_PROOF_ERROR;
+    // Own keys only: a server code such as `__proto__` must not select an inherited property.
+    return Object.hasOwn(SSO_PROOF_ERRORS, code) ? SSO_PROOF_ERRORS[code] : GENERIC_PROOF_ERROR;
   }
   console.error('MFA verify failed:', (err as Error).message);
   return GENERIC_PROOF_ERROR;
