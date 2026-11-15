@@ -204,10 +204,26 @@ try {
   for (const [index, page] of pages.entries()) {
     descriptors.push(await inRenderer(page, `publish peer ${index}`, () => globalThis.mediaProbe.publish()));
   }
-  for (let index = 0; index < pages.length; index++) {
-    for (const descriptor of descriptors[1 - index]) {
-      await inRenderer(pages[index], `consume peer ${index}`, (entry) => globalThis.mediaProbe.consume(entry), descriptor);
+  try {
+    for (let index = 0; index < pages.length; index++) {
+      for (const descriptor of descriptors[1 - index]) {
+        await inRenderer(pages[index], `consume peer ${index} ${descriptor.kind}`,
+          (entry) => globalThis.mediaProbe.consume(entry), descriptor);
+      }
     }
+  } catch (error) {
+    // Record which side starved before cleanup tears the call down.
+    result.consumeDiagnostics = [];
+    for (const [index, page] of pages.entries()) {
+      try {
+        result.consumeDiagnostics.push({ peer: index,
+          ...await inRenderer(page, `diagnose peer ${index}`, () => globalThis.mediaProbe.diagnose()) });
+      } catch (diagnoseError) {
+        result.consumeDiagnostics.push({ peer: index, error: diagnoseError.message });
+      }
+    }
+    process.stderr.write(`[voice-probe] consume diagnostics: ${JSON.stringify(result.consumeDiagnostics)}\n`);
+    throw error;
   }
   const readWitnesses = async () => {
     const witnesses = await Promise.all(pages.map((page, index) =>

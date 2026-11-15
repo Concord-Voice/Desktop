@@ -5,12 +5,18 @@ if (app.commandLine.hasSwitch('no-sandbox') || app.commandLine.hasSwitch('disabl
   throw new Error('The voice runtime probe requires Chromium sandboxing');
 }
 app.enableSandbox();
+// macOS marks a fully covered window as occluded and backgrounds its renderer,
+// which can stop the hidden peer's canvas capture mid-call; backgroundThrottling
+// alone does not prevent that. Keep both renderers foreground-equivalent.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 const windows = [];
 globalThis.voiceProbeLifecycle = { rendererCrashes: 0, navigationFailures: 0 };
 app.whenReady().then(() => {
-  for (const peer of ['a', 'b']) {
+  for (const [index, peer] of ['a', 'b'].entries()) {
+    // Side by side, never stacked: a stacked twin occludes the other window.
     const window = new BrowserWindow({
-      width: 800, height: 600,
+      x: index * 820, y: 0, width: 800, height: 600,
       webPreferences: {
         sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true,
         backgroundThrottling: false, partition: `voice-runtime-probe-${peer}`,
