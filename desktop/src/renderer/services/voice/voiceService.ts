@@ -3941,7 +3941,7 @@ class VoiceService {
     }
 
     // Apply server enforcement flags (local audio state only;
-    // participant record is updated after setParticipants in joinChannel)
+    // buildParticipantList seeds the participant record from the same join data, #247)
     if (joinData.server_muted || joinData.server_deafened) {
       if (joinData.server_muted) store.setMuted(true);
       if (joinData.server_deafened) {
@@ -3973,7 +3973,6 @@ class VoiceService {
     }
   }
 
-  /** Apply server enforcement flags to the local participant record. */
   /**
    * Synthesize a channel-shaped object for DM voice joins where the server
    * response includes `conversation` instead of `channel` (#1209 plan F4
