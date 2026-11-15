@@ -1053,8 +1053,9 @@ already declared, and the existing `sso:completeMFA` finishes it.
 - **A challenge that carries a session is refused AND ended.** A challenge with
   `access_token` / `refresh_token`, an empty `methods` list, an `X-Concord-Session-ID` header, or
   a `set-cookie` header returns `502 sso_session_rejected`, clears the reservation and stores no
-  `pendingMFA`. The cookie-bound session is logged out by its ID, and an access and refresh token pair with any `session_id` or none, is logged out with
-  `revokeExplicitSession`, because that session skipped MFA. A body with only one token cannot be
+  `pendingMFA`. The cookie-bound session is logged out by its ID. An access and refresh token pair
+  beside the challenge, with any `session_id` or none, is logged out with `revokeExplicitSession`,
+  because that session skipped MFA. A body with only one token cannot be
   logged out from main (logout authenticates with the access token); server expiry covers it. The
   `set-cookie` check is defence in depth: `net.fetch` may not expose that header at all.
 - **A challenge that lands after a cancel, a superseded credential or a newer sign-in** returns
