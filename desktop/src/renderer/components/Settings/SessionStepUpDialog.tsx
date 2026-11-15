@@ -16,6 +16,7 @@ import {
   type ApiRequestContext,
 } from '../../services/system/requestContext';
 import { adaptSessionsRefusal, serverErrorText } from '../../services/system/stepUpRouteAdapters';
+import { classifyStepUpRefusal } from '../../services/system/stepUpRefusal';
 import ErrorBanner from './ErrorBanner';
 
 /**
@@ -181,13 +182,29 @@ const SESSION_EXPIRED_TEXT = 'Your session has expired. Sign in again to continu
 const NETWORK_TEXT = "Couldn't reach the server. Check your connection and try again.";
 const RATE_LIMITED_TEXT = 'Too many attempts. Try again in a few minutes.';
 
-/**
- * A non-2xx response through the route adapter. It reads exact strings only
- * (C5), so a response it does not own (`null`) shows the server's own sentence.
- */
-function refusedResult(status: number, body: unknown, failure: string): SessionResult {
-  const refusal = adaptSessionsRefusal(status, body);
-  if (refusal === null) return { kind: 'failed', message: serverErrorText(body) ?? failure };
+/** The SSO routes use the shared step-up seam; the session routes predate it. */
+function ssoRefusal(status: number, body: unknown): StepUpFactorRefusal | null {
+  if (status === 401) return { kind: 'sessionExpired' };
+  if (status === 429) return { kind: 'rateLimited' };
+  if (status !== 403) return null;
+  const refusal = classifyStepUpRefusal(status, body);
+  switch (refusal.kind) {
+    case 'passwordRequired':
+    case 'mfaRequired':
+    case 'invalidPassword':
+    case 'invalidMfaCode':
+    case 'enrollmentRequired':
+      return refusal;
+    default:
+      return null;
+  }
+}
+
+/** Unknown refusals show the route's own sentence or its fixed fallback. */
+function refusedResult(status: number, body: unknown, spec: ActionSpec): SessionResult {
+  const sso = spec.purpose === 'account.sso_unlink' || spec.purpose === 'account.sso_trust_enable';
+  const refusal = sso ? ssoRefusal(status, body) : adaptSessionsRefusal(status, body);
+  if (refusal === null) return { kind: 'failed', message: serverErrorText(body) ?? spec.failure };
   // A 401 included: the hook ends the stage in its terminal state, which drops
   // the password and says why. As `failed` the stage stayed live and could only
   // send the credentials again under a dead session.
@@ -239,7 +256,7 @@ async function sendSessionRequest(
           'Removing this would lock you out. Set a passphrase first or link another provider before unlinking this one.',
       };
     }
-    return refusedResult(res.status, body, spec.failure);
+    return refusedResult(res.status, body, spec);
   } catch (err) {
     return isAbortError(err) ? { kind: 'aborted' } : { kind: 'transport' };
   }

@@ -129,15 +129,13 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
   const [serverReadAttempt, setServerReadAttempt] = useState(0);
   const [profileReadAttempt, setProfileReadAttempt] = useState(0);
   const erasureUserIdRef = useRef(userId);
-  const protectedOwnedServers = useMemo(
-    () =>
-      erasureOnly
-        ? restrictedOwnedServers?.userId === userId
-          ? restrictedOwnedServers.servers
-          : []
-        : servers.filter((server) => server.owner_id === userId && server.member_count > 1),
-    [erasureOnly, restrictedOwnedServers, servers, userId]
-  );
+  const protectedOwnedServers = useMemo(() => {
+    if (erasureOnly) {
+      if (restrictedOwnedServers?.userId !== userId) return [];
+      return restrictedOwnedServers.servers;
+    }
+    return servers.filter((server) => server.owner_id === userId && server.member_count > 1);
+  }, [erasureOnly, restrictedOwnedServers, servers, userId]);
   const protectedOwnedServerIds = useMemo(
     () => new Set(protectedOwnedServers.map((server) => server.id)),
     [protectedOwnedServers]
