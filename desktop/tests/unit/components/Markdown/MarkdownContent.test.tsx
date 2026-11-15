@@ -126,6 +126,15 @@ describe('MarkdownContent', () => {
 
     it('resets paragraph margin inside loose-list items (#807)', () => {
       // GFM "loose list" — blank lines between items force <p> wrapping inside <li>.
+      // Load the real stylesheet: CSS imports are stubbed in tests, so without
+      // it this asserted only jsdom's defaults. jsdom 31 applies the user-agent
+      // paragraph margin (1em 0), which is what the rule under test overrides.
+      const style = document.createElement('style');
+      style.textContent = readFileSync(
+        resolve(__dirname, '../../../../src/renderer/components/Markdown/MarkdownContent.css'),
+        'utf-8'
+      );
+      document.head.appendChild(style);
       const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
       const items = container.querySelectorAll('li');
       expect(items.length).toBe(3);
@@ -142,6 +151,7 @@ describe('MarkdownContent', () => {
           expect(['0', '0px']).toContain(margin);
         }
       }
+      style.remove();
     });
 
     it('renders block quote', () => {

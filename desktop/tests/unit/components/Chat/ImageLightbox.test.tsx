@@ -122,10 +122,14 @@ describe('ImageLightbox', () => {
   it('pans the image with a pointer drag once zoomed in', () => {
     render(<ImageLightbox {...baseProps} />);
     const img = screen.getByAltText('pic');
-    // No pan at 1× — a drag leaves the transform un-offset.
+    // No pan at 1× — a drag leaves the transform un-offset. Compared through
+    // jsdom's own serialization: jsdom 31 shortens "translate(0px, 0px)" to
+    // "translate(0px)".
+    const unOffset = document.createElement('div');
+    unOffset.style.transform = 'translate(0px, 0px)';
     fireEvent.pointerDown(img, { clientX: 10, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(img, { clientX: 50, clientY: 50, pointerId: 1 });
-    expect(img.style.transform).toContain('translate(0px, 0px)');
+    expect(img.style.transform).toContain(unOffset.style.transform);
     fireEvent.pointerUp(img, { pointerId: 1 });
 
     // Zoom in, then drag → transform carries the offset.

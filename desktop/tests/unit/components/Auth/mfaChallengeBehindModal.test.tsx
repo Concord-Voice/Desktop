@@ -400,14 +400,21 @@ describe('focus after a failed proof', () => {
     await act(async () => {
       await Promise.resolve();
     });
+    for (const digit of screen.getAllByLabelText(/^Digit \d$/)) {
+      expect((digit as HTMLInputElement).disabled, 'the proof in flight disables the digits').toBe(
+        true
+      );
+    }
     // Chromium's focus fixup moves focus to <body> when the focused control is
-    // disabled; jsdom has no fixup and refuses blur() on a disabled element,
-    // so lift the attribute for the blur and put it back.
-    const focused = document.activeElement as HTMLInputElement;
-    expect(focused.disabled, 'the proof in flight disables the digits').toBe(true);
-    focused.disabled = false;
-    focused.blur();
-    focused.disabled = true;
+    // disabled. jsdom 31 sometimes performs that fixup itself, depending on
+    // test order; when it has not, emulate it. jsdom refuses blur() on a
+    // disabled element, so lift the attribute for the blur and put it back.
+    const focused = document.activeElement;
+    if (focused instanceof HTMLInputElement) {
+      focused.disabled = false;
+      focused.blur();
+      focused.disabled = true;
+    }
     expect(document.activeElement).toBe(document.body);
 
     await act(async () => {
