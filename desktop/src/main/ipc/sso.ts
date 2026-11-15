@@ -355,6 +355,26 @@ async function revokeExplicitSession(
   }
 }
 
+/**
+ * A link challenge must not carry a session. If one came with it, that session
+ * skipped MFA: end it, do not only refuse it. Logout needs only the two tokens, so
+ * a malformed session_id does not excuse the session. A body with only one token
+ * cannot be logged out here (logout authenticates with the access token);
+ * server-side expiry remains the backstop for that.
+ */
+async function revokeSmuggledSession(apiBase: string, body: unknown): Promise<void> {
+  if (
+    isRecord(body) &&
+    isBoundedString(body.access_token, 32_768) &&
+    isBoundedString(body.refresh_token, 32_768)
+  ) {
+    await revokeExplicitSession(apiBase, {
+      accessToken: body.access_token,
+      refreshToken: body.refresh_token,
+    });
+  }
+}
+
 /** Test seam for the #2354 guarded-egress contract. Not part of the IPC surface. */
 export const __revokeExplicitSessionForTest = revokeExplicitSession;
 
@@ -538,21 +558,7 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
         response.headers.has('set-cookie')
       ) {
         await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
-        // A challenge must not carry a session. If one came with it, that session
-        // skipped MFA: end it, do not only refuse it. Logout needs only the two
-        // tokens, so a malformed session_id does not excuse the session. A body
-        // with only one token cannot be logged out here (logout authenticates with
-        // the access token); server-side expiry remains the backstop for that.
-        if (
-          isRecord(body) &&
-          isBoundedString(body.access_token, 32_768) &&
-          isBoundedString(body.refresh_token, 32_768)
-        ) {
-          await revokeExplicitSession(completion.apiBase, {
-            accessToken: body.access_token,
-            refreshToken: body.refresh_token,
-          });
-        }
+        await revokeSmuggledSession(completion.apiBase, body);
         discardPendingCompletion(completion);
         clearTokensIfOwner(completion.credentialOwner);
         return { kind: 'error', status: 502, code: 'sso_session_rejected' };
