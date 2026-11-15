@@ -58,6 +58,9 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
+- **Sign-in:** If a server sends a full session together with an account-link MFA challenge, the app now signs that session out instead of only refusing it.
+- **Sign-in:** Cancelling Apple or Google sign-in while the app checks the identity token no longer sends that token to the server.
+- **Sign-in:** Account linking now says when a sign-in was cancelled or refused, instead of always reporting a wrong password.
 - **Desktop:** Restricted the privileged clipboard bridge and web clipboard permissions to the main window.
 - **Desktop:** Restricted app quit, restart and update installation requests to the main application window.
 - **Sign-in:** Ignore callbacks that do not match the current sign-in request.

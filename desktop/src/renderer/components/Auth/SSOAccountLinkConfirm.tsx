@@ -10,8 +10,9 @@
  * `completeSSOLink` service helper. On 423 the server has temporarily locked
  * the account after too many failed attempts; we surface a distinct, action-
  * oriented message so the user understands the wait is server-imposed (not
- * "wrong password again"). Other failures collapse to a generic password-
- * mismatch hint without leaking the underlying status code.
+ * "wrong password again"). Only a 401/403 reads as a wrong password; main's own
+ * cancelled/rejected codes get their own copy, and anything else a generic
+ * failure, without leaking the underlying status code.
  *
  * Cancel resets the SSO store back to `idle`, which causes AuthFlow (Task 21)
  * to re-render the standard login screen — the user can choose to register a
@@ -31,10 +32,11 @@ import LoadingSpinner from './LoadingSpinner';
 import { useSSOStore } from '../../stores/auth/ssoStore';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { useE2EEStore } from '../../stores/auth/e2eeStore';
-import { useMFAChallengeStore } from '../../stores/auth/mfaChallengeStore';
+import { useMFAChallengeStore, type MFAChallengeResult } from '../../stores/auth/mfaChallengeStore';
 import {
   completeSSOLink,
   abandonSSOReservation,
+  SSOServiceError,
   type SSOCompletionResult,
   type SSOLinkCompletionResult,
 } from '../../services/system/ssoService';
@@ -48,23 +50,32 @@ import {
 import type { CredentialOwner } from '../../../main/ipcContract';
 import './SSOAccountLinkConfirm.css';
 
+// Codes main's sso:completeLink raises itself: the completion it held is gone
+// (409) or the server's answer was refused (502). Retrying the same password
+// cannot succeed after either.
+const LINK_MAIN_ERRORS: Record<string, string> = {
+  sso_cancelled: 'This sign-in was cancelled. Please sign in again.',
+  sso_session_rejected: "The account couldn't be linked. Please sign in again.",
+};
+const LINK_GENERIC_ERROR = "Couldn't link your account. Please try again.";
+
 /**
  * Map a completeSSOLink failure to the user-facing error copy. ssoService throws
- * Error(`sso_complete_link_failed_${status}`). Pull the status off the error
- * message — 423 means the server applied a brute-force lockout; any other status
- * is treated as a generic mismatch (without leaking the status code). Extracted
- * verbatim from handleSubmit's catch so the status decode does not add to its
- * cognitive complexity (S3776).
+ * SSOServiceError carrying the status and either the server's sanitized body or
+ * main's own `error_code`. 423 means the server applied a brute-force lockout;
+ * only 401/403 mean the password was wrong; main's codes get their own copy; and
+ * anything else (a network failure, a 5xx, an unexpected shape) is a generic
+ * failure, without leaking the status code. Kept out of handleSubmit's catch so
+ * the decode does not add to its cognitive complexity (S3776).
  */
 function mapCompleteLinkError(err: unknown): string {
-  const errMessage = err instanceof Error ? err.message : '';
-  const statusMatch = /sso_complete_link_failed_(\d+)/.exec(errMessage);
-  const status = statusMatch ? Number.parseInt(statusMatch[1], 10) : 0;
-
-  if (status === 423) {
+  if (!(err instanceof SSOServiceError)) return LINK_GENERIC_ERROR;
+  if (err.status === 423) {
     return 'Too many failed attempts. Try again in 15 minutes.';
   }
-  return 'Wrong password';
+  if (err.status === 401 || err.status === 403) return 'Wrong password';
+  const code = typeof err.body?.error_code === 'string' ? err.body.error_code : '';
+  return LINK_MAIN_ERRORS[code] ?? LINK_GENERIC_ERROR;
 }
 
 const SSOAccountLinkConfirm: React.FC = () => {
@@ -124,30 +135,44 @@ const SSOAccountLinkConfirm: React.FC = () => {
         await cleanupIssuedSession();
         return null;
       }
-      setSSOState({ phase: 'mfa_required', mfaChallengeToken: result.mfaChallengeToken });
-      recordChallengeIssuer(result.mfaChallengeToken, requestSelection);
-      const webauthnOptions = webauthnOptionsOrNull(
-        result.webauthnOptions,
-        requestSelection.apiBase
-      );
-      const mfaResult = await useMFAChallengeStore
-        .getState()
-        .showChallenge(
-          result.mfaChallengeToken,
-          methodsForOptions(result.methods, webauthnOptions),
-          'sso_login',
-          result.recoveryOnlyMethods,
-          { provider: state.provider, credentialOwner: result.credentialOwner },
-          webauthnOptions,
-          result.defaultMethod
-        );
-      if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
+      // Leaving the challenge unfinished, by a cancel or by a failure to raise
+      // it, retires main's reservation while this request is still current; a
+      // stale one clears only its own owner.
+      const abandonChallenge = async () => {
         if (requestIsCurrent()) {
           void abandonSSOReservation();
           setSSOState({ phase: 'idle' });
         } else {
           await cleanupIssuedSession();
         }
+      };
+      setSSOState({ phase: 'mfa_required', mfaChallengeToken: result.mfaChallengeToken });
+      let mfaResult: MFAChallengeResult;
+      try {
+        recordChallengeIssuer(result.mfaChallengeToken, requestSelection);
+        const webauthnOptions = webauthnOptionsOrNull(
+          result.webauthnOptions,
+          requestSelection.apiBase
+        );
+        mfaResult = await useMFAChallengeStore
+          .getState()
+          .showChallenge(
+            result.mfaChallengeToken,
+            methodsForOptions(result.methods, webauthnOptions),
+            'sso_login',
+            result.recoveryOnlyMethods,
+            { provider: state.provider, credentialOwner: result.credentialOwner },
+            webauthnOptions,
+            result.defaultMethod
+          );
+      } catch {
+        // The phase is already mfa_required, which this form does not render:
+        // without this the user is left on a challenge nothing shows.
+        await abandonChallenge();
+        return null;
+      }
+      if (!mfaResult.verified || !('ssoCompletion' in mfaResult)) {
+        await abandonChallenge();
         return null;
       }
       return mfaResult.ssoCompletion;

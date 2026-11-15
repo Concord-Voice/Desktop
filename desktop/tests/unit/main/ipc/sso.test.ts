@@ -768,6 +768,224 @@ describe('sso IPC handlers', () => {
       );
     });
 
+    const linkChallengeBody = {
+      mfa_challenge_token: 'link-mfa-token',
+      methods: ['totp'],
+    };
+    const linkMFAPayload = {
+      provider: 'apple' as const,
+      mfaChallengeToken: 'link-mfa-token',
+      credentialOwner: 41,
+      method: 'totp',
+      code: '123456',
+    };
+    const jsonResponse = (body: unknown, headers: Record<string, string> = {}) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...headers },
+      });
+    const linkedAfterMFAResponse = () =>
+      jsonResponse({
+        access_token: 'linked-after-mfa',
+        refresh_token: 'main-only-refresh',
+        session_id: SUCCESS_SESSION_ID,
+      });
+
+    it.each([
+      ['a refresh_token beside the challenge', { ...linkChallengeBody, refresh_token: 'leak' }, {}],
+      ['an access_token beside the challenge', { ...linkChallengeBody, access_token: 'leak' }, {}],
+      ['an empty methods list', { ...linkChallengeBody, methods: [] }, {}],
+      ['an issued session ID header', linkChallengeBody, { 'X-Concord-Session-ID': SESSION_ID }],
+      ['a set-cookie header', linkChallengeBody, { 'set-cookie': 'concord_refresh=leak' }],
+    ])('fails closed on a link challenge carrying %s', async (_label, body, headers) => {
+      await beginAppleCompletion('account_link');
+      vi.mocked(net.fetch).mockResolvedValueOnce(jsonResponse(body, headers));
+      if ('X-Concord-Session-ID' in headers) {
+        vi.mocked(net.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+      }
+
+      await expect(
+        completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
+      ).resolves.toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+      // Revocation is keyed on the session ID the response issued: with one it
+      // logs that session out, without one there is no server session to end.
+      if ('X-Concord-Session-ID' in headers) {
+        expect(net.fetch).toHaveBeenLastCalledWith(
+          `${SAAS_API_BASE}/api/v1/auth/logout`,
+          expect.objectContaining({
+            credentials: 'include',
+            headers: { 'X-Session-ID': SESSION_ID },
+          })
+        );
+      } else {
+        expect(net.fetch).toHaveBeenCalledTimes(1);
+      }
+      expect(tokenMocks.clearTokensIfOwner).toHaveBeenCalledWith(41);
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+
+      // No pendingMFA: the challenge token completes nothing.
+      vi.mocked(net.fetch).mockClear();
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+      ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+      expect(net.fetch).not.toHaveBeenCalled();
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the credential is superseded', () => tokenMocks.supersedeCredential()],
+      [
+        'the user abandons the reservation',
+        () => abandonReservationHandler({ senderFrame: { url: TRUSTED } }),
+      ],
+      [
+        'a newer sign-in starts',
+        () => googleSignInHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE),
+      ],
+    ])(
+      'discards a link challenge that arrives after %s',
+      async (_label, interrupt: () => unknown) => {
+        await beginAppleCompletion('account_link');
+        let resolveCompletion!: (response: Response) => void;
+        vi.mocked(net.fetch).mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveCompletion = resolve;
+            })
+        );
+        const pending = completeLinkHandler(
+          { senderFrame: { url: TRUSTED } },
+          SAAS_API_BASE,
+          linkPayload
+        );
+        await vi.waitFor(() => expect(net.fetch).toHaveBeenCalledTimes(1));
+        await interrupt();
+        resolveCompletion(jsonResponse(linkChallengeBody));
+
+        await expect(pending).resolves.toEqual({
+          kind: 'error',
+          status: 409,
+          code: 'sso_cancelled',
+        });
+        vi.mocked(net.fetch).mockClear();
+        await expect(
+          completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+        ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+        expect(net.fetch).not.toHaveBeenCalled();
+        expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalledWith(
+          expect.objectContaining({ refreshToken: 'main-only-refresh' }),
+          expect.anything()
+        );
+      }
+    );
+
+    it('revokes a full session the server smuggled beside a link challenge', async () => {
+      await beginAppleCompletion('account_link');
+      vi.mocked(net.fetch).mockResolvedValueOnce(
+        jsonResponse({
+          ...linkChallengeBody,
+          access_token: 'orphan-access',
+          refresh_token: 'orphan-refresh',
+          session_id: SUCCESS_SESSION_ID,
+        })
+      );
+
+      const result = await completeLinkHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        linkPayload
+      );
+      expect(result).toEqual({ kind: 'error', status: 502, code: 'sso_session_rejected' });
+      expect(JSON.stringify(result)).not.toContain('orphan');
+      // The session skipped MFA: rejecting the answer is not enough, it must be ended.
+      expect(guardedMocks.guardedRequest).toHaveBeenCalledWith(
+        `${SAAS_API_BASE}/api/v1/auth/logout`,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer orphan-access',
+            'X-Refresh-Token': 'orphan-refresh',
+          }),
+        })
+      );
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+    });
+
+    it('keeps the first link challenge when a concurrent duplicate lands after it', async () => {
+      await beginAppleCompletion('account_link');
+      const resolvers: Array<(response: Response) => void> = [];
+      vi.mocked(net.fetch).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolvers.push(resolve);
+          })
+      );
+      const first = completeLinkHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        linkPayload
+      );
+      const second = completeLinkHandler(
+        { senderFrame: { url: TRUSTED } },
+        SAAS_API_BASE,
+        linkPayload
+      );
+      await vi.waitFor(() => expect(resolvers).toHaveLength(2));
+      vi.mocked(net.fetch).mockReset();
+
+      resolvers[0](jsonResponse(linkChallengeBody));
+      await expect(first).resolves.toMatchObject({ kind: 'mfa_challenge', credentialOwner: 41 });
+      // The owner is still current here, so only the pendingCompletion identity
+      // check stands between this duplicate and the first challenge's state.
+      resolvers[1](jsonResponse({ ...linkChallengeBody, mfa_challenge_token: 'duplicate-token' }));
+      await expect(second).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, {
+          ...linkMFAPayload,
+          mfaChallengeToken: 'duplicate-token',
+        })
+      ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+      expect(net.fetch).not.toHaveBeenCalled();
+
+      vi.mocked(net.fetch).mockResolvedValueOnce(linkedAfterMFAResponse());
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+      ).resolves.toMatchObject({ kind: 'tokens', credentialOwner: 41 });
+    });
+
+    it('refuses a link challenge token for another provider, another owner, or a replay', async () => {
+      await beginAppleCompletion('account_link');
+      vi.mocked(net.fetch).mockResolvedValueOnce(jsonResponse(linkChallengeBody));
+      await expect(
+        completeLinkHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkPayload)
+      ).resolves.toMatchObject({ kind: 'mfa_challenge' });
+
+      for (const mismatch of [{ provider: 'google' as const }, { credentialOwner: 42 }]) {
+        await expect(
+          completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, {
+            ...linkMFAPayload,
+            ...mismatch,
+          })
+        ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+      }
+      expect(net.fetch).toHaveBeenCalledTimes(1);
+      expect(tokenMocks.storeRefreshTokenIfOwner).not.toHaveBeenCalled();
+
+      // A mismatch does not consume the challenge; the matching proof still completes.
+      vi.mocked(net.fetch).mockResolvedValueOnce(linkedAfterMFAResponse());
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+      ).resolves.toMatchObject({ kind: 'tokens', credentialOwner: 41 });
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledTimes(1);
+
+      vi.mocked(net.fetch).mockClear();
+      await expect(
+        completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, linkMFAPayload)
+      ).resolves.toEqual({ kind: 'error', status: 409, code: 'sso_cancelled' });
+      expect(net.fetch).not.toHaveBeenCalled();
+      expect(tokenMocks.storeRefreshTokenIfOwner).toHaveBeenCalledTimes(1);
+    });
+
     it('returns only allowlisted server error fields and never leaks refresh material', async () => {
       await beginAppleCompletion();
       vi.mocked(net.fetch).mockResolvedValueOnce(

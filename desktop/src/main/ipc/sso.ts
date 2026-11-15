@@ -530,9 +530,15 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
       if (
         !challenge ||
         response.headers.has(SESSION_ID_HEADER) ||
+        // Defence in depth only: net.fetch may not expose set-cookie at all. The
+        // server issuing no session with a challenge is the real guard.
         response.headers.has('set-cookie')
       ) {
         await revokeCookieBoundSession(completion.apiBase, cookieBoundSessionId);
+        // A challenge must not carry a session. If one came with it, that session
+        // skipped MFA: end it, do not only refuse it.
+        const smuggled = parseCompletionTokens(body);
+        if (smuggled) await revokeExplicitSession(completion.apiBase, smuggled);
         discardPendingCompletion(completion);
         clearTokensIfOwner(completion.credentialOwner);
         return { kind: 'error', status: 502, code: 'sso_session_rejected' };

@@ -180,6 +180,58 @@ describe('SSOAccountLinkConfirm', () => {
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 
+  it('abandons the reservation when complete-link MFA settles unverified', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'unverified-link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+    await waitFor(() =>
+      expect(useMFAChallengeStore.getState().challengeToken).toBe('unverified-link-challenge')
+    );
+
+    useMFAChallengeStore
+      .getState()
+      .completeChallenge({ verified: false }, 'unverified-link-challenge');
+    await waitFor(() => expect(abandonSSOReservation).toHaveBeenCalledTimes(1));
+    expect(useSSOStore.getState().state.phase).toBe('idle');
+    expect(clearTokensIfOwner).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it('abandons the reservation when the link challenge cannot be raised', async () => {
+    completeLink.mockResolvedValueOnce({
+      kind: 'mfa_challenge',
+      mfaChallengeToken: 'unraisable-link-challenge',
+      methods: ['totp'],
+      credentialOwner: 41,
+    });
+    const { showChallenge } = useMFAChallengeStore.getState();
+    useMFAChallengeStore.setState({
+      showChallenge: vi.fn().mockRejectedValue(new Error('modal unavailable')),
+    });
+    try {
+      render(<SSOAccountLinkConfirm />);
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+      });
+      fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+
+      await waitFor(() => expect(abandonSSOReservation).toHaveBeenCalledTimes(1));
+      // Not stranded on a challenge phase nothing renders.
+      expect(useSSOStore.getState().state.phase).toBe('idle');
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    } finally {
+      useMFAChallengeStore.setState({ showChallenge });
+    }
+  });
+
   it('discards a verified link MFA session after the server selection changes', async () => {
     completeLink.mockResolvedValueOnce({
       kind: 'mfa_challenge',
@@ -317,8 +369,30 @@ describe('SSOAccountLinkConfirm', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /link account/i }));
 
-    expect(await screen.findByText(/wrong password/i)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "Couldn't link your account. Please try again."
+    );
     expect(screen.getByRole('button', { name: /link account/i })).toBeEnabled();
+    expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it.each([
+    [401, 'password_invalid', 'Wrong password'],
+    [403, 'forbidden', 'Wrong password'],
+    [409, 'sso_cancelled', 'This sign-in was cancelled. Please sign in again.'],
+    [502, 'sso_session_rejected', "The account couldn't be linked. Please sign in again."],
+    [0, 'sso_complete-link_failed', "Couldn't link your account. Please try again."],
+    [500, 'internal', "Couldn't link your account. Please try again."],
+  ])('maps a %i %s completion failure to its own copy', async (status, code, copy) => {
+    completeLink.mockResolvedValueOnce({ kind: 'error', status, code });
+
+    render(<SSOAccountLinkConfirm />);
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: 'CorrectPW!' }, // pragma: allowlist secret
+    });
+    fireEvent.click(screen.getByRole('button', { name: /link account/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(copy);
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 

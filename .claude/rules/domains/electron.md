@@ -350,7 +350,7 @@ a client in the same PR. See `deployment.md` § *Capability vs demand*.
 - **Refresh lineage is S1 → S2, not an unqualified token replacement.** The control plane returns the new `session_id` (S2) together with `previous_session_id` (S1); main/preload expose those as `sessionId` and `previousSessionId`. The renderer may rotate to S2 only when its captured session is S1 **and** its captured `authGeneration` is still current. A live generation alone does not authorize an arbitrary session replacement, and dropping `previousSessionId` from either the refresh result or `auth:token-refreshed` event breaks the lineage proof.
 - **Renderer and main process have distinct CAS domains.** Renderer-owned `authGeneration` identifies the active renderer login/restore lifecycle; it advances for a replacement lifecycle or clear, but not for an accepted refresh rotation. Main-owned `CredentialOwner` identifies the stored refresh-credential lifecycle and is deliberately opaque: it is a CAS tag, not an authorization token, and renderer code may retain and return it to `auth:clearTokensIfOwner` or `auth:storeE2EEKeysIfOwner` but must never infer ordering or user identity from it. Refresh rotation preserves that owner. Owner-scoped clear and E2EE-key persistence ensure a stale login continuation cannot clear or overwrite a successor's refresh credential or E2EE custody.
 - **Bound authentication responses in main.** `authResponse.ts` caps decoded JSON at 1 MiB. Token refresh, SSO/MFA, OAuth, and attestation fetches must carry a 30-second request signal through both headers and body consumption; Google/Apple browser consent retains its separate five-minute flow deadline.
-- **SSO credential custody stays in main.** The API base supplied to `sso:appleSignIn` or `sso:googleSignIn` is an untrusted candidate; main accepts only the production SaaS origin, its current API origin, or a self-hosted origin the user has approved in the native ceremony (durably recorded), admitted via `isValidatedSelfHostedApiBase` — a successful probe admits nothing (#2354 / ADR-0035). One shared sign-in generation across both providers prevents an older Apple/Google completion from replacing newer credentials. Main runs the provider and control-plane session exchanges, stores the refresh credential, and returns only the access token, session ID, and opaque `CredentialOwner`. Raw refresh credentials and OAuth material must never cross into the renderer.
+- **SSO credential custody stays in main.** The API base supplied to `sso:appleSignIn` or `sso:googleSignIn` is an untrusted candidate; main accepts only the production SaaS origin, its current API origin, or a self-hosted origin the user has approved in the native ceremony (durably recorded), admitted via `isValidatedSelfHostedApiBase` — a successful probe admits nothing (#2354 / ADR-0035). One shared sign-in generation across both providers prevents an older Apple/Google completion from replacing newer credentials. Main runs the provider and control-plane session exchanges, sends a per-flow `X-Concord-SSO-Client-Binding` secret on the initiate and `/session` POSTs (held in main, never the PKCE verifier, never returned to the renderer), stores the refresh credential, and returns only the access token, session ID, and opaque `CredentialOwner`. Raw refresh credentials and OAuth material must never cross into the renderer.
 - **Keep the whole v18 surface in lockstep.** Changes to these shapes or channels must be synchronized in `ipcContract.ts`, main handlers/`tokenManager.ts`, preload declarations and bridge methods, renderer consumers, and tests. Do not feature-detect a partial v18 path or downgrade an owner-scoped operation to a generic pre-v18 credential/E2EE writer. A remote SPA that requires the surface must advertise the corresponding minimum `spaIpcContract`; an older shell falls back to its bundled SPA and updates. Bump the IPC contract when channels are added, removed, or change signature, but not for renderer-only implementation changes.
 
 ### IPC contract v19 — SSO MFA custody + owner-bound admission (#2424)
@@ -363,7 +363,7 @@ owner and overwrite a successor credential (CWE-345 / owner-CAS gap), and the ra
 refresh token transited the renderer. v19 closes both:
 
 - **The `mfa_challenge` sign-in result carries the reserved `CredentialOwner`.** `finishSignIn`
-  (`ipc/sso.ts`) PRESERVES the owner reserved at sign-in across the challenge (stores a
+  (`ipc/sso.ts`), and since v34 the `complete-link` branch of `completeSSO`, PRESERVES the owner reserved at sign-in across the challenge (stores a
   `pendingMFA` state) instead of clearing it, and returns it as opaque challenge context.
   `MainSSOSignInResult` (`oauth/ssoFlowShared.ts`) deliberately OMITS the owner from its
   `mfa_challenge` variant — the flow parser (`mapSessionResponse`) runs before an owner exists,
@@ -397,8 +397,8 @@ refresh token transited the renderer. v19 closes both:
   renderer invariants are detailed in [e2ee.md](e2ee.md) § "Owner-bound SSO admission".
 - **Keep the whole v19 surface in lockstep** (same discipline as v18): `ipcContract.ts`, `ipc/sso.ts`,
   `oauth/ssoFlowShared.ts`, `preload.ts`, `shared/sso.ts`, `renderer/services/system/ssoService.ts`,
-  `stores/auth/mfaChallengeStore.ts`, `components/Auth/MFAChallengeModal.tsx`, `hooks/ui/useSSOFlow.ts`, and
-  their tests. The MFA modal is SHARED with the password / suspicious-refresh purposes; only the
+  `stores/auth/mfaChallengeStore.ts`, `components/Auth/MFAChallengeModal.tsx`, `hooks/ui/useSSOFlow.ts`,
+  `components/Auth/SSOAccountLinkConfirm.tsx` (since v34), and their tests. The MFA modal is SHARED with the password / suspicious-refresh purposes; only the
   `sso_login` purpose routes through `sso:completeMFA` — the other purposes keep the renderer-side
   `/auth/mfa/verify` POST.
 
@@ -1039,6 +1039,34 @@ goes silent with no notice, which is the pre-30 behaviour. Capability, not deman
 - **Renderer-side handling is documented in [`frontend.md`](frontend.md) § "Screen-share
   audio and source switching"** — this file's job is the wire contract, not the renderer
   response to it, which is still being written.
+
+### IPC contract v34 — SSO account linking can raise an MFA challenge
+
+`IPC_CONTRACT_VERSION` moved 33 → 34. `SPA_MIN_CONTRACT` stays **19**. No channel was added
+and no signature changed shape: `sso:completeLink` may now return the `mfa_challenge` variant it
+already declared, and the existing `sso:completeMFA` finishes it.
+
+- **Main holds the challenge.** When `complete-link` answers with `mfa_challenge_token`, main
+  (`completeSSO` in `ipc/sso.ts`) parses it with `parseLinkChallenge`, stores `pendingMFA`
+  under the reserved `CredentialOwner`, and returns the challenge with that owner. The refresh
+  credential is minted only by `sso:completeMFA` and stays in main, as in v19.
+- **A challenge that carries a session is refused AND ended.** A challenge with
+  `access_token` / `refresh_token`, an empty `methods` list, an `X-Concord-Session-ID` header, or
+  a `set-cookie` header returns `502 sso_session_rejected`, clears the reservation and stores no
+  `pendingMFA`. The cookie-bound session is logged out by its ID, and a full token set beside the
+  challenge is logged out with `revokeExplicitSession`, because that session skipped MFA. The
+  `set-cookie` check is defence in depth: `net.fetch` may not expose that header at all.
+- **A challenge that lands after a cancel, a superseded credential or a newer sign-in** returns
+  `409 sso_cancelled` and stores nothing, so the challenge token completes nothing.
+- **Skew, recorded rather than closed.** An SPA older than v34 running on a v34 shell unwraps
+  any non-error `sso:completeLink` result as tokens, so a link challenge reaches it as a success
+  with no access token while main holds `pendingMFA`. No refresh material crosses, and the next
+  sign-in or `sso:abandonReservation` retires the reservation. The window is the gap between a
+  shell update and the remote SPA deploy, and the server must also send link challenges. Closing
+  it needs the renderer to opt in on the payload, which is a signature change and a new contract.
+- **Lockstep for v34:** `ipc/sso.ts`, `ipcContract.ts`, `shared/sso.ts`,
+  `renderer/services/system/ssoService.ts`, `components/Auth/SSOAccountLinkConfirm.tsx`, and their
+  tests.
 
 ### IPC contract v33 — status-aware tray (tray-status spec 2026-10-29)
 

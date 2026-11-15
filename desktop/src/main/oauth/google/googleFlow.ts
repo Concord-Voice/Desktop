@@ -252,6 +252,9 @@ export async function runGoogleSignIn(deps: GoogleFlowDeps): Promise<MainSSOSign
       signal: abort.signal,
     });
 
+    // A cancel during verify must not still post the ID token to /session.
+    if (abort.signal.aborted) throw new GoogleFlowError('sso_cancelled', 'session');
+
     const sessionBody = await postSession(
       deps,
       { idToken, state: init.state },
