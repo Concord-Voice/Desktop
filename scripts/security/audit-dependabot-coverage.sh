@@ -132,6 +132,23 @@ tracked_to() {
   fi
 }
 
+# A manifest under a `*/tests/fixtures/` tree is test INPUT, not an update root:
+# it exists so a test can feed it to a tool, and a Dependabot bump to its pins
+# would change what the test asserts. A merged go.mod fixture
+# (.github/scripts/tests/fixtures/lockfile-registries/replace/go.mod) read as
+# "UNCOVERED gomod" and failed this hook on a tree with no real gap. Applied to
+# every leg that enumerates manifests, so a fixture is excluded the same way
+# whatever it declares.
+#
+# Same spelling rules as the `*/artifacts/**` exclusion on the docker leg below:
+# prefix-free, leading `*` (a pathspec without one is anchored at the repository
+# root). It is deliberately the whole `tests/fixtures` pair, not
+# any directory called `fixtures`: a `fixtures/` outside a test tree can be real
+# deployable surface, and the test suite pins that boundary. github-actions is not
+# given it, because that leg's pathspecs are already anchored under .github/ and
+# cannot reach a test tree.
+FIXTURES_EXCLUDE=':(exclude)*/tests/fixtures/**'
+
 # Map a file to the directory a dependabot block would name. Root is `.`.
 dirof() { local d; d="$(dirname "$1")"; [ "$d" = "." ] && printf '.\n' || printf '%s\n' "$d"; }
 
@@ -145,7 +162,7 @@ dirof() { local d; d="$(dirname "$1")"; [ "$d" = "." ] && printf '.\n' || printf
 # the manifest alone) and the lockfile test drops it silently. Defect 4.
 tree_npm() {
   local f ls="$TMPD/npm.ls"
-  tracked_to "$ls" '*package.json' || return 1
+  tracked_to "$ls" '*package.json' "$FIXTURES_EXCLUDE" || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     jq -e '(.dependencies//{}) + (.devDependencies//{}) + (.optionalDependencies//{})
@@ -165,12 +182,12 @@ tree_npm() {
 
 tree_gomod() {
   local f ls="$TMPD/gomod.ls"
-  tracked_to "$ls" '*go.mod' || return 1
+  tracked_to "$ls" '*go.mod' "$FIXTURES_EXCLUDE" || return 1
   while IFS= read -r f; do [ -n "$f" ] && dirof "$f"; done <"$ls"
 }
 tree_pip() {
   local f ls="$TMPD/pip.ls"
-  tracked_to "$ls" '*requirements*.txt' || return 1
+  tracked_to "$ls" '*requirements*.txt' "$FIXTURES_EXCLUDE" || return 1
   while IFS= read -r f; do [ -n "$f" ] && dirof "$f"; done <"$ls"
 }
 
@@ -183,7 +200,7 @@ tree_pip() {
 # that does not exist, leaving the exclusion inert (shipped once; #3284).
 tree_docker() {
   local f ls="$TMPD/docker.ls"
-  tracked_to "$ls" '*Dockerfile*' ':(exclude)*/artifacts/**' || return 1
+  tracked_to "$ls" '*Dockerfile*' ':(exclude)*/artifacts/**' "$FIXTURES_EXCLUDE" || return 1
   while IFS= read -r f; do [ -n "$f" ] && dirof "$f"; done <"$ls"
 }
 
@@ -196,7 +213,7 @@ tree_docker() {
 # this audit checks directories, nothing finer.
 tree_docker_compose() {
   local f ls="$TMPD/docker-compose.ls"
-  tracked_to "$ls" '*compose*.yml' '*compose*.yaml' ':(exclude)*/artifacts/**' || return 1
+  tracked_to "$ls" '*compose*.yml' '*compose*.yaml' ':(exclude)*/artifacts/**' "$FIXTURES_EXCLUDE" || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     grep -Eq '^[[:space:]]*image:[^#]*@sha256:[0-9a-f]{64}' "$ROOT/$f"
