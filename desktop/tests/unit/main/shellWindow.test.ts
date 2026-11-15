@@ -484,6 +484,80 @@ describe('generation hooks', () => {
     expect(admittedDuringLoad).not.toBeNull();
   });
 
+  // C12. Electron emits did-start-navigation BEFORE will-navigate, and the navigation
+  // gate (connectionSession.ts, installed at web-contents-created and so registered
+  // first) vetoes a frame-initiated navigation in will-navigate. A start advance would
+  // already have made every owner the still-committed document holds stale: the
+  // audiocap share, the SSO flow and loopbacks, and the tray all key on
+  // onGenerationAdvanced and isOwnerCurrent, so a cancelled link click ended them.
+  describe('a frame-initiated navigation is decided by the gate', () => {
+    const frameStart = { isMainFrame: true, isSameDocument: false, initiator: { routingId: 1 } };
+    function willNavigate(): { defaultPrevented: boolean; preventDefault(): void } {
+      return {
+        defaultPrevented: false,
+        preventDefault() {
+          this.defaultPrevented = true;
+        },
+      };
+    }
+    function gateFirst(rec: { webContents: Any }, verdict: 'refuse' | 'admit'): void {
+      const gate = (event: { preventDefault(): void }): void => {
+        if (verdict === 'refuse') event.preventDefault();
+      };
+      const handlers = rec.webContents.handlers as Map<string, unknown[]>;
+      handlers.set('will-navigate', [gate, ...(handlers.get('will-navigate') ?? [])]);
+    }
+
+    it('a navigation the gate cancels advances nothing and leaves every owner current', async () => {
+      const { rec, reasons } = await opened();
+      gateFirst(rec as never, 'refuse');
+      const owners = (['audiocap', 'sso-loopback', 'tray'] as const).map((kind) =>
+        bindOwner(kind, refOf(rec))
+      );
+      rec.webContents.emit('did-start-navigation', frameStart);
+      rec.webContents.emit('will-navigate', willNavigate(), 'https://elsewhere.example/');
+      // Chromium then fails the cancelled navigation with ERR_ABORTED.
+      rec.webContents.emit(
+        'did-fail-load',
+        {},
+        -3,
+        'ERR_ABORTED',
+        'https://elsewhere.example/',
+        true
+      );
+      expect(reasons).toEqual([]);
+      expect(rec.generation).toBe(1);
+      expect(owners.map(isOwnerCurrent)).toEqual([true, true, true]);
+    });
+
+    it('a navigation the gate admits advances at will-navigate, then again at the commit', async () => {
+      const { rec, reasons } = await opened();
+      gateFirst(rec as never, 'admit');
+      const owner = bindOwner('audiocap', refOf(rec));
+      rec.webContents.emit('did-start-navigation', frameStart);
+      expect(reasons).toEqual([]);
+      rec.webContents.emit('will-navigate', willNavigate(), 'https://a.example/next');
+      expect(reasons).toEqual(['document']);
+      expect(isOwnerCurrent(owner)).toBe(false);
+      rec.webContents.emit('did-navigate', {}, 'https://a.example/next', 200, 'OK');
+      expect(reasons).toEqual(['document', 'document']);
+      expect(rec.generation).toBe(3);
+    });
+
+    // loadURL, reload() and history navigations from main never reach will-navigate,
+    // so nothing can veto them: they still advance at the start.
+    it.each([
+      ['with no initiator field', { isMainFrame: true, isSameDocument: false }],
+      ['with a null initiator', { isMainFrame: true, isSameDocument: false, initiator: null }],
+    ])('a browser-initiated navigation advances at the start (%s)', async (_name, details) => {
+      const { rec, reasons } = await opened();
+      const owner = bindOwner('tray', refOf(rec));
+      rec.webContents.emit('did-start-navigation', details);
+      expect(reasons).toEqual(['document']);
+      expect(isOwnerCurrent(owner)).toBe(false);
+    });
+  });
+
   it('a subframe navigation does not advance the generation', async () => {
     const { rec, reasons } = await opened();
     rec.webContents.emit('did-start-navigation', { isMainFrame: false, isSameDocument: false });

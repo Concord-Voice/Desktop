@@ -118,13 +118,31 @@ and a `WeakMap` from `WebContents` to its binding (`primary` or `pip`).
 - **A `ServiceId` already bound to a different origin is refused** with
   `service-id-collision`. `profileIdForApiBase` keeps 64 bits of the hash, so the collision is
   refused, not assumed impossible.
-- **`advanceGeneration` is the only generation mutator.** A view advances its generation on a
-  main-frame `did-start-navigation` that is not same-document (`document`), again when that
-  navigation commits (`did-navigate`, or a main-frame `did-fail-load` other than ERR_ABORTED,
-  also `document`) so nothing the outgoing document bound before the commit stays current for
-  its successor, on `render-process-gone` (`renderer-gone`), on its custody's credential events
+- **`advanceGeneration` is the only generation mutator.** A view advances its generation
+  (`document`) when a main-frame, cross-document navigation reaches the first point main can no
+  longer veto it: at `did-start-navigation` for a browser-initiated navigation (no `initiator`:
+  `loadURL`, `reload()`, a history navigation from main), which never reaches `will-navigate`;
+  and in `will-navigate` for a frame-initiated one, only if the navigation gate has not
+  `preventDefault`ed it. It advances again when that navigation commits (`did-navigate`, or a
+  main-frame `did-fail-load` other than ERR_ABORTED, also `document`) so nothing the outgoing
+  document bound before the commit stays current for its successor. It also advances on
+  `render-process-gone` (`renderer-gone`), on its custody's credential events
   (`credential-start`, `credential-end`), and on dispose (`disposed`). Refresh-token rotation
   and a network outage do not advance it: neither changes authority.
+- **A navigation the gate cancels advances nothing (C12).** Electron emits
+  `did-start-navigation` before `will-navigate`, where `installNavigationGate` refuses a target
+  outside the connection's kind and sends an https one to the OS browser. The first cut advanced
+  at the start, and that advance made every owner the still-committed document held stale: a
+  bare https link click stopped a live app-audio share (the ADR-0043 cancelled-navigation loss,
+  reintroduced one layer up), aborted an SSO or MFA ceremony and its loopbacks, and blanked the
+  tray. The fix is at the trigger, not in each consumer: the consumers cannot tell the advances
+  apart (one reason, `document`), and `isOwnerCurrent` would make their owners stale anyway.
+  The generation hook's `will-navigate` listener relies on the gate running first, which holds
+  because `web-contents-created` installs the gate before the view exists; a listener that ran
+  first would see nothing prevented and advance, which is the stale-owner direction. Residual: a
+  frame-initiated navigation that Chromium does not route through `will-navigate` (no network
+  request) advances only at its commit. The gate cannot veto such a navigation either, and until
+  it commits the outgoing document is still the committed main frame.
 - **Owner binding** (`desktop/src/main/connectionCapability.ts`): `bindOwner`,
   `isOwnerCurrent`, `requireOwner`, `onGenerationAdvanced`. The binding is held in main and
   checked against the sender's registry entry, so there is no bearer token to leak. #87's

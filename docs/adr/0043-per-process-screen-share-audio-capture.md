@@ -1565,7 +1565,11 @@ correctly ignored. The accepted cost is symmetrical to the C1 trade above: on a 
 tap now outlives the old document until the new one commits, longer than the earlier cut would have
 allowed (not measured). Window close needs no wire of its own — `mainWindow.on('close')` always
 calls `preventDefault()` unless the app is quitting, and the quit hooks already call
-`killAudiocapHost`.
+`killAudiocapHost`. The same trap reappeared one layer up with connection isolation (ADR-0051, #86 C12): the
+connection generation advanced at `did-start-navigation`, and the audiocap IPC forgets the share
+owner and stops the host on any advance of that connection, so a cancelled link click ended the
+share again. ADR-0051 now advances a frame-initiated navigation only after the gate has let it
+through.
 
 **4a. Three gaps the Phase-4 red-team pass found in item 4, and closed in this PR.** Each was
 proved with an executable PoC against the code above and is now pinned by a test that a mutant

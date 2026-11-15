@@ -210,9 +210,28 @@ function advanceIfLive(id: ConnectionId, reason: GenerationReason): void {
 function installGenerationHooks(record: ConnectionRecord, service: ServiceRecord): void {
   const id = record.connectionId;
   const contents = record.webContents;
+  // A document navigation advances at the first point main can no longer veto it, so
+  // the outgoing document's owners go stale before its successor runs, but a navigation
+  // the gate cancels leaves them current. Electron emits did-start-navigation BEFORE
+  // will-navigate, where installNavigationGate (connectionSession.ts) refuses a
+  // frame-initiated navigation; advancing at the start ended a live app-audio share,
+  // an SSO or MFA ceremony and the tray for a link the gate then sent to the browser.
   contents.on('did-start-navigation', (details) => {
     // A same-document navigation (hash route, pushState) keeps the document.
     if (!details.isMainFrame || details.isSameDocument) return;
+    // A frame-initiated navigation still has to pass the gate; see will-navigate below.
+    // A browser-initiated one (loadURL, reload, a history navigation from main) never
+    // reaches will-navigate, so nothing can cancel it: advance now. A null initiator can
+    // also mean the initiating frame is gone, which only advances early.
+    if (details.initiator) return;
+    advanceIfLive(id, 'document');
+  });
+  // Registered after the gate, which `web-contents-created` installs before this view
+  // exists, so a target the gate refused is already defaultPrevented here. A listener
+  // that ran before the gate would see every navigation unprevented and advance: the
+  // stale-owner direction, never the stays-current one.
+  contents.on('will-navigate', (event) => {
+    if (event.defaultPrevented) return;
     advanceIfLive(id, 'document');
   });
   // Advance AGAIN when the new document commits. Until then the outgoing document is

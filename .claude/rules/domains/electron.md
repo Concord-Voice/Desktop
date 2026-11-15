@@ -1133,6 +1133,15 @@ not demand. Spec: `docs/superpowers/specs/2026-11-09-86-connection-context-isola
 | `connection:activate` | invoke | `serviceId` → `boolean` | `app-global-mutate` | `false` |
 | `connection:preferenceScope` | invoke | → `PreferenceScope \| null` | `connection-bound` (a bound primary; its own scope from the binding) | `null` for a refused sender and until the custody holds an account key; only `{ serviceId, accountKey }` ever crosses, never a path. The key is `hex16(sha256(compositeKey(serviceId, serverUserId)))`, from the optional `serverUserId` on `auth:storeRefreshToken` (bounded, control-free, never stored) or, on an SSO publish, main-derived from the issued access token's `user_id` claim or a restored `token-meta.json` `accountKey`; every credential clear drops it |
 
+- **When a `document` generation advance fires (C12).** A frame-initiated, main-frame
+  navigation advances in `will-navigate`, and only if the navigation gate did not
+  `preventDefault` it; a browser-initiated one (no `initiator`: `loadURL`, `reload()`) advances
+  at `did-start-navigation`; both advance again at the commit (`shellWindow.ts`
+  `installGenerationHooks`). Do not move the frame-initiated advance back to
+  `did-start-navigation`: Electron emits it before `will-navigate`, so a link the gate cancels
+  would stale every owner the live document holds and stop its app-audio share, SSO ceremony
+  and tray. The listener must stay registered after the gate, which `web-contents-created`
+  guarantees. See ADR-0051 § "A navigation the gate cancels advances nothing".
 - **`whoAmI` is the one raw `ipcMain.on` left by design** (`src/main/ipc/connection.ts`, with a
   line-level ESLint disable and its rationale). `sendSync` needs `event.returnValue` in the same
   tick, which `registerIpc`'s refusal value cannot express. Its admission is
