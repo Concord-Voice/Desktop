@@ -42,6 +42,7 @@ This release adds groundwork for verifying account keys and protects remembered 
 
 - **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 - **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+- **Desktop:** Updated the icon library (lucide-react 1.70.0) and hash-wasm 4.13.0 ([#230](https://github.com/Concord-Voice/Desktop/pull/230)).
 
 ### Fixed
 
