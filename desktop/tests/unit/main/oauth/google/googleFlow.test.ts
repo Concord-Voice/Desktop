@@ -132,6 +132,31 @@ describe('runGoogleSignIn', () => {
     expect(deps.openExternal).not.toHaveBeenCalled();
   });
 
+  it('posts nothing to /session when cancelled during ID-token verification', async () => {
+    const lo = makeLoopback();
+    lo.resolveCb({ code: 'CODE', state: 'STATE' });
+    let releaseVerify!: () => void;
+    // A verifier that ignores its signal, so the cancel lands while it is pending.
+    const deps = makeDeps(lo, {
+      verifyIdToken: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            releaseVerify = () => resolve({ sub: 'g-sub', email: 'a@b.com', email_verified: true });
+          })
+      ) as never,
+    });
+    const pending = runGoogleSignIn(deps);
+    await vi.waitFor(() => expect(deps.verifyIdToken).toHaveBeenCalled());
+    cancelActiveGoogleFlow();
+    releaseVerify();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(
+      vi
+        .mocked(deps.controlPlaneFetch)
+        .mock.calls.some((c) => String(c[0]).endsWith('/auth/sso/google/session'))
+    ).toBe(false);
+  });
+
   it('rejects an oversized initiation before opening the browser', async () => {
     const lo = makeLoopback();
     const deps = makeDeps(lo, {
@@ -259,6 +284,13 @@ describe('runGoogleSignIn', () => {
     expect(new Headers(calls[1][1]?.headers).get('X-Concord-SSO-Client-Binding')).toBe(binding);
     expect(String(calls[0][0])).not.toContain(binding!);
     expect(String(calls[1][1]?.body)).not.toContain(binding!);
+    // The binding is its own secret, never the PKCE verifier or its challenge.
+    const codeChallenge = new URL(String(calls[0][0])).searchParams.get('code_challenge');
+    const { codeVerifier } = vi.mocked(deps.googleTokenCall).mock.calls[0][0];
+    expect(codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(binding).not.toBe(codeVerifier);
+    expect(binding).not.toBe(codeChallenge);
     expect(deps.googleTokenCall).toHaveBeenCalledWith(
       expect.objectContaining({ clientSecret: 'sek', clientId: 'gid' })
     );

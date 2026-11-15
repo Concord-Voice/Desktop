@@ -258,6 +258,13 @@ describe('startSSOFlow', () => {
   });
 });
 
+const unexpectedChallenge = {
+  kind: 'mfa_challenge' as const,
+  mfaChallengeToken: 'unexpected-mfa-token',
+  methods: ['totp'],
+  credentialOwner: 46,
+};
+
 describe('completeSSORegistration', () => {
   it('returns only the main-custodied credential reference', async () => {
     const params = {
@@ -302,6 +309,27 @@ describe('completeSSORegistration', () => {
         { apiBase: API_BASE, epoch: 0 }
       )
     ).rejects.toThrow(/sso_complete_registration_failed_409/);
+  });
+
+  it('refuses an MFA challenge instead of returning an empty session', async () => {
+    // Only complete-link may continue through MFA; a challenge here would
+    // otherwise unwrap to an undefined access token.
+    electron.sso.completeRegistration.mockResolvedValueOnce(unexpectedChallenge);
+
+    await expect(
+      completeSSORegistration(
+        {
+          provider: 'google',
+          ssoToken: 'tok',
+          username: 'newuser',
+          passphrase: 'StrongPassphrase123!', // pragma: allowlist secret
+          wrappedPrivateKey: 'd3JhcHBlZA==', // pragma: allowlist secret
+          keyDerivationSalt: 'c2FsdA==',
+          publicKey: 'cHViLWtleQ==',
+        },
+        { apiBase: API_BASE, epoch: 0 }
+      )
+    ).rejects.toThrow('sso_complete_registration_failed_unexpected_challenge');
   });
 });
 
@@ -407,6 +435,23 @@ describe('completeSSOMFA (#2424)', () => {
         { apiBase: API_BASE, epoch: 0 }
       )
     ).rejects.toThrow(/sso_complete_mfa_failed_401/);
+  });
+
+  it('refuses a second MFA challenge instead of returning an empty session', async () => {
+    electron.sso.completeMFA.mockResolvedValueOnce(unexpectedChallenge);
+
+    await expect(
+      completeSSOMFA(
+        {
+          provider: 'google',
+          mfaChallengeToken: 'mfa-chal',
+          credentialOwner: 45,
+          method: 'totp',
+          code: '123456',
+        },
+        { apiBase: API_BASE, epoch: 0 }
+      )
+    ).rejects.toThrow('sso_complete_mfa_failed_unexpected_challenge');
   });
 });
 

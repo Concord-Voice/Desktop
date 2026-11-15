@@ -165,6 +165,30 @@ describe('runAppleSignIn — happy path', () => {
     expect(deps.openExternal).not.toHaveBeenCalled();
   });
 
+  it('posts nothing to /session when cancelled during ID-token verification', async () => {
+    const lo = makeLoopback();
+    deliverCallback(lo);
+    const { deps, controlPlaneFetch } = makeDeps(lo);
+    let releaseVerify!: () => void;
+    // A verifier that ignores its signal, so the cancel lands while it is pending.
+    deps.verifyIdToken = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          releaseVerify = () => resolve({ sub: 's', email: 'e@x.test', emailVerified: true });
+        })
+    ) as never;
+    const pending = runAppleSignIn(deps);
+    await vi.waitFor(() => expect(deps.verifyIdToken).toHaveBeenCalled());
+    cancelActiveAppleFlow();
+    releaseVerify();
+    expect(await pending).toEqual({ kind: 'error', code: 'sso_cancelled' });
+    expect(
+      controlPlaneFetch.mock.calls.some((c) =>
+        String(c[0]).endsWith('/api/v1/auth/sso/apple/session')
+      )
+    ).toBe(false);
+  });
+
   it('rejects an oversized initiation before opening the browser', async () => {
     const lo = makeLoopback();
     const { deps } = makeDeps(lo, { initiateBody: { padding: 'x'.repeat(2 * 1024 * 1024) } });
@@ -290,6 +314,12 @@ describe('runAppleSignIn — happy path', () => {
     expect(tokenArgs.redirectUri).toBe(WORKER_CALLBACK);
     expect(tokenArgs.code).toBe('code-1');
     expect(tokenArgs.clientSecret).toBe('broker-jwt');
+    // The binding is its own secret, never the PKCE verifier or its challenge.
+    const codeChallenge = new URL(initiateUrl).searchParams.get('code_challenge');
+    expect(codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(tokenArgs.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(binding).not.toBe(tokenArgs.codeVerifier);
+    expect(binding).not.toBe(codeChallenge);
 
     // verify bound the initiate nonce AND the flow AbortSignal (so JWKS
     // fetches die with the flow — #1486 review fix)

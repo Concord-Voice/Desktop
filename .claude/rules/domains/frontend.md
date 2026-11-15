@@ -3286,8 +3286,10 @@ and the fact-first system row deliberately differ from the issue's examples (a s
   The login page keeps that selection with its own challenge. For `MFAChallengeModal` the code
   that raises the challenge records it before calling `showChallenge`, through
   `recordChallengeIssuer` (`services/system/challengeIssuer.ts`, first record wins): `useSSOFlow`
-  records the selection it reserved at `begin`, and `apiClient`'s refresh records the selection
-  it captured before awaiting `refreshToken()`. Those are the only two `showChallenge` callers.
+  records the selection it reserved at `begin`, `SSOAccountLinkConfirm` records the selection of
+  its link request, `AccountRecovery` records its recovery selection, and `apiClient`'s refresh
+  records the selection it captured before awaiting `refreshToken()`. Those are the four
+  `showChallenge` callers; `grep showChallenge(` is the check, not this count.
   The modal reads `challengeIssuerFor` and never captures a selection at render, because a
   selection that moved before React committed would send the token to the new server. A token
   with no record fails closed: nothing is sent, and the send line and a verify both say the
