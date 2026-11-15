@@ -3860,15 +3860,21 @@ class VoiceService {
       if (ep.source === 'screen') entry.isScreenSharing = true;
       producersByUser.set(ep.userId, entry);
     }
+    // The local user's own entry reflects their current choice (#242): a rebuilt
+    // roster must not show a muted or deafened user as live. Peers keep the
+    // payload's deafen and learn mute from producer-paused.
+    const localUserId = useUserStore.getState().user?.id;
+    const { isMuted: selfMuted, isDeafened: selfDeafened } = useVoiceStore.getState();
     return roomJoined.participants.map((p) => {
       const producerState = producersByUser.get(p.userId);
+      const isSelf = p.userId === localUserId;
       return {
         userId: p.userId,
         username: p.username,
         displayName: p.displayName,
         avatarUrl: p.avatarUrl,
-        isMuted: false,
-        isDeafened: p.isDeafened ?? false,
+        isMuted: isSelf ? selfMuted : false,
+        isDeafened: isSelf ? selfDeafened : (p.isDeafened ?? false),
         isTesting: p.isTesting ?? false,
         serverMuted: false,
         serverDeafened: false,
@@ -4994,8 +5000,11 @@ class VoiceService {
   private restorePostResumeMuteState(socket: Socket): void {
     const postResume = useVoiceStore.getState();
     const mic = this.producers.get('mic');
-    if (postResume.isMuted && mic && !mic.paused) {
-      mic.pause();
+    // Emit the pause even when the client producer is already paused (#242):
+    // adoption pauses it locally, but a pause emitted on a socket that was
+    // mid-reconnect is dropped, and peers must not see a muted user as live.
+    if (mic && !this.shouldRunMicVAD(mic.id)) {
+      if (!mic.paused) mic.pause();
       socket.emit('pause-producer', { producerId: mic.id });
       this.stopLocalVAD();
     }
@@ -6919,9 +6928,17 @@ class VoiceService {
       }
     }
 
-    // Also mute self when deafened
+    // Also mute self when deafened. toggleMute returns without muting when it
+    // cannot act on a producer (none yet, or latched); record the intent anyway so
+    // the mute button stays truthful and no later path reads "unmuted" (#242).
     if (newDeafened && !store.isMuted) {
-      void this.toggleMute();
+      void this.toggleMute().finally(() => {
+        const after = useVoiceStore.getState();
+        if (after.isDeafened && !after.isMuted) {
+          after.setMuted(true);
+          this.applyOptimisticMute(after, true);
+        }
+      });
     }
   }
 
