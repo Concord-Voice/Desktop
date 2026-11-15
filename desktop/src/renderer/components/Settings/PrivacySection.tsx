@@ -14,7 +14,15 @@ import PresenceHistorySection from '../Profile/PresenceHistorySection';
 import ToggleSwitch from './ToggleSwitch';
 import PurgeFenceStepUpDialog from './PurgeFenceStepUpDialog';
 import AccountErasureStepUpDialog from './AccountErasureStepUpDialog';
-import type { AccountErasureResult } from '../../api/privacy';
+import {
+  getProtectedOwnedServers,
+  type AccountErasureResult,
+  type ProtectedOwnedServer,
+} from '../../api/privacy';
+import {
+  apiRequestContextIsCurrent,
+  captureApiRequestContext,
+} from '../../services/system/requestContext';
 import {
   setDraftContentProtection,
   useDraftContentProtection,
@@ -36,18 +44,22 @@ export interface AccountErasureConfirmation {
 }
 
 interface PrivacySectionProps {
+  erasureOnly?: boolean;
   onActivityHistoryAvailabilityChange?: (available: boolean) => void;
   accountErasureConfirmation?: AccountErasureConfirmation | null;
   onClearAccountErasureConfirmation?: () => void;
 }
 
 const PrivacySection: React.FC<PrivacySectionProps> = ({
+  erasureOnly = false,
   onActivityHistoryAvailabilityChange,
   accountErasureConfirmation = null,
   onClearAccountErasureConfirmation,
 }) => {
   const userId = useUserStore((s) => s.user?.id ?? null);
   const logout = useUserStore((s) => s.logout);
+  const fetchUser = useUserStore((s) => s.fetchUser);
+  const userError = useUserStore((s) => s.error);
   const servers = useServerStore((s) => s.servers);
   const fetchServers = useServerStore((s) => s.fetchServers);
   const activityHistoryCapability = useClientConfigStore(
@@ -109,15 +121,68 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
     expiresAt: number;
   } | null>(null);
   const [erasureNotice, setErasureNotice] = useState<string | null>(null);
+  const [restrictedOwnedServers, setRestrictedOwnedServers] = useState<{
+    userId: string;
+    servers: ProtectedOwnedServer[];
+  } | null>(null);
+  const [restrictedReadErrorForUser, setRestrictedReadErrorForUser] = useState<string | null>(null);
+  const [serverReadAttempt, setServerReadAttempt] = useState(0);
+  const [profileReadAttempt, setProfileReadAttempt] = useState(0);
   const erasureUserIdRef = useRef(userId);
   const protectedOwnedServers = useMemo(
-    () => servers.filter((server) => server.owner_id === userId && server.member_count > 1),
-    [servers, userId]
+    () =>
+      erasureOnly
+        ? restrictedOwnedServers?.userId === userId
+          ? restrictedOwnedServers.servers
+          : []
+        : servers.filter((server) => server.owner_id === userId && server.member_count > 1),
+    [erasureOnly, restrictedOwnedServers, servers, userId]
+  );
+  const protectedOwnedServerIds = useMemo(
+    () => new Set(protectedOwnedServers.map((server) => server.id)),
+    [protectedOwnedServers]
   );
   const confirmedOwnedServerIds = useMemo(
-    () => [...acknowledgedServerIds].sort((left, right) => left.localeCompare(right)),
-    [acknowledgedServerIds]
+    () =>
+      [...acknowledgedServerIds]
+        .filter((id) => protectedOwnedServerIds.has(id))
+        .sort((left, right) => left.localeCompare(right)),
+    [acknowledgedServerIds, protectedOwnedServerIds]
   );
+  const ownedServersReady = !erasureOnly || restrictedOwnedServers?.userId === userId;
+
+  useEffect(() => {
+    if (erasureOnly && userId === null) void fetchUser();
+  }, [erasureOnly, userId, fetchUser, profileReadAttempt]);
+
+  useEffect(() => {
+    if (!erasureOnly || userId === null) return;
+    let active = true;
+    const context = captureApiRequestContext();
+    void getProtectedOwnedServers(context).then(
+      (ownedServers) => {
+        if (!active || !apiRequestContextIsCurrent(context)) return;
+        setRestrictedReadErrorForUser(null);
+        setRestrictedOwnedServers({ userId, servers: ownedServers });
+      },
+      () => {
+        if (active && apiRequestContextIsCurrent(context)) setRestrictedReadErrorForUser(userId);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [erasureOnly, userId, serverReadAttempt]);
+
+  useEffect(() => {
+    // A server removed from this mounted pane must also lose its acknowledgement.
+    /* eslint-disable @eslint-react/set-state-in-effect -- reconcile server deletion */
+    setAcknowledgedServerIds((current) => {
+      const retained = new Set([...current].filter((id) => protectedOwnedServerIds.has(id)));
+      return retained.size === current.size ? current : retained;
+    });
+    /* eslint-enable @eslint-react/set-state-in-effect -- reconciliation ends here */
+  }, [protectedOwnedServerIds]);
 
   useEffect(() => {
     if (accountErasureConfirmation === null) return;
@@ -192,12 +257,24 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
     setAcknowledgedServerIds(new Set());
     setEmailConfirmation(null);
     onClearAccountErasureConfirmation?.();
-    void fetchServers();
-  }, [fetchServers, onClearAccountErasureConfirmation]);
+    if (erasureOnly) {
+      setRestrictedOwnedServers(null);
+      setServerReadAttempt((attempt) => attempt + 1);
+    } else {
+      void fetchServers();
+    }
+  }, [erasureOnly, fetchServers, onClearAccountErasureConfirmation]);
+
+  const handleStaleEmailConfirmation = useCallback(() => {
+    setEmailConfirmation(null);
+    onClearAccountErasureConfirmation?.();
+    setErasureDialogOpen(false);
+    setErasureNotice('The email confirmation expired. Start over to request another link.');
+  }, [onClearAccountErasureConfirmation]);
 
   useEffect(() => {
-    void fetchPrivacy();
-  }, [fetchPrivacy]);
+    if (!erasureOnly) void fetchPrivacy();
+  }, [erasureOnly, fetchPrivacy]);
 
   const renderContentProtectionControl = () =>
     contentProtectionLoaded &&
@@ -228,6 +305,95 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
         />
       </div>
     );
+
+  const erasureSection = (
+    <CollapsibleSection id="section-account-erasure" title="Danger Zone">
+      <p className="settings-section-description">
+        Account erasure is irreversible. It can remove servers you own and direct-message
+        conversations that affect other people.
+      </p>
+      {protectedOwnedServers.length > 0 && (
+        <>
+          <p className="settings-section-description">
+            Transfer ownership or remove other members before erasing. Acknowledge each multi-member
+            server that will be affected.
+          </p>
+          <ul>
+            {protectedOwnedServers.map((server) => (
+              <li key={server.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={acknowledgedServerIds.has(server.id)}
+                    onChange={(event) => {
+                      setAcknowledgedServerIds((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(server.id);
+                        else next.delete(server.id);
+                        return next;
+                      });
+                    }}
+                  />{' '}
+                  I understand that {server.name} has other members.
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {erasureNotice && <p role="alert">{erasureNotice}</p>}
+      {erasureOnly && userId === null && userError && (
+        <p role="alert">
+          Could not load your account.{' '}
+          <button type="button" onClick={() => setProfileReadAttempt((attempt) => attempt + 1)}>
+            Retry
+          </button>
+        </p>
+      )}
+      {erasureOnly && restrictedReadErrorForUser === userId && (
+        <p role="alert">
+          Could not load owned servers.{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setRestrictedOwnedServers(null);
+              setRestrictedReadErrorForUser(null);
+              setServerReadAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+      <button
+        type="button"
+        className="btn btn-danger"
+        disabled={
+          !ownedServersReady ||
+          protectedOwnedServers.some((server) => !acknowledgedServerIds.has(server.id))
+        }
+        onClick={() => setErasureDialogOpen(true)}
+      >
+        {emailConfirmation ? 'Review and erase account' : 'Erase account'}
+      </button>
+      {erasureDialogOpen && (
+        <AccountErasureStepUpDialog
+          confirmedOwnedServerIds={confirmedOwnedServerIds}
+          emailConfirmation={
+            emailConfirmation === null
+              ? null
+              : { requestId: emailConfirmation.requestId, token: emailConfirmation.token }
+          }
+          onResult={(result) => void handleErasureResult(result)}
+          onStaleOwnedServers={handleStaleOwnedServers}
+          onStaleEmailConfirmation={handleStaleEmailConfirmation}
+          onClose={() => setErasureDialogOpen(false)}
+        />
+      )}
+    </CollapsibleSection>
+  );
+
+  if (erasureOnly) return erasureSection;
 
   return (
     <>
@@ -294,63 +460,7 @@ const PrivacySection: React.FC<PrivacySectionProps> = ({
         <SearchVisibilityControls />
       </CollapsibleSection>
 
-      <CollapsibleSection id="section-account-erasure" title="Danger Zone">
-        <p className="settings-section-description">
-          Account erasure is irreversible. It can remove servers you own and direct-message
-          conversations that affect other people.
-        </p>
-        {protectedOwnedServers.length > 0 && (
-          <>
-            <p className="settings-section-description">
-              Transfer ownership or remove other members before erasing. Acknowledge each
-              multi-member server that will be affected.
-            </p>
-            <ul>
-              {protectedOwnedServers.map((server) => (
-                <li key={server.id}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={acknowledgedServerIds.has(server.id)}
-                      onChange={(event) => {
-                        setAcknowledgedServerIds((current) => {
-                          const next = new Set(current);
-                          if (event.target.checked) next.add(server.id);
-                          else next.delete(server.id);
-                          return next;
-                        });
-                      }}
-                    />{' '}
-                    I understand that {server.name} has other members.
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {erasureNotice && <p role="alert">{erasureNotice}</p>}
-        <button
-          type="button"
-          className="btn btn-danger"
-          disabled={acknowledgedServerIds.size !== protectedOwnedServers.length}
-          onClick={() => setErasureDialogOpen(true)}
-        >
-          {emailConfirmation ? 'Review and erase account' : 'Erase account'}
-        </button>
-        {erasureDialogOpen && (
-          <AccountErasureStepUpDialog
-            confirmedOwnedServerIds={confirmedOwnedServerIds}
-            emailConfirmation={
-              emailConfirmation === null
-                ? null
-                : { requestId: emailConfirmation.requestId, token: emailConfirmation.token }
-            }
-            onResult={(result) => void handleErasureResult(result)}
-            onStaleOwnedServers={handleStaleOwnedServers}
-            onClose={() => setErasureDialogOpen(false)}
-          />
-        )}
-      </CollapsibleSection>
+      {erasureSection}
 
       <PresenceSettingsSection />
 

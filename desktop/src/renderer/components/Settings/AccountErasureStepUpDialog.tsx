@@ -13,12 +13,14 @@ import {
   type AccountErasureRequest,
   type AccountErasureResult,
 } from '../../api/privacy';
+import { isStepUpFactorRefusal } from '../../services/system/stepUpRefusal';
 
 interface AccountErasureStepUpDialogProps {
   confirmedOwnedServerIds: string[];
   emailConfirmation: { requestId: string; token: string } | null;
   onResult: (result: AccountErasureResult) => void;
   onStaleOwnedServers: () => void;
+  onStaleEmailConfirmation: () => void;
   onClose: () => void;
 }
 
@@ -57,6 +59,7 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
   emailConfirmation,
   onResult,
   onStaleOwnedServers,
+  onStaleEmailConfirmation,
   onClose,
 }) => {
   const [password, setPassword] = useState('');
@@ -84,7 +87,17 @@ const AccountErasureStepUpDialog: React.FC<AccountErasureStepUpDialogProps> = ({
       // refusal must not clear or refetch state for whoever signed in since.
       if (!apiRequestContextIsCurrent(context)) return { kind: 'answered' };
       if (err instanceof PrivacyApiError) {
-        if (err.status === 403) return { kind: 'answered' };
+        if (err.code === 'email_confirmation_stale') {
+          onStaleEmailConfirmation();
+          return { kind: 'answered' };
+        }
+        if (err.status === 403 && isStepUpFactorRefusal(err.stepUpRefusal)) {
+          if (err.stepUpRefusal.kind === 'invalidPassword') setPassword('');
+          return { kind: 'refusal', refusal: err.stepUpRefusal };
+        }
+        if (err.status === 403 && err.stepUpRefusal.kind === 'enrollmentRequired') {
+          return { kind: 'refusal', refusal: err.stepUpRefusal };
+        }
         if (err.code === 'owned_server_confirmation_stale') onStaleOwnedServers();
         setError(erasureErrorMessage(err));
         return { kind: 'answered' };

@@ -352,9 +352,6 @@ function AuthenticatedLayout() {
       <ErrorBoundary fallback={<AuthenticatedViewFallback />}>
         <Outlet />
       </ErrorBoundary>
-      <ErrorBoundary fallback={<SettingsFallback />}>
-        <SettingsOverlayHost />
-      </ErrorBoundary>
       <ConnectionLostOverlay />
       <LaunchResetHost />
     </>
@@ -712,6 +709,11 @@ function App() {
               setDeepLinkFriendCode(null);
             }}
           />
+          {!isPipWindow && accessToken && !e2eeUnlockPending && !needsSSOUnlock && (
+            <ErrorBoundary fallback={<SettingsFallback />}>
+              <SettingsOverlayHost key={authGeneration} />
+            </ErrorBoundary>
+          )}
           <Suspense fallback={null}>
             <Routes>
               <Route

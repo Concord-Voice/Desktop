@@ -402,7 +402,7 @@ const pendingDeepLinks: Record<DeepLinkKind, string[]> = { invite: [], friend: [
 type PendingErasureConfirmation = {
   requestId: string;
   token: string;
-  owner: CredentialOwner;
+  owner: CredentialOwner | null;
 };
 
 let erasureRendererReady = false;
@@ -417,6 +417,8 @@ function forgetErasureConfirmations(): void {
 
 function drainErasureConfirmations(): void {
   if (!erasureRendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  // A cold-start link has no owner until the persisted session is verified.
+  if (pendingErasureConfirmations.some((confirmation) => confirmation.owner === null)) return;
   const currentOwner = getCredentialCustodyState().credentialOwner;
   for (const confirmation of pendingErasureConfirmations.splice(0)) {
     if (currentOwner !== confirmation.owner) {
@@ -436,11 +438,7 @@ function queueErasureConfirmation(raw: string | undefined): boolean {
     if (result.reason !== 'empty') console.warn('[AccountErasureDeepLink] invalid_shape');
     return false;
   }
-  const owner = getCredentialCustodyState().credentialOwner;
-  if (owner === null) {
-    console.warn('[AccountErasureDeepLink] stale_session');
-    return true;
-  }
+  const owner = restoreSessionPromise ? null : getCredentialCustodyState().credentialOwner;
   const key = `${owner}:${result.requestId}:${result.token}`;
   if (key === lastErasureConfirmationKey) return true;
   lastErasureConfirmationKey = key;
@@ -663,12 +661,13 @@ function resetDeepLinkDelivery(): void {
   // turns it red. One fence per delivery path, not two per path.
   inviteRendererReady = false;
   friendRendererReady = false;
-  // Unlike invite links, this bearer confirmation may not survive a renderer
-  // reload: the renderer's in-memory account binding is deliberately lost.
+  // A delivered bearer link may not survive its renderer's reload. A cold-start
+  // link has never been delivered, so retain it for session restoration.
   erasureRendererReady = false;
-  pendingErasureConfirmations.length = 0;
-  // A reload drops the in-memory capability, so the same link may be delivered again.
-  lastErasureConfirmationKey = null;
+  for (let i = pendingErasureConfirmations.length - 1; i >= 0; i -= 1) {
+    if (pendingErasureConfirmations[i]?.owner !== null) pendingErasureConfirmations.splice(i, 1);
+  }
+  if (pendingErasureConfirmations.length === 0) lastErasureConfirmationKey = null;
   // Read ONCE for the whole reset, not per kind. NOT cleared here (RED-TEAM
   // F2): the arming belongs to whichever applySpaDecisionCarryingDeepLink call
   // took it out and is released by that call's `finally`. Clearing it on the
@@ -1622,11 +1621,13 @@ const createWindow = async (): Promise<void> => {
     cancelActiveGoogleFlow();
     mainWindow = null;
     resetDeepLinkDelivery();
+    forgetErasureConfirmations();
   });
 
   // Log renderer crashes to diagnose voice join segfaults
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     resetDeepLinkDelivery();
+    forgetErasureConfirmations();
     console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
   });
 };
@@ -2630,6 +2631,9 @@ ipcMain.handle('auth:storeRefreshToken', (event, data: unknown) => {
   }
 
   const credentialOwner = storeRefreshToken(data);
+  // A fresh sign-in must not adopt an ownerless startup erasure capability.
+  pendingErasureConfirmations.length = 0;
+  lastErasureConfirmationKey = null;
   // Main learns of a sign-in HERE and, for a cold start, nowhere else. App.tsx
   // signals invite-readiness from a mount effect before anyone has signed in, so
   // a startup code is DELIVERED while the owner is still null and the renderer's
@@ -2816,6 +2820,13 @@ ipcMain.handle('auth:restoreSession', (event) => {
       if (custody.credentialOwner !== restoreOwner) {
         return { status: 'refresh_failed' };
       }
+      for (const confirmation of pendingErasureConfirmations) {
+        if (confirmation.owner === null) confirmation.owner = restoreOwner;
+      }
+      if (lastErasureConfirmationKey?.startsWith('null:')) {
+        lastErasureConfirmationKey = `${restoreOwner}:${lastErasureConfirmationKey.slice(5)}`;
+      }
+      drainErasureConfirmations();
       return {
         status: 'restored',
         accessToken: refreshResult.accessToken,

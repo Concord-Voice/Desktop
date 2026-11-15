@@ -190,6 +190,24 @@ describe('SettingsPage', () => {
     ).toBeInTheDocument();
   });
 
+  it('allows leaving Privacy after opening an erasure confirmation', async () => {
+    const confirmation = {
+      requestId: 'request-1',
+      token: 'confirmation-token',
+      expiresAt: Date.now() + 15 * 60_000,
+    };
+    render(<SettingsPage accountErasureConfirmation={confirmation} />);
+    expect(await screen.findByText('Danger Zone')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Appearance' })).toHaveAttribute(
+        'aria-current',
+        'page'
+      );
+    });
+  });
+
   it('renders theme options', () => {
     render(<SettingsPage />);
     expect(screen.getByText('Dark', { selector: '.theme-option-label' })).toBeInTheDocument();

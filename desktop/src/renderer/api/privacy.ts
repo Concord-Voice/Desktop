@@ -14,6 +14,7 @@
  */
 
 import { apiFetchInContext, type ApiRequestContext } from '../services/system/requestContext';
+import { classifyStepUpRefusal, type StepUpRefusal } from '../services/system/stepUpRefusal';
 
 export interface AccountErasureRequest {
   password: string;
@@ -21,6 +22,44 @@ export interface AccountErasureRequest {
   /** Canonical, lexicographically sorted UUIDs acknowledged by the caller. */
   confirmed_owned_server_ids: string[];
   email_confirmation?: { request_id: string; token: string };
+}
+
+export interface ProtectedOwnedServer {
+  id: string;
+  name: string;
+  member_count: number;
+}
+
+/** Pending-email accounts may read only the servers they must acknowledge for erasure. */
+export async function getProtectedOwnedServers(
+  context?: ApiRequestContext
+): Promise<ProtectedOwnedServer[]> {
+  const response = await apiFetchInContext(
+    '/api/v1/privacy/erase-account/owned-servers',
+    { method: 'GET' },
+    context
+  );
+  if (!response.ok) throw new Error(`owned-server read failed with status ${response.status}`);
+  const body: unknown = await response.json();
+  if (typeof body !== 'object' || body === null || !('servers' in body)) {
+    throw new Error('Invalid owned-server response');
+  }
+  const servers = body.servers;
+  if (
+    !Array.isArray(servers) ||
+    !servers.every(
+      (server): server is ProtectedOwnedServer =>
+        typeof server === 'object' &&
+        server !== null &&
+        typeof server.id === 'string' &&
+        typeof server.name === 'string' &&
+        Number.isInteger(server.member_count) &&
+        server.member_count > 1
+    )
+  ) {
+    throw new Error('Invalid owned-server response');
+  }
+  return servers;
 }
 
 export type AccountErasureResult =
@@ -38,11 +77,13 @@ export class PrivacyApiError extends Error {
   public readonly status: number;
   public readonly code: PrivacyApiErrorCode;
   public readonly requiredOwnedServerIds: string[] | undefined;
+  public readonly stepUpRefusal: StepUpRefusal;
 
   constructor(
     status: number,
     code: PrivacyApiErrorCode = 'unknown',
-    requiredOwnedServerIds?: string[]
+    requiredOwnedServerIds?: string[],
+    stepUpRefusal: StepUpRefusal = { kind: 'failed' }
   ) {
     const message = `erase-account failed with status ${status}`;
     super(message);
@@ -50,6 +91,7 @@ export class PrivacyApiError extends Error {
     this.status = status;
     this.code = code;
     this.requiredOwnedServerIds = requiredOwnedServerIds;
+    this.stepUpRefusal = stepUpRefusal;
   }
 }
 
@@ -101,5 +143,10 @@ export async function eraseAccount(
   const requiredOwnedServerIds = Array.isArray(record.required_owned_server_ids)
     ? record.required_owned_server_ids.filter((id): id is string => typeof id === 'string')
     : undefined;
-  throw new PrivacyApiError(response.status, code, requiredOwnedServerIds);
+  throw new PrivacyApiError(
+    response.status,
+    code,
+    requiredOwnedServerIds,
+    classifyStepUpRefusal(response.status, body)
+  );
 }

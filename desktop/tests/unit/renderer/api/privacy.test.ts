@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../../mocks/server';
-import { eraseAccount, PrivacyApiError } from '@/renderer/api/privacy';
+import { eraseAccount, getProtectedOwnedServers, PrivacyApiError } from '@/renderer/api/privacy';
 
 const request = {
   password: 'correct horse battery staple',
@@ -95,5 +95,41 @@ describe('eraseAccount', () => {
       code: 'owned_server_confirmation_stale',
       requiredOwnedServerIds: ['server-id'],
     });
+  });
+
+  it('preserves required MFA methods from an erasure refusal', async () => {
+    server.use(
+      http.post(`${API_BASE}/api/v1/privacy/erase-account`, () =>
+        HttpResponse.json({ mfa_required: true, methods: ['totp', 'webauthn'] }, { status: 403 })
+      )
+    );
+
+    await expect(eraseAccount(request)).rejects.toMatchObject({
+      status: 403,
+      stepUpRefusal: { kind: 'mfaRequired', methods: ['totp', 'webauthn'] },
+    });
+  });
+});
+
+describe('getProtectedOwnedServers', () => {
+  it('reads only the protected-server acknowledgement fields', async () => {
+    const servers = [{ id: '00000000-0000-4000-8000-000000000001', name: 'A', member_count: 2 }];
+    server.use(
+      http.get(`${API_BASE}/api/v1/privacy/erase-account/owned-servers`, () =>
+        HttpResponse.json({ servers })
+      )
+    );
+
+    await expect(getProtectedOwnedServers()).resolves.toEqual(servers);
+  });
+
+  it('fails closed on an invalid response', async () => {
+    server.use(
+      http.get(`${API_BASE}/api/v1/privacy/erase-account/owned-servers`, () =>
+        HttpResponse.json({ servers: [{ id: 'server-1', name: 'A' }] })
+      )
+    );
+
+    await expect(getProtectedOwnedServers()).rejects.toThrow('Invalid owned-server response');
   });
 });

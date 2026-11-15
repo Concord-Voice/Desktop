@@ -206,10 +206,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   );
 
   useEffect(() => {
-    if (accountErasureConfirmation !== null && activeSection !== 'privacy') {
+    if (accountErasureConfirmation !== null) {
       startTransition(() => setActiveSection('privacy'));
     }
-  }, [accountErasureConfirmation, activeSection, startTransition]);
+  }, [accountErasureConfirmation, startTransition]);
 
   // Draft settings lifecycle
   useDraftSettingsLifecycle();

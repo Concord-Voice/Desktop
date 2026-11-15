@@ -4,6 +4,7 @@ import { http, HttpResponse } from 'msw';
 import type { ComponentProps } from 'react';
 import { server } from '../../../mocks/server';
 import { resetAllStores } from '../../../helpers/store-helpers';
+import { deferred } from '../../../helpers/deferred';
 import PrivacySection from '@/renderer/components/Settings/PrivacySection';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
@@ -14,11 +15,16 @@ vi.mock('@/renderer/components/Settings/AccountErasureStepUpDialog', () => ({
   default: ({
     onResult,
     onStaleOwnedServers,
+    onStaleEmailConfirmation,
+    confirmedOwnedServerIds,
   }: {
     onResult: (result: { kind: 'erased' } | { kind: 'email_confirmation_required' }) => void;
     onStaleOwnedServers: () => void;
+    onStaleEmailConfirmation: () => void;
+    confirmedOwnedServerIds: string[];
   }) => (
     <div data-testid="account-erasure-dialog">
+      <output data-testid="confirmed-owned-server-ids">{confirmedOwnedServerIds.join(',')}</output>
       <button type="button" onClick={() => onResult({ kind: 'email_confirmation_required' })}>
         Request confirmation
       </button>
@@ -27,6 +33,9 @@ vi.mock('@/renderer/components/Settings/AccountErasureStepUpDialog', () => ({
       </button>
       <button type="button" onClick={onStaleOwnedServers}>
         Refresh affected servers
+      </button>
+      <button type="button" onClick={onStaleEmailConfirmation}>
+        Reject stale email confirmation
       </button>
     </div>
   ),
@@ -117,6 +126,102 @@ it('requires explicit acknowledgements for known multi-member owned servers befo
   await userEvent.setup().click(acknowledgements[1]);
   expect(erase).toBeEnabled();
   expect(within(danger).getByText(/direct-message conversations/i)).toBeInTheDocument();
+
+  // The server store removes deleted servers while the pane remains mounted.
+  act(() => useServerStore.setState({ servers: [] }));
+  expect(within(danger).queryAllByRole('checkbox')).toHaveLength(0);
+  expect(erase).toBeEnabled();
+  await userEvent.setup().click(erase);
+  expect(screen.getByTestId('confirmed-owned-server-ids')).toBeEmptyDOMElement();
+});
+
+it('loads owned servers before enabling restricted erasure', async () => {
+  const response = deferred<HttpResponse>();
+  server.use(http.get(`${API_BASE}/privacy/erase-account/owned-servers`, () => response.promise));
+  render(<PrivacySection erasureOnly />);
+
+  expect(document.getElementById('section-privacy-settings')).toBeNull();
+  expect(document.getElementById('section-presence-settings')).toBeNull();
+  const danger = document.getElementById('section-account-erasure') as HTMLDetailsElement;
+  await userEvent.setup().click(within(danger).getByText('Danger Zone'));
+  const erase = within(danger).getByRole('button', { name: 'Erase account' });
+  expect(erase).toBeDisabled();
+
+  await act(async () => {
+    response.resolve(
+      HttpResponse.json({
+        servers: [
+          {
+            id: '00000000-0000-4000-8000-000000000001',
+            name: 'Protected server',
+            member_count: 2,
+          },
+        ],
+      })
+    );
+    await response.promise;
+  });
+
+  const acknowledgement = await within(danger).findByRole('checkbox');
+  expect(erase).toBeDisabled();
+  await userEvent.setup().click(acknowledgement);
+  expect(erase).toBeEnabled();
+});
+
+it('keeps restricted erasure blocked when the owned-server read fails, then retries', async () => {
+  server.use(
+    http.get(
+      `${API_BASE}/privacy/erase-account/owned-servers`,
+      () => new HttpResponse(null, { status: 503 })
+    )
+  );
+  render(<PrivacySection erasureOnly />);
+  const danger = document.getElementById('section-account-erasure') as HTMLDetailsElement;
+  await userEvent.setup().click(within(danger).getByText('Danger Zone'));
+  const erase = within(danger).getByRole('button', { name: 'Erase account' });
+
+  expect(await within(danger).findByText(/Could not load owned servers/)).toBeInTheDocument();
+  expect(erase).toBeDisabled();
+
+  server.use(
+    http.get(`${API_BASE}/privacy/erase-account/owned-servers`, () =>
+      HttpResponse.json({ servers: [] })
+    )
+  );
+  await userEvent.setup().click(within(danger).getByRole('button', { name: 'Retry' }));
+
+  await waitFor(() => expect(erase).toBeEnabled());
+});
+
+it('loads the profile before restricted erasure after a restored session', async () => {
+  useUserStore.setState({ user: null });
+  const profile = deferred<HttpResponse>();
+  server.use(
+    http.get(`${API_BASE}/users/me`, () => profile.promise),
+    http.get(`${API_BASE}/privacy/erase-account/owned-servers`, () =>
+      HttpResponse.json({ servers: [] })
+    )
+  );
+  render(<PrivacySection erasureOnly />);
+  const danger = document.getElementById('section-account-erasure') as HTMLDetailsElement;
+  await userEvent.setup().click(within(danger).getByText('Danger Zone'));
+  const erase = within(danger).getByRole('button', { name: 'Erase account' });
+  expect(erase).toBeDisabled();
+
+  await act(async () => {
+    profile.resolve(
+      HttpResponse.json({
+        user: {
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          username: 'pilot',
+          email_verified: false,
+        },
+      })
+    );
+    await profile.promise;
+  });
+
+  await waitFor(() => expect(erase).toBeEnabled());
 });
 
 async function openErasureDialog(
@@ -250,5 +355,28 @@ it('drops the confirmation before refreshing a stale owned-server list', async (
   await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh affected servers' }));
 
   expect(clear).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Erase account' })).toBeEnabled();
+});
+
+it('clears rejected email confirmation in the pane and its host', async () => {
+  const clear = vi.fn();
+  await openErasureDialog({
+    accountErasureConfirmation: {
+      requestId: 'request-1',
+      token: 'stale-token',
+      expiresAt: Date.now() + 60_000,
+    },
+    onClearAccountErasureConfirmation: clear,
+  });
+
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Reject stale email confirmation' }));
+
+  expect(clear).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('account-erasure-dialog')).not.toBeInTheDocument();
+  expect(
+    screen.getByText('The email confirmation expired. Start over to request another link.')
+  ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Erase account' })).toBeEnabled();
 });

@@ -3579,6 +3579,55 @@ describe('main.ts', () => {
       return `concord://account-erasure/confirm/${requestId}/${token}`;
     }
 
+    it('delivers a cold-start erasure link only after the persisted session is restored', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: null,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+      simulateReload(); // The first window load must not destroy the queued link.
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([]);
+
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 42,
+        pendingE2EEUnlock: false,
+      });
+      await handlers.get('auth:restoreSession')!({
+        sender: mockWebContents,
+        senderFrame: mockWebContents.mainFrame,
+      });
+      expect(erasureConfirmations()).toEqual([
+        { requestId: ERASURE_REQUEST_ID, token: ERASURE_TOKEN },
+      ]);
+      deliverDeepLink(erasureDeepLink());
+      expect(erasureConfirmations()).toHaveLength(1);
+    });
+
+    it('does not adopt an ownerless erasure link during a fresh sign-in', async () => {
+      const { getCredentialCustodyState } = await import('../../../src/main/tokenManager');
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: null,
+        pendingE2EEUnlock: false,
+      });
+      resetDeepLinkState();
+      deliverDeepLink(erasureDeepLink());
+      signalErasureReady(erasureRendererEvent);
+
+      (getCredentialCustodyState as Mock).mockReturnValue({
+        credentialOwner: 42,
+        pendingE2EEUnlock: false,
+      });
+      await handlers.get('auth:storeRefreshToken')!(
+        { sender: mockWebContents, senderFrame: mockWebContents.mainFrame },
+        { refreshToken: 'tok', rememberMe: true, apiBase: 'http://localhost:8080' }
+      );
+      signalErasureReady(erasureRendererEvent);
+      expect(erasureConfirmations()).toEqual([]);
+    });
+
     it('allows the same erasure link to be delivered after a renderer reload', () => {
       resetDeepLinkState();
       signalErasureReady(erasureRendererEvent);

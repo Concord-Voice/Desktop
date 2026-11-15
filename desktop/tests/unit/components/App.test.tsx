@@ -11,6 +11,7 @@ import { useInviteStore } from '@/renderer/stores/chat/inviteStore';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
 import { useVideoSettingsStore } from '@/renderer/stores/voice/videoSettingsStore';
 import { usePrivacyStore } from '@/renderer/stores/ui/privacyStore';
+import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 import { useFriendStore } from '@/renderer/stores/chat/friendStore';
 import { extractInviteCodes } from '@/renderer/utils/messaging/inviteUrl';
 import { resetAllStores } from '../../helpers/store-helpers';
@@ -33,6 +34,10 @@ vi.mock('@/renderer/components/DirectMessages/DirectMessagesView', () => ({
 }));
 vi.mock('@/renderer/components/Settings/SettingsPage', () => ({
   default: () => <div data-testid="settings-page">SettingsPage</div>,
+}));
+vi.mock('@/renderer/components/Settings/PrivacySection', () => ({
+  default: ({ erasureOnly }: { erasureOnly?: boolean }) =>
+    erasureOnly ? <div data-testid="restricted-erasure">Erase account</div> : null,
 }));
 vi.mock('@/renderer/components/Servers/ServerSettingsPage', () => ({
   default: () => <div data-testid="server-settings-page">ServerSettingsPage</div>,
@@ -186,6 +191,8 @@ describe('App', () => {
       inviteRendererReady: undefined,
       onFriendCodeReceived: undefined,
       friendRendererReady: undefined,
+      onAccountErasureConfirmation: undefined,
+      accountErasureRendererReady: undefined,
       getDisplayInfo: undefined,
     });
   });
@@ -324,6 +331,37 @@ describe('App', () => {
     render(<App />);
     // Unverified users should see auth flow, not the app
     expect(screen.getByTestId('auth-flow')).toBeInTheDocument();
+  });
+
+  it('receives erasure links behind email verification without exposing Settings across sessions', async () => {
+    let receive: ((link: { requestId: string; token: string }) => void) | undefined;
+    const ready = vi.fn();
+    Object.assign(globalThis.electron ?? {}, {
+      onAccountErasureConfirmation: vi.fn(
+        (handler: (link: { requestId: string; token: string }) => void) => {
+          receive = handler;
+          return vi.fn();
+        }
+      ),
+      accountErasureRendererReady: ready,
+    });
+    useAuthStore.getState().beginAuthLifecycle('unverified-token', null);
+    useAuthStore.getState().setEmailVerified(false);
+    render(<App />);
+
+    await waitFor(() => expect(ready).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('auth-flow')).toBeInTheDocument();
+    act(() => useSettingsOverlayStore.getState().openSettings('app'));
+    expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('restricted-erasure')).not.toBeInTheDocument();
+    expect(document.body.style.overflow).not.toBe('hidden');
+    act(() => receive?.({ requestId: 'request-1', token: 'secret' }));
+    expect(await screen.findByTestId('restricted-erasure')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument();
+
+    act(() => useAuthStore.getState().beginAuthLifecycle('successor-token', null));
+    await waitFor(() => expect(ready).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('restricted-erasure')).not.toBeInTheDocument();
   });
 
   // ── Title bar info ──

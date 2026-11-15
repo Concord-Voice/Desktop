@@ -12,6 +12,7 @@ import { useUserStore } from '@/renderer/stores/auth/userStore';
 const API_BASE = 'http://localhost:8080/api/v1';
 const onResult = vi.fn();
 const onStaleOwnedServers = vi.fn();
+const onStaleEmailConfirmation = vi.fn();
 const onClose = vi.fn();
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
@@ -39,6 +40,7 @@ function renderDialog(overrides: Partial<ComponentProps<typeof AccountErasureSte
       emailConfirmation={null}
       onResult={onResult}
       onStaleOwnedServers={onStaleOwnedServers}
+      onStaleEmailConfirmation={onStaleEmailConfirmation}
       onClose={onClose}
       {...overrides}
     />
@@ -106,22 +108,51 @@ describe('AccountErasureStepUpDialog', () => {
     );
   });
 
-  it('leaves a factor refusal to the credential stage', async () => {
-    const answered = deferred<void>();
+  it('shows an invalid factor refusal at the credential field', async () => {
     server.use(
-      http.post(`${API_BASE}/privacy/erase-account`, () => {
-        answered.resolve();
-        return HttpResponse.json({ error_code: 'invalid_factor' }, { status: 403 });
-      })
+      http.post(`${API_BASE}/privacy/erase-account`, () =>
+        HttpResponse.json({ error: 'Invalid MFA code' }, { status: 403 })
+      )
     );
     renderDialog();
 
     await submitErasure();
-    await answered.promise;
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(await screen.findByText(/That code didn't work/)).toBeInTheDocument();
     expect(onResult).not.toHaveBeenCalled();
     expect(onStaleOwnedServers).not.toHaveBeenCalled();
+  });
+
+  it('offers the required factor after a password-only requirements fallback', async () => {
+    server.use(
+      http.get(`${API_BASE}/mfa/step-up`, () => new HttpResponse(null, { status: 503 })),
+      http.post(`${API_BASE}/privacy/erase-account`, () =>
+        HttpResponse.json({ mfa_required: true, methods: ['totp'] }, { status: 403 })
+      )
+    );
+    renderDialog();
+
+    await userEvent.type(await screen.findByLabelText('Password'), 'password');
+    await userEvent.click(screen.getByRole('button', { name: 'Erase account' }));
+
+    expect(await screen.findByLabelText('Authenticator app code')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Enter the 6-digit code from your authenticator app to continue.')
+    ).toBeInTheDocument();
+  });
+
+  it('clears a stale email confirmation through its owner', async () => {
+    server.use(
+      http.post(`${API_BASE}/privacy/erase-account`, () =>
+        HttpResponse.json({ error_code: 'email_confirmation_stale' }, { status: 409 })
+      )
+    );
+    renderDialog({ emailConfirmation: { requestId: 'request-1', token: 'stale-token' } });
+
+    await submitErasure();
+
+    expect(onStaleEmailConfirmation).toHaveBeenCalledTimes(1);
+    expect(onResult).not.toHaveBeenCalled();
   });
 
   it('sends the current factor, confirmations, and email capability without retaining it', async () => {
