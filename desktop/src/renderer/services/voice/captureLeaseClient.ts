@@ -2,7 +2,7 @@
  * Capture lease client (#87 §3.8) — a service, not a store.
  *
  * Wraps the preload bridge `globalThis.electron.capture` (contract 36). A shell below
- * 35 has no `capture` key: `acquire` then answers `granted` and `release` is a no-op,
+ * 36 has no `capture` key: `acquire` then answers `granted` and `release` is a no-op,
  * which is today's behaviour. Main authorises everything; this module only forwards an
  * intent and maps the answers for the renderer.
  */
