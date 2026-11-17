@@ -31,6 +31,8 @@ belongs in it, and write it if the section has none. Do not edit the
 
 This release adds groundwork for verifying account keys, protects remembered sessions from being redirected to another server, and asks for fresh proof before sensitive account changes. Existing remembered sessions require signing in again.
 
+**40 Total Changes** | 5 Added | 3 Changed | 14 Fixed | 18 Security
+
 ### Added
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
