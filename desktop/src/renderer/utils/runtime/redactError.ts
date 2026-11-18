@@ -22,11 +22,14 @@
  */
 
 /**
- * Control characters (CR, LF and the rest of Unicode Cc) become spaces, so a
- * message carrying server- or peer-supplied text cannot forge extra log lines.
+ * Control characters (Unicode Cc), line/paragraph separators (U+2028/9) and
+ * bidi overrides/isolates become spaces, so a message carrying server- or
+ * peer-supplied text cannot forge or visually reorder log lines.
  */
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message.replaceAll(/\p{Cc}/gu, ' ') : 'unknown_error';
+  return err instanceof Error
+    ? err.message.replaceAll(/[\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/gu, ' ')
+    : 'unknown_error';
 }
 
 export function errorName(err: unknown): string {

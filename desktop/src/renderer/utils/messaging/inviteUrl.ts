@@ -27,23 +27,23 @@ export function buildInviteUrl(code: string): string {
 
 /** Characters that separate a URL from surrounding prose. */
 const URL_DELIMITER = /[\s<>"')]/;
+const SLASH: ReadonlySet<string> = new Set(['/']);
 const TRAILING_PUNCTUATION = new Set(['.', ',', '!', '?', ';', ':', "'", '"', ')', ']', '}']);
 
 /**
  * Each run of non-delimiter text, from its first `http://` / `https://`
  * (case-insensitive) to the run's end. Same matches as
- * `/https?:\/\/[^\s<>"')]+/gi`, without a quantified regex: the split class
- * matches one character, so the scan stays linear on hostile input.
+ * `/https?:\/\/[^\s<>"')]+/gi`, without the unbounded class: the split class
+ * matches one character and the scheme regex has no repetition, so the scan
+ * stays linear on hostile input.
  */
 function urlCandidates(text: string): string[] {
   const out: string[] = [];
   for (const run of text.split(URL_DELIMITER)) {
-    const lower = run.toLowerCase();
-    const starts = [lower.indexOf('http://'), lower.indexOf('https://')].filter((i) => i >= 0);
-    if (starts.length === 0) continue;
-    const start = Math.min(...starts);
-    const schemeEnd = lower.startsWith('https://', start) ? start + 8 : start + 7;
-    if (run.length > schemeEnd) out.push(run.slice(start));
+    // Match on the original string: toLowerCase() can change its length (U+0130),
+    // which would shift any index taken from the lowered copy.
+    const m = /https?:\/\//i.exec(run);
+    if (m && run.length > m.index + m[0].length) out.push(run.slice(m.index));
   }
   return out;
 }
@@ -71,7 +71,7 @@ export function extractInviteCodes(text: string, max = 3): string[] {
       const trimmed = trimTrailing(cand, TRAILING_PUNCTUATION);
       const u = new URL(trimmed);
       if (u.protocol === 'https:' && u.host === INVITE_HOST) {
-        const path = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+        const path = trimTrailing(u.pathname.replace(/^\/+/, ''), SLASH);
         if (isValidInviteCode(path)) code = path;
       }
     } catch {

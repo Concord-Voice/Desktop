@@ -11149,7 +11149,7 @@ class VoiceService {
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
       const result = await this.tryEncryptRebase(context, attempt, retryDelays.length);
       if (result === 'stop') return;
-      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+      await new Promise((resolve) => setTimeout(resolve, retryDelays.at(attempt)));
       if (!this.isCurrentEncryptRebase(context)) return;
     }
   }
