@@ -31,6 +31,8 @@ belongs in it, and write it if the section has none. Do not edit the
 
 This release adds groundwork for verifying account keys, protects remembered sessions from being redirected to another server, and asks for fresh proof before sensitive account changes. Existing remembered sessions require signing in again.
 
+**40 Total Changes** | 5 Added | 3 Changed | 14 Fixed | 18 Security
+
 ### Added
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
@@ -48,6 +50,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 ### Fixed
 
 - **Voice:** After a reconnect, a muted or deafened user's microphone stays off. Previously, in a two-person call, a deafened or server-muted user could start sending audio again when the other person rejoined, while the app still showed them as muted.
+- **Voice:** When you rejoin a call while a moderator has muted or deafened you, the app never shows you as unmoderated, even for a moment.
 - **Voice:** Unmuting while deafened now also undeafens you, so the mute button and your microphone always agree. A deafened user's microphone also stays off after a microphone test ends, and a moderator's server-deafen now stops your microphone too.
 - **Servers:** With more than one server connection open, the tray's mute, deafen, leave and screen-share controls now always show and control the connection on screen, and a connection in the background that reloads or crashes no longer clears them.
 - **Servers:** A server connection added while the app is still starting is now remembered at the next launch.
@@ -63,6 +66,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 
 ### Security
 
+- **Desktop:** The main-branch SonarQube scan now analyzes dependencies for known vulnerabilities. The pull request scan leaves this off, so it never resolves a pull request's dependency files.
 - **Accounts:** Removing a security key, unlinking a sign-in provider, enabling SSO trust, and erasing an account now ask for fresh, purpose-bound proof. Erasure asks you to confirm any owned servers that have other members and complete an emailed confirmation link, including while ordinary email verification is pending ([Desktop PR #225](https://github.com/Concord-Voice/Desktop/pull/225)).
 - **Sign-in:** Apple and Google sign-in now send a fresh, app-held binding with both steps of each server sign-in exchange ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).
 - **Sign-in:** Linking an Apple or Google account can continue through the existing MFA prompt without exposing the refresh token to the app interface ([#223](https://github.com/Concord-Voice/Desktop/pull/223)).

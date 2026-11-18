@@ -935,6 +935,11 @@ this PR with the developer's explicit approval**, on three grounds:
 **#3198 owes a bounded timeout on that listener.** Recorded here rather than left
 in a review thread so it travels with the code instead of with the pull request.
 
+**Superseded 2026-11-15:** no timeout is owed. The premise was also wrong: after `exit` nothing
+roots the wrapper, so the listener is collected with the child rather than living for the rest of
+the run. See § "Record correction: issue 213, the `reapChild` spawn-listener residual is settled
+(2026-11-15)" at the end of this record.
+
 ### The app-start capability probe is the production caller #3194 lacked
 
 `probeAudiocapCapability()` (`audiocapHost.ts`) forks the child once at `whenReady`, takes its
@@ -1832,6 +1837,13 @@ then sit outside the process tree of the app window being shared, so an M4 share
 `signalTotal` 0 with or without the exclusion. Launch the sharing client in the foreground of a
 shell that stays alive, and check its ancestry with `ps -o ppid=` before trusting the result.
 
+**The matrix probe is kept (2026-11-15).** `desktop/scripts/audiocap-matrix-probe/` (issue 75)
+is a committed probe that is re-run by hand, not a throwaway. M1–M6 above were one-off runs; the
+matrix is the only check that runs the real capture child, under the bundle's own identity,
+against the real grants, and macOS changes process-tap and privacy-grant behaviour between
+releases. Re-run it on each new macOS major release and whenever the tap backend changes. Remove
+it only in the same change as an ADR-0043 entry that retires the macOS process-tap backend.
+
 ### Record corrections carried by this PR
 
 §5 rows 1–7 above are Corrected in place, all citing the E1–E4 evidence: the "screen grant does not
@@ -2066,3 +2078,89 @@ because a listener on a child that never spawns costs nothing; this ADR says a b
 owed. That disagreement is still open. The project lead ruled at the issue 73 pull request's merge
 gate to settle it in its own issue, issue 213. This record keeps both texts until that issue
 decides.
+
+**Superseded 2026-11-15:** issue 213 decided that no timeout is owed. See § "Record correction:
+issue 213, the `reapChild` spawn-listener residual is settled (2026-11-15)" below.
+
+## Record correction: issue 213, the `reapChild` spawn-listener residual is settled (2026-11-15)
+
+**No timeout is owed.** `reapChild` keeps its bare `once('spawn')` listener (option A). This entry
+supersedes the bounded-timeout ruling in the first as-built addendum, § "Accepted residual:
+`reapChild`'s spawn listener on a fork that never spawns", and the leak premise that ruling rested
+on. It also closes the disagreement the issue 73 record corrections left open. The leak `reapChild`
+exists to prevent, a child killed before spawn that comes up unreaped, stays fixed whatever the
+delay.
+
+**One code change rides with it: the crash path no longer reaps a child that has already exited.**
+The fork-time `exit` listener sets `childExited` on the session before it calls `retire`, and
+`retire` skips `reapChild` when that flag is set. Every other cause still reaps, `error` included,
+because a child that raised `error` may still be running.
+
+### The evidence
+
+**INFERRED, from Electron's own source** at v45.2.3 (the version `desktop/package-lock.json`
+pins), diffed against v45.0.0, in `lib/browser/api/utility-process.ts` and
+`shell/browser/api/electron_api_utility_process.cc`:
+
+- A launch failure ends in `HandleTermination(1)`, whether it happens before or after
+  `ServiceProcessHost::Launch`. That call emits only `exit`. `error` is emitted only when a running
+  child hits a V8 fatal error.
+- `OnServiceProcessLaunch` returns at once when `terminated_` is set, and `HandleTermination` sets
+  it before emitting `exit`. So `spawn` never follows `exit`.
+- The JS handle is set in the constructor, so it exists before launch. A `kill()` before launch
+  returns `false` because native Kill has no pid yet. The same synchronous function sets the pid
+  and emits `spawn`, so that `false` is always followed by `spawn` or by `exit`.
+- The JS handle is cleared in a `finally` after the `exit` emit. A `kill()` made inside an `exit`
+  listener therefore passes the null-handle check and reaches native Kill for a child that is
+  already gone. That is why the crash path no longer reaps.
+- `HandleTermination` clears the wrapper's self keep-alive. The process registry holds weak
+  references, and the bound callbacks use weak cells. After `exit` nothing roots the wrapper, so an
+  unfired `once('spawn')` listener is collected with it.
+
+So the listener ends one of two ways: `spawn` fires and the child is killed, or `exit` fires and
+the listener is collected with the child.
+
+**MEASURED** with the kept probe `desktop/scripts/utility-process-probe/`, on Electron 45.2.3 and
+45.0.0, in a Linux container under Xvfb (no window on the developer machine). Mode `nproc` lowers
+the browser's soft `RLIMIT_NPROC` to 1, so the fork itself fails. Mode `cwd-missing` gives the fork
+a `cwd` that does not exist: the child starts, emits `spawn`, then fails its `chdir` and exits with
+code 5. Every run printed `ok:true`, and both versions gave the same values:
+
+- `nproc`: `kill()` straight after `fork` returned `false`. The child emitted `exit` with code 1
+  and nothing else: no `spawn`, no `error`, and nothing in the 2 s after `exit`.
+- `spawn` never followed `exit`. The `nproc` runs show it for a fork that fails at launch. The
+  `cwd-missing` runs show it for a launch that fails after `spawn`.
+- A normal fork killed before spawn: `kill()` returned `false`, and the `kill()` inside its `spawn`
+  listener returned `true`.
+- After `exit` and a forced GC, the failed child and a normal-exit control child were both
+  finalized.
+- `kill()` inside an `exit` listener returned `false` for a child that exited on its own, for the
+  `nproc` child and for the `cwd-missing` child. The host does not rely on that value, because the
+  crash path no longer calls `kill()`.
+
+The first 45.0.0 `cwd-missing` run printed `spawnAfterExit:true`. That was a probe bug, not
+Electron: the field was computed as "spawned and exited", which is true of any child that spawns
+and then exits. The run's own event stream showed one `spawn`, before `exit`. The probe now sets
+the flag inside the `spawn` handler, and four re-runs on 45.0.0 `cwd-missing` printed
+`spawnNeverFollowsExit:true`.
+
+**UNMEASURED:** macOS and Windows, a packaged build, and any Electron major other than 45.
+
+### Rejected alternatives
+
+- **B: a timer that drops the listener.** If `spawn` arrives after the timer fires, a live capture
+  process is stranded with nothing able to kill it. That breaks D6 (fail closed), and issue 213
+  ruled it out.
+- **C: remove the spawn listener with `once('exit')`.** It adds code that changes nothing: after
+  `exit` the listener is already collected with the child.
+
+### What pins it
+
+The reaping describe block in `desktop/tests/unit/main/audiocapHost.test.ts` pins the code: the
+kill-path reap arms no timer, every reap site re-kills a child that spawns late, the crash path
+makes no `kill()` call and arms no listener, and the `error` path still reaps. The Electron
+behaviour it rests on is pinned only by re-running `desktop/scripts/utility-process-probe/` on each
+Electron major bump.
+
+Detaching the fork-time `message`, `exit` and `error` listeners is out of scope: they are
+collected with the child for the same reason.

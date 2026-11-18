@@ -917,6 +917,44 @@ assert "an unreadable compose file fails the audit closed" "$rc" 2 "$out" 'AUDIT
 assert "…and its ecosystem line is not OK" "$rc" 2 "$out" 'docker-compose .* INCOMPLETE'
 
 # ---------------------------------------------------------------------------
+# 33. A manifest under a `*/tests/fixtures/` tree is test INPUT, not an update
+#     root. A merged go.mod fixture (the lockfile-registries `replace` case) read
+#     as "UNCOVERED gomod" and failed the hook on a tree that had no real gap;
+#     bumping a fixture's pin would also change what the test asserts. Every leg
+#     that enumerates manifests must skip the tree, so one fixture per ecosystem.
+#     The control proves the exclusion is that tree and not a blanket: a real
+#     go.mod beside it, and a `fixtures/` directory NOT under `tests/`, still
+#     read as uncovered.
+# ---------------------------------------------------------------------------
+r="$(mkrepo test-fixtures)"
+FX=".github/scripts/tests/fixtures/lockfile-registries"
+manifest "$r/$FX/replace/go.mod" 'module example.com/fixture'
+manifest "$r/$FX/replace/Dockerfile" 'FROM alpine:3.19'
+manifest "$r/$FX/replace/docker-compose.yml" "services:
+  r:
+    image: $PIN"
+manifest "$r/$FX/replace/requirements-fixture.txt" 'PyYAML==6.0.2'
+manifest "$r/$FX/replace/package.json" "$DEPS"
+db "$r" <<'YAML'
+version: 2
+updates: []
+YAML
+out="$(run_audit "$r")"; rc=$?
+assert "manifests under */tests/fixtures/ are not update roots" "$rc" 0 "$out" 'AUDIT CLEAN' 'UNCOVERED|lockfile-registries'
+
+r="$(mkrepo test-fixtures-control)"
+manifest "$r/svc/go.mod" 'module example.com/svc'
+manifest "$r/svc/fixtures/go.mod" 'module example.com/svc/fixtures'
+manifest "$r/svc/tests/fixtures/go.mod" 'module example.com/svc/tests/fixtures'
+db "$r" <<'YAML'
+version: 2
+updates: []
+YAML
+out="$(run_audit "$r")"; rc=$?
+assert "the fixtures exclusion is */tests/fixtures/, not every fixtures dir" "$rc" 1 "$out" 'UNCOVERED gomod: svc$' 'tests/fixtures'
+assert "…and a fixtures dir outside tests/ is still an update root" "$rc" 1 "$out" 'UNCOVERED gomod: svc/fixtures$'
+
+# ---------------------------------------------------------------------------
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

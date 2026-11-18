@@ -21,6 +21,7 @@ import type * as AudiocapProtocolModule from '../../../src/shared/audiocapProtoc
  * `tests/unit/main/quitLifecycle.deadlock.test.ts` (the `vi.mock('electron', …)`
  * shape for main-process modules).
  */
+import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AUDIOCAP_PROTOCOL, HANDSHAKE_TIMEOUT_MS } from '../../../src/shared/audiocapProtocol';
 import { NATIVE_ADDON_ENV } from '../../../src/main/nativeAddonPath';
@@ -567,6 +568,24 @@ describe('audiocap app-start capability probe (#3195 §0)', () => {
 // `kill()` neither reaps nor cancels a pending spawn; the child comes up with
 // nothing holding a reference to it. `startAudiocapHost` opens exactly this
 // window on itself (I3 supersedes, THEN forks).
+/**
+ * A child built on Node's EventEmitter, so every listener is kept and a test can SEE
+ * registrations and removals (`makeChild` keeps one handler per event, which hides both).
+ * `kill` returns false by default: the OS process does not exist yet.
+ */
+function makeEmitterChild(options: { killReturns?: boolean } = {}) {
+  const { killReturns = false } = options;
+  const child = new EventEmitter() as EventEmitter & {
+    kill: ReturnType<typeof vi.fn>;
+    postMessage: ReturnType<typeof vi.fn>;
+    pid: number;
+  };
+  child.kill = vi.fn(() => killReturns);
+  child.postMessage = vi.fn();
+  child.pid = 1;
+  return child;
+}
+
 describe('audiocap host reaping a child that has not spawned yet (#3245)', () => {
   it('re-kills on spawn when the first kill() reports the child does not exist', async () => {
     const { startAudiocapHost, killAudiocapHost } = await loadHost();
@@ -598,6 +617,175 @@ describe('audiocap host reaping a child that has not spawned yet (#3245)', () =>
     // would kill its successor's process if the handle were ever reused.
     expect(child.kill).toHaveBeenCalledTimes(1);
     expect(child.onceHandlers.spawn).toBeUndefined();
+  });
+
+  it('re-kills a spawn that arrives after any amount of time — the reap arms no timer', async () => {
+    vi.useFakeTimers();
+    const { startAudiocapHost, killAudiocapHost } = await loadHost();
+    const child = makeEmitterChild();
+    fork.mockReturnValue(child);
+
+    void startAudiocapHost(1, null);
+    const exitListenersBefore = child.listenerCount('exit');
+    killAudiocapHost();
+
+    // killAudiocapHost already cleared the handshake timer, so a pending timer here can
+    // only have come from the reap.
+    expect(vi.getTimerCount()).toBe(0);
+    expect(child.listenerCount('exit')).toBe(exitListenersBefore);
+    expect(child.listenerCount('spawn')).toBe(1);
+
+    // Run every timer there is: if the reap had a bound, the listener would be gone.
+    vi.runAllTimers();
+    expect(child.listenerCount('spawn')).toBe(1);
+
+    child.emit('spawn');
+    expect(child.kill).toHaveBeenCalledTimes(2);
+  });
+
+  it('a killed child that exits without ever spawning is not killed again and leaves no timer', async () => {
+    vi.useFakeTimers();
+    const { startAudiocapHost, killAudiocapHost } = await loadHost();
+    const child = makeEmitterChild();
+    fork.mockReturnValue(child);
+
+    void startAudiocapHost(1, null);
+    killAudiocapHost();
+    // Electron runs every exit listener.
+    child.emit('exit', 1);
+
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  describe('crash path: the child already exited on its own', () => {
+    it('does not kill() the dead child, inside or after the exit emit, and arms no spawn listener', async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      fork.mockReturnValue(child);
+
+      const started = startAudiocapHost(1, 42);
+      // Registered after the host's own exit handler, so it observes the state the
+      // handler left behind, still inside the emit. Electron 45 clears the JS handle only
+      // AFTER the emit, so a kill() made here would hit native Kill with a stale pid.
+      let killedInsideEmit = -1;
+      let spawnListenersInsideEmit = -1;
+      child.on('exit', () => {
+        killedInsideEmit = child.kill.mock.calls.length;
+        spawnListenersInsideEmit = child.listenerCount('spawn');
+      });
+
+      child.emit('exit', 1);
+
+      expect(killedInsideEmit).toBe(0);
+      expect(spawnListenersInsideEmit).toBe(0);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(child.listenerCount('spawn')).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(started).resolves.toEqual({ ok: false, reason: 'child-crash' });
+    });
+
+    it("keeps the reap on the 'error' path: the child may still be alive, so a failed kill arms the spawn re-kill", async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      fork.mockReturnValue(child);
+
+      const started = startAudiocapHost(1, 42);
+      child.emit('error');
+
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('spawn')).toBe(1);
+      await expect(started).resolves.toEqual({ ok: false, reason: 'child-crash' });
+
+      child.emit('spawn');
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('every other reap site re-kills a child that spawns late', () => {
+    it('handshake timeout', async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      fork.mockReturnValue(child);
+
+      const started = startAudiocapHost(1, 42);
+      await vi.advanceTimersByTimeAsync(HANDSHAKE_TIMEOUT_MS);
+
+      await expect(started).resolves.toEqual({ ok: false, reason: 'handshake-timeout' });
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('spawn')).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+
+      child.emit('spawn');
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    });
+
+    it('stop quiesce timer', async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost, stopAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      fork.mockReturnValue(child);
+
+      void startAudiocapHost(1, 42);
+      stopAudiocapHost();
+
+      // The stop is graceful: nothing is reaped until the quiesce bound.
+      expect(child.postMessage).toHaveBeenCalledWith({ kind: 'stop' });
+      expect(child.kill).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(150);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('spawn')).toBe(1);
+
+      child.emit('spawn');
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    });
+
+    it('stop catch path (postMessage throws)', async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost, stopAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      child.postMessage.mockImplementation(() => {
+        throw new Error('channel closed');
+      });
+      fork.mockReturnValue(child);
+
+      void startAudiocapHost(1, 42);
+      stopAudiocapHost();
+
+      // Reaped on the spot, no quiesce window.
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('spawn')).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+
+      child.emit('spawn');
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    });
+
+    it('drainStoppingChild (stop, then killAudiocapHost before the quiesce bound)', async () => {
+      vi.useFakeTimers();
+      const { startAudiocapHost, stopAudiocapHost, killAudiocapHost } = await loadHost();
+      const child = makeEmitterChild();
+      fork.mockReturnValue(child);
+
+      void startAudiocapHost(1, 42);
+      stopAudiocapHost();
+      expect(child.kill).not.toHaveBeenCalled();
+
+      killAudiocapHost();
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('spawn')).toBe(1);
+      // The drain cleared the quiesce timer, so the bound cannot reap a second time.
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(150);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+
+      child.emit('spawn');
+      expect(child.kill).toHaveBeenCalledTimes(2);
+    });
   });
 });
 
@@ -1909,7 +2097,7 @@ describe('mid-share interrupt publication (#3394 PR 2)', () => {
 
   // Mutation guard: dropping the `'child-crash'` arm of the exit-site `retire()`
   // call (audiocapHost.ts, the `child.on('exit', ...)` wiring) turns this red.
-  it("in 'capturing', a child exit publishes child-crash once and reaps", async () => {
+  it("in 'capturing', a child exit publishes child-crash once and does not kill the dead child", async () => {
     const onInterrupted = vi.fn();
     const { child } = await capturing(onInterrupted);
 
@@ -1917,7 +2105,33 @@ describe('mid-share interrupt publication (#3394 PR 2)', () => {
 
     expect(onInterrupted).toHaveBeenCalledTimes(1);
     expect(onInterrupted).toHaveBeenCalledWith({ generation: 1, reason: 'child-crash' });
-    expect(child.kill).toHaveBeenCalled();
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("in 'capturing', a child that exits on its own publishes child-crash once, never kill()s it and arms no spawn listener", async () => {
+    vi.useFakeTimers();
+    const host = await loadHost();
+    const onInterrupted = vi.fn();
+    host.setAudiocapInterruptListener(onInterrupted);
+    const child = makeEmitterChild();
+    fork.mockReturnValue(child);
+    host.setAudiocapPortSink(vi.fn());
+    const started = host.startAudiocapHost(1, 42);
+    child.emit('message', validHello());
+    child.emit('message', STARTED);
+    await expect(started).resolves.toEqual({ ok: true, generation: 1, perProcessAudio: true });
+
+    let killedInsideEmit = -1;
+    child.on('exit', () => {
+      killedInsideEmit = child.kill.mock.calls.length;
+    });
+    child.emit('exit', 1);
+
+    expect(onInterrupted).toHaveBeenCalledTimes(1);
+    expect(onInterrupted).toHaveBeenCalledWith({ generation: 1, reason: 'child-crash' });
+    expect(killedInsideEmit).toBe(0);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(child.listenerCount('spawn')).toBe(0);
   });
 
   // Mutation guard: dropping the "unknown message" fallback's interrupt argument
@@ -2079,7 +2293,9 @@ describe('mid-share interrupt publication (#3394 PR 2)', () => {
     });
     const { child } = await capturing(onInterrupted);
 
-    expect(() => child.handlers.exit(1)).not.toThrow();
+    expect(() =>
+      child.handlers.message({ kind: 'fault', stage: 'protocol', message: 'x' })
+    ).not.toThrow();
 
     expect(child.kill).toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith('[audiocap] interrupt listener threw');

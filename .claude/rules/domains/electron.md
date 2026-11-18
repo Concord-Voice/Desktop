@@ -1055,7 +1055,10 @@ goes silent with no notice, which is the pre-30 behaviour. Capability, not deman
   decision (`interrupt !== null && session === live && hostState === 'capturing'`) is taken
   at entry, before the session is forgotten; the listener itself runs LAST — after the child
   is reaped and the start promise settled — inside a `try`/`catch` so a throwing listener
-  cannot skip the reap or the settle.
+  cannot skip the reap or the settle. The crash path is the one exception to the reap: the
+  fork-time `exit` listener sets `childExited` before it calls `retire`, and `retire` skips
+  `reapChild` for a child that has already exited, so it neither kills nor reaps it. Every
+  other cause, `error` included, reaps first, then settles, then publishes.
 - **Renderer-side handling is documented in [`frontend.md`](frontend.md) § "Screen-share
   audio and source switching"** — this file's job is the wire contract, not the renderer
   response to it, which is still being written.
