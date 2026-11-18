@@ -11149,7 +11149,7 @@ class VoiceService {
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
       const result = await this.tryEncryptRebase(context, attempt, retryDelays.length);
       if (result === 'stop') return;
-      await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+      await new Promise((resolve) => setTimeout(resolve, retryDelays.at(attempt)));
       if (!this.isCurrentEncryptRebase(context)) return;
     }
   }
@@ -11229,7 +11229,8 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      const result = await this.runE2EEInitAttempt(context, attempt, retryDelays[attempt]);
+      // The final attempt has no delay: `.at()` yields undefined there, meaning no retry.
+      const result = await this.runE2EEInitAttempt(context, attempt, retryDelays.at(attempt));
       if (result.succeeded) return;
       lastError = result.error;
     }
@@ -11585,7 +11586,8 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      const result = await this.tryAddDecryptKey(context, attempt, retryDelays[attempt]);
+      // The final attempt has no delay: `.at()` yields undefined there, meaning no retry.
+      const result = await this.tryAddDecryptKey(context, attempt, retryDelays.at(attempt));
       if (result.status === 'success') return true;
       if (result.status === 'stale') return false;
       lastError = result.error;

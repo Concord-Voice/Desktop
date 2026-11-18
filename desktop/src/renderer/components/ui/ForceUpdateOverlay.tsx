@@ -17,11 +17,7 @@ const ESCAPE_AFTER_FAILURES = 2;
 /** Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b.
  *  Strips prerelease/build metadata (e.g. "0.2.0-beta.1" → "0.2.0") before comparing. */
 function compareSemver(a: string, b: string): number {
-  const strip = (v: string) =>
-    v
-      .replace(/[-+].*$/, '')
-      .split('.')
-      .map(Number);
+  const strip = (v: string) => v.split(/[-+]/, 1)[0].split('.').map(Number);
   const pa = strip(a);
   const pb = strip(b);
   for (let i = 0; i < 3; i++) {

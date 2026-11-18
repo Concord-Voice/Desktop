@@ -14,6 +14,7 @@ import { E2EEInitTeardownError } from '../../services/e2ee/e2eeErrors';
 import { errorMessage } from '../../utils/runtime/redactError';
 import { persistE2EESessionKeys } from '../../utils/crypto/persistE2EESessionKeys';
 import { parseContinuationPair, type ContinuationPair } from '../../utils/crypto/continuationPair';
+import { bufferToBase64url } from '../../utils/crypto/base64url';
 import { hydratePostLogin } from '../../services/system/postLoginHydration';
 import { beginPostLoginHydrationGuard } from '../../services/system/postLoginHydrationLifecycle';
 import { useAuthStore } from '../../stores/auth/authStore';
@@ -1328,23 +1329,16 @@ const Login: React.FC<LoginProps> = ({
     const pkc = credential as PublicKeyCredential;
     const response = pkc.response as AuthenticatorAssertionResponse;
 
-    // Encode ArrayBuffers as base64url (no padding) for the go-webauthn library
-    const toBase64url = (buf: ArrayBuffer): string => {
-      const bytes = new Uint8Array(buf);
-      let binary = '';
-      for (const byte of bytes) binary += String.fromCodePoint(byte);
-      return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
-    };
-
+    // go-webauthn reads unpadded base64url.
     const assertion = {
       id: pkc.id,
-      rawId: toBase64url(pkc.rawId),
+      rawId: bufferToBase64url(pkc.rawId),
       type: pkc.type,
       response: {
-        authenticatorData: toBase64url(response.authenticatorData),
-        clientDataJSON: toBase64url(response.clientDataJSON),
-        signature: toBase64url(response.signature),
-        userHandle: response.userHandle ? toBase64url(response.userHandle) : null,
+        authenticatorData: bufferToBase64url(response.authenticatorData),
+        clientDataJSON: bufferToBase64url(response.clientDataJSON),
+        signature: bufferToBase64url(response.signature),
+        userHandle: response.userHandle ? bufferToBase64url(response.userHandle) : null,
       },
     };
 

@@ -45,7 +45,7 @@ export function decideDropIndex(
 
   const gap = Number.isFinite(gapPx) && gapPx > 0 ? gapPx : 0;
   const first = rects[0];
-  const last = rects[rects.length - 1];
+  const last = rects.at(-1) ?? first;
   const y = Math.min(Math.max(pointerY, first.top - gap), last.bottom + gap);
 
   for (let i = 0; i < rects.length; i += 1) {
