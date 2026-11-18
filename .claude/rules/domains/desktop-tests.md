@@ -32,6 +32,12 @@ This applies to `importOriginal<…>()`, `importActual<…>()` and
 `vi.importActual<…>()`. A plain `typeof import('…')` in a type annotation, not
 followed by `()`, parses fine.
 
+The scan reads whole changed files, not just changed lines. An old occurrence
+fails the PR as soon as any edit touches its file, such as a dependency bump
+that adapts one assertion. Convert every occurrence in a file you touch, not
+only the lines you wrote. `desktop/tests` has none today, so a new one is the
+only way to bring this failure back.
+
 Check before you push:
 
 ```bash

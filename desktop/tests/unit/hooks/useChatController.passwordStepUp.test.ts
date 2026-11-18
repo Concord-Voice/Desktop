@@ -15,6 +15,7 @@ import {
   type Wire,
 } from '../../helpers/stepUpTokenWire';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // Reproduction for #3509 (Codex security P1), desktop half. Design spec
 // "Developer decisions, 2026-10-01", T-2, T-4, T-5: the account password goes
 // only to POST /api/v1/auth/step-up/password, which mints a single-use token,
@@ -51,7 +52,7 @@ vi.mock('@/renderer/services/messaging/pinService', () => ({
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
 });
 

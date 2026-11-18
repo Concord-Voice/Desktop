@@ -37,10 +37,11 @@ import {
   __signInEmailCodeSendCountForTests,
 } from '@/renderer/components/Auth/signInEmailCode';
 
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
 // Only main's SSO calls are replaced; the email send, the verify POST and the
 // logout go through MSW.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return {
     ...actual,
     completeSSOMFA: vi.fn(() => new Promise(() => {})),

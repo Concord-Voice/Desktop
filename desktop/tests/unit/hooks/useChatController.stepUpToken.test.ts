@@ -9,6 +9,7 @@ import type { ChatContext } from '@/renderer/types/chat';
 import { FIXTURE_PW, MINT_PATH } from '../../helpers/stepUpTokenWire';
 import { confirmAndSettle, confirmInFlight } from '../../helpers/confirmDelete';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // The delete flow's handling of the password step-up exchange (#3509): what a
 // mint refusal and a refused token do to the refusal slot, and the
 // stale-context guard across the mint round trip.
@@ -28,7 +29,7 @@ vi.mock('@/renderer/services/messaging/pinService', () => ({
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
 });
 

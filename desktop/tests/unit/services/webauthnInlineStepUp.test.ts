@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -28,6 +28,7 @@ import {
   setRuntimeServerBase,
 } from '@/renderer/services/system/runtimeServerBase';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

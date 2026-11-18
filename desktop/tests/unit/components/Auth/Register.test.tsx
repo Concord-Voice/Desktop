@@ -9,6 +9,7 @@ import { generateRegistrationKeys } from '@/renderer/utils/crypto/crypto';
 import { abandonSSOReservation } from '@/renderer/services/system/ssoService';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
 // Mock global fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -59,7 +60,7 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 // observed. Only abandonSSOReservation is replaced — the rest of the module is
 // real, so nothing else in this suite changes behavior.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return { ...actual, abandonSSOReservation: vi.fn().mockResolvedValue(true) };
 });
 

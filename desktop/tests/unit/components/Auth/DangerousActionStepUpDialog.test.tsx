@@ -14,7 +14,7 @@ import { installStepUpApi, jsonResponse, readOffers } from '../../../helpers/ste
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -27,6 +27,7 @@ import { captureApiRequestContext } from '@/renderer/services/system/requestCont
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // Named fixtures: the pre-commit detect-secrets hook flags credential-shaped keys.
 const FIXTURE_OTP = '314159';
 const FIXTURE_OTP_2 = '271828';

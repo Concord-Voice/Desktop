@@ -35,7 +35,7 @@ const { cameraTestState, mockToggleCameraTest, mockStopCameraTest } = vi.hoisted
 // ─── Mocks (MUST be before component imports) ───────────────────────────────
 
 vi.mock('@/renderer/stores/voice/voiceStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/voice/voiceStore')>();
+  const actual = await importOriginal<typeof VoiceStoreModule>();
   return {
     useVoiceStore: Object.assign(
       vi.fn((s: (state: Record<string, unknown>) => unknown) =>
@@ -163,6 +163,7 @@ import { useVideoSettingsStore } from '@/renderer/stores/voice/videoSettingsStor
 import { useDraftVideoSetting } from '@/renderer/hooks/ui/useDraftSettings';
 import { getCodecInfo } from '@/renderer/services/voice/mediaCapabilities';
 
+import type * as VoiceStoreModule from '@/renderer/stores/voice/voiceStore';
 // ─── Test codec data ────────────────────────────────────────────────────────
 
 const makeCodec = (

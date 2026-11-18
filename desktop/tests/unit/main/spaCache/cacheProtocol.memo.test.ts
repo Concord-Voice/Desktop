@@ -52,7 +52,7 @@ vi.mock('@/main/ipcContract', () => ({ IPC_CONTRACT_VERSION: 16 }));
 // re-run it. importOriginal preserves real verification behavior.
 const verifyManifestSpy = vi.fn();
 vi.mock('@/main/spaCache/verifyManifest', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/main/spaCache/verifyManifest')>();
+  const actual = await importOriginal<typeof VerifyManifestModule>();
   return {
     ...actual,
     verifyManifest: (...args: Parameters<typeof actual.verifyManifest>) => {
@@ -74,6 +74,7 @@ import {
 } from '@/main/spaCache/cacheStore';
 import { SPA_MANIFEST_FILENAME, SPA_MANIFEST_SIG_FILENAME } from '@/main/spaCache/manifestSchema';
 
+import type * as VerifyManifestModule from '@/main/spaCache/verifyManifest';
 const ENTRY_HTML = Buffer.from('<!doctype html><html><body>cache</body></html>');
 const ASSET_JS = Buffer.from('export const x = 1;\n');
 

@@ -5,9 +5,11 @@ import { useAudioSettingsStore } from '@/renderer/stores/audio/audioSettingsStor
 import { useTTSSettingsStore } from '@/renderer/stores/audio/ttsSettingsStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
+import type * as SettingsStoreModule from '@/renderer/stores/ui/settingsStore';
+import type * as ColorSyncSuppressionModule from '@/renderer/stores/ui/colorSyncSuppression';
 // Mock settingsStore's syncColorSchemeToServer (called via the draft apply flow).
 vi.mock('@/renderer/stores/ui/settingsStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/ui/settingsStore')>();
+  const actual = await importOriginal<typeof SettingsStoreModule>();
   return {
     ...actual,
     syncColorSchemeToServer: vi.fn(),
@@ -19,7 +21,7 @@ vi.mock('@/renderer/stores/ui/settingsStore', async (importOriginal) => {
 // import); the draft apply/teardown flow calls it from there.
 const setSyncSuppressedSpy = vi.fn();
 vi.mock('@/renderer/stores/ui/colorSyncSuppression', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/ui/colorSyncSuppression')>();
+  const actual = await importOriginal<typeof ColorSyncSuppressionModule>();
   return {
     ...actual,
     setSyncSuppressed: (...args: Parameters<typeof actual.setSyncSuppressed>) => {

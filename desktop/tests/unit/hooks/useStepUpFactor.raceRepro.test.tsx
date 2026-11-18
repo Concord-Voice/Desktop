@@ -16,7 +16,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -32,6 +32,7 @@ import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { resetRuntimeServerBase } from '@/renderer/services/system/runtimeServerBase';
 import type { StepUpRefusal } from '@/renderer/services/system/stepUpRefusal';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const READ = '/api/v1/mfa/step-up';
 const BEGIN = '/api/v1/mfa/webauthn/verify-inline/begin';
 const FINISH = '/api/v1/mfa/webauthn/verify-inline/finish';

@@ -22,13 +22,13 @@ import {
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
 const mockClassify = vi.hoisted(() => vi.fn());
 vi.mock('@/renderer/services/system/stepUpRefusal', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/stepUpRefusal')>();
+  const actual = await importOriginal<typeof StepUpRefusalModule>();
   mockClassify.mockImplementation(actual.classifyStepUpRefusal);
   return { ...actual, classifyStepUpRefusal: mockClassify };
 });
@@ -38,6 +38,8 @@ import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useTotpAcceptedStore } from '@/renderer/stores/auth/totpAcceptedStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
+import type * as StepUpRefusalModule from '@/renderer/services/system/stepUpRefusal';
 // Named fixtures: the pre-commit detect-secrets hook flags a credential-shaped
 // key beside a quoted literal regardless of the value.
 const FIXTURE_PW = 'fixture-password-do-not-persist';

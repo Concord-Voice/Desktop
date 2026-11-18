@@ -2,6 +2,7 @@ import { klipyProvider } from '@/renderer/services/messaging/gifProvider/klipyPr
 import type { KlipyGifItem } from '@/renderer/services/messaging/gifProvider/klipyClient';
 import { API_BASE } from '@/renderer/config';
 
+import type * as KlipyClientModule from '@/renderer/services/messaging/gifProvider/klipyClient';
 // Mock the low-level klipyClient so we can verify klipyProvider's translation logic
 // without making any real HTTP calls.
 const trendingMock = vi.fn();
@@ -16,7 +17,7 @@ const setPersonalizationEnabledMock = vi.fn();
 vi.mock('@/renderer/services/messaging/gifProvider/klipyClient', async (importOriginal) => {
   // Keep the real rewriteMediaUrl so URL-rewrite assertions stay accurate.
   const original =
-    await importOriginal<typeof import('@/renderer/services/messaging/gifProvider/klipyClient')>();
+    await importOriginal<typeof KlipyClientModule>();
   return {
     ...original,
     klipyClient: {

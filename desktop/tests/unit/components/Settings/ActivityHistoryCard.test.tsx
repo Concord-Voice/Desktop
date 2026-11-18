@@ -17,9 +17,10 @@ import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { vi } from 'vitest';
 import { deferred } from '../../../helpers/deferred';
 
+import type * as PresenceHistoryServiceModule from '@/renderer/services/system/presenceHistoryService';
 vi.mock('@/renderer/services/system/presenceHistoryService', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@/renderer/services/system/presenceHistoryService')>();
+    await importOriginal<typeof PresenceHistoryServiceModule>();
   return {
     ...actual,
     getPresenceHistorySettings: vi.fn(),

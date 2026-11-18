@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '../../../test-utils';
 import ChannelSwitcher from '@/renderer/components/ui/ChannelSwitcher';
 
+import type * as ReactRouterModule from 'react-router';
 vi.mock('@/renderer/components/ui/ChannelSwitcher.css', () => ({}));
 
 const mockNavigate = vi.fn();
 vi.mock('react-router', async () => {
-  const actual = await vi.importActual<typeof import('react-router')>('react-router');
+  const actual = await vi.importActual<typeof ReactRouterModule>('react-router');
   return { ...actual, useNavigate: () => mockNavigate };
 });
 

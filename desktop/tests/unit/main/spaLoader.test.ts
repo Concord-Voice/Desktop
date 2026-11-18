@@ -39,6 +39,7 @@ import {
   SPA_NO_CACHE_LOAD_OPTIONS,
 } from '@/main/spaLoader';
 
+import type * as IpcContractModule from '@/main/ipcContract';
 const mockNet = net as unknown as { fetch: ReturnType<typeof vi.fn> };
 const mockGetApiBase = getCredentialApiBase;
 const mockGetBuildSha7 = getBuildSha7 as unknown as ReturnType<typeof vi.fn>;
@@ -565,7 +566,7 @@ describe('classifyFallbackReason (#2401)', () => {
 
 describe('authenticated PiP rollout safety', () => {
   it('keeps released pre-contract-26 shells on the authenticated remote renderer', async () => {
-    const actual = await vi.importActual<typeof import('@/main/ipcContract')>('@/main/ipcContract');
+    const actual = await vi.importActual<typeof IpcContractModule>('@/main/ipcContract');
 
     expect(
       actual.SPA_MIN_CONTRACT,

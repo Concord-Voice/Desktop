@@ -28,6 +28,7 @@ import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 import { useFileUpload } from '@/renderer/hooks/messaging/useFileUpload';
 
+import type * as AttachmentCryptoModule from '@/renderer/utils/crypto/attachmentCrypto';
 const h = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   /** Runs while a legacy seal is in flight (WebCrypto dispatched, not resolved). */
@@ -43,7 +44,7 @@ vi.mock('@/renderer/services/system/apiClient', () => ({
 // Legacy path: dispatch the real AES-GCM, then run the scenario while it is
 // pending, which is exactly where a WebSocket handler can run.
 vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
-  const actual = await vi.importActual<typeof import('@/renderer/utils/crypto/attachmentCrypto')>(
+  const actual = await vi.importActual<typeof AttachmentCryptoModule>(
     '@/renderer/utils/crypto/attachmentCrypto'
   );
   return {

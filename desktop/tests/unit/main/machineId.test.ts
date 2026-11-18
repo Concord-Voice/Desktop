@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as NodeCryptoModule from 'node:crypto';
 const { files, mkdirCalls, randomUUID, writes } = vi.hoisted(() => {
   let counter = 0;
   return {
@@ -16,7 +17,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('node:crypto', async () => {
-  const actual = await vi.importActual<typeof import('node:crypto')>('node:crypto');
+  const actual = await vi.importActual<typeof NodeCryptoModule>('node:crypto');
   return {
     ...actual,
     randomUUID,

@@ -9,6 +9,8 @@ import StepUpCredentials from '@/renderer/components/Auth/StepUpCredentials';
 import { purgeMessages } from '@/renderer/services/messaging/purgeApi';
 import { usePrivacyStore } from '@/renderer/stores/ui/privacyStore';
 
+import type * as PurgeApiModule from '@/renderer/services/messaging/purgeApi';
+import type * as StepUpCredentialsModule from '@/renderer/components/Auth/StepUpCredentials';
 // #3456 (C82): a purge stage opened by a challenge works against the account
 // and server the challenged purge went out as. Its re-send and its "Set up
 // verification" use that capture, never one its factor hook takes when the
@@ -20,12 +22,12 @@ import { usePrivacyStore } from '@/renderer/stores/ui/privacyStore';
 // is the claim: one the hook took for itself would be equal but not identical.
 
 vi.mock('@/renderer/services/messaging/purgeApi', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/messaging/purgeApi')>();
+  const actual = await importOriginal<typeof PurgeApiModule>();
   return { ...actual, purgeMessages: vi.fn(actual.purgeMessages) };
 });
 vi.mock('@/renderer/components/Auth/StepUpCredentials', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@/renderer/components/Auth/StepUpCredentials')>();
+    await importOriginal<typeof StepUpCredentialsModule>();
   return { ...actual, default: vi.fn(actual.default) };
 });
 const purgeSpy = vi.mocked(purgeMessages);
