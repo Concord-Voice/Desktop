@@ -20,8 +20,8 @@
 # No network. No `gh` calls. Independently testable from fixtures.
 #
 # Dependencies: bash 4+, python3 with PyYAML, jq 1.6+. python3 is pre-installed
-# on ubuntu-latest GHA runners; PyYAML is installed by pr-ci.yml's existing
-# `pip install --user --quiet pyyaml` step in the workflow-lint job (and is
+# on ubuntu-latest GHA runners; PyYAML is installed by pr-ci.yml's hash-locked
+# install of .github/requirements-pyyaml.txt in the workflow-lint job (and is
 # pre-installed on most developer macOS/Linux systems).
 #
 # Matching the existing repo precedent — other lint scripts under

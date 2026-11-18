@@ -109,6 +109,7 @@ jobs:
         # The pip install below re-downloads the semgrep wheel set
         # (~30 MB incl. deps) on every run. Caching pip's wheel cache
         # keyed on the pinned version makes the install a local unpack.
+        # A cached wheel is still checked against the lock's hashes.
         # Stock actions/cache is deliberate: Blacksmith transparently
         # intercepts it against the colocated cache (ADR-0016 §Decision 4
         # verification note, #1438) — do NOT swap to the archived
@@ -116,20 +117,37 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pip
-          key: pip-semgrep-${{ runner.os }}-py${{ steps.py.outputs.version }}-${{ env.SEMGREP_VERSION }}-${{ hashFiles('.github/requirements-semgrep.txt') }}
+          key: pip-semgrep-${{ runner.os }}-py${{ steps.py.outputs.version }}-${{ env.SEMGREP_VERSION }}
 
       - name: Install Semgrep
         if: inputs.run-custom || inputs.run-community || inputs.run-canary
+        env:
+          # actionlint v1.7.12 predates these official job identity properties.
+          WORKFLOW_REPOSITORY: ${{ fromJSON(toJSON(job)).workflow_repository }}
+          WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
         run: |
           set -euo pipefail
           # Hash-locked install (OpenSSF Scorecard Pinned-Dependencies). The lock
           # must name the same version as SEMGREP_VERSION, or the bump is half-done.
           # --no-deps: the lock overrides Semgrep's own OpenTelemetry and mcp pins to
           # fixed versions (every release pins vulnerable ones); see the lock header.
-          grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" .github/requirements-semgrep.txt \
-            || { echo "::error::.github/requirements-semgrep.txt does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
+          # A protected run reads the lock from the immutable workflow commit, never
+          # from the checked-out PR: the PR must not choose code this job executes.
+          lock=.github/requirements-semgrep.txt
+          if [[ "$EXTERNAL_VERDICT" == true ]]; then
+            if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop || ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Protected Semgrep workflow identity is unavailable or invalid."
+              exit 1
+            fi
+            git cat-file -e "${WORKFLOW_SHA}^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet origin "$WORKFLOW_SHA"
+            lock="$RUNNER_TEMP/requirements-semgrep.txt"
+            git show "${WORKFLOW_SHA}:.github/requirements-semgrep.txt" > "$lock"
+          fi
+          grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" "$lock" \
+            || { echo "::error::$lock does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
           python3 -m pip install --user --disable-pip-version-check --require-hashes --no-deps \
-            --only-binary=:all: -r .github/requirements-semgrep.txt
+            --only-binary=:all: -r "$lock"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run Semgrep (custom rules)

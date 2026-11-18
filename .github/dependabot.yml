@@ -226,7 +226,7 @@ updates:
 
   # ─── Python (pre-commit / workflow tooling) ────────────────────────
   # .github/requirements-pyyaml.txt is consumed by pr-ci.yml,
-  # workflow-validate.yml and the pin check in required-pr-build.yml, which
+  # workflow-validate.yml, ioc-scanning.yml and the pin check in required-pr-build.yml, which
   # installs it on the runner's system Python, so it
   # carries the cp312-cp314 x86_64 wheel hashes. It appeared in the CycloneDX
   # SBOM as the sole pkg:pypi component, so it was the one ecosystem in the
@@ -253,7 +253,9 @@ updates:
       - "area: ci-cd"
     open-pull-requests-limit: 5
     ignore:
+      # Version updates only: update-types never filters security updates.
       - dependency-name: "semgrep"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
     groups:
       python-tooling:
         patterns:

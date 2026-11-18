@@ -2720,6 +2720,11 @@ policy_case_diagnostic "classifier data job checks out PR head" \
   ".github/workflows/classify-release-comment.yml" \
   'ref: ${{ github.sha }}' \
   'ref: ${{ github.event.pull_request.head.sha }}'
+policy_case_diagnostic "classifier data job checks out the event base SHA" \
+  "classify-data must not check out or execute PR-head code" replace_once \
+  ".github/workflows/classify-release-comment.yml" \
+  'ref: ${{ github.sha }}' \
+  'ref: ${{ github.event.pull_request.base.sha }}'
 policy_case_diagnostic "classifier base checkout loses full history" \
   "classify-data must check out the protected base with full history and persist-credentials: false" replace_in_job_once \
   ".github/workflows/classify-release-comment.yml" classify-data \

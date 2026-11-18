@@ -2,13 +2,15 @@
 # Keep semgrep== in step with SEMGREP_VERSION there; the workflow fails if they differ.
 # Every Semgrep release pins a vulnerable opentelemetry-api (and 1.186.0 a vulnerable mcp),
 # so the lock overrides those to fixed versions; `pip check` reports the override, by design.
-# Regenerate: echo "semgrep==<version>" > semgrep.in && printf "%s\n" \
+# Regenerate (keeps this header; run from the repo root):
+#   d=$(mktemp -d) && echo "semgrep==<version>" > "$d/semgrep.in" && printf "%s\n" \
 #   'opentelemetry-api>=1.45.2' 'opentelemetry-sdk>=1.45.2' 'opentelemetry-exporter-otlp-proto-http>=1.45.2' \
 #   'opentelemetry-exporter-otlp-proto-common>=1.45.2' 'opentelemetry-proto>=1.45.2' \
 #   'opentelemetry-instrumentation>=0.50b0' 'opentelemetry-instrumentation-requests>=0.50b0' \
-#   'opentelemetry-semantic-conventions>=0.50b0' 'opentelemetry-util-http>=0.50b0' 'mcp>=1.30.0,<2' > overrides.txt &&
-#   uv pip compile semgrep.in --universal --generate-hashes --python-version 3.12 --no-header \
-#   --override overrides.txt -o .github/requirements-semgrep.txt
+#   'opentelemetry-semantic-conventions>=0.50b0' 'opentelemetry-util-http>=0.50b0' 'mcp>=1.30.0,<2' > "$d/overrides.txt" &&
+#   (cd "$d" && uv pip compile semgrep.in --universal --generate-hashes --python-version 3.12 --no-header \
+#   --override overrides.txt -o lock.txt) && { sed '/^[^#]/,$d' .github/requirements-semgrep.txt; cat "$d/lock.txt"; } \
+#   > "$d/new.txt" && mv "$d/new.txt" .github/requirements-semgrep.txt
 annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
@@ -461,7 +463,7 @@ mcp==1.30.0 \
     --hash=sha256:445414625fce5c295faa505bb11bacece661ab6f4028d57c935db57820b7a3e4 \
     --hash=sha256:666edb5009503e1047c9d60346a756f94b261f05cc2625f23d41c728ffc484d0
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   semgrep
 mdurl==0.1.2 \
     --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 \
@@ -471,7 +473,7 @@ opentelemetry-api==1.45.2 \
     --hash=sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34 \
     --hash=sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-exporter-http-transport
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-instrumentation
@@ -492,26 +494,26 @@ opentelemetry-exporter-otlp-proto-common==1.45.2 \
     --hash=sha256:af483b24217028892f017096731b794b196b785025d2e6808874720fd0b05a80 \
     --hash=sha256:f1f2806f3f28ce7938033823e50934fcd91595a39de38e69a28a51e19f40fc6d
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-exporter-otlp-proto-http==1.45.2 \
     --hash=sha256:5984a3fb46bc4628e4e2b85d4a6e72637e03962aae6cf372791137768a4ad939 \
     --hash=sha256:6e4d025138829d0ee57946930c2ccad6491ad4d92a958e9c7eea69278fe60cfc
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   semgrep
 opentelemetry-instrumentation==0.66b2 \
     --hash=sha256:02b094150e53b76f5906d75e628dbb3833bbc6e62fa109b5c7ba0c081865e923 \
     --hash=sha256:fa9ccfdab147a14af8107d19ef0a7b5015675273c5adced7a1fc38f28b42ec4c
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-instrumentation-requests
     #   opentelemetry-instrumentation-threading
 opentelemetry-instrumentation-requests==0.66b2 \
     --hash=sha256:b0ba903a0bd7ebb234c8b32d3d957efc4061ba8571916558dc3f3dcdabb5e5e1 \
     --hash=sha256:bcfbdc3ff3ec8524044908788f0e7f3c25e219053b496fd9926d75f8d7c7bc96
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   semgrep
 opentelemetry-instrumentation-threading==0.66b2 \
     --hash=sha256:512e0d4b568eff36ca15a977b507ddc1e64a38f93dbcafa4e701b3555b066991 \
@@ -521,14 +523,14 @@ opentelemetry-proto==1.45.2 \
     --hash=sha256:03a7ca1b43f89fd5b965d5975902bb2515c0c86e2428b456836e9a6149c6235a \
     --hash=sha256:bd8d23cf770605b0af9b7be2071d26a464fea289d35429abfd2a66226114ad64
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-sdk==1.45.2 \
     --hash=sha256:7eec4de13dd21ff3a1670dcb0e02079e692736f94d733dfdce5af461d884248d \
     --hash=sha256:ff974ea70ee4f1d51e2ec152db37c2b626c7bf82bb3f7d86114fd8704e7199c6
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-exporter-otlp-common
     #   opentelemetry-exporter-otlp-proto-http
     #   semgrep
@@ -536,7 +538,7 @@ opentelemetry-semantic-conventions==0.66b2 \
     --hash=sha256:4cbe61e5f9275d57ab31708446e7938ef4291ebbe6a7fca6f7a629c5acae87d8 \
     --hash=sha256:7da5f1a5dc4383eb66711d4d3d3e71824d9403ac1559fea021cc103c1a4c4976
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-instrumentation
     #   opentelemetry-instrumentation-requests
     #   opentelemetry-sdk
@@ -544,7 +546,7 @@ opentelemetry-util-http==0.66b2 \
     --hash=sha256:7ba066ea609202e474679ddf1d0f753a1e6619bd206b36afaecba4bbb86e25d0 \
     --hash=sha256:c4bb5d6744e60353bcaa3e325bc529a1515346b51cb4d9c8e5b730579337e06d
     # via
-    #   --override otel-override.txt
+    #   --override overrides.txt
     #   opentelemetry-instrumentation-requests
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
@@ -994,7 +996,7 @@ semgrep==1.186.0 \
     --hash=sha256:bd0cfe78d0fab4da9a27e591c7dfde118757fba71e483b74bc2007ef695a1108 \
     --hash=sha256:bde206edcfa9ac2f5ed5e3fc58d1c675b4e9979a716ecb46b4e60e6bb6a035a4 \
     --hash=sha256:efb8dde6c4041eeb51d001bc379f6860a403f2bbc351c001551439e2ce6f6320
-    # via -r s186.in
+    # via -r semgrep.in
 sse-starlette==3.7.0 \
     --hash=sha256:326416da2ab52e9a41b3f409d3ff897eda45aa68c9f3b7b17d0913aab8d219c3 \
     --hash=sha256:f1d3136caa12d129284fca3d2ded79bc9af943320b6472712955fea52a6d3eea
