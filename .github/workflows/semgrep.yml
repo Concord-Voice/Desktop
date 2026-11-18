@@ -72,6 +72,8 @@ jobs:
       # .github/requirements-semgrep.txt (the install fails if they differ).
       SEMGREP_VERSION: '1.186.0'
       EXTERNAL_VERDICT: ${{ inputs.external-verdict }}
+      # Keep the checked-out PR off sys.path: a planted pip/ or json.py must not run.
+      PYTHONSAFEPATH: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -54,6 +54,7 @@ class SemgrepLockTests(unittest.TestCase):
         self.assertEqual(self.install["env"]["WORKFLOW_SHA"],
                          "${{ fromJSON(toJSON(job)).workflow_sha }}")
         self.assertEqual(self.job["env"]["EXTERNAL_VERDICT"], "${{ inputs.external-verdict }}")
+        self.assertEqual(self.job["env"]["PYTHONSAFEPATH"], "1")
 
 
 class IocPyyamlLockTests(unittest.TestCase):
