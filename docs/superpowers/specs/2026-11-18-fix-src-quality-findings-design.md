@@ -49,7 +49,7 @@ Every finding was checked against `main` at `53d34119`. All of them were still p
 | CodeQL #14 incompatible types | `DirectMessages/ConversationList.tsx:1204` | Fixed | `isOpen={purgeTarget !== null}` inside `purgeTarget &&` → `isOpen`. |
 | CodeQL #13 implicit conversion | `main/authority/primitives.ts:36` | False positive | All operands are `bigint`, including `P384_B`, a hex BigInt literal. JS does not convert implicitly in BigInt arithmetic, and mixed types throw `TypeError`. |
 | CodeQL #21 superfluous args | `spikes/capture-gate/main.mjs:156` | Fixed | The initial `requestAnswer` now declares the `(permission, details)` parameters that the reassigned versions take. |
-| CodeQL #51 useless assignment | `scripts/authority-vectors/gen.mjs:1167` | Fixed | `let accepted = true;` → `let accepted;`. Both branches assign it. |
+| CodeQL #51 useless assignment | `scripts/authority-vectors/gen.mjs:1167` | Won't fix | The initial value is dead, but harmless. `vectors.json` pins the SHA-384 of `gen.mjs`, so any edit means regenerating the shared cross-language vectors, and regeneration redraws random keys and rewrites all 1046 vectors. A no-op cleanup does not justify that churn in a contract file. Tried: the edit failed `vectors.coverage.test.ts`. |
 
 ## Verification
 

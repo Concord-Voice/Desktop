@@ -9,8 +9,8 @@ Branch: `fix/src-quality-findings`.
    the old regexes and times it on hostile input.
 2. **Log injection.** In `errorMessage()`, replace control characters with spaces.
 3. **CodeQL reliability.** Change MessageList (remove the dead anchor parameter),
-   OverridePanel, ConversationList, the voiceService retry loops, the spike and the
-   generator script.
+   OverridePanel, ConversationList, the voiceService retry loops and the spike. The
+   generator script stays unchanged (see the spec).
 4. **Sonar style items.** Change SSOEagerUnlock (extract the failure helper),
    decideDropIndex, the `self` references in e2eeWorker, and the conditional skips in
    the e2e spec.
