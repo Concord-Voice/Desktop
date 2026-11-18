@@ -22,16 +22,16 @@
  */
 
 /**
- * Control characters (Unicode Cc), line/paragraph separators (U+2028/9) and
- * bidi overrides/isolates become spaces, so a message carrying server- or
- * peer-supplied text cannot forge or visually reorder log lines.
+ * Control characters (Unicode Cc), line/paragraph separators (U+2028/9) and every
+ * Unicode bidi control (marks, embeddings, overrides, isolates) become spaces, so text
+ * carrying server- or peer-supplied content cannot forge or visually reorder log lines.
  */
+const LINE_FORGING = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu;
+
 export function errorMessage(err: unknown): string {
-  return err instanceof Error
-    ? err.message.replaceAll(/[\p{Cc}\p{Zl}\p{Zp}\u202A-\u202E\u2066-\u2069]/gu, ' ')
-    : 'unknown_error';
+  return err instanceof Error ? String(err.message).replaceAll(LINE_FORGING, ' ') : 'unknown_error';
 }
 
 export function errorName(err: unknown): string {
-  return err instanceof Error ? err.name : 'unknown';
+  return err instanceof Error ? String(err.name).replaceAll(LINE_FORGING, ' ') : 'unknown';
 }

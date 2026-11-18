@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { bufferToBase64url } from '@/renderer/utils/crypto/base64url';
 import { buildInviteUrl, extractInviteCodes } from '@/renderer/utils/messaging/inviteUrl';
-import { errorMessage } from '@/renderer/utils/runtime/redactError';
+import { errorMessage, errorName } from '@/renderer/utils/runtime/redactError';
 
 // The pre-rewrite implementations, kept here as the reference the new code must match.
 const legacyBase64url = (buf: ArrayBuffer): string => {
@@ -69,6 +69,42 @@ describe('errorMessage scrubs line-forging characters', () => {
   it('replaces control, separator and bidi characters with spaces', () => {
     const raw = 'a\r\nb\u2028c\u2029d\u202Ee\u2066f\u0000g';
     expect(errorMessage(new Error(raw))).toBe('a  b c d e f g');
+  });
+
+  // Each end of every range, plus C1 (U+0085), DEL and the implicit bidi marks, so
+  // narrowing a range fails. Code points, not literals: the characters are invisible.
+  const scrubbed = [
+    0x00, 0x1f, 0x7f, 0x85, 0x9f, 0x61c, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c,
+    0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069,
+  ];
+  it.each(scrubbed)('scrubs U+%s', (cp) => {
+    expect(errorMessage(new Error(`a${String.fromCodePoint(cp)}b`))).toBe('a b');
+  });
+
+  it('leaves ordinary text, including neighbours of the ranges, unchanged', () => {
+    const plain = [
+      'a',
+      'b',
+      'é',
+      ...[0x2027, 0x202f, 0x2065, 0x206a, 0x200d].map((cp) => String.fromCodePoint(cp)),
+    ].join(' ');
+    expect(errorMessage(new Error(plain))).toBe(plain);
+  });
+
+  it('scrubs the error name too', () => {
+    const err = new Error('x');
+    err.name = `Type${String.fromCodePoint(0x0a)}Error`;
+    expect(errorName(err)).toBe('Type Error');
+  });
+
+  it('does not throw on an Error whose message is not a string', () => {
+    const err = new Error('x');
+    (err as unknown as { message: unknown }).message = 42;
+    expect(errorMessage(err)).toBe('42');
+  });
+
+  it('returns unknown_error for a non-Error value', () => {
+    expect(errorMessage('a\nb')).toBe('unknown_error');
   });
 });
 

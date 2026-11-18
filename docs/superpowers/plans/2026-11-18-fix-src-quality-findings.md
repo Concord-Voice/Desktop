@@ -12,10 +12,12 @@ Branch: `fix/src-quality-findings`.
    OverridePanel, ConversationList, the voiceService retry loops and the spike. The
    generator script stays unchanged (see the spec).
 4. **Sonar style items.** Change SSOEagerUnlock (extract the failure helper),
-   decideDropIndex, the `self` references in e2eeWorker, and the conditional skips in
-   the e2e spec.
-5. **Record each false positive and accepted finding** with its reason in SonarCloud.
-   The CodeQL quality findings are closed when the new analysis runs.
+   decideDropIndex and the conditional skips in the e2e spec. e2eeWorker stays
+   unchanged (see the spec).
+5. **Record each false positive and accepted finding** with its reason in SonarCloud and
+   in `docs/ci/sonarqube-false-positive-register.md`. Fixed CodeQL findings close on the
+   next analysis. CodeQL #9-#13 (false positive) and #51 (won't fix) stay open, because
+   the code-quality API has no dismiss endpoint; their reasons are in the spec and the PR.
 6. **Verify.** Run `tsc` (renderer and main), eslint, prettier and the full unit
    suite.
 7. **Review.** At Phase 4, run red-team and e2ee-reviewer on the auth, crypto and

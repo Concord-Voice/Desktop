@@ -7,15 +7,21 @@ Ad-hoc hygiene work, no issue. Scope: the open SonarCloud issues (all rules exce
 unit-test assertion sweep are handled in separate PRs.
 
 Every finding was checked against `main` at `53d34119`. All of them were still present.
+Line numbers below are as of that commit.
 
 ## Approach
 
 - **Fix** when the finding is a real defect, or the fix is small and does not change
   behavior.
-- **False positive** when the analyzer cannot see why the code is correct. The reason
-  is recorded below and on the finding.
-- **Accept** when the rule is a style preference and following it would make the code
-  less clear or less safe.
+- **False positive** when the rule is wrong about this instance: the analyzer cannot see
+  why the code is correct, or the suggested change would make it less clear or less safe.
+  The reason is recorded below, on the finding, and in
+  `docs/ci/sonarqube-false-positive-register.md`, whose ACCEPTED vs FALSE_POSITIVE
+  definitions this sweep follows.
+- **Accepted** when the rule is right, but the fix is not available. This sweep has one,
+  which the register's `S7764` note already classifies this way.
+- **Won't fix** for a CodeQL finding that is real but not worth its cost. This sweep has
+  one (#51).
 
 ## Dispositions
 
@@ -26,19 +32,19 @@ Every finding was checked against `main` at `53d34119`. All of them were still p
 | S8786 | `ui/ForceUpdateOverlay.tsx:22` | Fixed | `.replace(/[-+].*$/, '')` → `.split(/[-+]/, 1)[0]`. |
 | S8786 | `utils/messaging/inviteUrl.ts:43` | Fixed | The URL scan now splits on single delimiter characters and finds the scheme with `/https?:\/\//i` on the original string. The red-team pass found that a first draft took indexes from `toLowerCase()`, which changes length for U+0130 and let a look-alike link pass the host check; a test pins that case. The pathname's trailing-slash strip (`/\/+$/`, quadratic, existed before) is now a loop too. |
 | S8786 | `utils/messaging/inviteUrl.ts:46` | Fixed | Trailing punctuation is trimmed with a loop, not `/[…]+$/`. |
-| S5145 log injection | `services/system/notificationPrefsService.ts:169` | Fixed | `errorMessage()` replaces Unicode control characters (`\p{Cc}`), U+2028/U+2029 and the bidi overrides/isolates with a space, so no logged message can add or reorder a line. The change applies to every call site; no caller parses the output. |
+| S5145 log injection | `services/system/notificationPrefsService.ts:169` | Fixed | In `utils/runtime/redactError.ts`, `errorMessage()` and `errorName()` replace Unicode control characters (`\p{Cc}`), U+2028/U+2029 and the bidi marks (U+061C, U+200E, U+200F), overrides and isolates with a space, so no logged text can add or reorder a line. The change applies to every call site; no caller parses the output. |
 | S6847 / S6819 | `Layout/DockShell.tsx:204` | False positive | A focusable `role="separator"` with `aria-valuenow`/`min`/`max` is the WAI-ARIA window-splitter widget. That widget is interactive, so it must have handlers. An `<hr>` cannot be a splitter. Keyboard resize already works through `onKeyDown`. |
 | S6747 `closedby` | `ui/ConnectionLostOverlay.tsx:264`, `ui/ForceUpdateOverlay.tsx:234` | False positive | `closedby` is a standard HTML `<dialog>` attribute. `@types/react` 19.3 declares it (`closedby?: "any" \| "closerequest" \| "none"`), and `useTopLayerDialog` reads it. |
-| S3776 complexity | `Auth/SSOEagerUnlock.tsx:126` | Fixed | The non-2xx keys-response handling moved into `describeKeysFetchFailure`. Behavior is unchanged. |
-| S6564 alias | `main/ipcContract.ts:450` | Accepted | `CredentialOwner` is the documented opaque IPC type. Its JSDoc defines the contract, and three processes import it. Replacing it with `number` would remove that contract. |
-| S9423 `!important` | `common/PremiumGate.css:61-62`, `styles/index.css:254-256` | Accepted | Reduced-motion and reduce-animations overrides. They must beat component rules, so `!important` is needed. |
-| S9423 | `styles/pride-flourishes.css:86` | Accepted | The pride scrollbar must beat per-component scrollbar styles. The comment says so. |
+| S3776 complexity | `Auth/SSOEagerUnlock.tsx:126` | Fixed | The non-2xx keys-response handling moved into `describeKeysFetchFailure`. The caller only ever raises `reauthRequired`. Behavior is unchanged. |
+| S6564 alias | `main/ipcContract.ts:450` | False positive | `CredentialOwner` is the documented opaque IPC type. Its JSDoc defines the contract, and three processes import it. Replacing it with `number` would remove that contract. New register note `typescript:S6564`. |
+| S9423 `!important` | `common/PremiumGate.css:61-62`, `styles/index.css:254-256` | False positive | Reduced-motion and reduce-animations overrides. They must beat component rules, so `!important` is needed. Register note `css:S9423`. |
+| S9423 | `styles/pride-flourishes.css:86` | False positive | The pride scrollbar must beat per-component scrollbar styles. The comment says so. Register note `css:S9423`. |
 | S7747 spread | `main/connectionRegistry.ts:399,408`, `main/tokenManager.ts:492` | False positive | The spread copies the listener set on purpose. A listener can subscribe or unsubscribe while it runs, and a live `Set` iterator would then visit a late subscriber or skip one. |
-| S7764 `globalThis` | `voice/screenAudioBridge.ts:205` | False positive | The comment explains it: `globalThis` does not typecheck against `MessageEventSource` (TS2367). |
+| S7764 `globalThis` | `voice/screenAudioBridge.ts:205` | Accepted | The rule is right at runtime, but `globalThis` does not typecheck against `MessageEventSource` (TS2367), and a double cast would blind the check that refuses forged messages. The register's `S7764` third sub-case records this as ACCEPTED. |
 | S7764 | `Settings/NotificationSection.tsx:154`, `Settings/AccessibilitySection.tsx:299` | False positive | `globalThis.setTimeout` resolves to the Node overload here, which returns `Timeout`. The refs hold the DOM `number` handle. Tried: `tsc` fails with TS2322. |
-| S7764 | `workers/e2eeWorker.ts:92,105,180` | Accepted | `self` is the WorkerGlobalScope's own name, and the worker's unit harness injects a fake scope with `vi.stubGlobal('self', …)`. Tried: switching to `globalThis` failed 10 of the 12 worker tests. |
+| S7764 | `workers/e2eeWorker.ts:92,105,180` | False positive | `self` is the WorkerGlobalScope's own name, and the worker's unit harness injects a fake scope with `vi.stubGlobal('self', …)`. Tried: switching to `globalThis` failed 10 of the 12 worker tests. Register note `typescript:S7764` (a). |
 | S7755 `.at()` | `policy/decideDropIndex.ts:48` | Fixed | `rects.at(-1) ?? first`. The empty case returns earlier. |
-| S6582 optional chain | `e2ee/e2eeService.ts:505` | Accepted | `receipt === null \|\| this.sessionKeys !== receipt.sessionKeys` is an explicit null guard on an E2EE path. `receipt?.sessionKeys` would compare against `undefined`, and the next clause would still need its own guard. |
+| S6582 optional chain | `e2ee/e2eeService.ts:505` | False positive | `receipt === null \|\| this.sessionKeys !== receipt.sessionKeys` is an explicit null guard on an E2EE path. `receipt?.sessionKeys` would compare against `undefined`, and the next clause would still need its own guard. Register note `typescript:S6582`. |
 | S1607 skipped tests | `tests/e2e/bundled-fallback-login.spec.ts:47,99,134` | Fixed | `if (…) test.skip(true, …)` → `test.skip(condition, …)`. The skips are runtime preconditions (no built bundle, a non-packaged launch) and the reasons stay in place. |
 | CodeQL #9 missing-await | `Settings/MFASetup.tsx:170` | False positive | `slot.current === next` compares promise identity for de-duplication. Adding `await` would break it. |
 | CodeQL #10 | `hooks/messaging/useWebSocket.ts:207` | False positive | Same pattern: the in-flight map entry is deleted only if it still holds this promise. |
@@ -56,6 +62,9 @@ Every finding was checked against `main` at `53d34119`. All of them were still p
 - `tests/unit/utils/regexLinearRewrites.test.ts` compares the old regex
   implementations with the new code on normal inputs, and times them on long hostile
   input.
+- `tests/unit/utils/regexLinearRewrites.test.ts` also checks each end of every scrubbed
+  character range, and `ForceUpdateOverlay.test.tsx` checks `+build` metadata.
 - The existing suites for base64url, inviteUrl, ForceUpdateOverlay, SSOEagerUnlock and
   MessageList still pass.
+- New false-positive markings have rows in `docs/ci/sonarqube-false-positive-register.md`.
 - No CSS or rendered output changes, so no visual capture is needed.

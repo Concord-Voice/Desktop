@@ -198,8 +198,7 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
     if (!res.ok) {
       const failure = await describeKeysFetchFailure(res);
       setError(failure.message);
-      // Submit returns early while reauthRequired is set, so this only ever raises it.
-      setReauthRequired(failure.reauthRequired);
+      if (failure.reauthRequired) setReauthRequired(true);
       setSubmitting(false);
       return;
     }

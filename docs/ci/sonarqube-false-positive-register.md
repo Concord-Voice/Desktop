@@ -303,9 +303,43 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 | Rationale | The value only spreads a `setTimeout` delay so clients do not race. It never becomes key material, a token, a nonce or a session id. |
 | Disposition | Per-instance `FALSE_POSITIVE` when the value is only a delay or ordering spread. Any security-relevant random value must use `crypto.getRandomValues`. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. |
 
+#### `typescript:S6847` — Interactive handlers on a WAI-ARIA window splitter
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-18 (#275) |
+| Rationale | The rule says a non-interactive element should not carry interactive handlers. A focusable `role="separator"` with `aria-valuenow`, `aria-valuemin` and `aria-valuemax` is the WAI-ARIA window-splitter pattern, which the spec defines as interactive: it takes focus and resizes with the keyboard and pointer. The handlers are the widget. `<hr>` cannot replace it, because a native separator cannot be focused or adjusted. |
+| Instance count | 1 (DockShell splitter) |
+| Disposition | Individual false positive for a focusable, value-bearing `role="separator"` only. A static separator with handlers is still a real finding. |
+
+#### `typescript:S7747` — Spread of a listener set before iterating it
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-18 (#275) |
+| Rationale | The rule says spreading an iterable into an array literal is unnecessary. Here the copy is the point: a listener may subscribe or unsubscribe while the loop runs, and iterating the live `Set` would then visit a listener added mid-loop or skip one. `[...set]` takes a snapshot first. |
+| Instance count | 3 (`connectionRegistry.ts` ×2, `tokenManager.ts`) |
+| Disposition | Individual false positive where the spread snapshots a collection that the loop body can change. A spread with no such mutation is still a real finding. |
+
+#### `typescript:S6564` — Opaque type alias that carries a documented contract
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-18 (#275) |
+| Rationale | The rule says an alias of a primitive adds nothing. `CredentialOwner` in `desktop/src/main/ipcContract.ts` names an opaque IPC value; its JSDoc is the contract, and three processes import it by that name. Inlining `number` removes the documentation and the single place to change the type. |
+| Instance count | 1 |
+| Disposition | Individual false positive for a documented, shared IPC contract alias. An undocumented local alias is still a real finding. |
+
+#### Superseded legacy dispositions (#275)
+
+- `typescript:S7755` (`decideDropIndex.ts:48`): fixed in #275 as `rects.at(-1) ?? first`. The `??` branch is unreachable after the empty-band return, but it states the type without a `!`. This supersedes the legacy note for this instance.
+- `tssecurity:S5145` (`notificationPrefsService.ts:169`): fixed in #275. `errorMessage()` and `errorName()` now replace control characters, U+2028/U+2029 and the bidi marks, overrides and isolates with a space, so a logged message cannot add or reorder a line. The legacy "returns `err.message`" wording describes the helper before #275.
+- `typescript:S1607` (`desktop/tests/e2e/bundled-fallback-login.spec.ts`): the three skips are now `test.skip(condition, reason)` and the findings are fixed, so the legacy instance count of 3 no longer applies.
+- `typescript:S7764` (`screenAudioBridge.ts:205`, `AaGRKm9UWV1cgC4sffo9`): set `ACCEPTED` on 2026-11-18, as the legacy third sub-case requires. It carries no row above.
+
 ### Instance-Specific Entries
 
-Marked `FALSE_POSITIVE` with Mark's explicit approval (rows 1–6 on 2026-11-06, rows 7–10 on 2026-11-07), each with a comment pointing here.
+Marked `FALSE_POSITIVE` with Mark's explicit approval (rows 1–6 on 2026-11-06, rows 7–10 on 2026-11-07), each with a comment pointing here. Rows 50–69 were marked on 2026-11-18 in the quality sweep (#275), which Mark requested.
 
 Rows 3–6 and 7–10 are linked pairs (`S1082` and `S6848` on the same line); Mark approved the `S6848` half on 2026-11-07. Reopen both rows of a pair together.
 
@@ -360,6 +394,26 @@ Rows 3–6 and 7–10 are linked pairs (`S1082` and `S6848` on the same line); M
 | 47 | 2026-11-09 | `AaGRKm5-WV1cgC4sffoK` | `css:S9440` | `desktop/src/renderer/components/ui/ForceUpdateOverlay.css:79` | Codex (#171) | False positive for this instance: .force-update-spinner in desktop/src/renderer/components/ui/ForceUpdateOverlay.css:79. Chromium verified animation-duration becomes 0s under application Reduce Animations and live OS prefers-reduced-motion, and restores its nonzero normal-motion positive control when disabled. Actual renderer index.css and settingsStore were loaded; this exact case passed in PR #171 tests/e2e/reduced-motion.spec.ts at 587d7a3b. Source and shared controls rechecked unchanged on current main 417ca267. Global root-attribute CSS covers this selector. Audit: docs/ci/sonarqube-false-positive-register.md (#171). Server marking `2026-11-09T21:44:17+0000`; precheck `2026-11-09T21:44:07.135864+00:00`; independent readback `2026-11-09T21:44:25.748974+00:00` / FALSE_POSITIVE; comment `AaHCROWprvBjuBNek9gT`. |
 | 48 | 2026-11-09 | `AaGRKm57WV1cgC4sffoH` | `css:S9440` | `desktop/src/renderer/components/ui/Modal.css:24` | Codex (#171) | False positive for this instance: .modal-container in desktop/src/renderer/components/ui/Modal.css:24. Chromium verified animation-duration becomes 0s under application Reduce Animations and live OS prefers-reduced-motion, and restores its nonzero normal-motion positive control when disabled. Actual renderer index.css and settingsStore were loaded; this exact case passed in PR #171 tests/e2e/reduced-motion.spec.ts at 587d7a3b. Source and shared controls rechecked unchanged on current main 417ca267. Global root-attribute CSS covers this selector. Audit: docs/ci/sonarqube-false-positive-register.md (#171). Server marking `2026-11-09T21:44:57+0000`; precheck `2026-11-09T21:44:49.198200+00:00`; independent readback `2026-11-09T21:45:05.962034+00:00` / FALSE_POSITIVE; comment `AaHCRYCyERBl-lvS75Fn`. |
 | 49 | 2026-11-09 | `AaGRKm56WV1cgC4sffoG` | `css:S9440` | `desktop/src/renderer/components/ui/UpdateBanner.css:11` | Codex (#171) | False positive for this instance: .update-banner in desktop/src/renderer/components/ui/UpdateBanner.css:11. Chromium verified animation-duration becomes 0s under application Reduce Animations and live OS prefers-reduced-motion, and restores its nonzero normal-motion positive control when disabled. Actual renderer index.css and settingsStore were loaded; this exact case passed in PR #171 tests/e2e/reduced-motion.spec.ts at 587d7a3b. Source and shared controls rechecked unchanged on current main 417ca267. Global root-attribute CSS covers this selector. Audit: docs/ci/sonarqube-false-positive-register.md (#171). Server marking `2026-11-09T21:45:43+0000`; precheck `2026-11-09T21:45:29.225213+00:00`; independent readback `2026-11-09T21:45:59.681603+00:00` / FALSE_POSITIVE; comment `AaHCRjO2rvBjuBNek9l_`. |
+| 50 | 2026-11-18 | `AaGRKm6GWV1cgC4sffoN` | `typescript:S6847` | `desktop/src/renderer/components/Layout/DockShell.tsx:204` | Claude (#275) | Focusable `role="separator"` with `aria-valuenow`/`min`/`max` is the WAI-ARIA window splitter, an interactive widget that needs its handlers. Note `typescript:S6847` below. |
+| 51 | 2026-11-18 | `AaGRKm6GWV1cgC4sffoO` | `typescript:S6819` | `desktop/src/renderer/components/Layout/DockShell.tsx:204` | Claude (#275) | Same splitter; an `<hr>` cannot be a resizer. Legacy note `typescript:S6819` (adjustable separator). |
+| 52 | 2026-11-18 | `AaGRKm34WV1cgC4sffn-` | `typescript:S6747` | `desktop/src/renderer/components/ui/ConnectionLostOverlay.tsx:264` | Claude (#275) | `closedby` is a standard `<dialog>` attribute, declared by `@types/react` 19.3. Legacy note `typescript:S6747`. |
+| 53 | 2026-11-18 | `AaGRKm6AWV1cgC4sffoL` | `typescript:S6747` | `desktop/src/renderer/components/ui/ForceUpdateOverlay.tsx:234` | Claude (#275) | As row above. Legacy note `typescript:S6747`. |
+| 54 | 2026-11-18 | `AaHeKNPpSajQlY95zlSW` | `typescript:S7747` | `desktop/src/main/connectionRegistry.ts:399` | Claude (#275) | Spread snapshots the listener set before iterating. Note `typescript:S7747` below. |
+| 55 | 2026-11-18 | `AaHeKNPpSajQlY95zlSX` | `typescript:S7747` | `desktop/src/main/connectionRegistry.ts:408` | Claude (#275) | As row above. |
+| 56 | 2026-11-18 | `AaHeKNPESajQlY95zlSV` | `typescript:S7747` | `desktop/src/main/tokenManager.ts:492` | Claude (#275) | As row above. |
+| 57 | 2026-11-18 | `AaGRKm6bWV1cgC4sffoS` | `typescript:S7764` | `desktop/src/renderer/components/Settings/NotificationSection.tsx:154` | Claude (#275) | `window.setTimeout` into a `number` ref; `globalThis` fails `tsc` with TS2322 (tried in #275). Legacy note `typescript:S7764` (b). |
+| 58 | 2026-11-18 | `AaGRKm6RWV1cgC4sffoR` | `typescript:S7764` | `desktop/src/renderer/components/Settings/AccessibilitySection.tsx:299` | Claude (#275) | As row above (tried in #275). |
+| 59 | 2026-11-18 | `AaGRKm98WV1cgC4sffpE` | `typescript:S7764` | `desktop/src/renderer/workers/e2eeWorker.ts:92` | Claude (#275) | Worker `self`; the unit harness injects it with `vi.stubGlobal('self', …)` and `globalThis` failed 10 of 12 worker tests (tried in #275). Legacy note `typescript:S7764` (a). |
+| 60 | 2026-11-18 | `AaGRKm98WV1cgC4sffpF` | `typescript:S7764` | `desktop/src/renderer/workers/e2eeWorker.ts:105` | Claude (#275) | As row above. |
+| 61 | 2026-11-18 | `AaGRKm98WV1cgC4sffpG` | `typescript:S7764` | `desktop/src/renderer/workers/e2eeWorker.ts:180` | Claude (#275) | As row above. |
+| 62 | 2026-11-18 | `AaGRKm-NWV1cgC4sffpb` | `typescript:S6564` | `desktop/src/main/ipcContract.ts:450` | Claude (#275) | `CredentialOwner` is the documented opaque IPC type. Note `typescript:S6564` below. |
+| 63 | 2026-11-18 | `AaGRKm9nWV1cgC4sffo-` | `typescript:S6582` | `desktop/src/renderer/services/e2ee/e2eeService.ts:505` | Claude (#275) | Explicit `receipt === null \|\|` membership guard on an E2EE path. Legacy note `typescript:S6582`. |
+| 64 | 2026-11-18 | `AaGRKm60WV1cgC4sffoa` | `css:S9423` | `desktop/src/renderer/components/common/PremiumGate.css:61` | Claude (#275) | Reduced-motion override that must beat component rules. Legacy note `css:S9423`. |
+| 65 | 2026-11-18 | `AaGRKm60WV1cgC4sffob` | `css:S9423` | `desktop/src/renderer/components/common/PremiumGate.css:62` | Claude (#275) | As row above. |
+| 66 | 2026-11-18 | `AaGRKm91WV1cgC4sffpA` | `css:S9423` | `desktop/src/renderer/styles/index.css:254` | Claude (#275) | Reduce-animations override that must beat component rules. Legacy note `css:S9423`. |
+| 67 | 2026-11-18 | `AaGRKm91WV1cgC4sffpB` | `css:S9423` | `desktop/src/renderer/styles/index.css:255` | Claude (#275) | As row above. |
+| 68 | 2026-11-18 | `AaGRKm91WV1cgC4sffpC` | `css:S9423` | `desktop/src/renderer/styles/index.css:256` | Claude (#275) | As row above. |
+| 69 | 2026-11-18 | `AaGRKm9qWV1cgC4sffo_` | `css:S9423` | `desktop/src/renderer/styles/pride-flourishes.css:86` | Claude (#275) | Theme-wide cascade winner over per-component scrollbar styles. Legacy note `css:S9423`. |
 
 
 ### November 2 disposition receipts
