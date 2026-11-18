@@ -108,21 +108,23 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         const trim = (entry) => ({ type: entry.type, kind: entry.kind, rid: entry.rid ?? null,
           packetCount: entry.packetCount ?? null, pliCount: entry.pliCount ?? null,
           firCount: entry.firCount ?? null, nackCount: entry.nackCount ?? null, score: entry.score ?? null });
+        // One entity's failed stats read becomes an in-place marker; the rest of the report survives.
+        const safe = async (read) => { try { return await read(); } catch (error) { return { statsError: error.message }; } };
+        const trimAll = async (entity) => (await entity.getStats()).map(trim);
         const out = [];
         for (const [name, entry] of peers) {
-          const transports = await Promise.all([...entry.transports.values()].map(async (t) => {
-            const [stat] = await t.getStats();
-            return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
-              sendBitrate: stat?.sendBitrate ?? null };
-          }));
-          out.push({ peer: name, transports,
-            producers: await Promise.all([...entry.producers.values()].map(async (p) => ({
-              kind: p.kind, type: p.type, paused: p.paused, score: p.score,
-              stats: (await p.getStats()).map(trim) }))),
-            consumers: await Promise.all([...entry.consumers.values()].map(async (c) => ({
+          out.push({ peer: name,
+            transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
+              const [stat] = await t.getStats();
+              return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+                sendBitrate: stat?.sendBitrate ?? null };
+            }))),
+            producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
+              kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
+            consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
               kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
               score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
-              stats: (await c.getStats()).map(trim) }))) });
+              stats: await trimAll(c) })))) });
         }
         return out;
       }

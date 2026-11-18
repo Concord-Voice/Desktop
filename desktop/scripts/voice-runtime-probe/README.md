@@ -83,7 +83,10 @@ backgrounding of occluded windows: on macOS a fully covered window is background
 with `backgroundThrottling: false`, which starved the covered peer's video. If a consume
 call still fails, the result's `consumeDiagnostics` records each window's visibility and
 two samples of its video RTP counters (frames and keyframes encoded, PLI/FIR counts,
-packets and frames received).
+packets and frames received). Its last element is not a per-peer entry: it is `{ sfu: [...] }`
+with the SFU's own view per peer (transport ICE/DTLS state and bitrate; producer and
+consumer layers, scores and PLI/NACK counts; no ids), or `{ sfuError }` if that read failed.
+A single entity whose stats read fails appears in place as `{ statsError }`.
 The existing supported `MEDIASOUP_WORKER_BIN` override can select an exact candidate
 worker; record that separately from proving its ordinary installation/build path.
 The artifact distinguishes the JavaScript package version from the resolved native
