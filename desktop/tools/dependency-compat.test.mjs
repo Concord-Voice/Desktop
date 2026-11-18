@@ -202,11 +202,11 @@ test('legacy and modern ASAR preserve files, links, extraction and unpack select
 });
 
 test('actual legacy cleanup removes only matches through callback and sync APIs', async () => {
-  const rimraf3 = require(process.env.DEPENDENCY_COMPAT_ROOT ? 'rimraf3' : 'rimraf');
+  // rimraf 3 left the tree with eslint 8 (2026-11-18); temp's rimraf 2 is the last consumer.
   const rimraf2 = process.env.DEPENDENCY_COMPAT_ROOT
     ? require('rimraf2')
     : createRequire(require.resolve('temp/package.json'))('rimraf');
-  for (const rimraf of [rimraf2, rimraf3]) {
+  for (const rimraf of [rimraf2]) {
     await fixture(async (dir) => {
       await promisify(rimraf)(path.join(dir, '{z,a}.txt'));
       assert.equal(await readFile(path.join(dir, 'keep.bin'), 'utf8'), 'keep');
@@ -290,7 +290,7 @@ test('legacy matcher preserves Windows separator defaults across its public APIs
   }
 });
 
-test('filelist and ESLint legacy overrides retain selection and exclusion semantics', async () => {
+test('filelist retains selection and exclusion semantics', async () => {
   await fixture(async (dir) => {
     const { FileList } = require('filelist');
     const files = new FileList();
@@ -303,14 +303,6 @@ test('filelist and ESLint legacy overrides retain selection and exclusion semant
         .sort(),
       ['a.txt', 'z.txt']
     );
-    const eslintRoot = path.dirname(require.resolve('@eslint/eslintrc/package.json'));
-    const { OverrideTester } = await import(
-      pathToFileURL(path.join(eslintRoot, 'lib/config-array/override-tester.js'))
-    );
-    const tester = OverrideTester.create(['**/*.txt'], ['nested/**'], dir);
-    assert.equal(tester.test(path.join(dir, 'a.txt')), true);
-    assert.equal(tester.test(path.join(dir, '.hidden.txt')), true);
-    assert.equal(tester.test(path.join(dir, 'nested/b.txt')), false);
   });
 });
 
@@ -382,11 +374,10 @@ test('legacy traversal propagates unexpected readdir errors without returning pa
         false,
         'failed traversal must not publish a partial archive'
       );
-      const rimraf3 = require(process.env.DEPENDENCY_COMPAT_ROOT ? 'rimraf3' : 'rimraf');
       const rimraf2 = process.env.DEPENDENCY_COMPAT_ROOT
         ? require('rimraf2')
         : createRequire(require.resolve('temp/package.json'))('rimraf');
-      for (const rimraf of [rimraf2, rimraf3]) {
+      for (const rimraf of [rimraf2]) {
         await assert.rejects(
           promisify(rimraf)(path.join(dir, '**/*.txt'), { glob: { fs } }),
           (error) => error === failure
