@@ -4,7 +4,7 @@ const modern = require('glob-modern');
 const nodeFs = require('node:fs');
 const nodePath = require('node:path');
 
-// This is the subset used by ASAR 3, electron-installer-common and rimraf 2/3.
+// This is the subset used by ASAR 3, electron-installer-common and rimraf 2.
 // A new consumer/option must be reviewed, not silently treated as compatible.
 const forwarded = new Set([
   'cwd',
