@@ -84,6 +84,7 @@ This release adds groundwork for verifying account keys, protects remembered ses
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
 - **Desktop:** Screen sharing with app sound, picture-in-picture, window focus, the clipboard, Google and Apple sign-in, and self-hosted server checks now work only from the server connection you are looking at. A connection in the background cannot use them.
 - **Sign-in:** A sign-in on one server connection can no longer cancel a sign-in in progress on another.
+- **Chat:** A link whose real address is not the invite site is no longer read as a server invite, even when the invite address appears later in the link. Very long messages, links and error text no longer slow the app down, and error text written to the log can no longer start a new line or reorder its text.
 
 ## [0.3.1] - 2026-11-06
 
