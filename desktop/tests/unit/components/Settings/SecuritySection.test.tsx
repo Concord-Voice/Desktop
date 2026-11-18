@@ -1,4 +1,4 @@
-import { render, screen, userEvent, within, waitFor } from '../../../test-utils';
+import { render, userEvent, within, waitFor } from '../../../test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../../mocks/server';
 import { resetAllStores } from '../../../helpers/store-helpers';

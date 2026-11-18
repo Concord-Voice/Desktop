@@ -671,7 +671,7 @@ describe('initTray / destroyTray / isTrayActive (shell)', () => {
       // Same tooltip → not re-set.
       const tipCalls = mockTrayInstance.setToolTip.mock.calls.length;
       trayModule.applyTraySnapshot({ ...SNAP, voice: 'channel', speaking: true });
-      expect(mockTrayInstance.setToolTip.mock.calls.length).toBe(tipCalls);
+      expect(mockTrayInstance.setToolTip.mock.calls).toHaveLength(tipCalls);
     });
 
     it('applies the icon style: light → white sprites', async () => {

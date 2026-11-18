@@ -286,15 +286,14 @@ describe('avSyncDriftDetector', () => {
 
     it('AC-6: a single mid-window ~100ms step reports offset-step and does not trip', () => {
       const d = createAvSyncDriftDetector();
-      let last!: AvSyncObservation;
       for (let i = 0; i < 3; i++) {
         const t = BASE_MS + i * SAMPLE_INTERVAL_MS;
-        last = d.observe(pair(t, 100, 100).values(), t);
+        d.observe(pair(t, 100, 100).values(), t);
       }
       const stepMs = 100;
       expect(stepMs).toBeGreaterThan(MAX_STEP_MS); // sanity: the step genuinely exceeds the guard
       const t = BASE_MS + 3 * SAMPLE_INTERVAL_MS;
-      last = d.observe(pair(t, 100 + stepMs, 100).values(), t);
+      const last = d.observe(pair(t, 100 + stepMs, 100).values(), t);
 
       expect(last).toEqual({ usable: false, reason: 'offset-step' });
     });
@@ -833,11 +832,10 @@ describe('stall-then-resume: offset-step is a RATE, not an absolute delta (#2941
   it('a step of exactly MAX_STEP_MS across a long SR-stall gap does NOT trip, but the same gap with a proportionally larger step DOES (control)', () => {
     // Phase A: 8 healthy ticks establish previousState + history.
     const d = createAvSyncDriftDetector();
-    let last!: AvSyncObservation;
     let t = BASE_MS;
     for (let i = 0; i < 8; i++) {
       t = BASE_MS + i * SAMPLE_INTERVAL_MS;
-      last = d.observe(pair(t, 100, 100).values(), t);
+      d.observe(pair(t, 100, 100).values(), t);
     }
     const T0 = t; // last successful tick's observedAtMs -- previousState is pinned here
     const frozen = { outTimestamp: T0, remoteTimestamp: T0 - 100 };
@@ -877,14 +875,13 @@ describe('stall-then-resume: offset-step is a RATE, not an absolute delta (#2941
     expect(controlRate).toBeGreaterThan(MAX_STEP_RATE_MS_PER_SEC); // sanity: genuinely a trip construction
 
     const controlD = createAvSyncDriftDetector();
-    let controlLast!: AvSyncObservation;
     for (let i = 0; i < 8; i++) {
       const tickT = BASE_MS + i * SAMPLE_INTERVAL_MS;
-      controlLast = controlD.observe(pair(tickT, 100, 100).values(), tickT);
+      controlD.observe(pair(tickT, 100, 100).values(), tickT);
     }
     for (const dt of freezeOffsetsMs) {
       const tickT = T0 + dt;
-      controlLast = controlD.observe(
+      controlD.observe(
         srStallFrame(tickT, 'video', frozen, { audio: 100, video: 100 }).values(),
         tickT
       );

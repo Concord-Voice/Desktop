@@ -214,7 +214,7 @@ export function exifApp1Payload(orientation = 6): Uint8Array {
   // would be describing a file it did not build.
   expect(indexOfBytes(tiff, MAKE)).toBe(makeAt);
   expect(indexOfBytes(tiff, GPS_MARKER)).toBe(gpsDataAt);
-  expect(tiff.length).toBe(gpsDataAt + GPS_MARKER.length);
+  expect(tiff).toHaveLength(gpsDataAt + GPS_MARKER.length);
 
   return cat(asc('Exif\0\0'), tiff);
 }
@@ -732,7 +732,7 @@ export function buildHeic(options: HeicOptions = {}): HeicFixture {
 
   const iloc = makeIloc(exifStart, exifPayload.length, imageStart, imagePayload.length);
   const meta = bmffFullBox('meta', 0, cat(hdlr, pitm, iinf, iloc));
-  expect(meta.length).toBe(metaSize);
+  expect(meta).toHaveLength(metaSize);
 
   const mdatPayload = cat(exifPayload, imagePayload);
   const mdat = options.extendedMdat
@@ -962,7 +962,7 @@ export function buildTiff(little: boolean): TiffFixture {
     entry(34853, 4, 1, n32(gpsIfdAt)), // GPSInfoIFD
     n32(0) // no next IFD
   );
-  expect(ifd.length).toBe(ifdSize);
+  expect(ifd).toHaveLength(ifdSize);
 
   const header = cat(little ? asc('II') : asc('MM'), n16(42), n32(HEADER));
   const buffer = cat(header, ifd, ...body);

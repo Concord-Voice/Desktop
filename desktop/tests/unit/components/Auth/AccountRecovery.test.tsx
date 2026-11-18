@@ -3,7 +3,6 @@ import { vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { resetAllStores } from '../../../helpers/store-helpers';
-import { deferred } from '../../../helpers/deferred';
 import MFAChallengeModal from '@/renderer/components/Auth/MFAChallengeModal';
 import { useMFAChallengeStore } from '@/renderer/stores/auth/mfaChallengeStore';
 import { apiUrl } from '@/renderer/services/system/runtimeServerBase';

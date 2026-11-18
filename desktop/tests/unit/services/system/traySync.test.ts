@@ -288,7 +288,7 @@ describe('traySync', () => {
       const sent = traySetStatus.mock.calls.length;
       useVoiceStore.setState({ participants: { me: { isSpeaking: false } } } as never);
       vi.advanceTimersByTime(299);
-      expect(traySetStatus.mock.calls.length).toBe(sent);
+      expect(traySetStatus.mock.calls).toHaveLength(sent);
       vi.advanceTimersByTime(2);
       expect(traySetStatus.mock.calls.at(-1)?.[0].speaking).toBe(false);
       stop();

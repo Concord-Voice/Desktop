@@ -272,7 +272,7 @@ describe('RecoveryCircle', () => {
 
     // Count checked checkboxes
     const checked = checkboxes.filter((cb) => (cb as HTMLInputElement).checked);
-    expect(checked.length).toBe(7);
+    expect(checked).toHaveLength(7);
   });
 
   it('shows "No friends found" when friend list is empty', () => {

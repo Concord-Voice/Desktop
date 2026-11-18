@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '../../../test-utils';
+import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import SSOEagerUnlock from '@/renderer/components/Auth/SSOEagerUnlock';
 import { e2eeService } from '@/renderer/services/e2ee/e2eeService';

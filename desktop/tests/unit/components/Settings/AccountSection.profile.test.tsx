@@ -205,7 +205,7 @@ describe('Account profile and Security password forms', () => {
     fireEvent.click(screen.getByText('+ Add link'));
     // Should now have 2 link inputs (1 existing + 1 new)
     const linkInputs = screen.getAllByPlaceholderText('https://example.com');
-    expect(linkInputs.length).toBe(2);
+    expect(linkInputs).toHaveLength(2);
   });
 
   it('removes a link when remove button is clicked', () => {

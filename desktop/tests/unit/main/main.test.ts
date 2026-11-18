@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import { deferred } from '../../helpers/deferred';
+import type * as NodeFsModule from 'node:fs';
 
 // ── Hoisted mocks (available during vi.mock factory execution) ─────────
 
@@ -3494,13 +3495,13 @@ describe('main.ts', () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
       const closed = await openPip('owner-controls-pip');
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
 
       mockPipWindow.focus.mockClear();
       mockPipWindow.setAlwaysOnTop.mockClear();
       mockPipWindow.close.mockClear();
       await handlers.get('pip:open')!(pipOwnerEvent, { id: 'owner-controls-pip' });
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
         id: 'owner-controls-pip',
         flag: false,
@@ -3553,7 +3554,7 @@ describe('main.ts', () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
       const closed = await openPip('frame-owned-pip');
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       mockPipWindow.focus.mockClear();
       mockPipWindow.close.mockClear();
       mockPipWindow.setAlwaysOnTop.mockClear();
@@ -3561,7 +3562,7 @@ describe('main.ts', () => {
       await expect(
         handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' })
       ).rejects.toThrow();
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       await handlers.get('pip:close')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
         id: 'frame-owned-pip',
@@ -8411,7 +8412,7 @@ describe('#86 connection-isolated main semantics', () => {
 
   describe('X1: a packaged build restores views onto the bundled app, not the dev server', () => {
     it('does not pass the dev server URL to the shell unconditionally', async () => {
-      const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+      const realFs = await vi.importActual<typeof NodeFsModule>('node:fs');
       const src = realFs.readFileSync(
         new URL('../../../src/main/main.ts', import.meta.url),
         'utf8'

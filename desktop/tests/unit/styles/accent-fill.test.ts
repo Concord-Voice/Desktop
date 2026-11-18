@@ -124,7 +124,7 @@ describe('--accent-fill button/highlight indirection', () => {
     // applies only to dynamic RegExp construction. Matches the declaration form
     // (`--accent-fill:`), not the var(--accent-fill) usage sites.
     const declarations = indexCss.match(/--accent-fill\s*:/g) ?? [];
-    expect(declarations.length).toBe(1);
+    expect(declarations).toHaveLength(1);
   });
 
   it('Pride overrides --accent-fill to the rainbow brand gradient', () => {

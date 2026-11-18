@@ -150,8 +150,8 @@ describe('ConnectionLostOverlay', () => {
       // Check status values
       const okElements = screen.getAllByText('OK');
       const failedElements = screen.getAllByText('Failed');
-      expect(okElements.length).toBe(3); // internet OK, token OK, session OK (not revoked)
-      expect(failedElements.length).toBe(1); // server failed
+      expect(okElements).toHaveLength(3); // internet OK, token OK, session OK (not revoked)
+      expect(failedElements).toHaveLength(1); // server failed
     });
 
     it('renders -- and applies unknown class when a check did not run', () => {

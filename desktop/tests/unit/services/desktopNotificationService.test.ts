@@ -333,7 +333,7 @@ describe('DesktopNotificationService', () => {
 
       expect(MockNotification.instances).toHaveLength(1);
       const body = MockNotification.instances[0].body;
-      expect(body.length).toBe(100);
+      expect(body).toHaveLength(100);
       expect(body).toBe('A'.repeat(97) + '...');
     });
 

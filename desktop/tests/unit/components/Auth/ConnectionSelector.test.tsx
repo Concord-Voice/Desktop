@@ -58,8 +58,8 @@ describe('ConnectionSelector', () => {
     fireEvent.click(screen.getByText('Create New Account'));
     const options = container.querySelectorAll('.connection-option');
     const selectedOptions = container.querySelectorAll('.connection-option.selected');
-    expect(options.length).toBe(3);
-    expect(selectedOptions.length).toBe(1);
+    expect(options).toHaveLength(3);
+    expect(selectedOptions).toHaveLength(1);
   });
 
   it('switches selection between modes', () => {

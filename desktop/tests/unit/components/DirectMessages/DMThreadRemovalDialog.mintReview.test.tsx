@@ -59,12 +59,6 @@ function readAnswers(methods: string[]) {
   );
 }
 
-const passwordRequired = () =>
-  HttpResponse.json(
-    { error: 'Current password required to clear history', password_required: true },
-    { status: 403 }
-  );
-
 const cleared = () =>
   HttpResponse.json({ conversation_id: 'dm-1', cleared_at: '2026-10-01T00:00:00Z' });
 

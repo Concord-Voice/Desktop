@@ -1455,7 +1455,7 @@ describe('Login', () => {
       const keyCalls = (apiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === '/api/v1/users/me/keys'
       );
-      expect(keyCalls.length).toBe(2);
+      expect(keyCalls).toHaveLength(2);
       expect(keyCalls[1]?.[1]?.body).toContain('"mfa_code":"654321"');
     });
   });
@@ -1889,8 +1889,8 @@ describe('Login', () => {
     expect(
       (apiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
         (c) => c[0] === '/api/v1/users/me/keys'
-      ).length
-    ).toBe(1);
+      )
+    ).toHaveLength(1);
   });
 
   // ── MFA Challenge Flow ─────────────────────────────────────────────────

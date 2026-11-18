@@ -99,7 +99,7 @@ describe('voiceService screen demand cleared on last-surface unmount (#1924 Fix 
     svc.removeRemoteVideoTile('u2', 'cam-tile', 'camera');
 
     // Camera hidden-ness routes through the pause coordinator — never a demand emit here.
-    expect(splCalls().length).toBe(0);
+    expect(splCalls()).toHaveLength(0);
   });
 });
 
@@ -519,7 +519,7 @@ describe('voiceService.reemitScreenDemandOnConsume — re-emit demand for a swap
     svc.reemitScreenDemandOnConsume('screen', 'u1');
 
     const spl = splCalls();
-    expect(spl.length).toBe(1);
+    expect(spl).toHaveLength(1);
     expect((spl[0][1] as { consumerId: string }).consumerId).toBe('cons-screen-new');
     expect((spl[0][1] as { visible: boolean }).visible).toBe(true);
   });
@@ -531,7 +531,7 @@ describe('voiceService.reemitScreenDemandOnConsume — re-emit demand for a swap
 
     svc.reemitScreenDemandOnConsume('camera', 'u1');
 
-    expect(splCalls().length).toBe(0);
+    expect(splCalls()).toHaveLength(0);
   });
 
   it('no-ops when the user has no stored screen render-state', () => {
@@ -540,6 +540,6 @@ describe('voiceService.reemitScreenDemandOnConsume — re-emit demand for a swap
 
     svc.reemitScreenDemandOnConsume('screen', 'u1');
 
-    expect(splCalls().length).toBe(0);
+    expect(splCalls()).toHaveLength(0);
   });
 });

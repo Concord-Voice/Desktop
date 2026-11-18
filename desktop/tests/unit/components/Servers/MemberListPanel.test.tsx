@@ -153,7 +153,7 @@ describe('MemberListPanel', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText('bob')).toBeInTheDocument();
     const avatarDivs = document.querySelectorAll('.member-avatar');
-    expect(avatarDivs.length).toBe(2);
+    expect(avatarDivs).toHaveLength(2);
   });
 
   it('autocompletes the management roster after three characters without changing role actions', () => {
@@ -203,7 +203,7 @@ describe('MemberListPanel', () => {
     render(<MemberListPanel {...defaultProps} />);
     // Alice has Moderator — should be visible immediately as a removable badge
     const removableBadges = document.querySelectorAll('.role-badge--removable');
-    expect(removableBadges.length).toBe(1);
+    expect(removableBadges).toHaveLength(1);
     expect(removableBadges[0]).toHaveTextContent('Moderator');
   });
 
@@ -350,7 +350,7 @@ describe('MemberListPanel', () => {
     render(<MemberListPanel {...defaultProps} assignableRoles={[]} />);
     // Each member row shows the message, so use getAllByText
     const msgs = screen.getAllByText('No roles available to assign.');
-    expect(msgs.length).toBe(2);
+    expect(msgs).toHaveLength(2);
   });
 
   it('renders avatar image when avatar_url is provided', () => {
@@ -369,13 +369,13 @@ describe('MemberListPanel', () => {
   it('does not have expand/collapse toggle buttons', () => {
     render(<MemberListPanel {...defaultProps} />);
     const toggles = document.querySelectorAll('.member-row-toggle');
-    expect(toggles.length).toBe(0);
+    expect(toggles).toHaveLength(0);
   });
 
   it('all member rows use grid layout with two cells', () => {
     render(<MemberListPanel {...defaultProps} />);
     const rows = document.querySelectorAll('.member-row');
-    expect(rows.length).toBe(2);
+    expect(rows).toHaveLength(2);
     rows.forEach((row) => {
       expect(row.querySelector('.member-cell--user')).toBeInTheDocument();
       expect(row.querySelector('.member-cell--roles')).toBeInTheDocument();

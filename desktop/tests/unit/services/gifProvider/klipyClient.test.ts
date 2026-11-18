@@ -907,7 +907,7 @@ describe('klipyClient', () => {
 
       // Without force, the 60s TTL short-circuits and issues no new request.
       await expect(klipyClient.recent(1, 25)).rejects.toBeInstanceOf(KlipyIdentityError);
-      expect(apiFetchMock.mock.calls.length).toBe(callsAfterFirst);
+      expect(apiFetchMock.mock.calls).toHaveLength(callsAfterFirst);
 
       // With force, the backoff is cleared and the id fetch is retried.
       await expect(klipyClient.recent(1, 25, { force: true })).rejects.toBeInstanceOf(

@@ -251,7 +251,7 @@ describe('a dead audio track is never published (spec §7.3)', () => {
     (audio as unknown as { onended: () => void }).onended();
 
     expect(second.close).toHaveBeenCalled();
-    expect(first.close.mock.calls.length).toBe(firstClosesBefore);
+    expect(first.close.mock.calls).toHaveLength(firstClosesBefore);
     expect(svc.producers.has('screen-audio')).toBe(false);
     expect(useVoiceStore.getState().isScreenAudioOn).toBe(false);
   });

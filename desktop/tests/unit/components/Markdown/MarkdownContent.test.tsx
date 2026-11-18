@@ -137,7 +137,7 @@ describe('MarkdownContent', () => {
       document.head.appendChild(style);
       onTestFinished(() => style.remove());
       const items = container.querySelectorAll('li');
-      expect(items.length).toBe(3);
+      expect(items).toHaveLength(3);
       // Loose-list mode is proven by the presence of <p> inside each <li>.
       for (const li of items) {
         const innerP = li.querySelector('p');

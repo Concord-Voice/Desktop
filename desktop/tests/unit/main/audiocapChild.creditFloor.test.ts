@@ -126,7 +126,7 @@ describe('audiocap child credit floor (#3195 C5)', () => {
     // because the credit's own resume ran with `outstanding` already at zero and
     // filled exactly the bound. Assert the bound, which is the number the peer is
     // trying to move.
-    expect(posted.length).toBe(8);
+    expect(posted).toHaveLength(8);
 
     // And it is still the bound after the producer signals again: the unearned
     // credit bought nothing that a later signal can spend.
@@ -135,6 +135,6 @@ describe('audiocap child credit floor (#3195 C5)', () => {
     // is no higher arrival to gate on. The quiescence phase is what makes it
     // non-vacuous — it gives a ninth post the chance to land before we look.
     await settled(() => posted.length, 8);
-    expect(posted.length).toBe(8);
+    expect(posted).toHaveLength(8);
   });
 });

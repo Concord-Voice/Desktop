@@ -298,7 +298,7 @@ describe('application-font sink (#2366)', () => {
           .sort()
           .join(' ')
       );
-      expect(lists.length).toBe(explicitIds.length * 2); // plain + [data-scheme] variant
+      expect(lists).toHaveLength(explicitIds.length * 2); // plain + [data-scheme] variant
       expect(new Set(lists).size).toBe(1);
       return lists[0].split(' ');
     };

@@ -199,14 +199,12 @@ describe('logBufferService', () => {
 
   // #3104 follow-up: a live TURN relay credential must not survive capture.
   //
-  // The fixture is generated the SAME WAY services/control-plane/pkg/config/turn.go
-  // generates it — HMAC-SHA1 over `<expiry>:<userID>`, standard base64 — rather
-  // than hand-written, because the defect is a LENGTH defect: base64 of 20 HMAC
-  // bytes is exactly 28 characters, and the long-base64 PATTERN has a 40-char
-  // floor. A hand-written literal of the wrong length would make every assertion
-  // below vacuous.
+  // The fixture keeps the production credential's LENGTH, because the defect is a
+  // LENGTH defect: base64 of 20 HMAC bytes is exactly 28 characters, and the
+  // long-base64 PATTERN has a 40-char floor. A fixture of the wrong length would
+  // make every assertion below vacuous. How the fixture gets that length without
+  // a real HMAC is explained at the fixture itself.
   describe('TURN credential scrub (#3104)', () => {
-    const TURN_SHARED_SECRET = 'test-turn-shared-secret-not-a-real-one'; // pragma: allowlist secret -- synthetic HMAC input; mirrors turn.go's TURNSecret so the fixture has production shape
     const USER_ID = '550e8400-e29b-41d4-a716-446655440000';
     const EXPIRY = 1774000000; // unix seconds, 10 digits like a real 24h TTL
 

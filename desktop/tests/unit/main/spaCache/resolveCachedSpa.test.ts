@@ -143,7 +143,7 @@ describe('resolveCachedSpa (#1870 serve-time gate)', () => {
     installLiveCacheWithAsset();
     // Same length, different bytes → sha256 mismatch; manifest + sig untouched.
     const tampered = Buffer.from('export const x = 9;\n');
-    expect(tampered.length).toBe(ASSET_JS.length);
+    expect(tampered).toHaveLength(ASSET_JS.length);
     fs.writeFileSync(path.join(getLiveDir(), 'assets', 'app-abc123.js'), tampered);
     expect(resolveCachedSpa()).toBeNull();
   });
@@ -153,7 +153,7 @@ describe('resolveCachedSpa (#1870 serve-time gate)', () => {
     // Same length as ENTRY_HTML (replace `cache` with `EVIL!`), different bytes →
     // the sha256 (not the size) is what catches it.
     const tampered = Buffer.from('<!doctype html><html><body>EVIL!</body></html>');
-    expect(tampered.length).toBe(ENTRY_HTML.length);
+    expect(tampered).toHaveLength(ENTRY_HTML.length);
     fs.writeFileSync(path.join(getLiveDir(), 'index.html'), tampered);
     expect(resolveCachedSpa()).toBeNull();
   });

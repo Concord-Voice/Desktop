@@ -1,5 +1,5 @@
 import { useState, type ComponentProps, type ReactNode } from 'react';
-import { act, fireEvent, render, screen, userEvent } from '../../../test-utils';
+import { act, fireEvent, render, screen } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import {
   SIDEBAR_COMPACT_BREAKPOINT,

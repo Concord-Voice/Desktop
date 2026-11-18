@@ -507,7 +507,7 @@ describe('Modal', () => {
       expect(innerOverlay).not.toHaveAttribute('inert'); // child reachable
 
       rerender(<Nested innerOpen={false} />);
-      expect(document.querySelectorAll('.modal-overlay').length).toBe(1);
+      expect(document.querySelectorAll('.modal-overlay')).toHaveLength(1);
       expect(outerOverlay()).not.toHaveAttribute('inert'); // parent now topmost — reachable
     });
 

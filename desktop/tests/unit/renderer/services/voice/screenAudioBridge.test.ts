@@ -480,7 +480,7 @@ describe('screenAudioBridge — AudioData frame data and transfer (#3245)', () =
 
 describe('screenAudioBridge — handoff is a BROADCAST (#3245 VULN-2)', () => {
   it('does not close a handoff addressed to a DIFFERENT generation', async () => {
-    const b = await bridgeHarness({ generation: 103 });
+    await bridgeHarness({ generation: 103 });
 
     // A handoff for another generation reaches generation 1's listener too: the
     // handoff is a `window` message broadcast, so every live bridge sees it.
