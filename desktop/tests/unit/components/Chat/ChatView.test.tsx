@@ -9,6 +9,7 @@ import { usePermissionStore } from '@/renderer/stores/chat/permissionStore';
 import { MANAGE_CHANNELS, PIN_MESSAGES } from '@/renderer/utils/policy/permissions';
 import { mockUser, mockChannel, mockMessage, mockMessage2 } from '../../../mocks/fixtures';
 import { resetAllStores } from '../../../helpers/store-helpers';
+import type * as SearchPanelModule from '@/renderer/components/Chat/SearchPanel';
 
 // Mock apiFetch to prevent hanging fetches
 const mockApiFetch = vi.fn().mockResolvedValue({
@@ -159,7 +160,6 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 }));
 
 import ChatView from '@/renderer/components/Chat/ChatView';
-import type * as SearchPanelModule from '@/renderer/components/Chat/SearchPanel';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

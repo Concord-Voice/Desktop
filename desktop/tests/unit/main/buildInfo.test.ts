@@ -27,9 +27,10 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import type * as NodeFsModule from 'node:fs';
 
 vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const actual = await vi.importActual<typeof NodeFsModule>('node:fs');
   return {
     ...actual,
     default: {
@@ -255,7 +256,7 @@ describe('renderer-context grep audit (regression guard)', () => {
   let realFs: typeof import('node:fs');
 
   beforeAll(async () => {
-    realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    realFs = await vi.importActual<typeof NodeFsModule>('node:fs');
   });
 
   /**

@@ -15,13 +15,13 @@ bug, the PR body records it and the fix goes to the production-code slice.
 1. **`expect(x.length).toBe(n)` becomes `expect(x).toHaveLength(n)`** when `x` is array-like
    (an array, a `NodeList`, a string, a `Buffer`/typed array, or `mock.calls`). The failure
    message then prints the collection, not only two numbers. The assertion is the same.
-2. **Not array-like → false positive.** `CryptoKey.algorithm` cast to `AesKeyAlgorithm` has a
-   numeric `length` field that is the key size in bits. `toHaveLength` would pass, but it reads
-   as "a collection of 256 items", which is wrong. These are marked false positive in
-   SonarCloud with that reason. The same rule applies to any other non-collection `length`.
-3. **Other dedicated-matcher variants** (`toBeNull`, comparison of a boolean expression with
-   `toBe(true)`) are rewritten to the dedicated matcher (`toBeNull()`, `toBe(original…)` /
-   `toEqual`), with no loss of strength.
+2. **Not array-like → false positive.** Three subjects have a numeric `length` field that is not
+   a collection size: `AesKeyAlgorithm` (key size in bits, 2 rows), `EditVerdict` (character
+   count, 4 rows) and `ByteReader` (byte span, 2 rows). `toHaveLength` would pass, but it reads
+   as "a collection of n items", which is wrong. These 8 rows are marked false positive in
+   SonarCloud with that reason and recorded in `docs/ci/sonarqube-false-positive-register.md`.
+3. **Other dedicated-matcher variants:** `toBe(null)` becomes `toBeNull()`, and
+   `expect(a === b).toBe(true)` becomes `expect(a).toBe(b)`, with no loss of strength.
 4. **`mock.calls.length`** may become `toHaveBeenCalledTimes(n)` where the expression is a plain
    mock. `toHaveLength(n)` on `.mock.calls` is also accepted.
 5. **CodeQL dead code** (unused imports and variables, useless assignments, a superfluous
@@ -29,6 +29,11 @@ bug, the PR body records it and the fix goes to the production-code slice.
    a weak assertion (for example, a value the test computed and then never checked), the test is
    made stronger, not deleted.
 6. No assertion is weakened, no test is skipped, no production file changes.
+7. **Semgrep parse safety.** A touched test file that uses
+   `importOriginal<typeof import('…')>()` is changed to a type-only namespace import
+   (`import type * as M from '…'` and `importOriginal<typeof M>()`), because Semgrep cannot
+   parse the inline form and the scan covers changed files. See
+   `.claude/rules/domains/desktop-tests.md`.
 
 ## Acceptance criteria
 

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import { deferred } from '../../helpers/deferred';
+import type * as NodeFsModule from 'node:fs';
 
 // ── Hoisted mocks (available during vi.mock factory execution) ─────────
 
@@ -8411,7 +8412,7 @@ describe('#86 connection-isolated main semantics', () => {
 
   describe('X1: a packaged build restores views onto the bundled app, not the dev server', () => {
     it('does not pass the dev server URL to the shell unconditionally', async () => {
-      const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+      const realFs = await vi.importActual<typeof NodeFsModule>('node:fs');
       const src = realFs.readFileSync(
         new URL('../../../src/main/main.ts', import.meta.url),
         'utf8'

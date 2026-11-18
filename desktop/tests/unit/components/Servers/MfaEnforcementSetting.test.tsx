@@ -4,6 +4,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { deferred } from '../../../helpers/deferred';
 import { jsonResponse, readOffers, STEP_UP_READ_PATH } from '../../../helpers/stepUpApi';
 import { createMockWsService, requireHandler } from '../../../helpers/wsServiceMock';
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 
 // The "Require MFA for dangerous actions" switch (#3456 §3.5, T4). The stage, the
 // factor hook, the adapter and the openVerificationSetup route are real; only
@@ -30,7 +31,6 @@ import MfaEnforcementSetting from '@/renderer/components/Servers/MfaEnforcementS
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
-import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 
 // Named fixtures: the pre-commit detect-secrets hook flags credential-shaped keys.
 const FIXTURE_OTP = '314159';
