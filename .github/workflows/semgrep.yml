@@ -124,9 +124,11 @@ jobs:
           set -euo pipefail
           # Hash-locked install (OpenSSF Scorecard Pinned-Dependencies). The lock
           # must name the same version as SEMGREP_VERSION, or the bump is half-done.
+          # --no-deps: the lock deliberately omits the --trace-only OpenTelemetry and
+          # protobuf set (vulnerable in every Semgrep release); see the lock header.
           grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" .github/requirements-semgrep.txt \
             || { echo "::error::.github/requirements-semgrep.txt does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
-          python3 -m pip install --user --disable-pip-version-check --require-hashes \
+          python3 -m pip install --user --disable-pip-version-check --require-hashes --no-deps \
             --only-binary=:all: -r .github/requirements-semgrep.txt
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
