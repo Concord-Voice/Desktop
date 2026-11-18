@@ -1201,7 +1201,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
       {purgeTarget && (
         <PurgeMessagesModal
           context={purgeTarget.isGroup ? 'group' : 'dm'}
-          isOpen={purgeTarget !== null}
+          isOpen
           scopeId={purgeTarget.id}
           scopeName={getConversationName(purgeTarget, currentUserId)}
           role={

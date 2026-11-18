@@ -113,6 +113,24 @@ async function wipeRepersistedCredentialsForNuclearTeardown(
   await clearCredentialsIfOwner(credentialOwner);
 }
 
+/** User-facing outcome of a non-2xx `/users/me/keys` response. */
+async function describeKeysFetchFailure(
+  res: Response
+): Promise<{ message: string; reauthRequired: boolean }> {
+  if (res.status === 401) {
+    return { message: 'Your session expired. Please sign in again.', reauthRequired: false };
+  }
+  // The server releases the wrapped key only to a fresh sign-in; a token
+  // renewed by refresh gets recent_auth_required.
+  if (res.status === 403 && (await isRecentAuthRequired(res))) {
+    return {
+      message: 'For your security, please sign in again to unlock your messages.',
+      reauthRequired: true,
+    };
+  }
+  return { message: "Couldn't load your encrypted keys. Please try again.", reauthRequired: false };
+}
+
 const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
   const [passphrase, setPassphrase] = useState('');
   const [attemptCount, setAttemptCount] = useState(0);
@@ -178,16 +196,9 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
       return;
     }
     if (!res.ok) {
-      if (res.status === 401) {
-        setError('Your session expired. Please sign in again.');
-      } else if (res.status === 403 && (await isRecentAuthRequired(res))) {
-        // The server releases the wrapped key only to a fresh sign-in; a token
-        // renewed by refresh gets recent_auth_required.
-        setError('For your security, please sign in again to unlock your messages.');
-        setReauthRequired(true);
-      } else {
-        setError("Couldn't load your encrypted keys. Please try again.");
-      }
+      const failure = await describeKeysFetchFailure(res);
+      setError(failure.message);
+      if (failure.reauthRequired) setReauthRequired(true);
       setSubmitting(false);
       return;
     }

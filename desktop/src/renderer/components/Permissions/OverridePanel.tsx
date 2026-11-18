@@ -561,7 +561,7 @@ const OverridePanel: React.FC<OverridePanelProps> = ({
               deny={editDeny}
               onDenyChange={handleEditDenyChange}
               mode="override"
-              disabled={disabled || isSavingOverride}
+              disabled={isSavingOverride}
             />
           ) : (
             <output className="override-error">

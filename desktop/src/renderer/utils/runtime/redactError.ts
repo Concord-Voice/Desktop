@@ -21,10 +21,17 @@
  * Identifier, so no eslint-disable directive is required.
  */
 
+/**
+ * Control characters (Unicode Cc), line/paragraph separators (U+2028/9) and every
+ * Unicode bidi control (marks, embeddings, overrides, isolates) become spaces, so text
+ * carrying server- or peer-supplied content cannot forge or visually reorder log lines.
+ */
+const LINE_FORGING = /[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/gu;
+
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'unknown_error';
+  return err instanceof Error ? String(err.message).replaceAll(LINE_FORGING, ' ') : 'unknown_error';
 }
 
 export function errorName(err: unknown): string {
-  return err instanceof Error ? err.name : 'unknown';
+  return err instanceof Error ? String(err.name).replaceAll(LINE_FORGING, ' ') : 'unknown';
 }

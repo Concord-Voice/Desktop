@@ -137,7 +137,7 @@ const labels = new Map(); // webContents.id -> 'A' | 'B'
 const viewOf = (wc) => (wc ? (labels.get(wc.id) ?? `wc${wc.id}`) : null);
 
 // Rows set this. Default: grant.
-let requestAnswer = () => true;
+let requestAnswer = (_permission, _details) => true;
 
 function installHandlers(ses) {
   ses.setPermissionCheckHandler((wc, permission, _origin, details) => {

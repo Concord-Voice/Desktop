@@ -632,9 +632,12 @@ describe('RecoveryCircle', () => {
         )
       ).toBeInTheDocument();
     });
+    // Assert the inline declaration: jsdom 31 resolves var() in computed style,
+    // and --text-primary is undefined under test, so toHaveStyle sees rgb(0, 0, 0).
     expect(
       screen.getByRole('heading', { name: 'Recovery Circle saved — recovery paused', level: 3 })
-    ).toHaveStyle({ color: 'var(--text-primary)' });
+        .style.color
+    ).toBe('var(--text-primary)');
     expect(putCalls()[0].body).toMatchObject({
       threshold_k: 2,
       total_shares_n: 2,
