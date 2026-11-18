@@ -88,7 +88,8 @@ PYEOF
 # `secrets.NAME` and `secrets['NAME']` give NAME. A job with `secrets: inherit`
 # gives "inherit", and any other use of the secrets context inside an expression
 # (toJSON(secrets), secrets[matrix.key]) gives "dynamic": both mean every secret.
-# GITHUB_TOKEN is reported if referenced because the labeler should still see it
+# Context and secret names are case-insensitive, so matching is too and names
+# are reported upper-case. GITHUB_TOKEN is reported if referenced because the labeler should still see it
 # in the blast-radius table — it's a real grant even though it's the default token.
 SECRETS_JSON=$(python3 - "$WORKFLOW" <<'PYEOF'
 import json, re, sys, yaml
@@ -96,8 +97,8 @@ import json, re, sys, yaml
 with open(sys.argv[1]) as f:
     doc = yaml.safe_load(f) or {}
 
-NAMED = re.compile(r"""\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]|\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\])""")
-ANY = re.compile(r"\bsecrets\b")
+NAMED = re.compile(r"""\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]|\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\])""", re.I)
+ANY = re.compile(r"\bsecrets\b", re.I)
 
 
 def expressions(text, whole):
@@ -120,7 +121,7 @@ names = set()
 
 def walk(node, key=None):
     if isinstance(node, dict):
-        if node.get("secrets") == "inherit":
+        if str(node.get("secrets", "")).strip().lower() == "inherit":
             names.add("inherit")
         for k, v in node.items():
             walk(v, k)
@@ -129,7 +130,7 @@ def walk(node, key=None):
             walk(v)
     elif isinstance(node, str):
         for m in NAMED.finditer(node):
-            names.add(next(g for g in m.groups() if g))
+            names.add(next(g for g in m.groups() if g).upper())  # names are case-insensitive
         for expr in expressions(node, key == "if"):
             if len(ANY.findall(expr)) > len(NAMED.findall(expr)):
                 names.add("dynamic")
