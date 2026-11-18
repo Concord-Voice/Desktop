@@ -7,6 +7,13 @@
       "reason": "Desktop path: app-builder-lib > @electron/get > global-agent > roarr 3.3.0 > fast-json-stringify 2.7.13 > deepmerge (roarr only compiles its own fixed message schema). No fixed release exists: deepmerge 4.3.1 is the latest and the advisory lists it as last_affected. Dev-only transitive, reached through build tooling that merges static, package-owned objects, never attacker-supplied input. Re-check for a patched deepmerge or a parent that drops it by review_by.",
       "review_by": "2027-01-29",
       "scope": "dev"
+    },
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "reason": "Desktop paths: vite and vitest > picomatch 4.0.7; tinyglobby/fdir > picomatch 4.0.4 via node-gyp, app-builder-lib > @electron/rebuild > node-gyp, @typescript-eslint/typescript-estree, vite and vitest. No fixed release exists: picomatch 4.0.7 is the latest and the advisory (amended 2026-11-17) lists <= 4.0.7 with no first_patched_version. Dev-only transitive (npm audit --omit=dev is clean); no shipped code calls a glob matcher. The ReDoS needs an attacker-controlled extglob pattern, and every pattern here is repo-owned build, lint or test config, so the worst case is a dev/CI CPU stall. Re-check for a patched picomatch or parents that drop it by review_by.",
+      "review_by": "2027-02-18",
+      "scope": "dev"
     }
   ]
 }
