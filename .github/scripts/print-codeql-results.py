@@ -83,7 +83,7 @@ def _row(result, rules):
                 if math.isfinite(numeric) and 0 <= numeric <= 10:
                     row['security_severity'] = numeric
             except (ValueError, OverflowError):
-                pass
+                pass  # Not a usable number: the row simply omits security_severity.
     return row
 
 

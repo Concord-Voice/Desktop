@@ -20,8 +20,8 @@
 # No network. No `gh` calls. Independently testable from fixtures.
 #
 # Dependencies: bash 4+, python3 with PyYAML, jq 1.6+. python3 is pre-installed
-# on ubuntu-latest GHA runners; PyYAML is installed by pr-ci.yml's existing
-# `pip install --user --quiet pyyaml` step in the workflow-lint job (and is
+# on ubuntu-latest GHA runners; PyYAML is installed by pr-ci.yml's hash-locked
+# install of .github/requirements-pyyaml.txt in the workflow-lint job (and is
 # pre-installed on most developer macOS/Linux systems).
 #
 # Matching the existing repo precedent — other lint scripts under
@@ -81,20 +81,64 @@ print(json.dumps(sorted(envs)))
 PYEOF
 )
 
-# Secrets: extract every `secrets.NAME` reference from the entire file text.
-# We grep the raw YAML rather than parsing because secrets can appear in
-# `env:` blocks, `with:` inputs, `run:` blocks, and step `if:` conditions —
-# parsing every possible location is fragile. The regex captures
-# `secrets.IDENTIFIER` where IDENTIFIER matches GitHub's secret-name rules
-# (uppercase letters, digits, underscores). GITHUB_TOKEN is reported if
-# referenced because the labeler should still see it in the blast-radius
-# table — it's a real grant even though it's the default token.
-SECRETS_JSON=$(
-  { grep -oE 'secrets\.[A-Za-z_][A-Za-z0-9_]*' "$WORKFLOW" || true; } \
-    | sed 's/^secrets\.//' \
-    | sort -u \
-    | jq -R . \
-    | jq -s '.'
+# Secrets: every secret the workflow can reach. The YAML is parsed, so only real
+# YAML comments drop out (a file name such as provision-secrets.yml in a comment is
+# not a secret). Every string value is then searched, so a reference in env:, with:,
+# run: or if: counts wherever it sits; this stays a superset of what GitHub expands.
+# `secrets.NAME` and `secrets['NAME']` give NAME. A job with `secrets: inherit`
+# gives "inherit", and any other use of the secrets context inside an expression
+# (toJSON(secrets), secrets[matrix.key]) gives "dynamic": both mean every secret.
+# Context and secret names are case-insensitive, so matching is too and names
+# are reported upper-case. GITHUB_TOKEN is reported if referenced because the labeler should still see it
+# in the blast-radius table — it's a real grant even though it's the default token.
+SECRETS_JSON=$(python3 - "$WORKFLOW" <<'PYEOF'
+import json, re, sys, yaml
+
+with open(sys.argv[1]) as f:
+    doc = yaml.safe_load(f) or {}
+
+NAMED = re.compile(r"""\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]|\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\])""", re.I)
+ANY = re.compile(r"\bsecrets\b", re.I)
+
+
+def expressions(text, whole):
+    """Yield ${{ }} bodies, skipping '...' literals so a '}' inside one cannot end it."""
+    if whole:
+        yield text
+    i = 0
+    while (i := text.find("${{", i)) != -1:
+        j, quoted = i + 3, False
+        while j < len(text) and (quoted or not text.startswith("}}", j)):
+            if text[j] == "'":
+                quoted = not quoted
+            j += 1
+        yield text[i + 3:j]
+        i = j + 2
+
+
+names = set()
+
+
+def walk(node, key=None):
+    if isinstance(node, dict):
+        if str(node.get("secrets", "")).strip().lower() == "inherit":
+            names.add("inherit")
+        for k, v in node.items():
+            walk(v, k)
+    elif isinstance(node, list):
+        for v in node:
+            walk(v)
+    elif isinstance(node, str):
+        for m in NAMED.finditer(node):
+            names.add(next(g for g in m.groups() if g).upper())  # names are case-insensitive
+        for expr in expressions(node, key == "if"):
+            if len(ANY.findall(expr)) > len(NAMED.findall(expr)):
+                names.add("dynamic")
+
+
+walk(doc)
+print(json.dumps(sorted(names)))
+PYEOF
 )
 
 # Combine into the contract output.
