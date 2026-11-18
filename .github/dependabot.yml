@@ -228,9 +228,13 @@ updates:
   # .github/requirements-pyyaml.txt is consumed by pr-ci.yml,
   # workflow-validate.yml and the pin check in required-pr-build.yml, which
   # installs it on the runner's system Python, so it
-  # carries the cp312-cp314 x86_64 wheel hashes. It is the repo's only pip manifest and appears
-  # in the CycloneDX SBOM as the sole pkg:pypi component, so it was the one
-  # ecosystem in the SBOM with no dependabot coverage at all.
+  # carries the cp312-cp314 x86_64 wheel hashes. It appeared in the CycloneDX
+  # SBOM as the sole pkg:pypi component, so it was the one ecosystem in the
+  # SBOM with no dependabot coverage at all.
+  # .github/requirements-semgrep.txt is the hash-locked Semgrep install set for
+  # semgrep.yml. Semgrep itself is bumped by hand with SEMGREP_VERSION there (the
+  # install step fails if the two disagree), so dependabot only moves its
+  # transitive pins; regenerate the lock with uv if one of those conflicts.
   - package-ecosystem: "pip"
     directory: "/.github"
     schedule:
@@ -246,6 +250,8 @@ updates:
       - "area: deps"
       - "area: ci-cd"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "semgrep"
     groups:
       python-tooling:
         patterns:

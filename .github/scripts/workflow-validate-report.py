@@ -93,14 +93,14 @@ def parse_blob(path: bytes, blob: bytes, temp_dir: str):
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
-            pass
+            pass  # The parser group already exited; nothing left to signal.
         try:
             proc.communicate(timeout=1)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
-                pass
+                pass  # Exited between SIGTERM and SIGKILL; communicate() reaps it.
             proc.communicate()
         raise Refused("workflow parser timed out") from exc
     if proc.returncode != 0:
@@ -256,7 +256,7 @@ def main(argv) -> int:
         try:
             write_outputs(summary_path, comment_path, f"Workflow validation refused: {exc}.", "")
         except OSError:
-            pass
+            pass  # Best effort: the refusal is still reported by the non-zero exit.
         return 1
     except Exception:
         try:
@@ -267,7 +267,7 @@ def main(argv) -> int:
                 "",
             )
         except OSError:
-            pass
+            pass  # Best effort: the refusal is still reported by the non-zero exit.
         return 1
 
 
