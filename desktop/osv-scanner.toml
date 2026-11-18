@@ -45,3 +45,12 @@ group = "dev"
 ignore = true
 effectiveUntil = 2027-01-29T00:00:00Z
 reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). Desktop path: vite, vitest and tinyglobby (via typescript-eslint and node-gyp) nest picomatch 4.0.4 and 4.0.7. No fixed release exists: the advisory lists <= 4.0.7 with no first patched version, and 4.0.7 is the latest. Dev-only test and build tooling that compiles globs from repo-authored config, never attacker-supplied patterns, so the extglob ReDoS is unreachable. Re-check for a patched picomatch by review_by."
+
+[[PackageOverrides]]
+name = "uri-js"
+version = "4.4.1"
+ecosystem = "npm"
+group = "dev"
+ignore = true
+effectiveUntil = 2027-01-29T00:00:00Z
+reason = "CVE-2026-103387, CVE-2026-93690 and CVE-2026-93751 (OSV-only: npm audit reports no uri-js advisory, so .audit-allowlist.json has no entry to mirror). No fixed release exists: uri-js is unmaintained and 4.4.1 is the latest. Dev-only, reached through ajv@6 under eslint 10 and roarr (Electron download tooling). ajv 6 resolves URIs only in schemas that ship inside those packages, never in user data, so the flaws are not reachable. Re-check for a maintained replacement or a parent that drops ajv 6 by effectiveUntil."
