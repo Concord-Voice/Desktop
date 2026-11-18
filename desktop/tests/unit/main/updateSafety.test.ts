@@ -906,7 +906,7 @@ describe('updateSafety', () => {
       await runDeferredCleanup(logger);
 
       expect(fs.existsSync(backupFile)).toBe(false);
-      expect(fs.readdirSync(cacheDir).length).toBe(0);
+      expect(fs.readdirSync(cacheDir)).toHaveLength(0);
       expectCacheRootPreserved(cacheDir);
       expect(fs.existsSync(path.join(userDataDir, 'update-cleanup.json'))).toBe(false);
       expect(logger.info).toHaveBeenCalledWith(

@@ -366,7 +366,7 @@ describe('receive audio graph — exactly one audible path (Chromium 152)', () =
     // the stale callback unmutes the OLD element, so the successor's stays
     // muted either way and the check cannot tell the two apart. What the
     // callback actually destroys is the SUCCESSOR's graph — so measure that.
-    expect((ctx.close as ReturnType<typeof vi.fn>).mock.calls.length).toBe(closesAfterSwap);
+    expect((ctx.close as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(closesAfterSwap);
 
     // And the successor's graph still governs volume: a change routes to the
     // gain node, not to the element.

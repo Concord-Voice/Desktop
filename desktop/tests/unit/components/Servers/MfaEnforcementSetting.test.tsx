@@ -636,7 +636,7 @@ describe('refreshing while mounted', () => {
     serve({ read: () => readOffers(['totp']) });
     await act(async () => requireHandler(ws, 'permissions_changed')({ data: {} }));
 
-    await waitFor(() => expect(requirementReads().length).toBe(before + 1));
+    await waitFor(() => expect(requirementReads()).toHaveLength(before + 1));
     await waitFor(() => expect(theSwitch()).not.toHaveAttribute('aria-disabled'));
     expect(screen.queryByText(ENROLMENT)).not.toBeInTheDocument();
   });

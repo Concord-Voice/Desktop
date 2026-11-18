@@ -840,7 +840,7 @@ describe('clientConfigService', () => {
       const updateLogs = debugSpy.mock.calls.filter(
         (c) => c[0] === '[ClientConfig] Updated config'
       );
-      expect(updateLogs.length).toBe(1);
+      expect(updateLogs).toHaveLength(1);
 
       debugSpy.mockRestore();
     });
@@ -860,7 +860,7 @@ describe('clientConfigService', () => {
       const updateLogs = debugSpy.mock.calls.filter(
         (c) => c[0] === '[ClientConfig] Updated config'
       );
-      expect(updateLogs.length).toBe(0);
+      expect(updateLogs).toHaveLength(0);
 
       debugSpy.mockRestore();
     });
@@ -889,7 +889,7 @@ describe('clientConfigService', () => {
       const updateLogs = debugSpy.mock.calls.filter(
         (c) => c[0] === '[ClientConfig] Updated config'
       );
-      expect(updateLogs.length).toBe(1);
+      expect(updateLogs).toHaveLength(1);
 
       debugSpy.mockRestore();
     });
@@ -920,7 +920,7 @@ describe('clientConfigService', () => {
       const updateLogs = debugSpy.mock.calls.filter(
         (c) => c[0] === '[ClientConfig] Updated config'
       );
-      expect(updateLogs.length).toBe(0);
+      expect(updateLogs).toHaveLength(0);
       debugSpy.mockRestore();
     });
 
@@ -953,7 +953,7 @@ describe('clientConfigService', () => {
       const updateLogs = debugSpy.mock.calls.filter(
         (c) => c[0] === '[ClientConfig] Updated config'
       );
-      expect(updateLogs.length).toBe(1);
+      expect(updateLogs).toHaveLength(1);
 
       debugSpy.mockRestore();
     });

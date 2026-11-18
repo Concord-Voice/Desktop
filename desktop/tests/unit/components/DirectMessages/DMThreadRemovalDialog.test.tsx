@@ -73,7 +73,6 @@ function setProtection(requireAuthBeforePurge: boolean | undefined) {
   }));
 }
 
-const primary = () => screen.getByRole('button', { name: /^(Continue|Verify and clear)$/ });
 const stageHeading = () => screen.getByRole('heading', { name: CREDENTIALS });
 const codeField = () => screen.findByLabelText('Authenticator app code');
 const passwordField = () => screen.findByLabelText('Password');

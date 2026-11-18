@@ -246,7 +246,7 @@ describe('AccessibilitySection', () => {
     render(<AccessibilitySection />);
     const select = screen.getByTestId('custom-select');
     const options = select.querySelectorAll('option');
-    expect(options.length).toBe(3);
+    expect(options).toHaveLength(3);
     expect(options[1].textContent).toBe('English US (en-US)');
     expect(options[2].textContent).toBe('English UK (en-GB)');
   });

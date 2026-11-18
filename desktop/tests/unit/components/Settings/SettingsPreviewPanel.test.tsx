@@ -55,31 +55,31 @@ describe('SettingsPreviewPanel (#489)', () => {
       const usernames = container.querySelectorAll('.message-username');
       // Two distinct authors with .message-username applied (third message
       // intentionally omits the header — same-author rapid-reply pattern).
-      expect(usernames.length).toBe(2);
+      expect(usernames).toHaveLength(2);
     });
   });
 
   describe('voice preview', () => {
     it('renders 4 participant tiles', () => {
       const { container } = render(<SettingsPreviewPanel />);
-      expect(container.querySelectorAll('.participant-tile').length).toBe(4);
+      expect(container.querySelectorAll('.participant-tile')).toHaveLength(4);
     });
 
     it('marks one tile as speaking (accent outline)', () => {
       const { container } = render(<SettingsPreviewPanel />);
-      expect(container.querySelectorAll('.settings-preview-tile-speaking').length).toBe(1);
+      expect(container.querySelectorAll('.settings-preview-tile-speaking')).toHaveLength(1);
     });
 
     it('one tile renders a video stub (gradient background)', () => {
       const { container } = render(<SettingsPreviewPanel />);
-      expect(container.querySelectorAll('.participant-tile--video').length).toBe(1);
-      expect(container.querySelectorAll('.settings-preview-video-stub').length).toBe(1);
+      expect(container.querySelectorAll('.participant-tile--video')).toHaveLength(1);
+      expect(container.querySelectorAll('.settings-preview-video-stub')).toHaveLength(1);
     });
 
     it('three tiles render avatar-only with fallback initial', () => {
       const { container } = render(<SettingsPreviewPanel />);
       // Three avatar-only fallbacks (B / C / D); video tile #1 has no avatar.
-      expect(container.querySelectorAll('.participant-tile__avatar-fallback').length).toBe(3);
+      expect(container.querySelectorAll('.participant-tile__avatar-fallback')).toHaveLength(3);
     });
 
     it('voice state icons are aria-labelled (muted, deafened)', () => {

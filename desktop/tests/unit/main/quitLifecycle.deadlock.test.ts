@@ -24,7 +24,6 @@ import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 // ── Hoisted shared mocks (available during vi.mock factory execution) ──────
 const {
   mockMainWindow,
-  mockWebContents,
   MockBrowserWindow,
   MockWebContentsView,
   mockApp,

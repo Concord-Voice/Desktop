@@ -238,7 +238,7 @@ async function expectHistoryClosed(
   const item = history.items.find((candidate) => candidate.id === original.id);
   expect(item, 'destructive key operation should preserve the archived interval').toBeDefined();
   expect(history.items).toHaveLength(1);
-  expect(item?.payload?.text === original.payload?.text).toBe(true);
+  expect(item?.payload?.text).toBe(original.payload?.text);
   expect(item?.ended_at).not.toBeNull();
   const presence = await getPresence(page, session);
   expect(presence.custom_text).toBeNull();

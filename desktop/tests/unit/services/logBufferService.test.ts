@@ -206,7 +206,6 @@ describe('logBufferService', () => {
   // floor. A hand-written literal of the wrong length would make every assertion
   // below vacuous.
   describe('TURN credential scrub (#3104)', () => {
-    const TURN_SHARED_SECRET = 'test-turn-shared-secret-not-a-real-one'; // pragma: allowlist secret -- synthetic HMAC input; mirrors turn.go's TURNSecret so the fixture has production shape
     const USER_ID = '550e8400-e29b-41d4-a716-446655440000';
     const EXPIRY = 1774000000; // unix seconds, 10 digits like a real 24h TTL
 

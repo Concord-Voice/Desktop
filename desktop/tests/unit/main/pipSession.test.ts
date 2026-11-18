@@ -15,7 +15,7 @@ describe('mintPipSessionToken (#3104 D6)', () => {
   it('mints at least 256 bits of entropy', () => {
     expect(PIP_SESSION_TOKEN_BYTES).toBeGreaterThanOrEqual(32);
     // base64url of N bytes is ceil(4N/3) unpadded characters.
-    expect(mintPipSessionToken().length).toBe(Math.ceil((PIP_SESSION_TOKEN_BYTES * 4) / 3));
+    expect(mintPipSessionToken()).toHaveLength(Math.ceil((PIP_SESSION_TOKEN_BYTES * 4) / 3));
   });
 
   it('uses only the base64url alphabet, so it is safe as a channel name', () => {

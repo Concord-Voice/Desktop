@@ -451,7 +451,7 @@ describe('sso IPC handlers', () => {
         /untrusted/i
       );
       // Loopback must not even be started — the active map is empty.
-      expect(mocked.fakeHandles.length).toBe(0);
+      expect(mocked.fakeHandles).toHaveLength(0);
     });
 
     it('sso:awaitCallback rejects untrusted sender frames', async () => {
@@ -1685,7 +1685,7 @@ describe('sso IPC handlers', () => {
         completeMFAHandler({ senderFrame: { url: TRUSTED } }, SAAS_API_BASE, totpPayload)
       ).resolves.toMatchObject({ kind: 'error', status: 409 });
       expect(tokenMocks.credentialOwnerIsCurrent).not.toHaveBeenCalled();
-      expect(vi.mocked(net.fetch).mock.calls.length).toBe(fetches);
+      expect(vi.mocked(net.fetch).mock.calls).toHaveLength(fetches);
     });
 
     it('rejects an untrusted sender frame before any network or credential access', async () => {

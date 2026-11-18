@@ -183,7 +183,7 @@ describe('MentionAutocomplete', () => {
     // @everyone role has is_default=true and mentionable=false — should not appear as role
     const roleLabels = screen.queryAllByText('Role');
     // The only "Role" sublabel should not exist for @everyone
-    expect(roleLabels.length).toBe(0);
+    expect(roleLabels).toHaveLength(0);
   });
 
   it('hides roles when user lacks MENTION_ROLES permission', () => {

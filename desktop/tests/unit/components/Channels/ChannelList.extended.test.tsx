@@ -269,7 +269,7 @@ describe('ChannelList — extended coverage', () => {
       });
       const { container } = renderChannelList();
       const avatars = container.querySelectorAll('.channel-group-header__avatar');
-      expect(avatars.length).toBe(2);
+      expect(avatars).toHaveLength(2);
     });
 
     it('shows overflow count when more than 3 voice users', () => {

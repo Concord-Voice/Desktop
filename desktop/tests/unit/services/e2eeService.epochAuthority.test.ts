@@ -30,7 +30,6 @@ import {
   generateRegistrationKeys,
   generateChannelKey,
   wrapChannelKey,
-  exportChannelKey,
 } from '@/renderer/utils/crypto/crypto';
 import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
 import { e2eeService } from '@/renderer/services/e2ee/e2eeService';
@@ -42,8 +41,6 @@ vi.mock('@/renderer/services/system/apiClient', () => ({
 }));
 import { apiFetch } from '@/renderer/services/system/apiClient';
 const mockApiFetch = vi.mocked(apiFetch);
-
-const FORGED_EPOCH = 2147483647; // int32 max — accepted by key_version >= 1
 
 const FORGED = 2147483647; // int32 max — passed the old `key_version >= 1` bound
 

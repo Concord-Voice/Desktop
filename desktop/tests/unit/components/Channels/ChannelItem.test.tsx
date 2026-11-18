@@ -617,7 +617,7 @@ describe('ChannelItem', () => {
       />
     );
     const badges = document.querySelectorAll('.channel-unread-badge');
-    expect(badges.length).toBe(0);
+    expect(badges).toHaveLength(0);
   });
 
   it('applies active class to linked text when isLinkedTextActive is true', () => {

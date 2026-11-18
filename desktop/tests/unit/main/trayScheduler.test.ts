@@ -158,7 +158,7 @@ describe('breath', () => {
     expect(last.at - calls[0].at).toBe(30_000);
     const n = calls.length;
     vi.advanceTimersByTime(5000);
-    expect(calls.length).toBe(n);
+    expect(calls).toHaveLength(n);
   });
 
   it('does not restart after the cap while the same state persists', () => {
@@ -167,7 +167,7 @@ describe('breath', () => {
     vi.advanceTimersByTime(31_000);
     const n = calls.length;
     s.apply(breathV(), gate);
-    expect(calls.length).toBe(n);
+    expect(calls).toHaveLength(n);
     expect(s.activeTimers()).toBe(0);
   });
 
@@ -257,7 +257,7 @@ describe('scheduler invariants', () => {
     expect(s.activeTimers()).toBe(0);
     const n = calls.length;
     vi.advanceTimersByTime(5000);
-    expect(calls.length).toBe(n);
+    expect(calls).toHaveLength(n);
     s.apply(breathV(), gate);
     expect(s.activeTimers()).toBe(1);
   });

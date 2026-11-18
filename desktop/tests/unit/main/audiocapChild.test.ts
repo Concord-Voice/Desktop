@@ -326,14 +326,14 @@ describe('audiocap child credit gate', () => {
     // Value obeyed: CREDIT_BOUND (8) caps the drain regardless of how many
     // times the addon signals availability -- credit exhaustion and ring
     // overflow are the same event (spec §4d), never a queue behind the port.
-    expect(c.posted.length).toBe(8);
+    expect(c.posted).toHaveLength(8);
 
     c.ack();
     await c.settle(() => c.posted.length, 9);
     // A freed credit slot resumes the ALREADY-SIGNALLED availability; this
     // is not the producer asking for more (spec §4d forbids a timer doing
     // that), it is the child finishing what it already knew was there.
-    expect(c.posted.length).toBe(9);
+    expect(c.posted).toHaveLength(9);
   });
 
   it('faults on a SECOND protocol violation, not the first', async () => {
@@ -366,7 +366,7 @@ describe('audiocap child credit gate', () => {
     // the child processed the violation before we check that the signal produced
     // nothing.
     await c.flush();
-    expect(c.posted.length).toBe(0);
+    expect(c.posted).toHaveLength(0);
   });
 });
 
@@ -1091,7 +1091,7 @@ describe('audiocap child fault watch (#3394 PR 2, Task T2)', () => {
 
     // If `clearFaultWatch()` had been deleted from `handleStop`, each of these
     // three intervals would read the now-faulted status() and post `fault{run}`.
-    expect(status.mock.calls.length).toBe(callsAtStop);
+    expect(status.mock.calls).toHaveLength(callsAtStop);
     expect(runFaults(posted)).toHaveLength(0);
   });
 

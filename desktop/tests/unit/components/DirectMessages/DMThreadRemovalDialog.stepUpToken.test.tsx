@@ -40,7 +40,6 @@ const conversation: DMConversation = {
 
 const READ_PATH = '*/api/v1/mfa/step-up';
 const CLEAR_PATH = '*/api/v1/dm/conversations/:id/clear';
-const CODE = '123456';
 
 beforeEach(() => {
   resetAllStores();
@@ -91,8 +90,6 @@ async function openClear(onClose = vi.fn()) {
 const verify = () => screen.getByRole('button', { name: 'Verify and clear' });
 const enterPassword = async (value: string) =>
   fireEvent.change(await screen.findByLabelText('Password'), { target: { value } });
-const enterCode = async (value = CODE) =>
-  userEvent.setup().type(await screen.findByLabelText('Authenticator app code'), value);
 
 function stand(mint: () => Response, clear: () => Response = cleared) {
   let clearRequests = 0;

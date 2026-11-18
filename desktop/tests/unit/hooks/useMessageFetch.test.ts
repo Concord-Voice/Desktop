@@ -638,7 +638,7 @@ describe('useMessageFetch', () => {
       const stored = useChatStore.getState().messagesByChannel.get('channel-1');
       expect(stored).toBeDefined();
       // Should have both: the server message and the optimistic one
-      expect(stored!.length).toBe(2);
+      expect(stored!).toHaveLength(2);
       expect(stored!.some((m) => m.clientMessageId === 'client-msg-1')).toBe(true);
       expect(stored!.some((m) => m.id === 'msg-1')).toBe(true);
     });
@@ -663,7 +663,7 @@ describe('useMessageFetch', () => {
     await waitFor(() => {
       const stored = useChatStore.getState().messagesByChannel.get('channel-1');
       // Optimistic should be deduped — only the server message remains
-      expect(stored!.length).toBe(1);
+      expect(stored!).toHaveLength(1);
     });
   });
 

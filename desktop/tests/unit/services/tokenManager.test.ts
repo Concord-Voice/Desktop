@@ -429,7 +429,7 @@ describe.each([
         rememberMe: false,
         apiBase: origin,
       });
-      expect(fsWriteCalls.length).toBe(0);
+      expect(fsWriteCalls).toHaveLength(0);
       expect(fsUnlinkCount).toBeGreaterThan(0);
     });
 
@@ -707,7 +707,7 @@ describe.each([
         apiBase: origin,
         rememberMe: false,
       });
-      expect(fsWriteCalls.length).toBe(0);
+      expect(fsWriteCalls).toHaveLength(0);
     });
 
     it('returns memory API base for rememberMe=false sessions', () => {
@@ -1013,7 +1013,7 @@ describe.each([
         preferencesKeyBase64: 'k',
         wrappedPrivateKeyBase64: 'k',
       });
-      expect(fsWriteCalls.length).toBe(0);
+      expect(fsWriteCalls).toHaveLength(0);
     });
 
     it('storeE2EEKeys keeps keys in main-process memory (never disk) when rememberMe=false', async () => {
@@ -1030,7 +1030,7 @@ describe.each([
       };
       await storeE2EEKeysIfOwner(keys, owner);
       // Session-only key material is NEVER written to disk (#1870)...
-      expect(fsWriteCalls.length).toBe(0);
+      expect(fsWriteCalls).toHaveLength(0);
       // ...but it IS held in main-process memory so it survives a soft reload.
       fsRead.impl = () => {
         throw new Error('disk should not be read for memory-only E2EE keys');
@@ -1278,7 +1278,7 @@ describe.each([
 
       // Session-only skip is not a failure — the renderer must not warn.
       expect(await storeE2EEKeysIfOwner(keys, owner)).toBe(true);
-      expect(fsWriteCalls.length).toBe(0);
+      expect(fsWriteCalls).toHaveLength(0);
     });
   });
 
@@ -1795,7 +1795,7 @@ describe.each([
       await performRefresh();
       await flushDiskWrites();
       const tokenWrites = fsWriteCalls.filter((c) => (c[0] as string).includes('secure-token.dat'));
-      expect(tokenWrites.length).toBe(0);
+      expect(tokenWrites).toHaveLength(0);
     });
 
     it('handles mfa_upgrade_required variant', async () => {
@@ -1933,7 +1933,7 @@ describe.each([
       await vi.advanceTimersByTimeAsync(61_000);
       const callsAfterRejection = mockNetFetch.mock.calls.length;
       await vi.advanceTimersByTimeAsync(60_000);
-      expect(mockNetFetch.mock.calls.length).toBe(callsAfterRejection);
+      expect(mockNetFetch.mock.calls).toHaveLength(callsAfterRejection);
       expect(cb).not.toHaveBeenCalled();
     });
 
@@ -2490,7 +2490,7 @@ describe.each([
       decrypt.reject(new Error('Error while decrypting the ciphertext'));
 
       expect(await restoring).toMatchObject({ status: 'ok', token: 'rt-login' });
-      expect(fsUnlinkCalls.length).toBe(unlinksAfterLogin);
+      expect(fsUnlinkCalls).toHaveLength(unlinksAfterLogin);
     });
 
     it('re-encrypts a restored token when safeStorage reports a rotated key', async () => {

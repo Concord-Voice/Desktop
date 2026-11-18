@@ -958,7 +958,7 @@ describe('preferencesSyncService', () => {
       const internal = preferencesSyncService as unknown as { unsubscribers: (() => void)[] };
       vi.useFakeTimers();
       try {
-        expect(internal.unsubscribers.length).toBe(0);
+        expect(internal.unsubscribers).toHaveLength(0);
         preferencesSyncService.startWatching();
         await vi.advanceTimersByTimeAsync(0); // drain dynamic imports
         const afterFirst = internal.unsubscribers.length;
@@ -969,10 +969,10 @@ describe('preferencesSyncService', () => {
         // After a second startWatching, the internal stopWatching call must
         // have cleared the prior subscribers and the new ones replaced them —
         // count is the same, not doubled.
-        expect(internal.unsubscribers.length).toBe(afterFirst);
+        expect(internal.unsubscribers).toHaveLength(afterFirst);
 
         preferencesSyncService.stopWatching();
-        expect(internal.unsubscribers.length).toBe(0);
+        expect(internal.unsubscribers).toHaveLength(0);
       } finally {
         vi.useRealTimers();
       }

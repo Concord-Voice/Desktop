@@ -62,7 +62,7 @@ describe('MessageList', () => {
 
     // Should show two date dividers (one for each distinct day)
     const dateDividers = document.querySelectorAll('.date-divider');
-    expect(dateDividers.length).toBe(2);
+    expect(dateDividers).toHaveLength(2);
   });
 
   it('renders container class for scroll area', () => {

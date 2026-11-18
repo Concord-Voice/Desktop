@@ -94,8 +94,8 @@ describe('UserFrameBar', () => {
     expect(screen.getByRole('button', { name: "Tune in to alice's screen" })).toBeInTheDocument();
     // Non-sharer item carries no pill modifier
     const items = container.querySelectorAll('.user-frame-bar__item');
-    expect(items.length).toBe(2);
-    expect(container.querySelectorAll('.user-frame-bar__item--pill').length).toBe(1);
+    expect(items).toHaveLength(2);
+    expect(container.querySelectorAll('.user-frame-bar__item--pill')).toHaveLength(1);
   });
 
   it('drives the pill at-cap block from the store (5 tuned in → aria-disabled)', () => {
@@ -212,6 +212,6 @@ describe('UserFrameBar', () => {
   it('renders no tiles when participants is empty', () => {
     useVoiceStore.setState({ participants: {} });
     const { container } = render(<UserFrameBar height={120} />);
-    expect(container.querySelectorAll('[data-testid^="tile-"]').length).toBe(0);
+    expect(container.querySelectorAll('[data-testid^="tile-"]')).toHaveLength(0);
   });
 });

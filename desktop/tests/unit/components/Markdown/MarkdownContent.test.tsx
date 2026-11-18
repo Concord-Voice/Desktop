@@ -128,7 +128,7 @@ describe('MarkdownContent', () => {
       // GFM "loose list" — blank lines between items force <p> wrapping inside <li>.
       const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
       const items = container.querySelectorAll('li');
-      expect(items.length).toBe(3);
+      expect(items).toHaveLength(3);
       // Loose-list mode is proven by the presence of <p> inside each <li>.
       for (const li of items) {
         const innerP = li.querySelector('p');

@@ -708,7 +708,7 @@ describe('PipSignalingProxy', () => {
       ch.simulateMessage({ kind: 'rpc-response', id: 'xyz' });
 
       // No new messages posted (proxy didn't try to handle them)
-      expect(ch.posted.length).toBe(prevLength);
+      expect(ch.posted).toHaveLength(prevLength);
     });
 
     it('logs redacted error via Unhandled RPC error catch when handleRpcRequest rejects', async () => {

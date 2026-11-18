@@ -302,7 +302,7 @@ describe('ChatView', () => {
     await vi.waitFor(() => {
       const messageList = screen.getByTestId('message-list');
       const messages = messageList.querySelectorAll('[data-testid="message"]');
-      expect(messages.length).toBe(0);
+      expect(messages).toHaveLength(0);
     });
   });
 
@@ -834,7 +834,7 @@ describe('ChatView', () => {
     async function settleInitialHistory(fakeList: { scrollToMessage: unknown }) {
       await waitFor(() => {
         expect(capturedMessageListProps).toHaveProperty('isHistoryReady', true);
-        expect((capturedMessageListProps.messages as unknown[]).length).toBe(50);
+        expect(capturedMessageListProps.messages as unknown[]).toHaveLength(50);
       });
       // The list is mocked and holds no handle of its own: hand the owner's ref ours.
       const ref = capturedMessageListProps.ref as { current: unknown } | undefined;

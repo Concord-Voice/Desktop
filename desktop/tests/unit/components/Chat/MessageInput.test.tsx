@@ -799,7 +799,7 @@ describe('MessageInput cap reduction + overflow', () => {
     fireEvent.change(textarea, { target: { value: 'b'.repeat(6000) } });
 
     // Content should NOT be truncated to 5120 — the overflow path handles it
-    expect(textarea.value.length).toBe(6000);
+    expect(textarea.value).toHaveLength(6000);
   });
 
   it('triggers overflow path on send: uploads .md via additionalFiles and sends preview text', async () => {
@@ -1046,7 +1046,7 @@ describe('MessageInput cap reduction + overflow', () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
       await vi.waitFor(() => expect(onSendMessage).toHaveBeenCalled());
       const sentContent = onSendMessage.mock.calls[0][0] as string;
-      expect(sentContent.length).toBe(6000); // full content inline, not a 200-char preview
+      expect(sentContent).toHaveLength(6000); // full content inline, not a 200-char preview
       expect(mockUploadAll).not.toHaveBeenCalled(); // no overflow .md upload
     });
   });

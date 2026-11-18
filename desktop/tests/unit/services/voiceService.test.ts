@@ -5493,7 +5493,7 @@ describe('VoiceService', () => {
       expect(result).toBeDefined();
       expect(result.codec).toBeDefined();
       expect(result.encodings).toBeInstanceOf(Array);
-      expect(result.encodings.length).toBe(1);
+      expect(result.encodings).toHaveLength(1);
     });
 
     it('pickCameraCodec uses AV1 SVC encoding when camera layering is enabled', async () => {

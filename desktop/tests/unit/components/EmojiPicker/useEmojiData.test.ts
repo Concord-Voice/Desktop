@@ -98,7 +98,7 @@ describe('useEmojiData — loadCategory', () => {
       returned = await result.current.loadCategory('smileys');
     });
 
-    expect(returned.length).toBe(2);
+    expect(returned).toHaveLength(2);
     expect(returned[0].e).toBe('😀');
     expect(mockCategoryMap.has('smileys')).toBe(true);
   });
@@ -156,7 +156,7 @@ describe('useEmojiData — getCategory', () => {
       await result.current.loadCategory('smileys');
     });
 
-    expect(result.current.getCategory('smileys').length).toBe(2);
+    expect(result.current.getCategory('smileys')).toHaveLength(2);
   });
 });
 
@@ -176,15 +176,15 @@ describe('useEmojiData — search', () => {
     const { result } = renderHook(() => useEmojiData());
 
     const results = result.current.search('face');
-    expect(results.length).toBe(2);
+    expect(results).toHaveLength(2);
   });
 
   it('is case-insensitive', async () => {
     mockCategoryMap.set('smileys', [{ e: '😀', n: 'Grinning Face', s: false, c: [] }]);
 
     const { result } = renderHook(() => useEmojiData());
-    expect(result.current.search('grinning').length).toBe(1);
-    expect(result.current.search('GRINNING').length).toBe(1);
+    expect(result.current.search('grinning')).toHaveLength(1);
+    expect(result.current.search('GRINNING')).toHaveLength(1);
   });
 
   it('returns empty array when no emoji matches', async () => {
@@ -203,7 +203,7 @@ describe('useEmojiData — search', () => {
     const { result } = renderHook(() => useEmojiData());
 
     const results = result.current.search(':sm');
-    expect(results.length).toBe(1);
+    expect(results).toHaveLength(1);
     expect(results[0].e).toBe('😄');
   });
 
@@ -217,14 +217,14 @@ describe('useEmojiData — search', () => {
 
     // Name-match path still works
     const byName = result.current.search('heart');
-    expect(byName.length).toBe(1);
+    expect(byName).toHaveLength(1);
     expect(byName[0].e).toBe('❤️');
 
     // Shortcode-prefix path also works without a leading colon — "thumbsu"
     // is not a substring of "thumbs up sign" (space breaks it), so only the
     // shortcode 'thumbsup' can match.
     const byCodePrefix = result.current.search('thumbsu');
-    expect(byCodePrefix.length).toBe(1);
+    expect(byCodePrefix).toHaveLength(1);
     expect(byCodePrefix[0].e).toBe('👍');
   });
 });

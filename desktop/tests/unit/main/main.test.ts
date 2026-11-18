@@ -3494,13 +3494,13 @@ describe('main.ts', () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
       const closed = await openPip('owner-controls-pip');
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
 
       mockPipWindow.focus.mockClear();
       mockPipWindow.setAlwaysOnTop.mockClear();
       mockPipWindow.close.mockClear();
       await handlers.get('pip:open')!(pipOwnerEvent, { id: 'owner-controls-pip' });
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       await handlers.get('pip:setAlwaysOnTop')!(pipOwnerEvent, {
         id: 'owner-controls-pip',
         flag: false,
@@ -3553,7 +3553,7 @@ describe('main.ts', () => {
       const { BrowserWindow } = await import('electron');
       const before = (BrowserWindow as unknown as Mock).mock.calls.length;
       const closed = await openPip('frame-owned-pip');
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       mockPipWindow.focus.mockClear();
       mockPipWindow.close.mockClear();
       mockPipWindow.setAlwaysOnTop.mockClear();
@@ -3561,7 +3561,7 @@ describe('main.ts', () => {
       await expect(
         handlers.get('pip:open')!(otherPermittedPipEvent, { id: 'frame-owned-pip' })
       ).rejects.toThrow();
-      expect((BrowserWindow as unknown as Mock).mock.calls.length).toBe(before + 1);
+      expect(BrowserWindow as unknown as Mock).toHaveBeenCalledTimes(before + 1);
       await handlers.get('pip:close')!(otherPermittedPipEvent, { id: 'frame-owned-pip' });
       await handlers.get('pip:setAlwaysOnTop')!(otherPermittedPipEvent, {
         id: 'frame-owned-pip',
