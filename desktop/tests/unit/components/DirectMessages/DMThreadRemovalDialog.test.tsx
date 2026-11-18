@@ -15,6 +15,7 @@ import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 import { answerCapabilityRefresh } from '../../../helpers/capabilityRefresh';
 import { clientConfigService } from '@/renderer/services/system/clientConfigService';
 import { PIN_CLAIM_UNCONFIRMED_MESSAGE } from '@/renderer/services/messaging/purgeApi';
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 
 // DM Clear on the shared step-up stage (picker PR 2, surface #3). The service
 // is mocked, so what the dialog SENDS is observable as `clearDMHistory`'s
@@ -36,7 +37,7 @@ vi.mock('@/renderer/services/messaging/dmVisibilityApi', () => ({
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 

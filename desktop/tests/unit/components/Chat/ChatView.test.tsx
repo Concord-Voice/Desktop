@@ -70,7 +70,7 @@ let capturedSearchPanelProps: {
   onJump?: (channelId: string, messageId: string, signal?: AbortSignal) => Promise<string>;
 } = {};
 vi.mock('@/renderer/components/Chat/SearchPanel', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/components/Chat/SearchPanel')>();
+  const actual = await importOriginal<typeof SearchPanelModule>();
   const RealSearchPanel = actual.default;
   return {
     ...actual,
@@ -159,6 +159,7 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 }));
 
 import ChatView from '@/renderer/components/Chat/ChatView';
+import type * as SearchPanelModule from '@/renderer/components/Chat/SearchPanel';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

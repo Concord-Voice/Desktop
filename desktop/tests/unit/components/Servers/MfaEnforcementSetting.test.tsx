@@ -14,7 +14,7 @@ import { createMockWsService, requireHandler } from '../../../helpers/wsServiceM
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -30,6 +30,7 @@ import MfaEnforcementSetting from '@/renderer/components/Servers/MfaEnforcementS
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 
 // Named fixtures: the pre-commit detect-secrets hook flags credential-shaped keys.
 const FIXTURE_OTP = '314159';
