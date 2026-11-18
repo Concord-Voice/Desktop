@@ -21,8 +21,12 @@
  * Identifier, so no eslint-disable directive is required.
  */
 
+/**
+ * Control characters (CR, LF and the rest of Unicode Cc) become spaces, so a
+ * message carrying server- or peer-supplied text cannot forge extra log lines.
+ */
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'unknown_error';
+  return err instanceof Error ? err.message.replaceAll(/\p{Cc}/gu, ' ') : 'unknown_error';
 }
 
 export function errorName(err: unknown): string {

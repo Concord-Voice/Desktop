@@ -22,5 +22,9 @@ export function bufferToBase64url(buffer: ArrayBuffer): string {
   for (const byte of bytes) {
     binary += String.fromCodePoint(byte);
   }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
+  // Base64 padding is at most two '='; the bounded quantifier keeps the strip linear.
+  return btoa(binary)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/={1,2}$/, '');
 }

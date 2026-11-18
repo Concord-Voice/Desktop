@@ -25,6 +25,35 @@ export function buildInviteUrl(code: string): string {
   return `https://${INVITE_HOST}/${code}`;
 }
 
+/** Characters that separate a URL from surrounding prose. */
+const URL_DELIMITER = /[\s<>"')]/;
+const TRAILING_PUNCTUATION = new Set(['.', ',', '!', '?', ';', ':', "'", '"', ')', ']', '}']);
+
+/**
+ * Each run of non-delimiter text, from its first `http://` / `https://`
+ * (case-insensitive) to the run's end. Same matches as
+ * `/https?:\/\/[^\s<>"')]+/gi`, without a quantified regex: the split class
+ * matches one character, so the scan stays linear on hostile input.
+ */
+function urlCandidates(text: string): string[] {
+  const out: string[] = [];
+  for (const run of text.split(URL_DELIMITER)) {
+    const lower = run.toLowerCase();
+    const starts = [lower.indexOf('http://'), lower.indexOf('https://')].filter((i) => i >= 0);
+    if (starts.length === 0) continue;
+    const start = Math.min(...starts);
+    const schemeEnd = lower.startsWith('https://', start) ? start + 8 : start + 7;
+    if (run.length > schemeEnd) out.push(run.slice(start));
+  }
+  return out;
+}
+
+function trimTrailing(value: string, chars: ReadonlySet<string>): string {
+  let end = value.length;
+  while (end > 0 && chars.has(value[end - 1])) end--;
+  return value.slice(0, end);
+}
+
 /**
  * Find canonical invite-link codes in free text. ONLY exact-host
  * `https://invite.concordvoice.chat/{code}` URLs match (host parsed via the URL
@@ -34,13 +63,12 @@ export function buildInviteUrl(code: string): string {
 export function extractInviteCodes(text: string, max = 3): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  const candidates = text.match(/https?:\/\/[^\s<>"')]+/gi) ?? [];
-  for (const cand of candidates) {
+  for (const cand of urlCandidates(text)) {
     let code: string | null = null;
     try {
       // Strip trailing punctuation that can never be part of a canonical invite
       // URL but may appear when a link ends a sentence or sits inside brackets.
-      const trimmed = cand.replace(/[.,!?;:'")\]}]+$/, '');
+      const trimmed = trimTrailing(cand, TRAILING_PUNCTUATION);
       const u = new URL(trimmed);
       if (u.protocol === 'https:' && u.host === INVITE_HOST) {
         const path = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '');

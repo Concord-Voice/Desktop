@@ -11229,7 +11229,8 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      const result = await this.runE2EEInitAttempt(context, attempt, retryDelays[attempt]);
+      // The final attempt has no delay: `.at()` yields undefined there, meaning no retry.
+      const result = await this.runE2EEInitAttempt(context, attempt, retryDelays.at(attempt));
       if (result.succeeded) return;
       lastError = result.error;
     }
@@ -11585,7 +11586,8 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      const result = await this.tryAddDecryptKey(context, attempt, retryDelays[attempt]);
+      // The final attempt has no delay: `.at()` yields undefined there, meaning no retry.
+      const result = await this.tryAddDecryptKey(context, attempt, retryDelays.at(attempt));
       if (result.status === 'success') return true;
       if (result.status === 'stale') return false;
       lastError = result.error;
