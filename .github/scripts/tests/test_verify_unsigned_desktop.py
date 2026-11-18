@@ -186,5 +186,36 @@ class UnsignedDesktopTest(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
 
 
+    def test_rejects_pull_request_target_checkout_weakening(self):
+        def checkout(w, job='classify-data'):
+            return next(s for s in w['jobs'][job]['steps'] if 'actions/checkout@' in s.get('uses', ''))
+        cases = {
+            'classify-release-comment.yml': {
+                'PR-head ref': lambda w: checkout(w)['with'].update(ref='${{ github.event.pull_request.head.sha }}'),
+                'event base ref': lambda w: checkout(w)['with'].update(ref='${{ github.event.pull_request.base.sha }}'),
+                'kept credentials': lambda w: checkout(w)['with'].update({'persist-credentials': 'true'}),
+                'other repository': lambda w: checkout(w)['with'].update(repository='fork/Desktop'),
+                'fork gate dropped': lambda w: w['jobs']['classify-data'].update({'if': "github.repository == 'Concord-Voice/Desktop'"}),
+                'contents write': lambda w: w['jobs']['classify-data'].update(permissions={'contents': 'write'}),
+                'extra trigger': lambda w: w['on'].update(pull_request={}),
+                'any branch': lambda w: w['on']['pull_request_target'].pop('branches'),
+                'materialized head': lambda w: w['jobs']['classify-data']['steps'].append({'run': 'git checkout "$HEAD_SHA"'}),
+            },
+            'workflow-validate.yml': {
+                'PR-head ref': lambda w: checkout(w, 'analyze-changed-workflows')['with'].update(ref='${{ github.event.pull_request.head.sha }}'),
+            },
+        }
+        for name, mutations in cases.items():
+            for label, mutate in mutations.items():
+                with self.subTest(workflow=name, label=label), tempfile.TemporaryDirectory() as directory:
+                    root = pathlib.Path(directory)
+                    shutil.copytree(ROOT / '.github/workflows', root / '.github/workflows')
+                    path = root / '.github/workflows' / name
+                    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+                    mutate(workflow)
+                    path.write_text(yaml.safe_dump(workflow))
+                    with self.assertRaisesRegex(ValueError, name):
+                        unsigned.verify(root)
+
 if __name__ == '__main__':
     unittest.main()

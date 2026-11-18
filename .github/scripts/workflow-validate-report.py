@@ -16,7 +16,7 @@ MAX_FILES = 64
 MAX_BLOB_BYTES = 1_048_576
 MAX_TOTAL_BYTES = 8_388_608
 MAX_COMMENT_BYTES = 32_768
-SAFE_WORKFLOW = re.compile(rb"^\.github/workflows/[A-Za-z0-9._-]+\.yml$")
+SAFE_WORKFLOW = re.compile(rb"^\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 PARSER = Path(__file__).with_name("parse-dispatched-workflow.sh")
 FOOTER = (
@@ -93,14 +93,14 @@ def parse_blob(path: bytes, blob: bytes, temp_dir: str):
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except ProcessLookupError:
-            pass
+            pass  # The parser group already exited; nothing left to signal.
         try:
             proc.communicate(timeout=1)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
-                pass
+                pass  # Exited between SIGTERM and SIGKILL; communicate() reaps it.
             proc.communicate()
         raise Refused("workflow parser timed out") from exc
     if proc.returncode != 0:
@@ -143,6 +143,7 @@ def analyze(base_sha: str, head_sha: str):
         head,
         "--",
         ":(glob).github/workflows/*.yml",
+        ":(glob).github/workflows/*.yaml",
     )
     changed = [path for path in git(*diff_args).split(b"\0") if path]
     if len(changed) > MAX_FILES:
@@ -159,6 +160,7 @@ def analyze(base_sha: str, head_sha: str):
             head,
             "--",
             ":(glob).github/workflows/*.yml",
+            ":(glob).github/workflows/*.yaml",
         ).split(b"\0")
         if path
     }
@@ -256,7 +258,7 @@ def main(argv) -> int:
         try:
             write_outputs(summary_path, comment_path, f"Workflow validation refused: {exc}.", "")
         except OSError:
-            pass
+            pass  # Best effort: the refusal is still reported by the non-zero exit.
         return 1
     except Exception:
         try:
@@ -267,7 +269,7 @@ def main(argv) -> int:
                 "",
             )
         except OSError:
-            pass
+            pass  # Best effort: the refusal is still reported by the non-zero exit.
         return 1
 
 

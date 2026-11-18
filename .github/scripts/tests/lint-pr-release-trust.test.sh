@@ -816,7 +816,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: checkout-base
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Fetch target commit as data
@@ -2718,8 +2718,13 @@ policy_case_diagnostic "ordinary lockstep job gains PR-write authority" \
 policy_case_diagnostic "classifier data job checks out PR head" \
   "classify-data must not check out or execute PR-head code" replace_once \
   ".github/workflows/classify-release-comment.yml" \
-  'ref: ${{ github.event.pull_request.base.sha }}' \
+  'ref: ${{ github.sha }}' \
   'ref: ${{ github.event.pull_request.head.sha }}'
+policy_case_diagnostic "classifier data job checks out the event base SHA" \
+  "classify-data must not check out or execute PR-head code" replace_once \
+  ".github/workflows/classify-release-comment.yml" \
+  'ref: ${{ github.sha }}' \
+  'ref: ${{ github.event.pull_request.base.sha }}'
 policy_case_diagnostic "classifier base checkout loses full history" \
   "classify-data must check out the protected base with full history and persist-credentials: false" replace_in_job_once \
   ".github/workflows/classify-release-comment.yml" classify-data \
@@ -2811,7 +2816,7 @@ policy_case_diagnostic "classifier data job adds a second protected-base checkou
   "classify-data must have exactly one protected-base checkout and the approved data-step inventory" \
   replace_in_job_once ".github/workflows/classify-release-comment.yml" classify-data \
   '      - name: Fetch target commit as data' \
-  $'      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          ref: ${{ github.event.pull_request.base.sha }}\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Fetch target commit as data'
+  $'      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          ref: ${{ github.sha }}\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Fetch target commit as data'
 
 policy_case_diagnostic "comment publisher gains an unrelated action step" \
   "classify-comment must have exactly one pinned github-script publisher step" \

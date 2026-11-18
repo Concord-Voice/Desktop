@@ -48,12 +48,12 @@ jobs:
       bump_basis: ${{ steps.validate.outputs.bump_basis }}
     steps:
       # Protected base only; PR-head objects remain non-executable classifier data.
-      # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
+      # On pull_request_target, github.sha is the base-branch tip; BASE_SHA below is data.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         id: checkout-base
         continue-on-error: true
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 

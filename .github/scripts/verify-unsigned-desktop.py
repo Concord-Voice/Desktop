@@ -67,6 +67,40 @@ def verify(root):
     if len(job['strategy']['matrix']['include']) != 6:
         raise ValueError('all six platform/architecture packaging legs are required')
     verify_release(workflows, job)
+    verify_pull_request_target(workflows)
+
+
+SAME_REPO = 'github.event.pull_request.head.repo.full_name == github.repository'
+
+
+def verify_pull_request_target(workflows):
+    """A pull_request_target job holds a write-capable token, so it may read the PR only as Git
+    objects. github.sha is the protected base tip only while main is the sole target branch."""
+    for path in sorted(workflows.glob('*.y*ml')):
+        doc = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        on = doc.get('on')
+        if not isinstance(on, dict) or 'pull_request_target' not in on:
+            continue
+        for name, job in doc.get('jobs', {}).items():
+            checkouts = [s for s in job.get('steps', []) if 'actions/checkout@' in s.get('uses', '')]
+            if not checkouts:
+                continue
+            where = f'{path.name}:{name}'
+            trigger = on['pull_request_target']
+            if set(on) != {'pull_request_target'} or not isinstance(trigger, dict) or trigger.get('branches') != ['main']:
+                raise ValueError(f'{where}: a checkout under pull_request_target needs main as the only trigger branch')
+            if SAME_REPO not in ' '.join(job.get('if', '').split()):
+                raise ValueError(f'{where}: a checkout under pull_request_target must be same-repository only')
+            perms = job.get('permissions')
+            if not isinstance(perms, dict) or perms.get('contents', 'none') not in ('read', 'none'):
+                raise ValueError(f'{where}: a checkout job must not hold contents: write')
+            for step in checkouts:
+                w = step.get('with', {})
+                if (w.get('ref') != '${{ github.sha }}' or w.get('persist-credentials') != 'false'
+                        or 'repository' in w):
+                    raise ValueError(f'{where}: checkout must be the protected github.sha with persist-credentials: false')
+            if any(re.search(r'\bgit\s+(checkout|switch|worktree|restore)\b', s.get('run', '')) for s in job['steps']):
+                raise ValueError(f'{where}: must not materialize PR-head files')
 
 
 RELEASE_PERMISSIONS = {'contents': 'read', 'id-token': 'write', 'attestations': 'write'}
