@@ -30,21 +30,21 @@ reason = "GHSA-gcqx-w48m-w2h4 (mirror of the .audit-allowlist.json entry). No fi
 
 [[PackageOverrides]]
 name = "picomatch"
-version = "4.0.4"
-ecosystem = "npm"
-group = "dev"
-ignore = true
-effectiveUntil = 2027-01-29T00:00:00Z
-reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). Desktop path: vite, vitest and tinyglobby (via typescript-eslint and node-gyp) nest picomatch 4.0.4 and 4.0.7. No fixed release exists: the advisory lists <= 4.0.7 with no first patched version, and 4.0.7 is the latest. Dev-only test and build tooling that compiles globs from repo-authored config, never attacker-supplied patterns, so the extglob ReDoS is unreachable. Re-check for a patched picomatch by review_by."
-
-[[PackageOverrides]]
-name = "picomatch"
 version = "4.0.7"
 ecosystem = "npm"
 group = "dev"
 ignore = true
-effectiveUntil = 2027-01-29T00:00:00Z
-reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). Desktop path: vite, vitest and tinyglobby (via typescript-eslint and node-gyp) nest picomatch 4.0.4 and 4.0.7. No fixed release exists: the advisory lists <= 4.0.7 with no first patched version, and 4.0.7 is the latest. Dev-only test and build tooling that compiles globs from repo-authored config, never attacker-supplied patterns, so the extglob ReDoS is unreachable. Re-check for a patched picomatch by review_by."
+effectiveUntil = 2027-02-18T00:00:00Z
+reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). No fixed release exists: picomatch 4.0.7 is the latest and the advisory lists <= 4.0.7 with no patched version. Dev-only transitive, reached through vite, vitest, tinyglobby/fdir (node-gyp, @electron/rebuild, typescript-estree) with repo-owned glob patterns, never attacker-supplied input. Re-check for a patched picomatch or parents that drop it by review_by."
+
+[[PackageOverrides]]
+name = "picomatch"
+version = "4.0.4"
+ecosystem = "npm"
+group = "dev"
+ignore = true
+effectiveUntil = 2027-02-18T00:00:00Z
+reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). No fixed release exists: picomatch 4.0.7 is the latest and the advisory lists <= 4.0.7 with no patched version. Dev-only transitive, reached through vite, vitest, tinyglobby/fdir (node-gyp, @electron/rebuild, typescript-estree) with repo-owned glob patterns, never attacker-supplied input. Re-check for a patched picomatch or parents that drop it by review_by."
 
 [[PackageOverrides]]
 name = "uri-js"

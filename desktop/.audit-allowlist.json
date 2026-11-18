@@ -11,8 +11,8 @@
     {
       "id": "GHSA-fc5q-39xc-vjpf",
       "package": "picomatch",
-      "reason": "Desktop path: vite, vitest and tinyglobby (via typescript-eslint and node-gyp) nest picomatch 4.0.4 and 4.0.7. No fixed release exists: the advisory lists <= 4.0.7 with no first patched version, and 4.0.7 is the latest. Dev-only test and build tooling that compiles globs from repo-authored config, never attacker-supplied patterns, so the extglob ReDoS is unreachable. Re-check for a patched picomatch by review_by.",
-      "review_by": "2027-01-29",
+      "reason": "Desktop paths: vite and vitest > picomatch 4.0.7; tinyglobby/fdir > picomatch 4.0.4 via node-gyp, app-builder-lib > @electron/rebuild > node-gyp, @typescript-eslint/typescript-estree, vite and vitest. No fixed release exists: picomatch 4.0.7 is the latest and the advisory (amended 2026-11-17) lists <= 4.0.7 with no first_patched_version. Dev-only transitive (npm audit --omit=dev is clean); no shipped code calls a glob matcher. The ReDoS needs an attacker-controlled extglob pattern, and every pattern here is repo-owned build, lint or test config, so the worst case is a dev/CI CPU stall. Re-check for a patched picomatch or parents that drop it by review_by.",
+      "review_by": "2027-02-18",
       "scope": "dev"
     }
   ]
