@@ -19,7 +19,7 @@
 > was retired and replaced by agent selection (see
 > [`lifecycle-agent-dispatch.md`](lifecycle-agent-dispatch.md) § Escalation (E1-E4)).
 > Cross-vendor profile generation follows
-> [`model-capability-tiers.md`](model-capability-tiers.md); on Codex, its role-specific mapping
+> [`model-equivalence.md`](model-equivalence.md); on Codex, its role-specific mapping
 > assigns `@red-team` to `gpt-6-sol` without changing its source Opus pin.
 >
 > **This table dispatches reviewers, which are unaffected.** Every agent listed
