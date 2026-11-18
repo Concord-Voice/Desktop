@@ -1,0 +1,20 @@
+# OSV-Scanner exceptions for tools/concord-bridge/package-lock.json ONLY.
+# osv-scanner applies an osv-scanner.toml to lockfiles in its own directory and
+# never to child or sibling directories, so desktop/osv-scanner.toml does not
+# reach this lockfile.
+#
+# Same advisory and the same scoping rules as desktop/osv-scanner.toml (see its
+# header): each override is pinned to package, exact version, ecosystem and the
+# dev group, so a version bump or a production path falls outside it. Unlike
+# desktop/, no npm-audit gate runs for this package, so a NEW advisory against
+# the same dev version stays muted here until effectiveUntil. Keep the expiry
+# in step with the matching desktop/.audit-allowlist.json entry.
+
+[[PackageOverrides]]
+name = "picomatch"
+version = "4.0.7"
+ecosystem = "npm"
+group = "dev"
+ignore = true
+effectiveUntil = 2027-02-18T00:00:00Z
+reason = "GHSA-fc5q-39xc-vjpf (same exception as desktop/.audit-allowlist.json). No fixed release exists: picomatch 4.0.7 is the latest and the advisory lists <= 4.0.7 with no patched version. Dev-only transitive, reached through vitest with repo-owned glob patterns, never attacker-supplied input. Re-check for a patched picomatch or parents that drop it by review_by."
