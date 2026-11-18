@@ -203,18 +203,16 @@ test('legacy and modern ASAR preserve files, links, extraction and unpack select
 
 test('actual legacy cleanup removes only matches through callback and sync APIs', async () => {
   // rimraf 3 left the tree with eslint 8 (2026-11-18); temp's rimraf 2 is the last consumer.
-  const rimraf2 = process.env.DEPENDENCY_COMPAT_ROOT
+  const rimraf = process.env.DEPENDENCY_COMPAT_ROOT
     ? require('rimraf2')
     : createRequire(require.resolve('temp/package.json'))('rimraf');
-  for (const rimraf of [rimraf2]) {
-    await fixture(async (dir) => {
-      await promisify(rimraf)(path.join(dir, '{z,a}.txt'));
-      assert.equal(await readFile(path.join(dir, 'keep.bin'), 'utf8'), 'keep');
-      assert.ok(!(await readdir(dir)).includes('a.txt'));
-      rimraf.sync(path.join(dir, 'nested/*.log'));
-      assert.equal(await readFile(path.join(dir, 'nested/b.txt'), 'utf8'), 'nested');
-    });
-  }
+  await fixture(async (dir) => {
+    await promisify(rimraf)(path.join(dir, '{z,a}.txt'));
+    assert.equal(await readFile(path.join(dir, 'keep.bin'), 'utf8'), 'keep');
+    assert.ok(!(await readdir(dir)).includes('a.txt'));
+    rimraf.sync(path.join(dir, 'nested/*.log'));
+    assert.equal(await readFile(path.join(dir, 'nested/b.txt'), 'utf8'), 'nested');
+  });
 });
 
 test(
@@ -374,24 +372,22 @@ test('legacy traversal propagates unexpected readdir errors without returning pa
         false,
         'failed traversal must not publish a partial archive'
       );
-      const rimraf2 = process.env.DEPENDENCY_COMPAT_ROOT
+      const rimraf = process.env.DEPENDENCY_COMPAT_ROOT
         ? require('rimraf2')
         : createRequire(require.resolve('temp/package.json'))('rimraf');
-      for (const rimraf of [rimraf2]) {
-        await assert.rejects(
-          promisify(rimraf)(path.join(dir, '**/*.txt'), { glob: { fs } }),
-          (error) => error === failure
-        );
-        assert.throws(
-          () => rimraf.sync(path.join(dir, '**/*.txt'), { glob: { fs } }),
-          (error) => error === failure
-        );
-        assert.equal(
-          await readFile(path.join(dir, 'a.txt'), 'utf8'),
-          'lower',
-          'failed traversal must not proceed with partial cleanup'
-        );
-      }
+      await assert.rejects(
+        promisify(rimraf)(path.join(dir, '**/*.txt'), { glob: { fs } }),
+        (error) => error === failure
+      );
+      assert.throws(
+        () => rimraf.sync(path.join(dir, '**/*.txt'), { glob: { fs } }),
+        (error) => error === failure
+      );
+      assert.equal(
+        await readFile(path.join(dir, 'a.txt'), 'utf8'),
+        'lower',
+        'failed traversal must not proceed with partial cleanup'
+      );
     }
   });
 });

@@ -6,6 +6,13 @@
 # note). effectiveUntil = review_by; what expiry does is in
 # internal-reference ("npm-audit gate").
 #
+# Exception: pre-emptive, ID-scoped entries for a package npm audit does not
+# report (nothing in .audit-allowlist.json to mirror), e.g. uri-js below. These
+# use [[IgnoredVulns]] by advisory id, not a package-wide PackageOverride: a
+# package override would also mute any new, unreviewed advisory against that
+# package version (and a devOptional copy that ships), with no npm-audit
+# backstop. An id-scoped entry mutes only the reviewed ids.
+#
 # Scoped by package, exact version, ecosystem and the dev group rather than by
 # advisory id: an id-only IgnoredVulns entry would keep muting an advisory that
 # is amended onto another package or whose package becomes runtime-reachable —
@@ -46,11 +53,17 @@ ignore = true
 effectiveUntil = 2027-02-18T00:00:00Z
 reason = "GHSA-fc5q-39xc-vjpf (mirror of the .audit-allowlist.json entry). No fixed release exists: picomatch 4.0.7 is the latest and the advisory lists <= 4.0.7 with no patched version. Dev-only transitive, reached through vite, vitest, tinyglobby/fdir (node-gyp, @electron/rebuild, typescript-estree) with repo-owned glob patterns, never attacker-supplied input. Re-check for a patched picomatch or parents that drop it by review_by."
 
-[[PackageOverrides]]
-name = "uri-js"
-version = "4.4.1"
-ecosystem = "npm"
-group = "dev"
-ignore = true
-effectiveUntil = 2027-01-29T00:00:00Z
-reason = "CVE-2026-103387, CVE-2026-93690 and CVE-2026-93751 (OSV-only: npm audit reports no uri-js advisory, so .audit-allowlist.json has no entry to mirror). No fixed release exists: uri-js is unmaintained and 4.4.1 is the latest. Dev-only, reached through ajv@6 under eslint 10 and roarr (Electron download tooling). ajv 6 resolves URIs only in schemas that ship inside those packages, never in user data, so the flaws are not reachable. Re-check for a maintained replacement or a parent that drops ajv 6 by effectiveUntil."
+[[IgnoredVulns]]
+id = "CVE-2026-103387"
+ignoreUntil = 2027-01-29T00:00:00Z
+reason = "uri-js 4.4.1, dev-only via ajv@6 under eslint 10 and roarr. ajv 6 resolves URIs only in schemas that ship inside those packages, never in user data. No fixed release: uri-js is unmaintained and 4.4.1 is the latest. Recorded pre-emptively by maintainer decision (SonarCloud reports it; OSV and npm audit did not on 2026-11-18). Scoped to this id so unreviewed advisories still surface."
+
+[[IgnoredVulns]]
+id = "CVE-2026-93690"
+ignoreUntil = 2027-01-29T00:00:00Z
+reason = "uri-js 4.4.1, dev-only via ajv@6 under eslint 10 and roarr. ajv 6 resolves URIs only in schemas that ship inside those packages, never in user data. No fixed release: uri-js is unmaintained and 4.4.1 is the latest. Recorded pre-emptively by maintainer decision (SonarCloud reports it; OSV and npm audit did not on 2026-11-18). Scoped to this id so unreviewed advisories still surface."
+
+[[IgnoredVulns]]
+id = "CVE-2026-93751"
+ignoreUntil = 2027-01-29T00:00:00Z
+reason = "uri-js 4.4.1, dev-only via ajv@6 under eslint 10 and roarr. ajv 6 resolves URIs only in schemas that ship inside those packages, never in user data. No fixed release: uri-js is unmaintained and 4.4.1 is the latest. Recorded pre-emptively by maintainer decision (SonarCloud reports it; OSV and npm audit did not on 2026-11-18). Scoped to this id so unreviewed advisories still surface."

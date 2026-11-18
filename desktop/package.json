@@ -147,5 +147,6 @@
   "optionalDependencies": {
     "@noble/hashes": "^2.4.0"
   },
+  "//overrides_sarif_eslint_2026_11_18": "The @microsoft/eslint-formatter-sarif override points its declared eslint ^8.9.0 at the host eslint ($eslint, 10.x). The formatter never loads its own copy: sarif.js calls require.main.require('eslint'), the host package. The override removes the dev-only eslint 8.57.1 tree (CVE-2025-50537, plus rimraf 3 and @eslint/eslintrc). The upward skew is recorded in .override-range-baseline.json.",
   "//overrides_compat_2026_11_01": "Patch GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249 using glob >=14.0.3 and minimatch >=11.0.3. Legacy glob and minimatch API ranges resolve to private tools/glob-compat and tools/minimatch-compat adapters; their actual matching/traversal dependencies are patched upstream aliases. Do not force modern exports into legacy callers or restore the removed RegExp matcher internals. See tools/README.md and test:dependency-compat for the audited consumer contract. Modern ranges resolve directly to upstream packages. The minimatch 10 entry in the historical security note above is superseded by this scoped policy."
 }
