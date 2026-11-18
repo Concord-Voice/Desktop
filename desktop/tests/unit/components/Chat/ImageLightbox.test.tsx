@@ -125,7 +125,8 @@ describe('ImageLightbox', () => {
     // No pan at 1× — a drag leaves the transform un-offset.
     fireEvent.pointerDown(img, { clientX: 10, clientY: 10, pointerId: 1 });
     fireEvent.pointerMove(img, { clientX: 50, clientY: 50, pointerId: 1 });
-    expect(img.style.transform).toContain('translate(0px, 0px)');
+    // jsdom 31 serializes translate(0px, 0px) as translate(0px); both mean no offset.
+    expect(img.style.transform).toMatch(/translate\(0px(, 0px)?\)/);
     fireEvent.pointerUp(img, { pointerId: 1 });
 
     // Zoom in, then drag → transform carries the offset.

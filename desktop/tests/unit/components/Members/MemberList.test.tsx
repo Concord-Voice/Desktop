@@ -702,7 +702,8 @@ describe('MemberList', () => {
       // viewport, so toHaveStyle would see "752px" rather than the declaration
       // AttributedPopover actually sets. See the matching note in
       // AttributedPopover.test.tsx.
-      expect(region.style.maxHeight).toBe('calc(100vh - 16px)');
+      // jsdom 31 serializes the same calc() with reordered terms.
+      expect(['calc(100vh - 16px)', 'calc(-16px + 100vh)']).toContain(region.style.maxHeight);
       expect(region.querySelector('.attributed-popover__body')).toContainElement(
         screen.getByRole('button', { name: 'Member 24 — Online' })
       );
