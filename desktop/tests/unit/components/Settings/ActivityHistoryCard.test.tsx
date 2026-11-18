@@ -19,8 +19,7 @@ import { deferred } from '../../../helpers/deferred';
 
 import type * as PresenceHistoryServiceModule from '@/renderer/services/system/presenceHistoryService';
 vi.mock('@/renderer/services/system/presenceHistoryService', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof PresenceHistoryServiceModule>();
+  const actual = await importOriginal<typeof PresenceHistoryServiceModule>();
   return {
     ...actual,
     getPresenceHistorySettings: vi.fn(),

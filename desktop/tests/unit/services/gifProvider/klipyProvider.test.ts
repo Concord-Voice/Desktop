@@ -16,8 +16,7 @@ const setPersonalizationEnabledMock = vi.fn();
 
 vi.mock('@/renderer/services/messaging/gifProvider/klipyClient', async (importOriginal) => {
   // Keep the real rewriteMediaUrl so URL-rewrite assertions stay accurate.
-  const original =
-    await importOriginal<typeof KlipyClientModule>();
+  const original = await importOriginal<typeof KlipyClientModule>();
   return {
     ...original,
     klipyClient: {

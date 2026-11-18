@@ -4,8 +4,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 
 // Mock stores
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof AudioSettingsStoreModule>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   const initialState = {
     musicMode: false,
     echoCancellation: true,

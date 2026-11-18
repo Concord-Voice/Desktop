@@ -26,8 +26,7 @@ vi.mock('@/renderer/services/messaging/purgeApi', async (importOriginal) => {
   return { ...actual, purgeMessages: vi.fn(actual.purgeMessages) };
 });
 vi.mock('@/renderer/components/Auth/StepUpCredentials', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof StepUpCredentialsModule>();
+  const actual = await importOriginal<typeof StepUpCredentialsModule>();
   return { ...actual, default: vi.fn(actual.default) };
 });
 const purgeSpy = vi.mocked(purgeMessages);

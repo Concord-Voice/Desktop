@@ -114,8 +114,7 @@ vi.mock('@/renderer/stores/voice/voiceStore', async (importOriginal) => {
 });
 
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof AudioSettingsStoreModule>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   return {
     effectiveNoiseGateMode: actual.effectiveNoiseGateMode,
     effectiveMicLevelPercent: actual.effectiveMicLevelPercent,
