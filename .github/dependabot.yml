@@ -235,7 +235,8 @@ updates:
   # semgrep.yml. Semgrep itself is bumped by hand with SEMGREP_VERSION there (the
   # install step fails if the two disagree), so dependabot only moves its
   # transitive pins; regenerate the lock with uv (command in its header) if one
-  # of those conflicts. The lock leaves out the --trace-only OpenTelemetry set.
+  # of those conflicts. The lock overrides Semgrep's vulnerable OpenTelemetry and
+  # mcp pins to fixed versions.
   - package-ecosystem: "pip"
     directory: "/.github"
     schedule:

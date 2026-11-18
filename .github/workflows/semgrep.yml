@@ -70,7 +70,7 @@ jobs:
       BASELINE_COMMIT: ${{ github.event.pull_request.base.sha }}
       # The Semgrep version. A bump changes this line AND regenerates
       # .github/requirements-semgrep.txt (the install fails if they differ).
-      SEMGREP_VERSION: '1.130.0'
+      SEMGREP_VERSION: '1.186.0'
       EXTERNAL_VERDICT: ${{ inputs.external-verdict }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,8 +124,8 @@ jobs:
           set -euo pipefail
           # Hash-locked install (OpenSSF Scorecard Pinned-Dependencies). The lock
           # must name the same version as SEMGREP_VERSION, or the bump is half-done.
-          # --no-deps: the lock deliberately omits the --trace-only OpenTelemetry and
-          # protobuf set (vulnerable in every Semgrep release); see the lock header.
+          # --no-deps: the lock overrides Semgrep's own OpenTelemetry and mcp pins to
+          # fixed versions (every release pins vulnerable ones); see the lock header.
           grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" .github/requirements-semgrep.txt \
             || { echo "::error::.github/requirements-semgrep.txt does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
           python3 -m pip install --user --disable-pip-version-check --require-hashes --no-deps \
