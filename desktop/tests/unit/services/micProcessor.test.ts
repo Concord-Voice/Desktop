@@ -240,6 +240,8 @@ describe('createMicProcessor', () => {
     const { node, close } = await createMicProcessor(context, initial, onWindow, onProcessorError);
     const mockNode = constructed[0];
 
+    expect(node).toBe(mockNode);
+
     mockNode.fail();
     mockNode.emit({ peak: 0.2, frames: 960, valid: true, overloaded: false });
 

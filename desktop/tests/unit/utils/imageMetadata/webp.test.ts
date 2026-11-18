@@ -145,7 +145,7 @@ describe('stripWebp', () => {
       fixture.iccp.byteLength
     ).getUint32(4, true);
     expect(declared % 2).toBe(1);
-    expect(fixture.iccp.length).toBe(8 + declared + 1);
+    expect(fixture.iccp).toHaveLength(8 + declared + 1);
     const out = bytesOf(stripWebp(fixture.buffer).data);
 
     // Both survivors are intact and in order.

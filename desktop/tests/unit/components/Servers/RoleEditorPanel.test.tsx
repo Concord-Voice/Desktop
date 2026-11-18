@@ -330,7 +330,7 @@ describe('RoleEditorPanel', () => {
 
     // Check that the role color dot exists with correct background color
     const roleDots = document.querySelectorAll('.role-color-dot');
-    expect(roleDots.length).toBe(3);
+    expect(roleDots).toHaveLength(3);
 
     // Check colored name in the list
     const modName = screen.getByText('Moderator');

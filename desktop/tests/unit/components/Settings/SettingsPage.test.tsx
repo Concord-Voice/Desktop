@@ -506,7 +506,7 @@ describe('SettingsPage', () => {
     expect(customCircle).toBeInTheDocument();
     // 15 built-in (incl. Pride) + 1 custom = 16 total circles
     const allCircles = document.querySelectorAll('.color-scheme-circle');
-    expect(allCircles.length).toBe(16);
+    expect(allCircles).toHaveLength(16);
   });
 
   it('clicking custom circle when no customColors opens picker with defaults', () => {
@@ -543,8 +543,8 @@ describe('SettingsPage', () => {
     // 3 color inputs + 3 hex text inputs
     const colorInputs = document.querySelectorAll('.custom-theme-color-input');
     const hexInputs = document.querySelectorAll('.custom-theme-hex-input');
-    expect(colorInputs.length).toBe(3);
-    expect(hexInputs.length).toBe(3);
+    expect(colorInputs).toHaveLength(3);
+    expect(hexInputs).toHaveLength(3);
   });
 
   it('displays "Custom" as the active label when custom is selected', () => {
@@ -656,14 +656,14 @@ describe('SettingsPage', () => {
   it('only one nav item is active at a time', () => {
     render(<SettingsPage />);
     const activeItems = document.querySelectorAll('.settings-nav-item.active');
-    expect(activeItems.length).toBe(1);
+    expect(activeItems).toHaveLength(1);
   });
 
   it('clicking a new section changes active state', () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Privacy'));
     const activeItems = document.querySelectorAll('.settings-nav-item.active');
-    expect(activeItems.length).toBe(1);
+    expect(activeItems).toHaveLength(1);
     expect(activeItems[0].textContent).toContain('Privacy');
   });
 

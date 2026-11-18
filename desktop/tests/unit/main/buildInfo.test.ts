@@ -27,9 +27,10 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import type * as NodeFsModule from 'node:fs';
 
 vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const actual = await vi.importActual<typeof NodeFsModule>('node:fs');
   return {
     ...actual,
     default: {
@@ -91,7 +92,7 @@ describe('getBuildTag', () => {
     // Underlying source changes — cached result should win.
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ tag: 'second-tag' }));
     expect(getBuildTag()).toBe('first-tag');
-    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+    expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(1);
   });
 
   it("caches 'unknown' from missing-file path across repeated calls", async () => {
@@ -102,7 +103,7 @@ describe('getBuildTag', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ tag: 'late-arrival' }));
     expect(getBuildTag()).toBe('unknown');
-    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(0);
+    expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(0);
   });
 
   it("caches 'unknown' from malformed-JSON path across repeated calls", async () => {
@@ -113,7 +114,7 @@ describe('getBuildTag', () => {
     // Subsequent valid content does not unstick the cache.
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ tag: 'recovered' }));
     expect(getBuildTag()).toBe('unknown');
-    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+    expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(1);
   });
 
   it("caches 'unknown' from thrown-error path across repeated calls", async () => {
@@ -134,7 +135,7 @@ describe('getBuildTag', () => {
       expect(warnSpy).toHaveBeenCalledOnce();
       // Subsequent call must not re-read.
       expect(getBuildTag()).toBe('unknown');
-      expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+      expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(1);
     } finally {
       warnSpy.mockRestore();
     }
@@ -255,7 +256,7 @@ describe('renderer-context grep audit (regression guard)', () => {
   let realFs: typeof import('node:fs');
 
   beforeAll(async () => {
-    realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    realFs = await vi.importActual<typeof NodeFsModule>('node:fs');
   });
 
   /**
@@ -365,7 +366,7 @@ describe('getBuildCertHash', () => {
       JSON.stringify({ cert_hash: 'sha256:second' }) // pragma: allowlist secret
     );
     expect(getBuildCertHash('/fake/resources')).toBe('sha256:first'); // pragma: allowlist secret
-    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+    expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(1);
   });
 
   it("caches '' from thrown-error path across repeated calls", async () => {
@@ -376,6 +377,6 @@ describe('getBuildCertHash', () => {
     expect(getBuildCertHash('/fake/resources')).toBe('');
     // Subsequent call must not re-read.
     expect(getBuildCertHash('/fake/resources')).toBe('');
-    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+    expect(vi.mocked(fs.readFileSync).mock.calls).toHaveLength(1);
   });
 });

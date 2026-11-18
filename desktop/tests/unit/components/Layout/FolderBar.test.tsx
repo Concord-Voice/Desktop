@@ -128,7 +128,7 @@ describe('FolderBar', () => {
     fireEvent.click(addBtn);
     // After clicking, a new folder with a rename input should appear
     const state = useLayoutStore.getState();
-    expect(state.serverFolders.length).toBe(1);
+    expect(state.serverFolders).toHaveLength(1);
   });
 
   it('shows unread indicator on folder with unread servers', () => {

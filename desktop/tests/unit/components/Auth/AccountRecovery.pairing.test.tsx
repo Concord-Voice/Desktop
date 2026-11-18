@@ -14,11 +14,7 @@ const vectors = {
   encryption_key: Buffer.from(vectorsOctets.encryption_key_octets).toString('base64'),
 };
 import AccountRecovery from '@/renderer/components/Auth/AccountRecovery';
-import {
-  apiUrl,
-  getApiBase,
-  resetRuntimeServerBase,
-} from '@/renderer/services/system/runtimeServerBase';
+import { apiUrl, resetRuntimeServerBase } from '@/renderer/services/system/runtimeServerBase';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { deferred } from '../../../helpers/deferred';
 import {

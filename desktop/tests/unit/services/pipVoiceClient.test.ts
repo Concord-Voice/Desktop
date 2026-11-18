@@ -1301,7 +1301,7 @@ describe('PipVoiceClient', () => {
       const countAfterFirst = ch.posted.length;
 
       await client.dispose(); // Should not throw or send additional messages
-      expect(ch.posted.length).toBe(countAfterFirst);
+      expect(ch.posted).toHaveLength(countAfterFirst);
     });
   });
 

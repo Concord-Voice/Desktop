@@ -205,7 +205,7 @@ function resolveMountedLandingTarget(
   if (anchor && anchorRow) {
     return { row: anchorRow, offset: anchor.offset, unread: false, exhausted: false };
   }
-  return resolveLandingTarget(list, rows, undefined, unreadOnOpen, currentUserId);
+  return resolveLandingTarget(list, rows, unreadOnOpen, currentUserId);
 }
 
 function collectAppendedMessages(
@@ -243,20 +243,15 @@ function updateArrivalPresentation(
   if (others.length > 0) noteAway(others.length);
 }
 
-/** Where a fresh mount of a thread lands: the saved anchor when its row is
- *  still mounted, else the first unread row when there are unread rows, else
- *  nothing — applyLanding then pins to the latest row. */
+/** The unread half of the landing decision: the first unread row when there
+ *  are unread rows, else nothing — applyLanding then pins to the latest row.
+ *  The saved-anchor half is resolveMountedLandingTarget's. */
 function resolveLandingTarget(
   list: HTMLElement,
   rows: MessageWithStatus[],
-  anchor: ScrollAnchor | undefined,
   unreadOnOpen: number,
   currentUserId: string
 ): LandingTarget | null {
-  const anchorRow = anchor ? findRow(list, anchor.messageId) : null;
-  if (anchor && anchorRow) {
-    return { row: anchorRow, offset: anchor.offset, unread: false, exhausted: false };
-  }
   // The server's count excludes the user's own messages, so walk back over
   // others' rows only; a count larger than what is mounted stops at the
   // topmost such row. Own rows above it are read by definition.

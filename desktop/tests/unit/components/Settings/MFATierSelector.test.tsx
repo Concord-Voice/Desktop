@@ -193,7 +193,7 @@ describe('MFATierSelector', () => {
     render(<MFATierSelector {...defaultProps} activeMethods={[]} />);
     const setupButtons = screen.getAllByText('Set Up');
     // Maximum, Strong, and Standard should each have Set Up (Last Resort is locked)
-    expect(setupButtons.length).toBe(3);
+    expect(setupButtons).toHaveLength(3);
   });
 
   it('calls onSetupTOTP when standard tier Set Up is clicked', () => {

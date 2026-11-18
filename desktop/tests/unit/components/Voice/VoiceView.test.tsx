@@ -623,7 +623,7 @@ describe('VoiceView', () => {
 
     const gripHandles = container.querySelectorAll('.voice-view__section-handle-grip');
     // With stream section visible, there should be 2 grips
-    expect(gripHandles.length).toBe(2);
+    expect(gripHandles).toHaveLength(2);
 
     // Second grip is the stream bar resize handle
     fireEvent.mouseDown(gripHandles[1], { clientY: 500 });

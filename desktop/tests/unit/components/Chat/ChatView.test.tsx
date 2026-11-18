@@ -9,6 +9,7 @@ import { usePermissionStore } from '@/renderer/stores/chat/permissionStore';
 import { MANAGE_CHANNELS, PIN_MESSAGES } from '@/renderer/utils/policy/permissions';
 import { mockUser, mockChannel, mockMessage, mockMessage2 } from '../../../mocks/fixtures';
 import { resetAllStores } from '../../../helpers/store-helpers';
+import type * as SearchPanelModule from '@/renderer/components/Chat/SearchPanel';
 
 // Mock apiFetch to prevent hanging fetches
 const mockApiFetch = vi.fn().mockResolvedValue({
@@ -70,7 +71,7 @@ let capturedSearchPanelProps: {
   onJump?: (channelId: string, messageId: string, signal?: AbortSignal) => Promise<string>;
 } = {};
 vi.mock('@/renderer/components/Chat/SearchPanel', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/components/Chat/SearchPanel')>();
+  const actual = await importOriginal<typeof SearchPanelModule>();
   const RealSearchPanel = actual.default;
   return {
     ...actual,
@@ -302,7 +303,7 @@ describe('ChatView', () => {
     await vi.waitFor(() => {
       const messageList = screen.getByTestId('message-list');
       const messages = messageList.querySelectorAll('[data-testid="message"]');
-      expect(messages.length).toBe(0);
+      expect(messages).toHaveLength(0);
     });
   });
 
@@ -834,7 +835,7 @@ describe('ChatView', () => {
     async function settleInitialHistory(fakeList: { scrollToMessage: unknown }) {
       await waitFor(() => {
         expect(capturedMessageListProps).toHaveProperty('isHistoryReady', true);
-        expect((capturedMessageListProps.messages as unknown[]).length).toBe(50);
+        expect(capturedMessageListProps.messages as unknown[]).toHaveLength(50);
       });
       // The list is mocked and holds no handle of its own: hand the owner's ref ours.
       const ref = capturedMessageListProps.ref as { current: unknown } | undefined;

@@ -22,95 +22,89 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 
 // ── Hoisted shared mocks (available during vi.mock factory execution) ──────
-const {
-  mockMainWindow,
-  mockWebContents,
-  MockBrowserWindow,
-  MockWebContentsView,
-  mockApp,
-  mockElectronAutoUpdater,
-} = vi.hoisted(() => {
-  const mockWebContents = {
-    openDevTools: vi.fn(),
-    closeDevTools: vi.fn(),
-    isDevToolsOpened: vi.fn(() => false),
-    setWindowOpenHandler: vi.fn(),
-    send: vi.fn(),
-    on: vi.fn(),
-    // #86 Task 4: the saas connection's view loads its own document.
-    once: vi.fn(),
-    getURL: vi.fn(() => ''),
-    loadURL: vi.fn().mockResolvedValue(undefined),
-    loadFile: vi.fn().mockResolvedValue(undefined),
-    isDestroyed: vi.fn(() => false),
-    close: vi.fn(),
-    focus: vi.fn(),
-    mainFrame: { frameTreeNodeId: 7 },
-  };
-  const mockMainWindow = {
-    loadURL: vi.fn().mockResolvedValue(undefined),
-    loadFile: vi.fn().mockResolvedValue(undefined),
-    once: vi.fn(),
-    on: vi.fn(),
-    show: vi.fn(),
-    hide: vi.fn(),
-    minimize: vi.fn(),
-    close: vi.fn(),
-    destroy: vi.fn(),
-    focus: vi.fn(),
-    isMinimized: vi.fn(() => false),
-    isMaximized: vi.fn(() => false),
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
-    restore: vi.fn(),
-    setAlwaysOnTop: vi.fn(),
-    // #86 Task 4: the main window is a BaseWindow composing one view per connection.
-    maximize: vi.fn(),
-    setContentProtection: vi.fn(),
-    getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
-    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
-  };
-  if (!('isDestroyed' in mockMainWindow)) {
-    Object.assign(mockMainWindow, { isDestroyed: vi.fn(() => false) });
-  }
-  const bw = vi.fn().mockImplementation(function () {
-    return mockMainWindow;
+const { mockMainWindow, MockBrowserWindow, MockWebContentsView, mockApp, mockElectronAutoUpdater } =
+  vi.hoisted(() => {
+    const mockWebContents = {
+      openDevTools: vi.fn(),
+      closeDevTools: vi.fn(),
+      isDevToolsOpened: vi.fn(() => false),
+      setWindowOpenHandler: vi.fn(),
+      send: vi.fn(),
+      on: vi.fn(),
+      // #86 Task 4: the saas connection's view loads its own document.
+      once: vi.fn(),
+      getURL: vi.fn(() => ''),
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      loadFile: vi.fn().mockResolvedValue(undefined),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      focus: vi.fn(),
+      mainFrame: { frameTreeNodeId: 7 },
+    };
+    const mockMainWindow = {
+      loadURL: vi.fn().mockResolvedValue(undefined),
+      loadFile: vi.fn().mockResolvedValue(undefined),
+      once: vi.fn(),
+      on: vi.fn(),
+      show: vi.fn(),
+      hide: vi.fn(),
+      minimize: vi.fn(),
+      close: vi.fn(),
+      destroy: vi.fn(),
+      focus: vi.fn(),
+      isMinimized: vi.fn(() => false),
+      isMaximized: vi.fn(() => false),
+      getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+      restore: vi.fn(),
+      setAlwaysOnTop: vi.fn(),
+      // #86 Task 4: the main window is a BaseWindow composing one view per connection.
+      maximize: vi.fn(),
+      setContentProtection: vi.fn(),
+      getContentBounds: vi.fn(() => ({ x: 0, y: 0, width: 1280, height: 800 })),
+      contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+    };
+    if (!('isDestroyed' in mockMainWindow)) {
+      Object.assign(mockMainWindow, { isDestroyed: vi.fn(() => false) });
+    }
+    const bw = vi.fn().mockImplementation(function () {
+      return mockMainWindow;
+    });
+    const mockView = {
+      webContents: mockWebContents,
+      setBounds: vi.fn(),
+      setVisible: vi.fn(),
+      setBackgroundColor: vi.fn(),
+    };
+    const wcv = vi.fn().mockImplementation(function () {
+      return mockView;
+    });
+    (bw as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
+    const mockApp = {
+      getPath: vi.fn(() => '/tmp/test-userdata'),
+      setPath: vi.fn(),
+      getAppPath: vi.fn(() => '/tmp/test-app'),
+      getVersion: vi.fn(() => '1.0.0-test'),
+      requestSingleInstanceLock: vi.fn(() => true),
+      whenReady: vi.fn(() => Promise.resolve()),
+      isPackaged: false,
+      commandLine: { appendSwitch: vi.fn() },
+      disableHardwareAcceleration: vi.fn(),
+      quit: vi.fn(),
+      exit: vi.fn(),
+      relaunch: vi.fn(),
+      on: vi.fn(),
+      getGPUInfo: vi.fn(() => Promise.resolve({ gpuDevice: [] })),
+    };
+    const mockElectronAutoUpdater = { on: vi.fn() };
+    return {
+      mockMainWindow,
+      mockWebContents,
+      MockBrowserWindow: bw,
+      MockWebContentsView: wcv,
+      mockApp,
+      mockElectronAutoUpdater,
+    };
   });
-  const mockView = {
-    webContents: mockWebContents,
-    setBounds: vi.fn(),
-    setVisible: vi.fn(),
-    setBackgroundColor: vi.fn(),
-  };
-  const wcv = vi.fn().mockImplementation(function () {
-    return mockView;
-  });
-  (bw as Record<string, unknown>).getAllWindows = vi.fn(() => [mockMainWindow]);
-  const mockApp = {
-    getPath: vi.fn(() => '/tmp/test-userdata'),
-    setPath: vi.fn(),
-    getAppPath: vi.fn(() => '/tmp/test-app'),
-    getVersion: vi.fn(() => '1.0.0-test'),
-    requestSingleInstanceLock: vi.fn(() => true),
-    whenReady: vi.fn(() => Promise.resolve()),
-    isPackaged: false,
-    commandLine: { appendSwitch: vi.fn() },
-    disableHardwareAcceleration: vi.fn(),
-    quit: vi.fn(),
-    exit: vi.fn(),
-    relaunch: vi.fn(),
-    on: vi.fn(),
-    getGPUInfo: vi.fn(() => Promise.resolve({ gpuDevice: [] })),
-  };
-  const mockElectronAutoUpdater = { on: vi.fn() };
-  return {
-    mockMainWindow,
-    mockWebContents,
-    MockBrowserWindow: bw,
-    MockWebContentsView: wcv,
-    mockApp,
-    mockElectronAutoUpdater,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,

@@ -123,7 +123,7 @@ describe('ChannelList', () => {
     useChannelStore.setState({ channels: [], isLoading: true, error: null });
     const { container } = renderChannelList();
     const skeletons = container.querySelectorAll('.channel-skeleton');
-    expect(skeletons.length).toBe(3);
+    expect(skeletons).toHaveLength(3);
   });
 
   it('shows error state with retry button', () => {
@@ -250,7 +250,7 @@ describe('ChannelList', () => {
     expect(screen.getByText('general')).toBeInTheDocument();
     // No group header should exist
     const headers = document.querySelectorAll('.channel-group-header--collapsible');
-    expect(headers.length).toBe(0);
+    expect(headers).toHaveLength(0);
   });
 
   // ── Active State ──
@@ -1017,7 +1017,7 @@ describe('buildNormalDropUpdates', () => {
       groups,
       'src'
     );
-    expect(updates.length).toBe(3); // 2 existing + 1 source
+    expect(updates).toHaveLength(3); // 2 existing + 1 source
     expect(updates.every((u) => u.group_id === 'group-1')).toBe(true);
   });
 
@@ -1026,7 +1026,7 @@ describe('buildNormalDropUpdates', () => {
     const existing: Channel[] = [{ ...mockChannel, id: 'ch-1', group_id: null, position: 1000 }];
     const insertPos = { targetId: 'ch-1', side: 'before' as const, targetType: 'channel' as const };
     const updates = buildNormalDropUpdates(source, null, null, insertPos, existing, groups, 'src');
-    expect(updates.length).toBe(2);
+    expect(updates).toHaveLength(2);
     expect(updates.every((u) => u.group_id === null)).toBe(true);
   });
 });
@@ -1041,7 +1041,7 @@ describe('buildOldGroupUpdates', () => {
       { ...mockChannel, id: 'src', group_id: 'group-1', position: 2 },
     ];
     const updates = buildOldGroupUpdates('group-1', channels, 'src', groups);
-    expect(updates.length).toBe(2); // src excluded
+    expect(updates).toHaveLength(2); // src excluded
     expect(updates[0].position).toBe(0);
     expect(updates[1].position).toBe(1);
   });
@@ -1053,7 +1053,7 @@ describe('buildOldGroupUpdates', () => {
       { ...mockChannel, id: 'src', group_id: null, position: 1002 },
     ];
     const updates = buildOldGroupUpdates(null, channels, 'src', groups);
-    expect(updates.length).toBe(2);
+    expect(updates).toHaveLength(2);
     expect(updates.every((u) => u.group_id === null)).toBe(true);
   });
 });

@@ -249,9 +249,9 @@ describe('App', () => {
     );
     act(() => screen.getByRole('button', { name: /dismiss/i }).click());
     expect(screen.queryByRole('dialog', { name: 'Unable to join voice' })).not.toBeInTheDocument();
-    expect((useVoiceStore.getState() as unknown as { joinError?: string | null }).joinError).toBe(
-      null
-    );
+    expect(
+      (useVoiceStore.getState() as unknown as { joinError?: string | null }).joinError
+    ).toBeNull();
   });
 
   it('does not show a microphone join dialog when there is no join error', () => {

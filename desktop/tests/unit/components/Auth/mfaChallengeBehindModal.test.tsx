@@ -1,3 +1,4 @@
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
 import { render, screen, fireEvent, act } from '../../../test-utils';
 import { vi } from 'vitest';
 import { useMFAChallengeStore } from '@/renderer/stores/auth/mfaChallengeStore';
@@ -23,7 +24,7 @@ import {
 // regression test never submits a code, so none of these are actually
 // invoked — they exist purely so the module graph resolves in jsdom.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return { ...actual, completeSSOMFA: vi.fn(), abandonSSOReservation: vi.fn() };
 });
 
@@ -400,15 +401,12 @@ describe('focus after a failed proof', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    // Chromium's focus fixup moves focus to <body> when the focused control is
-    // disabled; jsdom has no fixup and refuses blur() on a disabled element,
-    // so lift the attribute for the blur and put it back.
-    const focused = document.activeElement as HTMLInputElement;
-    expect(focused.disabled, 'the proof in flight disables the digits').toBe(true);
-    focused.disabled = false;
-    focused.blur();
-    focused.disabled = true;
-    expect(document.activeElement).toBe(document.body);
+    // Like Chromium, jsdom 31 drops focus to the viewport (<body>) when the
+    // focused control becomes disabled, but does so asynchronously.
+    expect(first.disabled, 'the proof in flight disables the digits').toBe(true);
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(document.body);
+    });
 
     await act(async () => {
       failProof();

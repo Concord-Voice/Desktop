@@ -417,8 +417,6 @@ function bodiesTo(path: string): Record<string, unknown>[] {
     .map((c) => JSON.parse((c[1] as { body: string }).body) as Record<string, unknown>);
 }
 
-const primaryOf = (name: string) => screen.getByRole('button', { name });
-
 describe('PrivacySecuritySection', () => {
   beforeEach(() => {
     gifIdMock.currentId = 'mock-customer-id-123';
@@ -594,7 +592,7 @@ describe('PrivacySecuritySection', () => {
   it('shows granted badges', async () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Microphone')).toBeInTheDocument());
-    expect(screen.getAllByText('Granted').length).toBe(5);
+    expect(screen.getAllByText('Granted')).toHaveLength(5);
   });
   it('renders MFA section', async () => {
     render(<PrivacySecuritySection />);
@@ -1179,11 +1177,11 @@ describe('PrivacySecuritySection', () => {
     );
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Microphone')).toBeInTheDocument());
-    expect(screen.getAllByText('Open System Settings').length).toBe(5);
+    expect(screen.getAllByText('Open System Settings')).toHaveLength(5);
     // Status is still shown as a read-only badge, not a toggle.
-    expect(screen.getAllByText('Granted').length).toBe(5);
+    expect(screen.getAllByText('Granted')).toHaveLength(5);
     // The OS-managed nature is made explicit per row.
-    expect(screen.getAllByText('Managed by your operating system.').length).toBe(5);
+    expect(screen.getAllByText('Managed by your operating system.')).toHaveLength(5);
   });
 
   it('shows "Request" (not "Open System Settings") for a not-determined row (#1743)', async () => {
@@ -1255,7 +1253,7 @@ describe('PrivacySecuritySection', () => {
       })
     );
     render(<PrivacySecuritySection />);
-    await vi.waitFor(() => expect(screen.getAllByText('Open System Settings').length).toBe(5));
+    await vi.waitFor(() => expect(screen.getAllByText('Open System Settings')).toHaveLength(5));
     expect(() => fireEvent.click(screen.getAllByText('Open System Settings')[0])).not.toThrow();
   });
 
@@ -2888,7 +2886,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('Chrome Browser')).toBeInTheDocument());
     // Both sessions should render; the Chrome (newer) should be first
     const cards = document.querySelectorAll('.session-card');
-    expect(cards.length).toBe(2);
+    expect(cards).toHaveLength(2);
   });
 
   // ── PermissionRow requesting state ─────────────────────────────────────

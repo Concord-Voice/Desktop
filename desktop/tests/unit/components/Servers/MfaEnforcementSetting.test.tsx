@@ -4,6 +4,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { deferred } from '../../../helpers/deferred';
 import { jsonResponse, readOffers, STEP_UP_READ_PATH } from '../../../helpers/stepUpApi';
 import { createMockWsService, requireHandler } from '../../../helpers/wsServiceMock';
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 
 // The "Require MFA for dangerous actions" switch (#3456 §3.5, T4). The stage, the
 // factor hook, the adapter and the openVerificationSetup route are real; only
@@ -14,7 +15,7 @@ import { createMockWsService, requireHandler } from '../../../helpers/wsServiceM
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -636,7 +637,7 @@ describe('refreshing while mounted', () => {
     serve({ read: () => readOffers(['totp']) });
     await act(async () => requireHandler(ws, 'permissions_changed')({ data: {} }));
 
-    await waitFor(() => expect(requirementReads().length).toBe(before + 1));
+    await waitFor(() => expect(requirementReads()).toHaveLength(before + 1));
     await waitFor(() => expect(theSwitch()).not.toHaveAttribute('aria-disabled'));
     expect(screen.queryByText(ENROLMENT)).not.toBeInTheDocument();
   });

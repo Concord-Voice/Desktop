@@ -719,10 +719,6 @@ describe('useWebSocket — extended', () => {
           ok: true,
           json: () =>
             Promise.resolve({
-              members: [{ user_id: 'user-1' }, { user_id: 'user-2' }],
-            }),
-          json: () =>
-            Promise.resolve({
               members: [
                 { user_id: 'user-1', public_key: 'mock-pk-1' },
                 { user_id: 'user-2', public_key: 'mock-pk-2' },

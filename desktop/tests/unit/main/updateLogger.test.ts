@@ -261,7 +261,7 @@ describe('updateLogger', () => {
       const remaining = fs
         .readdirSync(logDir)
         .filter((f) => f.startsWith('update-') && f.endsWith('.log'));
-      expect(remaining.length).toBe(10);
+      expect(remaining).toHaveLength(10);
     });
 
     it('prunes oldest files when more than 10 exist', async () => {
@@ -281,7 +281,7 @@ describe('updateLogger', () => {
         .readdirSync(logDir)
         .filter((f) => f.startsWith('update-') && f.endsWith('.log'))
         .sort();
-      expect(remaining.length).toBe(10);
+      expect(remaining).toHaveLength(10);
       // Oldest 2 (Jan 01, Jan 02) should be deleted
       expect(remaining[0]).toBe('update-2026-01-03.log');
       expect(remaining[9]).toBe('update-2026-01-12.log');
@@ -310,7 +310,7 @@ describe('updateLogger', () => {
       const logFiles = fs
         .readdirSync(logDir)
         .filter((f) => f.startsWith('update-') && f.endsWith('.log'));
-      expect(logFiles.length).toBe(10);
+      expect(logFiles).toHaveLength(10);
     });
   });
 

@@ -413,7 +413,6 @@ describe('DMChatArea', () => {
       }
       return { ok: true, json: async () => ({ messages: [] }) } as Response;
     });
-    const user = userEvent.setup();
     render(<DMChatArea selectedThreadId="group-1" />);
 
     // Awareness is universal, capability is permission-gated: a non-admin group
@@ -1554,11 +1553,11 @@ describe('DMChatArea', () => {
     });
     render(<DMChatArea selectedThreadId="conv-1" />);
     await waitFor(() => expect(useDMStore.getState().conversations[0].unreadCount).toBe(0));
-    await waitFor(() => expect(pending.length).toBe(1)); // the open-time read, hanging
+    await waitFor(() => expect(pending).toHaveLength(1)); // the open-time read, hanging
 
     fireEvent.click(screen.getByTestId('trigger-latest-seen'));
     fireEvent.click(screen.getByTestId('trigger-latest-left')); // the live marker goes out, also hanging
-    expect(pending.length).toBe(2);
+    expect(pending).toHaveLength(2);
     await act(async () => {
       pending[0].reject(new Error('boom')); // the open-time read fails first
     });
@@ -1635,11 +1634,11 @@ describe('DMChatArea', () => {
     // This component keeps its instance across threads: away and back before
     // the first read returns posts a second attempt for the same thread.
     const { rerender } = render(<DMChatArea selectedThreadId="conv-1" />);
-    await waitFor(() => expect(reads.length).toBe(1));
+    await waitFor(() => expect(reads).toHaveLength(1));
     rerender(<DMChatArea selectedThreadId="conv-2" />);
-    await waitFor(() => expect(reads.length).toBe(2));
+    await waitFor(() => expect(reads).toHaveLength(2));
     rerender(<DMChatArea selectedThreadId="conv-1" />);
-    await waitFor(() => expect(reads.length).toBe(3));
+    await waitFor(() => expect(reads).toHaveLength(3));
     expect(reads[2].url).toBe('/api/v1/dm/conversations/conv-1/read');
     await act(async () => {
       reads[2].resolve({ ok: true, status: 200, json: async () => ({}) }); // the newer attempt wins
@@ -2350,7 +2349,7 @@ describe('DMChatArea — jump routing (#3894)', () => {
   async function settleInitialHistory(fakeList: object) {
     await waitFor(() => {
       expect(capturedMLProps).toHaveProperty('isHistoryReady', true);
-      expect((capturedMLProps.messages as unknown[]).length).toBe(50);
+      expect(capturedMLProps.messages as unknown[]).toHaveLength(50);
     });
     // The list is mocked and holds no handle of its own: hand the owner's ref ours.
     const ref = capturedMLProps.ref as { current: unknown } | undefined;

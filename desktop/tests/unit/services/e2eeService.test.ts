@@ -386,7 +386,7 @@ describe('e2eeService', () => {
       // The second call must be suppressed locally rather than reaching the
       // network. Asserting on the throw alone would pass either way, since a
       // real 429 throws the same typed error.
-      expect(mockApiFetch.mock.calls.length).toBe(callsAfterFirst);
+      expect(mockApiFetch.mock.calls).toHaveLength(callsAfterFirst);
     });
   });
 
@@ -776,7 +776,7 @@ describe('e2eeService', () => {
       const versionedCalls = mockApiFetch.mock.calls.filter((c) =>
         String(c[0]).includes('version=5')
       );
-      expect(versionedCalls.length).toBe(1);
+      expect(versionedCalls).toHaveLength(1);
     });
 
     it('does not collide with getChannelKey bare-channelId in-flight entries', async () => {

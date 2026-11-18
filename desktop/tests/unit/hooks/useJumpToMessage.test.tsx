@@ -27,14 +27,6 @@ type LoadUntilFn = (
   signal?: AbortSignal
 ) => Promise<LoadUntilResult>;
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 /** One recorded `loadUntil` call, parked until the test settles it. */
 interface ParkedLoad {
   messageId: string;
@@ -566,7 +558,7 @@ describe('useJumpToMessage (#3894)', () => {
 
     expect(outcome.value).toBeUndefined();
     expect(h.loadUntil).toHaveBeenCalledTimes(1);
-    expect(h.handle.scrollToMessage.mock.calls.length).toBe(askedBefore);
+    expect(h.handle.scrollToMessage.mock.calls).toHaveLength(askedBefore);
 
     h.update({ isHistoryReady: true });
     await flush();
@@ -654,7 +646,7 @@ describe('useJumpToMessage (#3894)', () => {
     await h.settle(0, { status: 'found', requests: 1 });
 
     expect(outcome.value).toBe('cancelled');
-    expect(h.handle.scrollToMessage.mock.calls.length).toBe(askedBefore);
+    expect(h.handle.scrollToMessage.mock.calls).toHaveLength(askedBefore);
     expect(noticeText()).toBeEmptyDOMElement();
   });
 

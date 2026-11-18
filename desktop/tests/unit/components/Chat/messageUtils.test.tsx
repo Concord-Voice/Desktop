@@ -146,7 +146,7 @@ describe('messageUtils', () => {
     it('handles text mixed with emoji', () => {
       const result = renderEmoji('hello 😀 world');
       // Should be: "hello ", <span>😀</span>, " world"
-      expect(result.length).toBe(3);
+      expect(result).toHaveLength(3);
 
       const { container } = render(<>{result}</>);
       expect(container.textContent).toBe('hello 😀 world');

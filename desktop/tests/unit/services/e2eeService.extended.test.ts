@@ -853,7 +853,7 @@ describe('e2eeService — extended', () => {
       await e2eeService.processPendingKeyRequests();
 
       // The v1 cache priming plus pending/public-key/v2/upload calls.
-      expect(mockApiFetch.mock.calls.length).toBe(5);
+      expect(mockApiFetch.mock.calls).toHaveLength(5);
       expect(mockApiFetch.mock.calls[3][0]).toBe('/api/v1/e2ee/keys/ch-pending?version=2');
 
       // #2420: the distribution POST echoes the recipient's public-key version the
@@ -1725,7 +1725,7 @@ describe('e2eeService — extended', () => {
 
       await e2eeService.getChannelKey('ch-inv');
       // Should have fetched again
-      expect(mockApiFetch.mock.calls.length).toBe(3);
+      expect(mockApiFetch.mock.calls).toHaveLength(3);
     });
   });
 

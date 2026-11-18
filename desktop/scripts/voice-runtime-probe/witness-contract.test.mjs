@@ -10,7 +10,7 @@ import * as contract from './witness-contract.mjs';
 import { createAvSyncDriftDetector } from '../../src/renderer/services/voice/avSyncDriftDetector.ts';
 import {
   continuousCallDecision, createFaultControlFork, createVideoProgressGate, FINAL_OBSERVATION_DEADLINE_MS, initialConsumersVerified, observeFaultControl, planContinuousCallPoll, replacementVerified, requireDuration,
-  requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId, launchProbeElectron,
+  requireElectronAlignment, requireNoRuntimeFailure, verifiedConsumerId,
 } from './witness-contract.mjs';
 
 test('the real Playwright launch boundary never adds no-sandbox on Linux',

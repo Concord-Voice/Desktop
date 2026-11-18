@@ -59,12 +59,6 @@ function readAnswers(methods: string[]) {
   );
 }
 
-const passwordRequired = () =>
-  HttpResponse.json(
-    { error: 'Current password required to clear history', password_required: true },
-    { status: 403 }
-  );
-
 const cleared = () =>
   HttpResponse.json({ conversation_id: 'dm-1', cleared_at: '2026-10-01T00:00:00Z' });
 
@@ -83,8 +77,6 @@ async function openClear(onClose = vi.fn()) {
 }
 
 const verify = () => screen.getByRole('button', { name: 'Verify and clear' });
-const enterPassword = async (value: string) =>
-  fireEvent.change(await screen.findByLabelText('Password'), { target: { value } });
 const enterCode = async (value = CODE) =>
   userEvent.setup().type(await screen.findByLabelText('Authenticator app code'), value);
 

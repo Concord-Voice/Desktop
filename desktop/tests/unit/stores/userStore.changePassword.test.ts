@@ -902,7 +902,7 @@ describe('userStore - changePassword', () => {
       expect(
         mockApiFetch.mock.calls.filter(([url]) => url === '/api/v1/users/me/password')
       ).toHaveLength(2);
-      expect(mockFetchBlobRowForRotation.mock.calls.length).toBe(6); // 3 domains × 2 attempts
+      expect(mockFetchBlobRowForRotation.mock.calls).toHaveLength(6); // 3 domains × 2 attempts
     });
 
     it('surfaces a retryable error after a second sync-domain conflict', async () => {

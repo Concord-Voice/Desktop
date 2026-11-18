@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, onTestFinished } from 'vitest';
 import { render, screen, fireEvent } from '../../../test-utils';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -127,17 +127,28 @@ describe('MarkdownContent', () => {
     it('resets paragraph margin inside loose-list items (#807)', () => {
       // GFM "loose list" — blank lines between items force <p> wrapping inside <li>.
       const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
+      const looseListRule = readFileSync(
+        resolve(__dirname, '../../../../src/renderer/components/Markdown/MarkdownContent.css'),
+        'utf-8'
+      ).match(/\.markdown-content li > p\s*\{[^}]*\}/)?.[0];
+      expect(looseListRule, 'the loose-list rule exists in MarkdownContent.css').toBeTruthy();
+      const style = document.createElement('style');
+      style.textContent = looseListRule ?? '';
+      document.head.appendChild(style);
+      onTestFinished(() => style.remove());
       const items = container.querySelectorAll('li');
-      expect(items.length).toBe(3);
+      expect(items).toHaveLength(3);
       // Loose-list mode is proven by the presence of <p> inside each <li>.
       for (const li of items) {
         const innerP = li.querySelector('p');
         expect(innerP).not.toBeNull();
         if (innerP) {
           // The CSS `.markdown-content li > p { margin: 0 }` must apply.
-          // jsdom serializes the margin shorthand as "0" (unitless) when the
-          // declared value is "0"; production browsers serialize it as "0px".
-          // Accept either form — both indicate the rule applied.
+          // Vitest does not load plain .css imports, so the real rule is
+          // injected from the source file below. jsdom 31 ships a UA default
+          // stylesheet (p { margin: 1em 0 } -> "16px 0px"), so without the
+          // rule this assertion fails; that is what makes it meaningful.
+          // jsdom may serialize the declared "0" as "0" or "0px"; accept both.
           const margin = getComputedStyle(innerP).margin;
           expect(['0', '0px']).toContain(margin);
         }

@@ -29,9 +29,11 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-This release adds groundwork for verifying account keys, protects remembered sessions from being redirected to another server, and asks for fresh proof before sensitive account changes. Existing remembered sessions require signing in again.
+## [0.3.2] - 2026-11-18
 
-**40 Total Changes** | 5 Added | 3 Changed | 14 Fixed | 18 Security
+Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.
+
+**54 Total Changes** | 5 Added | 11 Changed | 14 Fixed | 24 Security
 
 ### Added
 
@@ -46,6 +48,14 @@ This release adds groundwork for verifying account keys, protects remembered ses
 - **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 - **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
 - **Servers:** Each server connection now runs in its own isolated browser session, with its own storage, cookies and sign-in. A window that cannot confirm which server connection it belongs to shows a "connection unavailable" screen instead of falling back to the default server.
+- **Dependencies:** Updated Electron to 45.2.3, mediasoup-client to 3.26.0, react-router to 8.5.1, jose to 6.2.17, lucide-react to 1.72.0 and hash-wasm to 4.13.0. Development and CI updates include Playwright 1.65.0, vitest 5.1.0, Vite 8.3.7, jsdom 31.0.0, eslint 10.14.0, typescript-eslint 8.72.2, hono 4.13.18, `@hono/node-server` 2.1.8, go-jose 4.1.9 and the CodeQL actions 4.39.3.
+- **CI:** A hotfix merge now releases Desktop automatically, because the release checks now look for the `vX.Y.Z` tag. The daily native audio verification runs again. The protected SonarQube caller retries a transient poll error instead of failing the required check. A weekly workflow refreshes transitive packages in the desktop npm lockfile. A new check fails when the two vitest packages resolve to different versions.
+- **Development tooling:** Synced the shared agentic development tooling, including its guardrail hooks and its review, lifecycle and triage skills. A review-coverage check now reports a bot-authored pull request that has no review at its head commit. Agents can no longer write their own hook-bypass marker. Feedback triage now routes to the public Feedback repository, and the architecture agent is pinned to one model.
+- **Developer tools:** The concord-bridge tool no longer writes task secrets to its audit records. It also rejects read-only dispatch to a worker that cannot enforce read-only mode.
+- **Voice tests:** The voice runtime probe now samples call controls and counts recovery windows consistently. Every wait in the probe has a deadline. A stalled run writes a failure that names the stuck stage, instead of hanging until the CI step limit.
+- **Screen-share audio:** Added developer probes and a macOS evidence runner that measure the per-process audio capture transport end to end. The macOS process tap now stamps each callback in the same clock as its pump. This changes only a developer liveness counter, which packaged builds discard. Code comments and the design record now match the shipped capture host.
+- **Code quality:** Rewrote the regular expressions in base64url decoding, security-key sign-in and the update screen so that they cannot backtrack for a long time. A test compares the new code with the old patterns. Removed dead branches, always-true conditions and unused arguments that CodeQL reported. Recorded the SonarQube false positives and the scanner evidence in the false-positive register.
+- **Tests:** Test assertions now use dedicated matchers, such as `toHaveLength`, instead of generic equality checks (SonarQube rule S5906). Removed the dead code that CodeQL reported in test files ([#274](https://github.com/Concord-Voice/Desktop/pull/274)).
 
 ### Fixed
 
@@ -84,6 +94,12 @@ This release adds groundwork for verifying account keys, protects remembered ses
 - **Servers:** Self-hosted connection checks now limit concurrent DNS work to keep the app responsive.
 - **Desktop:** Screen sharing with app sound, picture-in-picture, window focus, the clipboard, Google and Apple sign-in, and self-hosted server checks now work only from the server connection you are looking at. A connection in the background cannot use them.
 - **Sign-in:** A sign-in on one server connection can no longer cancel a sign-in in progress on another.
+- **Chat:** Very long messages and links no longer slow the app down while it looks for server invites.
+- **Desktop:** Error text written to the app log can no longer start a new line or reorder the text around it.
+- **Releases:** Each Desktop release artifact now comes with an attested CycloneDX SBOM (`<artifact>.cdx.json`). The SBOM lists the npm packages and native addons inside the installer ([#227](https://github.com/Concord-Voice/Desktop/pull/227)).
+- **Dependencies:** CI now fails when a lockfile resolves a package from a host outside the approved registries. The check also covers `.npmrc` registry settings, `npm-shrinkwrap.json`, git and URL versions, and `replace` directives in `go.mod` ([#220](https://github.com/Concord-Voice/Desktop/pull/220)).
+- **Dependencies:** Updated undici, qs and express-rate-limit to patched versions, and removed the old eslint 8 tree from development tooling. The picomatch advisory GHSA-fc5q-39xc-vjpf has no patched release and affects only development tooling, so the audit gates accept it until a set review date.
+- **CI:** Workflows that run with base-branch privileges now check out the protected base-branch commit. The PyYAML and Semgrep installs are hash-locked, and a protected Semgrep scan reads its lock from protected source. The IOC list refresh rejects symlinked inputs.
 
 ## [0.3.1] - 2026-11-06
 

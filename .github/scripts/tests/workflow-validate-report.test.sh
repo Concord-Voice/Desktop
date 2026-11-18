@@ -101,6 +101,11 @@ added_filename_is_literal() {
 }
 check 'added workflow filename is cleaned outside inline code spans' added_filename_is_literal
 
+new_repo yaml_extension
+cp "$SCRIPT_DIR/fixtures/workflow-validate/many-secrets.yml" "$REPO/.github/workflows/alt.yaml"
+commit_head; report
+check '.yaml workflow is analyzed, not skipped' has "$(cat "$COMMENT" 2>/dev/null || true)" 'alt&#46;yaml'
+
 new_repo autolink
 printf '%s\n' 'name: fixture' 'jobs:' '  check:' \
   '    environment: "staging https://example.invalid http://example.invalid www.example.invalid"' \
@@ -324,7 +329,7 @@ need("contains(github.event.pull_request.labels.*.name, 'workflow-validation: di
      'fork notice retains the workflow-validation label gate')
 steps = analysis.get('steps', [])
 checkout = next((s for s in steps if str(s.get('uses', '')).startswith('actions/checkout@')), {})
-need(checkout.get('with', {}).get('ref') == '${{ github.event.pull_request.base.sha }}', 'checkout uses base SHA')
+need(checkout.get('with', {}).get('ref') == '${{ github.sha }}', 'checkout uses the protected base-branch commit')
 need(checkout.get('with', {}).get('persist-credentials') == 'false', 'checkout disables persisted credentials')
 need(checkout.get('with', {}).get('fetch-depth') == '0', 'checkout fetches complete history')
 need(bool(__import__('re').fullmatch(r'actions/checkout@[0-9a-f]{40}(?:\s+#.*)?', str(checkout.get('uses', '')))),

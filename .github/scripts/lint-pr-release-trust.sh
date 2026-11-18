@@ -1197,7 +1197,7 @@ def check_classifier_trust_boundary() -> None:
         checkout_inputs = action_inputs(checkout, f"{comment_path}.jobs.classify-data.checkout")
         checkout_ok = (
             bool(re.fullmatch(r"actions/checkout@[0-9a-f]{40}", action_name(checkout)))
-            and normalize_expression(checkout_inputs.get("ref")) == "github.event.pull_request.base.sha"
+            and normalize_expression(checkout_inputs.get("ref")) == "github.sha"
             and str(checkout_inputs.get("fetch-depth")) == "0"
             and str(checkout_inputs.get("persist-credentials")).lower() == "false"
         )

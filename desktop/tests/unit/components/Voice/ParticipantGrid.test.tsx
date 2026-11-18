@@ -567,7 +567,7 @@ describe('UserFrameGrid', () => {
   it('renders no tiles when participants is empty', () => {
     useVoiceStore.setState({ participants: {} });
     const { container } = render(<UserFrameGrid />);
-    expect(container.querySelectorAll('[data-testid^="participant-tile"]').length).toBe(0);
+    expect(container.querySelectorAll('[data-testid^="participant-tile"]')).toHaveLength(0);
   });
 
   it('sets --tile-w and --tile-h CSS custom properties on the grid container', () => {

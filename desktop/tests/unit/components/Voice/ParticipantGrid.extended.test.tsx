@@ -402,7 +402,7 @@ describe('ParticipantGrid — extended coverage', () => {
         },
       });
       const { container } = render(<AudioOutputs />);
-      expect(container.querySelectorAll('audio').length).toBe(0);
+      expect(container.querySelectorAll('audio')).toHaveLength(0);
     });
 
     it('passes audioOutputDeviceId to AudioOutput components', () => {

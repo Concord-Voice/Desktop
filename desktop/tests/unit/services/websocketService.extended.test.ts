@@ -701,7 +701,7 @@ describe('WebSocketService — extended', () => {
 
       // Advance past when the timer would have fired — should NOT reconnect
       await vi.advanceTimersByTimeAsync(35_000);
-      expect(mockFetch.mock.calls.length).toBe(fetchCountBefore);
+      expect(mockFetch.mock.calls).toHaveLength(fetchCountBefore);
     });
   });
 

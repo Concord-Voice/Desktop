@@ -40,7 +40,7 @@ describe('highlightTheme', () => {
     loadHighlightTheme('dark');
     loadHighlightTheme('light');
     const links = document.querySelectorAll('link[data-hljs-theme]');
-    expect(links.length).toBe(1);
+    expect(links).toHaveLength(1);
     expect((links[0] as HTMLLinkElement).href).toContain('github');
     expect((links[0] as HTMLLinkElement).href).not.toContain('github-dark');
     expect((links[0] as HTMLLinkElement).href).not.toContain('cdn.jsdelivr.net');
@@ -53,7 +53,7 @@ describe('highlightTheme', () => {
     loadHighlightTheme('dark');
     const links = document.querySelectorAll('link[data-hljs-theme]');
     // Still exactly one link…
-    expect(links.length).toBe(1);
+    expect(links).toHaveLength(1);
     // …and it is the SAME node — no swap happened (identity preserved).
     expect(links[0]).toBe(linkBefore);
   });

@@ -301,7 +301,7 @@ describe('mediaCapabilities', () => {
       const caps = await detectCodecCapabilities();
 
       // rtx and red should be filtered out
-      expect(caps.length).toBe(4);
+      expect(caps).toHaveLength(4);
 
       // VP8 should be present
       expect(caps.find((c) => c.mimeType === 'video/VP8')).toBeDefined();
@@ -517,7 +517,7 @@ describe('mediaCapabilities', () => {
 
       clearCapabilitiesCache();
       const caps = await detectCodecCapabilities();
-      expect(caps.length).toBe(1);
+      expect(caps).toHaveLength(1);
     });
 
     it('handles VP9 HDR profile (profile-id=2)', async () => {

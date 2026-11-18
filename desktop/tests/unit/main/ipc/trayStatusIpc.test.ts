@@ -384,10 +384,7 @@ describe('tray:setStatus binding-derived admission (#86 Task 7B)', () => {
     setTrayOwner(null);
     mockApplyTraySnapshot.mockReset();
     vi.spyOn(Date, 'now').mockImplementation(() => 1_000);
-    registerTrayStatusIpc(
-      () => null,
-      () => null
-    );
+    registerTrayStatusIpc();
     const handler = handlers.get(TRAY_SET_STATUS)!;
     const A = conn('https://api.concordvoice.chat', 31);
     const B = conn(new URL('https://a.example').origin, 32);

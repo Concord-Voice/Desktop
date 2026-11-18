@@ -288,14 +288,17 @@ describe('moveWithinBand', () => {
 
     // The documented conversion from a `decideDropIndex` INSERTION index:
     //   to = dropIndex > from ? dropIndex - 1 : dropIndex
-    const from = 0;
-    const dropIndex = 3;
-    const to = dropIndex > from ? dropIndex - 1 : dropIndex;
-    expect(moveWithinBand(band, from, to)).toEqual(['b', 'c', 'a', 'd']);
+    const insertionToTarget = (from: number, dropIndex: number): number =>
+      dropIndex > from ? dropIndex - 1 : dropIndex;
 
-    // Downward drops need no conversion: dropIndex 1 with from 3 is already the
+    // A downward drop (insertion index past `from`) shifts by one.
+    expect(insertionToTarget(0, 3)).toBe(2);
+    expect(moveWithinBand(band, 0, insertionToTarget(0, 3))).toEqual(['b', 'c', 'a', 'd']);
+
+    // An upward drop needs no conversion: dropIndex 1 with from 3 is already the
     // target index.
-    const upward = moveWithinBand(band, 3, 1 > 3 ? 0 : 1);
+    expect(insertionToTarget(3, 1)).toBe(1);
+    const upward = moveWithinBand(band, 3, insertionToTarget(3, 1));
     expect(upward).toEqual(['a', 'd', 'b', 'c']);
     expect(upward[1]).toBe('d');
   });

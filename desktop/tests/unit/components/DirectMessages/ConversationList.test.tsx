@@ -1227,7 +1227,7 @@ describe('ConversationList', () => {
     });
     render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
     const personalButtons = screen.getAllByText('Personal Thread');
-    expect(personalButtons.length).toBe(1);
+    expect(personalButtons).toHaveLength(1);
     expect(screen.getByText('Alice')).toBeInTheDocument();
   });
 

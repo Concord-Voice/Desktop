@@ -194,7 +194,7 @@ describe('handleCacheProtocolRequest (#1870 serve-time byte re-bind, Finding A2)
     installLiveCache();
     // Overwrite the asset with same-length but different bytes → sha mismatch.
     const tampered = Buffer.from('export const x = 9;\n');
-    expect(tampered.length).toBe(ASSET_JS.length);
+    expect(tampered).toHaveLength(ASSET_JS.length);
     fs.writeFileSync(path.join(getLiveDir(), 'assets', 'app-abc123.js'), tampered);
     const res = await handleCacheProtocolRequest(
       new Request('spa-cache://concord/assets/app-abc123.js'),

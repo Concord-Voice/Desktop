@@ -617,7 +617,7 @@ describe('WebSocketService — in-band token renewal', () => {
       expect(service.getState()).toBe(ConnectionState.CONNECTED);
       expect(internals(service).ws).toBe(ws);
       expect(MockWebSocket.constructed).toBe(constructedBefore);
-      expect(mockFetch.mock.calls.length).toBe(fetchesBefore);
+      expect(mockFetch.mock.calls).toHaveLength(fetchesBefore);
     });
   });
 });
