@@ -1,3 +1,4 @@
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
 import { render, screen, fireEvent, act } from '../../../test-utils';
 import { vi } from 'vitest';
 import { useMFAChallengeStore } from '@/renderer/stores/auth/mfaChallengeStore';
@@ -23,7 +24,7 @@ import {
 // regression test never submits a code, so none of these are actually
 // invoked — they exist purely so the module graph resolves in jsdom.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return { ...actual, completeSSOMFA: vi.fn(), abandonSSOReservation: vi.fn() };
 });
 
