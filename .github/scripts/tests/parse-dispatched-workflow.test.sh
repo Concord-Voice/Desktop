@@ -115,6 +115,11 @@ assert_jq_equals "V7: job-level env block secrets captured" \
   '.secrets | sort | join(",")' \
   "API_KEY,SHARED_TOKEN"
 
+assert_jq_equals "V7: bracket, inherit and token forms captured; comments and bare text ignored" \
+  "secrets-forms.yml" \
+  '.secrets | sort | join(",")' \
+  "ALPHA,BRAVO,CHARLIE,GITHUB_TOKEN,inherit"
+
 # Output schema: top-level keys
 assert_jq_equals "Schema: emits .environments + .secrets" \
   "staging-only.yml" \

@@ -101,6 +101,11 @@ added_filename_is_literal() {
 }
 check 'added workflow filename is cleaned outside inline code spans' added_filename_is_literal
 
+new_repo yaml_extension
+cp "$SCRIPT_DIR/fixtures/workflow-validate/many-secrets.yml" "$REPO/.github/workflows/alt.yaml"
+commit_head; report
+check '.yaml workflow is analyzed, not skipped' has "$(cat "$COMMENT" 2>/dev/null || true)" 'alt&#46;yaml'
+
 new_repo autolink
 printf '%s\n' 'name: fixture' 'jobs:' '  check:' \
   '    environment: "staging https://example.invalid http://example.invalid www.example.invalid"' \

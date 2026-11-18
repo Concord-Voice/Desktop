@@ -81,17 +81,22 @@ print(json.dumps(sorted(envs)))
 PYEOF
 )
 
-# Secrets: extract every `secrets.NAME` reference from the entire file text.
+# Secrets: extract every secret reference inside a `${{ ... }}` expression.
 # We grep the raw YAML rather than parsing because secrets can appear in
 # `env:` blocks, `with:` inputs, `run:` blocks, and step `if:` conditions —
-# parsing every possible location is fragile. The regex captures
-# `secrets.IDENTIFIER` where IDENTIFIER matches GitHub's secret-name rules
-# (uppercase letters, digits, underscores). GITHUB_TOKEN is reported if
-# referenced because the labeler should still see it in the blast-radius
-# table — it's a real grant even though it's the default token.
+# parsing every possible location is fragile. Only expression text counts, so a
+# comment or a file name such as provision-secrets.yml is not a secret. Both
+# `secrets.NAME` and `secrets['NAME']` forms are captured, and a reusable-workflow
+# call with `secrets: inherit` is reported as "inherit" (every secret). GITHUB_TOKEN
+# is reported if referenced because the labeler should still see it in the
+# blast-radius table — it's a real grant even though it's the default token.
 SECRETS_JSON=$(
-  { grep -oE 'secrets\.[A-Za-z_][A-Za-z0-9_]*' "$WORKFLOW" || true; } \
-    | sed 's/^secrets\.//' \
+  {
+    { grep -oE '\$\{\{[^}]*\}\}' "$WORKFLOW" || true; } \
+      | { grep -oE "secrets(\.[A-Za-z_][A-Za-z0-9_]*|\[ *['\"][A-Za-z_][A-Za-z0-9_]*['\"] *\])" || true; } \
+      | sed -E "s/^secrets(\.|\[ *['\"])//; s/['\"] *\]$//"
+    { grep -qE '^[[:space:]]*secrets:[[:space:]]*inherit[[:space:]]*(#.*)?$' "$WORKFLOW" && echo inherit; } || true
+  } \
     | sort -u \
     | jq -R . \
     | jq -s '.'
