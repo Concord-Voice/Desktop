@@ -49,7 +49,6 @@ jobs:
     steps:
       # Protected base only; PR-head objects remain non-executable classifier data.
       # On pull_request_target, github.sha is the base-branch tip; BASE_SHA below is data.
-      # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         id: checkout-base
         continue-on-error: true
