@@ -81,25 +81,63 @@ print(json.dumps(sorted(envs)))
 PYEOF
 )
 
-# Secrets: extract every secret reference inside a `${{ ... }}` expression.
-# We grep the raw YAML rather than parsing because secrets can appear in
-# `env:` blocks, `with:` inputs, `run:` blocks, and step `if:` conditions —
-# parsing every possible location is fragile. Only expression text counts, so a
-# comment or a file name such as provision-secrets.yml is not a secret. Both
-# `secrets.NAME` and `secrets['NAME']` forms are captured, and a reusable-workflow
-# call with `secrets: inherit` is reported as "inherit" (every secret). GITHUB_TOKEN
-# is reported if referenced because the labeler should still see it in the
-# blast-radius table — it's a real grant even though it's the default token.
-SECRETS_JSON=$(
-  {
-    { grep -oE '\$\{\{[^}]*\}\}' "$WORKFLOW" || true; } \
-      | { grep -oE "secrets(\.[A-Za-z_][A-Za-z0-9_]*|\[ *['\"][A-Za-z_][A-Za-z0-9_]*['\"] *\])" || true; } \
-      | sed -E "s/^secrets(\.|\[ *['\"])//; s/['\"] *\]$//"
-    { grep -qE '^[[:space:]]*secrets:[[:space:]]*inherit[[:space:]]*(#.*)?$' "$WORKFLOW" && echo inherit; } || true
-  } \
-    | sort -u \
-    | jq -R . \
-    | jq -s '.'
+# Secrets: every secret the workflow can reach. The YAML is parsed, so only real
+# YAML comments drop out (a file name such as provision-secrets.yml in a comment is
+# not a secret). Every string value is then searched, so a reference in env:, with:,
+# run: or if: counts wherever it sits; this stays a superset of what GitHub expands.
+# `secrets.NAME` and `secrets['NAME']` give NAME. A job with `secrets: inherit`
+# gives "inherit", and any other use of the secrets context inside an expression
+# (toJSON(secrets), secrets[matrix.key]) gives "dynamic": both mean every secret.
+# GITHUB_TOKEN is reported if referenced because the labeler should still see it
+# in the blast-radius table — it's a real grant even though it's the default token.
+SECRETS_JSON=$(python3 - "$WORKFLOW" <<'PYEOF'
+import json, re, sys, yaml
+
+with open(sys.argv[1]) as f:
+    doc = yaml.safe_load(f) or {}
+
+NAMED = re.compile(r"""\bsecrets\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*\]|\[\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\])""")
+ANY = re.compile(r"\bsecrets\b")
+
+
+def expressions(text, whole):
+    """Yield ${{ }} bodies, skipping '...' literals so a '}' inside one cannot end it."""
+    if whole:
+        yield text
+    i = 0
+    while (i := text.find("${{", i)) != -1:
+        j, quoted = i + 3, False
+        while j < len(text) and (quoted or not text.startswith("}}", j)):
+            if text[j] == "'":
+                quoted = not quoted
+            j += 1
+        yield text[i + 3:j]
+        i = j + 2
+
+
+names = set()
+
+
+def walk(node, key=None):
+    if isinstance(node, dict):
+        if node.get("secrets") == "inherit":
+            names.add("inherit")
+        for k, v in node.items():
+            walk(v, k)
+    elif isinstance(node, list):
+        for v in node:
+            walk(v)
+    elif isinstance(node, str):
+        for m in NAMED.finditer(node):
+            names.add(next(g for g in m.groups() if g))
+        for expr in expressions(node, key == "if"):
+            if len(ANY.findall(expr)) > len(NAMED.findall(expr)):
+                names.add("dynamic")
+
+
+walk(doc)
+print(json.dumps(sorted(names)))
+PYEOF
 )
 
 # Combine into the contract output.
