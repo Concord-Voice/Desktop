@@ -24,6 +24,7 @@ import { e2eeService } from '@/renderer/services/e2ee/e2eeService';
 import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
 import { useFileUpload } from '@/renderer/hooks/messaging/useFileUpload';
 
+import type * as AttachmentCryptoModule from '@/renderer/utils/crypto/attachmentCrypto';
 const h = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   sealed: [] as ArrayBuffer[],
@@ -42,7 +43,7 @@ vi.mock('@/renderer/services/messaging/attachmentUploadSession', () => ({
 }));
 
 vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
-  const actual = await vi.importActual<typeof import('@/renderer/utils/crypto/attachmentCrypto')>(
+  const actual = await vi.importActual<typeof AttachmentCryptoModule>(
     '@/renderer/utils/crypto/attachmentCrypto'
   );
   return {

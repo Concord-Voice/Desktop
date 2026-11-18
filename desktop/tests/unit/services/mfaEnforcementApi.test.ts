@@ -7,7 +7,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -18,6 +18,7 @@ import {
 } from '@/renderer/services/system/mfaEnforcementApi';
 import { captureApiRequestContext } from '@/renderer/services/system/requestContext';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // Named fixture: the pre-commit detect-secrets hook flags credential-shaped keys.
 const FIXTURE_OTP = '314159';
 

@@ -38,7 +38,7 @@ const defaultAudioSettings: Record<string, unknown> = {
 };
 
 vi.mock('@/renderer/stores/voice/voiceStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/voice/voiceStore')>();
+  const actual = await importOriginal<typeof VoiceStoreModule>();
   return {
     useVoiceStore: Object.assign(
       vi.fn((selector) =>
@@ -114,8 +114,7 @@ vi.mock('@/renderer/stores/voice/voiceStore', async (importOriginal) => {
 });
 
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/stores/audio/audioSettingsStore')>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   return {
     effectiveNoiseGateMode: actual.effectiveNoiseGateMode,
     effectiveMicLevelPercent: actual.effectiveMicLevelPercent,
@@ -215,6 +214,8 @@ import { render, screen, fireEvent, userEvent, within } from '../../../test-util
 import { resetAllStores } from '../../../helpers/store-helpers';
 import AudioConfigSection from '@/renderer/components/Settings/AudioConfigSection';
 
+import type * as VoiceStoreModule from '@/renderer/stores/voice/voiceStore';
+import type * as AudioSettingsStoreModule from '@/renderer/stores/audio/audioSettingsStore';
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Override useDraftAudioSetting with custom settings for a single test. */

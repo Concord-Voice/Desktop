@@ -9,7 +9,7 @@ import { jsonResponse } from '../../helpers/stepUpApi';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -24,6 +24,7 @@ import { captureApiRequestContext } from '@/renderer/services/system/requestCont
 import { updateServer } from '@/renderer/services/system/serverUpdateApi';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const REQUEST: FrozenRequest = { path: '/api/v1/channels/channel-1', method: 'DELETE' };
 const MFA_REQUIRED_BODY = {
   error: 'MFA verification required',

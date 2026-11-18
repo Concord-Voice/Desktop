@@ -20,7 +20,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 // Mock the service so we drive the hook through every SSOResult shape
 // without exercising the network or window.electron loopback.
 vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/ssoService')>();
+  const actual = await importOriginal<typeof SsoServiceModule>();
   return {
     ...actual,
     startSSOFlow: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock('@/renderer/services/system/ssoService', async (importOriginal) => {
 });
 
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return {
     ...actual,
     revokeAbortedSession: vi.fn().mockResolvedValue(undefined),
@@ -49,6 +49,8 @@ import {
 import { revokeAbortedSession } from '@/renderer/services/system/apiClient';
 import { hydratePostLogin } from '@/renderer/services/system/postLoginHydration';
 import { deferred } from '../../../helpers/deferred';
+import type * as SsoServiceModule from '@/renderer/services/system/ssoService';
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const mockedStartSSOFlow = startSSOFlow as unknown as ReturnType<typeof vi.fn>;
 const mockedRevokeAbortedSession = vi.mocked(revokeAbortedSession);
 const mockedHydratePostLogin = vi.mocked(hydratePostLogin);

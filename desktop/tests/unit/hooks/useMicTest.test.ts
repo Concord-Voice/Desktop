@@ -4,8 +4,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 
 // Mock stores
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/stores/audio/audioSettingsStore')>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   const initialState = {
     musicMode: false,
     echoCancellation: true,
@@ -79,7 +78,7 @@ vi.mock('@/renderer/services/voice/voiceService', () => ({
 }));
 
 vi.mock('@/renderer/stores/voice/osPermissionStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/stores/voice/osPermissionStore')>();
+  const actual = await importOriginal<typeof OsPermissionStoreModule>();
   return {
     ...actual,
     ensureOsPermission: vi.fn().mockResolvedValue('granted'),
@@ -93,6 +92,8 @@ import { useMicTest } from '@/renderer/hooks/device/useMicTest';
 import { voiceService } from '@/renderer/services/voice/voiceService';
 import { gateForAudioSettings } from '@/renderer/services/voice/micProcessor';
 
+import type * as AudioSettingsStoreModule from '@/renderer/stores/audio/audioSettingsStore';
+import type * as OsPermissionStoreModule from '@/renderer/stores/voice/osPermissionStore';
 // Build a comprehensive mock audio pipeline
 const mockTrackStop = vi.fn();
 const mockGetUserMedia = vi.fn();

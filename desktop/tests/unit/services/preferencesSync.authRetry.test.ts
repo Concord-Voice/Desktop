@@ -7,7 +7,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 // server-side cause is unpinned — see the prefs-401 finding.)
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
 });
 
@@ -21,6 +21,7 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 
 import { preferencesSyncService } from '@/renderer/services/system/preferencesSync';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 function initStubDeps() {
   (preferencesSyncService as unknown as { deps: unknown }).deps = null;
   preferencesSyncService.init({

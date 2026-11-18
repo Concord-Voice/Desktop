@@ -41,7 +41,7 @@ vi.mock('@/renderer/components/Members/MemberProfileCard', () => ({
 
 // Only the colour lookup is stubbed; identityInitialStyle stays real.
 vi.mock('@/renderer/utils/ui/schemeColors', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/utils/ui/schemeColors')>()),
+  ...(await importOriginal<typeof SchemeColorsModule>()),
   resolveUserAccentColors: vi.fn().mockReturnValue(null),
 }));
 
@@ -56,6 +56,7 @@ vi.mock('@/renderer/components/DirectMessages/CategoryManagerPanel', () => ({
 import FriendsList from '@/renderer/components/DirectMessages/FriendsList';
 import FriendsFlexSpace from '@/renderer/components/DirectMessages/FriendsFlexSpace';
 
+import type * as SchemeColorsModule from '@/renderer/utils/ui/schemeColors';
 // --- Test fixtures ---
 
 const makeFriend = (overrides: Partial<Friend> = {}): Friend => ({

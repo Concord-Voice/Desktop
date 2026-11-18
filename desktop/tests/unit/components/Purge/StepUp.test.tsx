@@ -10,6 +10,7 @@ import { usePrivacyStore, type PrivacySettings } from '@/renderer/stores/ui/priv
 import { useSettingsNavStore } from '@/renderer/stores/ui/settingsNavStore';
 import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlayStore';
 
+import type * as PurgeApiModule from '@/renderer/services/messaging/purgeApi';
 // The DM/group purge step-up stage on the shared credentials stage
 // (StepUpCredentials + useStepUpFactor, purpose `dm.purge`, password always
 // shown, a failed read blocks, backup allowed). Every test mocks
@@ -32,7 +33,7 @@ import { useSettingsOverlayStore } from '@/renderer/stores/ui/settingsOverlaySto
 // hook's request context) becomes observable. Deliberately a `vi.fn(impl)`, not
 // a `vi.spyOn`, so `vi.restoreAllMocks` below leaves it alone.
 vi.mock('@/renderer/services/messaging/purgeApi', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/messaging/purgeApi')>();
+  const actual = await importOriginal<typeof PurgeApiModule>();
   return { ...actual, purgeMessages: vi.fn(actual.purgeMessages) };
 });
 const purgeSpy = vi.mocked(purgeMessages);

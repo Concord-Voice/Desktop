@@ -21,6 +21,7 @@ import {
   ENVELOPE_HEADER_BYTES,
 } from '@/renderer/utils/crypto/attachmentChunkedCrypto';
 
+import type * as AttachmentCryptoModule from '@/renderer/utils/crypto/attachmentCrypto';
 // Mock apiClient
 const mockApiFetch = vi.fn();
 const mockSafeJson = vi.fn();
@@ -63,7 +64,7 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 
 // Mock attachmentCrypto
 vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
-  const actual = await vi.importActual<typeof import('@/renderer/utils/crypto/attachmentCrypto')>(
+  const actual = await vi.importActual<typeof AttachmentCryptoModule>(
     '@/renderer/utils/crypto/attachmentCrypto'
   );
   return {

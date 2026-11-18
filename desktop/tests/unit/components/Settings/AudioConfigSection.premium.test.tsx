@@ -47,8 +47,7 @@ vi.mock('@/renderer/stores/voice/voiceStore', () => ({
 }));
 
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/stores/audio/audioSettingsStore')>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   return {
     effectiveNoiseGateMode: actual.effectiveNoiseGateMode,
     effectiveMicLevelPercent: actual.effectiveMicLevelPercent,
@@ -127,6 +126,7 @@ import { useSettingsNavStore } from '@/renderer/stores/ui/settingsNavStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import AudioConfigSection from '@/renderer/components/Settings/AudioConfigSection';
 
+import type * as AudioSettingsStoreModule from '@/renderer/stores/audio/audioSettingsStore';
 function setEntitlement(overrides: Record<string, unknown>) {
   for (const k of Object.keys(entitlementOverrides)) delete entitlementOverrides[k];
   Object.assign(entitlementOverrides, overrides);

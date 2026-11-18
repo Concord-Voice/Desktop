@@ -27,7 +27,7 @@ const custody = vi.hoisted(() => ({
   wrapped: vi.fn(() => 'synthetic-wrapped-account-key'),
 }));
 vi.mock('@/renderer/utils/crypto/crypto', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/utils/crypto/crypto')>()),
+  ...(await importOriginal<typeof CryptoModule>()),
   validateRecoveryAccountKey: custody.validate,
   exportRecoveryAccountKey: custody.export,
 }));
@@ -68,6 +68,7 @@ import { setRuntimeServerBase } from '@/renderer/services/system/runtimeServerBa
 import { _resetRefreshState } from '@/renderer/services/system/apiClient';
 import { _resetClientVersionCache } from '@/renderer/utils/runtime/clientVersion';
 
+import type * as CryptoModule from '@/renderer/utils/crypto/crypto';
 const server = setupServer();
 const originalElectronBridge = globalThis.electron;
 const base = vector.context.server_origin;

@@ -89,8 +89,7 @@ vi.mock('@/renderer/stores/voice/voiceStore', () => ({
   },
 }));
 vi.mock('@/renderer/stores/audio/audioSettingsStore', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/renderer/stores/audio/audioSettingsStore')>();
+  const actual = await importOriginal<typeof AudioSettingsStoreModule>();
   return {
     effectiveNoiseGateMode: actual.effectiveNoiseGateMode,
     effectiveMicLevelPercent: actual.effectiveMicLevelPercent,
@@ -250,6 +249,7 @@ import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
 import { useDraftAudioSetting } from '@/renderer/hooks/ui/useDraftSettings';
 import { useMicTest } from '@/renderer/hooks/device/useMicTest';
 
+import type * as AudioSettingsStoreModule from '@/renderer/stores/audio/audioSettingsStore';
 function setAudioAdvancedMode(advancedMode: boolean) {
   (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (s: (state: Record<string, unknown>) => unknown) =>

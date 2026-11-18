@@ -117,7 +117,7 @@ import {
 // Mock decryptFile
 const mockDecryptFile = vi.fn();
 vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
-  const actual = await vi.importActual<typeof import('@/renderer/utils/crypto/attachmentCrypto')>(
+  const actual = await vi.importActual<typeof AttachmentCryptoModule>(
     '@/renderer/utils/crypto/attachmentCrypto'
   );
   return {
@@ -2093,6 +2093,7 @@ describe('AttachmentDisplay decrypts under the epoch the file was sealed with', 
 
 import { __resetWindowFocusForTests } from '@/renderer/hooks/ui/useWindowFocus';
 
+import type * as AttachmentCryptoModule from '@/renderer/utils/crypto/attachmentCrypto';
 describe('AttachmentDisplay GIF playback gating (#2369)', () => {
   const originalHasFocus = document.hasFocus;
 

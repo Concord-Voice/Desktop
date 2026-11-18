@@ -3,9 +3,10 @@ import { vi } from 'vitest';
 import { useFriendStore, type Friend } from '@/renderer/stores/chat/friendStore';
 import { SendToFriendModal } from '@/renderer/components/Channels/SendToFriendModal';
 
+import type * as ReactRouterModule from 'react-router';
 const mockNavigate = vi.fn();
 vi.mock('react-router', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('react-router')>()),
+  ...(await importOriginal<typeof ReactRouterModule>()),
   useNavigate: () => mockNavigate,
 }));
 
