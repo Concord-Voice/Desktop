@@ -38,16 +38,6 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
     await closeWorker();
     throw error;
   }
-  async function requestKeyFramesUntilLayered(consumer) {
-    for (let attempt = 0; attempt < 20 && !consumer.closed && !consumer.currentLayers; attempt++) {
-      // Re-pinning re-runs layer selection and the transport's bitrate allocation, which
-      // is what actually assigns the consumer a layer; the keyframe request alone is
-      // ignored while no layer is selected.
-      await consumer.setPreferredLayers({ spatialLayer: 0 }).catch(() => {});
-      await consumer.requestKeyFrame().catch(() => {});
-      await new Promise((resolve) => { setTimeout(resolve, 500).unref(); });
-    }
-  }
   const peers = new Map(['a', 'b'].map((id) => [id, {
     transports: new Map(), producers: new Map(), consumers: new Map(),
   }]));
@@ -98,32 +88,13 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
-        consumer.appData.transportId = body.transportId;
-        // Pin the lowest layer. The sender's top layer only starts encoding once its
-        // bandwidth estimate ramps; until then it sends padding RTP with no frames, so
-        // the SFU treats the layer as live while no keyframe can ever arrive. Slow
-        // runners (macOS CI) never decoded. Layer 0 encodes from the first frame.
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0 });
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 2 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
         };
       }
-      case 'resume': {
-        const consumer = owned(peer.consumers, body.consumerId);
-        // The consumer's transport may still be mid-DTLS here: the client's connect RPC
-        // returns before the handshake completes. Resume only once media can flow.
-        const transport = peer.transports.get(consumer.appData.transportId);
-        for (let i = 0; transport && transport.dtlsState !== 'connected' && i < 100; i++) {
-          await new Promise((resolve) => { setTimeout(resolve, 50).unref(); });
-        }
-        await consumer.resume();
-        // CI diagnostics showed the SFU never asked the sender for a keyframe: the video
-        // consumer stayed at currentLayers null with zero PLIs forwarded, so the receiver
-        // sat on undecodable packets. Ask explicitly until a layer is selected.
-        if (consumer.kind === 'video') void requestKeyFramesUntilLayered(consumer);
-        return {};
-      }
+      case 'resume': await owned(peer.consumers, body.consumerId).resume(); return {};
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
         peer.consumers.delete(consumer.id); consumer.close(); return {};
@@ -142,7 +113,7 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           const transports = await Promise.all([...entry.transports.values()].map(async (t) => {
             const [stat] = await t.getStats();
             return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
-              sendBitrate: stat?.sendBitrate ?? null, probationSendBitrate: stat?.probationSendBitrate ?? null };
+              sendBitrate: stat?.sendBitrate ?? null };
           }));
           out.push({ peer: name, transports,
             producers: await Promise.all([...entry.producers.values()].map(async (p) => ({
