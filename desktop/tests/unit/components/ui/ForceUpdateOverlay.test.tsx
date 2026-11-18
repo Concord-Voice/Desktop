@@ -371,6 +371,24 @@ describe('ForceUpdateOverlay', () => {
     expect(screen.getByText('Update Required')).toBeInTheDocument();
   });
 
+  // Build metadata (`+…`) is ignored by the comparison. The patch digit sits next to
+  // the `+`, so a strip that handled only `-` would read the patch as NaN.
+  it.each([
+    ['1.0.0+build.5', '1.0.1', true],
+    ['1.0.1+build.5', '1.0.1', false],
+  ])('ignores build metadata: app %s against floor %s', async (appVersion, floor, shown) => {
+    (globalThis.electron as Record<string, unknown>).getVersion = vi
+      .fn()
+      .mockResolvedValue(appVersion);
+    useClientConfigStore.setState({ minVersion: floor, lastFetchedAt: Date.now() });
+    render(<ForceUpdateOverlay />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1100);
+    });
+    expect(screen.queryByText('Update Required') !== null).toBe(shown);
+  });
+
   it('shows manual download link on error', async () => {
     useClientConfigStore.setState({ minVersion: '1.0.0', lastFetchedAt: Date.now() });
 

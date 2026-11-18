@@ -313,10 +313,17 @@ describe('AddFriendModal', () => {
           })
       );
       fireEvent.click(screen.getByText('Copied!'));
+      // jsdom 31 registers its own ~16.7ms window setInterval
+      // (jsdom/browser/Window.js) under the fake clock, so the count never
+      // reaches 0. Prove that exactly the component's one copy-feedback timer
+      // is cleared on unmount, and that the late clipboard completion does not
+      // schedule a new one.
+      const timersBeforeUnmount = vi.getTimerCount();
       unmount();
-      expect(vi.getTimerCount()).toBe(0);
+      const timersAfterUnmount = vi.getTimerCount();
+      expect(timersAfterUnmount).toBe(timersBeforeUnmount - 1);
       await act(async () => finishCopy());
-      expect(vi.getTimerCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(timersAfterUnmount);
     } finally {
       unmount();
       vi.useRealTimers();

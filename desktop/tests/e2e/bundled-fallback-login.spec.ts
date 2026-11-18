@@ -43,13 +43,13 @@ test.describe(
     let app: ElectronApplication | null = null;
 
     test.beforeAll(() => {
-      if (!existsSync(mainEntry)) {
-        test.skip(
-          true,
-          `Main bundle not found at ${mainEntry} — run \`npm run build\` first. ` +
-            `This spec requires a built Electron app to exercise the packaged-mode load path.`
-        );
-      }
+      // A precondition skip, not a disabled test: without a built bundle there is
+      // nothing to launch.
+      test.skip(
+        !existsSync(mainEntry),
+        `Main bundle not found at ${mainEntry} — run \`npm run build\` first. ` +
+          `This spec requires a built Electron app to exercise the packaged-mode load path.`
+      );
     });
 
     test.beforeEach(async () => {
@@ -95,15 +95,12 @@ test.describe(
       // for real. The other two tests in this describe block still run and
       // provide partial coverage (no Failed-to-fetch error, no overlay).
       const isPackaged = await app!.evaluate(({ app: electronApp }) => electronApp.isPackaged);
-      if (!isPackaged) {
-        test.skip(
-          true,
-          'Electron launched in non-packaged mode (Playwright runs from node_modules); ' +
-            '`app://concord` registration only fires when app.isPackaged === true. ' +
-            'A packaged-build E2E runner is tracked in #829.'
-        );
-        return;
-      }
+      test.skip(
+        !isPackaged,
+        'Electron launched in non-packaged mode (Playwright runs from node_modules); ' +
+          '`app://concord` registration only fires when app.isPackaged === true. ' +
+          'A packaged-build E2E runner is tracked in #829.'
+      );
 
       const window = await app!.firstWindow();
       await window.waitForLoadState('domcontentloaded');
@@ -130,14 +127,11 @@ test.describe(
       // and Vite serves with permissive CORS, so this assertion would pass
       // trivially. Skip in non-packaged mode rather than report false coverage.
       const isPackaged = await app!.evaluate(({ app: electronApp }) => electronApp.isPackaged);
-      if (!isPackaged) {
-        test.skip(
-          true,
-          'Electron launched in non-packaged mode; CORS regression is only reachable ' +
-            'on the packaged-bundled `app://concord` load path. Tracked under #829.'
-        );
-        return;
-      }
+      test.skip(
+        !isPackaged,
+        'Electron launched in non-packaged mode; CORS regression is only reachable ' +
+          'on the packaged-bundled `app://concord` load path. Tracked under #829.'
+      );
 
       const window = await app!.firstWindow();
 
