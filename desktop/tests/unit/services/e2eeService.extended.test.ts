@@ -739,6 +739,35 @@ describe('e2eeService — extended', () => {
   });
 
   describe('processPendingKeyRequests', () => {
+    function pendingKeysPage(
+      pending_requests: Array<{ user_id: string; channel_id: string; key_version?: number }>,
+      next_cursor?: string | null
+    ): Response {
+      return {
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            pending_requests,
+            ...(next_cursor === undefined ? {} : { next_cursor }),
+          }),
+      } as Response;
+    }
+
+    function stubPendingKeyProcessor(): {
+      processRequest: ReturnType<typeof vi.fn>;
+      restore: () => void;
+    } {
+      const original = (e2eeService as any).processPendingKeyRequest;
+      const processor = vi.fn().mockResolvedValue('continue');
+      (e2eeService as any).processPendingKeyRequest = processor;
+      return {
+        processRequest: processor,
+        restore: () => {
+          (e2eeService as any).processPendingKeyRequest = original;
+        },
+      };
+    }
+
     it('does nothing when not initialized', async () => {
       await e2eeService.processPendingKeyRequests();
       expect(mockApiFetch).not.toHaveBeenCalled();
@@ -934,6 +963,111 @@ describe('e2eeService — extended', () => {
       // Should complete without errors
       await e2eeService.processPendingKeyRequests();
       expect(mockApiFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('drains cursor pages and processes each pending request once', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      const { processRequest, restore } = stubPendingKeyProcessor();
+      const pages = [
+        pendingKeysPage([{ user_id: 'user-a', channel_id: 'channel-a', key_version: 1 }], 'page-1'),
+        pendingKeysPage([], 'page-2'),
+        pendingKeysPage(
+          [
+            { user_id: 'user-a', channel_id: 'channel-a', key_version: 1 },
+            { user_id: 'user-b', channel_id: 'channel-b', key_version: 2 },
+          ],
+          null
+        ),
+      ];
+      mockApiFetch.mockImplementation(() => Promise.resolve(pages.shift()!));
+
+      try {
+        await e2eeService.processPendingKeyRequests();
+
+        expect(mockApiFetch.mock.calls.map(([url]) => url)).toEqual([
+          '/api/v1/e2ee/pending-keys',
+          '/api/v1/e2ee/pending-keys?cursor=page-1',
+          '/api/v1/e2ee/pending-keys?cursor=page-2',
+        ]);
+        expect(processRequest).toHaveBeenCalledTimes(2);
+        expect(processRequest.mock.calls.map(([request]) => request)).toEqual([
+          { user_id: 'user-a', channel_id: 'channel-a', key_version: 1 },
+          { user_id: 'user-b', channel_id: 'channel-b', key_version: 2 },
+        ]);
+      } finally {
+        restore();
+        mockApiFetch.mockReset();
+      }
+    });
+
+    it('caps a cursor sweep at 20 pages and retries the remaining page', async () => {
+      vi.useFakeTimers();
+      try {
+        await e2eeService.initialize(
+          testPassword,
+          regKeys.wrappedPrivateKey,
+          regKeys.keyDerivationSalt
+        );
+        const { processRequest, restore } = stubPendingKeyProcessor();
+        let page = 0;
+        mockApiFetch.mockImplementation(() => {
+          page += 1;
+          if (page <= 20) return Promise.resolve(pendingKeysPage([], `page-${page}`));
+          return Promise.resolve(
+            pendingKeysPage([{ user_id: 'user-after-cap', channel_id: 'channel-after-cap' }], null)
+          );
+        });
+
+        try {
+          await e2eeService.processPendingKeyRequests();
+
+          expect(mockApiFetch).toHaveBeenCalledTimes(20);
+          expect(mockApiFetch.mock.calls[19][0]).toBe('/api/v1/e2ee/pending-keys?cursor=page-19');
+          expect(processRequest).not.toHaveBeenCalled();
+
+          await vi.advanceTimersByTimeAsync(60_000);
+
+          expect(mockApiFetch).toHaveBeenCalledTimes(21);
+          expect(processRequest).toHaveBeenCalledWith(
+            { user_id: 'user-after-cap', channel_id: 'channel-after-cap' },
+            expect.any(Number)
+          );
+        } finally {
+          restore();
+          mockApiFetch.mockReset();
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps old servers without next_cursor to one page', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      const { processRequest, restore } = stubPendingKeyProcessor();
+      mockApiFetch.mockImplementation(() =>
+        Promise.resolve(pendingKeysPage([{ user_id: 'legacy-user', channel_id: 'legacy-channel' }]))
+      );
+
+      try {
+        await e2eeService.processPendingKeyRequests();
+
+        expect(mockApiFetch).toHaveBeenCalledTimes(1);
+        expect(processRequest).toHaveBeenCalledWith(
+          { user_id: 'legacy-user', channel_id: 'legacy-channel' },
+          expect.any(Number)
+        );
+      } finally {
+        restore();
+        mockApiFetch.mockReset();
+      }
     });
 
     it('retries a transient pending-keys fetch failure', async () => {
