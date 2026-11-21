@@ -29,6 +29,10 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+### Fixed
+
+- **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
+
 ## [0.3.2] - 2026-11-18
 
 Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.
