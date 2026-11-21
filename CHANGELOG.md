@@ -29,6 +29,13 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+GIFs in the pinned messages panel now fit the panel.
+
+### Fixed
+
+- **GIFs:** A KLIPY GIF in the pinned messages panel now scales down to fit the panel, in servers and in DMs. It kept its full chat size and ran past the panel's edge ([#14](https://github.com/Concord-Voice/Desktop/issues/14)).
+- **GIFs:** The "paused" notice on a narrow GIF no longer prints its wrapped lines on top of each other.
+
 ## [0.3.2] - 2026-11-18
 
 Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.
