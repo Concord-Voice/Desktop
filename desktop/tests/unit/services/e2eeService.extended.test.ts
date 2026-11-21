@@ -1013,13 +1013,16 @@ describe('e2eeService — extended', () => {
           regKeys.keyDerivationSalt
         );
         const { processRequest, restore } = stubPendingKeyProcessor();
-        let page = 0;
-        mockApiFetch.mockImplementation(() => {
-          page += 1;
-          if (page <= 20) return Promise.resolve(pendingKeysPage([], `page-${page}`));
-          return Promise.resolve(
-            pendingKeysPage([{ user_id: 'user-after-cap', channel_id: 'channel-after-cap' }], null)
-          );
+        mockApiFetch.mockImplementation((url) => {
+          const cursor = new URL(String(url), 'https://desktop.test').searchParams.get('cursor');
+          if (cursor === 'page-20') {
+            return Promise.resolve(
+              pendingKeysPage([{ user_id: 'user-after-cap', channel_id: 'channel-after-cap' }], null)
+            );
+          }
+
+          const page = cursor === null ? 1 : Number(cursor.replace('page-', '')) + 1;
+          return Promise.resolve(pendingKeysPage([], `page-${page}`));
         });
 
         try {
@@ -1032,8 +1035,54 @@ describe('e2eeService — extended', () => {
           await vi.advanceTimersByTimeAsync(60_000);
 
           expect(mockApiFetch).toHaveBeenCalledTimes(21);
+          expect(mockApiFetch.mock.calls[20][0]).toBe('/api/v1/e2ee/pending-keys?cursor=page-20');
           expect(processRequest).toHaveBeenCalledWith(
             { user_id: 'user-after-cap', channel_id: 'channel-after-cap' },
+            expect.any(Number)
+          );
+        } finally {
+          restore();
+          mockApiFetch.mockReset();
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('restarts from the first page after an expired cursor', async () => {
+      vi.useFakeTimers();
+      try {
+        await e2eeService.initialize(
+          testPassword,
+          regKeys.wrappedPrivateKey,
+          regKeys.keyDerivationSalt
+        );
+        const { processRequest, restore } = stubPendingKeyProcessor();
+        const responses = [
+          pendingKeysPage(
+            [{ user_id: 'stale-user', channel_id: 'stale-channel', key_version: 1 }],
+            'expired-cursor'
+          ),
+          { ok: false, status: 400, statusText: 'Bad Request' } as Response,
+          pendingKeysPage([{ user_id: 'fresh-user', channel_id: 'fresh-channel', key_version: 2 }], null),
+        ];
+        mockApiFetch.mockImplementation(() => Promise.resolve(responses.shift()!));
+
+        try {
+          await e2eeService.processPendingKeyRequests();
+
+          expect(mockApiFetch.mock.calls.map(([url]) => url)).toEqual([
+            '/api/v1/e2ee/pending-keys',
+            '/api/v1/e2ee/pending-keys?cursor=expired-cursor',
+          ]);
+          expect(processRequest).not.toHaveBeenCalled();
+
+          await vi.advanceTimersByTimeAsync(60_000);
+
+          expect(mockApiFetch.mock.calls[2][0]).toBe('/api/v1/e2ee/pending-keys');
+          expect(processRequest).toHaveBeenCalledTimes(1);
+          expect(processRequest).toHaveBeenCalledWith(
+            { user_id: 'fresh-user', channel_id: 'fresh-channel', key_version: 2 },
             expect.any(Number)
           );
         } finally {
