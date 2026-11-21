@@ -189,6 +189,11 @@ describe('GifEmbed', () => {
 
   // ---------- Layout-shift fixes (bug #1: vertical expand on send) ----------
 
+  // The container reserves its box as a WIDTH plus an ASPECT RATIO, never a
+  // pixel height. A pixel height cannot follow the width down when the embed
+  // sits in a surface narrower than itself — the pinned-messages panel is
+  // ~290px wide — so the embed either overflowed the panel or, once clamped,
+  // letterboxed. Desktop#14.
   it('clamps oversized GIFs into the 400×300 display box on the container', async () => {
     // 1600×900 → max-width 400 with 16:9 aspect → 400×225
     getBySlugMock.mockResolvedValue({
@@ -203,7 +208,8 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('400px');
-      expect(embed.style.height).toBe('225px');
+      expect(embed.style.aspectRatio).toBe('400 / 225');
+      expect(embed.style.height).toBe('');
     });
   });
 
@@ -221,7 +227,8 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('150px');
-      expect(embed.style.height).toBe('300px');
+      expect(embed.style.aspectRatio).toBe('150 / 300');
+      expect(embed.style.height).toBe('');
     });
   });
 
@@ -238,7 +245,8 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('120px');
-      expect(embed.style.height).toBe('80px');
+      expect(embed.style.aspectRatio).toBe('120 / 80');
+      expect(embed.style.height).toBe('');
     });
   });
 
@@ -268,6 +276,7 @@ describe('GifEmbed', () => {
     // doesn't get stretched into a 250×180 box.
     expect(embed.style.width).toBe('');
     expect(embed.style.height).toBe('');
+    expect(embed.style.aspectRatio).toBe('');
   });
 
   // ---------- Reduce Animations hover-to-play (#571 item #6B) ----------
@@ -507,6 +516,11 @@ describe('GifEmbed — a failed STILL is recoverable, a failed ANIMATION is not 
     await waitFor(() => expect(container.querySelector('.gif-embed-stopped')).not.toBeNull());
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText('GIF unavailable')).toBeNull();
+    // The stand-in fills the container's box (stylesheet) and carries no pixel
+    // size of its own, so it shrinks with the container in a narrow surface.
+    const stopped = container.querySelector('.gif-embed-stopped') as HTMLElement;
+    expect(stopped.style.width).toBe('');
+    expect(stopped.style.height).toBe('');
 
     // The animation was never the thing that failed, so hover still reaches it.
     fireEvent.mouseEnter(container.querySelector('.gif-embed') as HTMLElement);

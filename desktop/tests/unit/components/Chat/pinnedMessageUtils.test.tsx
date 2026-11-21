@@ -199,6 +199,29 @@ describe('decryptPins', () => {
     expect(result[0].channel_id).toBe('conv-1');
   });
 
+  // The row the server returns for a pinned DM message: `conversation_id` in
+  // place of `channel_id`, with its attachments (Desktop#14). The files must
+  // reach AttachmentDisplay keyed to the conversation, whose key opens them.
+  it('keeps the attachments of a DM pin and keys them to the conversation', async () => {
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey.mockResolvedValue('');
+
+    const dmRow = {
+      ...baseMsg,
+      channel_id: undefined as unknown as string,
+      conversation_id: 'conv-1',
+      content: 'ciphertext',
+      attachments: [{ id: 'a-1', file_type: 'photo', mime_type: 'image/png', file_size: 1000 }],
+    } as MessageWithUser;
+    const [pin] = await decryptPins('conv-1', [dmRow]);
+
+    expect(pin.attachments).toEqual(dmRow.attachments);
+    render(<PinContent message={pin} />);
+    expect(screen.getByTestId('attachment-display')).toBeInTheDocument();
+    expect(screen.getByTestId('attachment-channel-id')).toHaveTextContent('conv-1');
+  });
+
   it('applies unwrapGifEnvelope when plaintext is a GIF envelope', async () => {
     await setE2EEInitialized(true);
     mockGetChannelKey.mockResolvedValue({} as CryptoKey);
