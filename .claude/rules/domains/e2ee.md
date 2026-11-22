@@ -691,8 +691,8 @@ epoch — so any same-origin listener on the `concord-pip` channel could export 
 trust boundary the main window's `worker.postMessage` already relies on, widened from
 point-to-point to a named channel; same-origin script execution is out-of-model, since it can read
 the CSK directly. Do not describe this transport as non-extractable. The request carries an
-explicit `(keyVersion, keyId)` on a typed Worker miss, and the version drives the CSK lookup: a key
-derived from the current CSK for an older version's frame decrypts to garbage. Every refusal is
+explicit `(keyVersion, keyId)` on a typed Worker miss, which may request only the current
+authoritative pair. An omitted initial request receives current material. Every refusal is
 fail-closed and the stream is not played — no transform constructor, `onRtpReceiver` never invoked,
 attachment threw, or the bypass probe confirmed after one re-attach. The PiP supports the
 `RTCRtpScriptTransform` path only, so it refuses whenever the shared resolver returns anything else.
@@ -701,6 +701,14 @@ per-origin across `BrowserWindow`s) and refuses up front; it cannot see the auto
 `sessionStorage['concord.e2eeLegacyFallback']` fallback, which is per-window, so there its own
 bypass probe reaches the same fail-closed outcome a few seconds later. Either way the PiP plays
 nothing rather than ciphertext.
+
+The main window sends each committed media CSK-version advance to the PiP over its authorized
+signaling session, even when no new frame or key request arrives. The decrypt-only PiP Worker
+retires prior-version keys after the fixed ten-second overlap; it applies each new authoritative
+version and derived decrypt key in one message. PiP drops an older in-flight key response after a
+newer version notification. Initial, authority-originated PiP provisioning may retry a CSK-rebase
+race at 500/1000/2000 ms delays (four total attempts); a Worker frame-miss request stays one RPC
+with no PiP-side retry. Neither path may resume a consumer without an attached decrypt transform.
 
 **Key schedule:** `deriveFrameKey`, `ratchetKey`, the
 `senderId:keyVersion:keyId` decrypt-key map, and server-gated
@@ -713,6 +721,10 @@ a newer epoch or CSK version retires the old key after a ten-second overlap. Fra
 Worker, legacy, and PiP provisioning share a main-thread gate: a frame stamp may request only the
 current authoritative version and epoch, with one in-flight request per sender/key tuple and
 sender/global request and ratchet-work budgets per 15-second window.
+Local epoch catch-up prepares decrypt ratchets before publishing the new encrypt epoch. A sender
+already authenticated at a higher epoch stays active; an intermediate derived key is overlap-only,
+and no rotation extends the original retirement deadline. A failed derivation leaves the epoch and
+decrypt cache unchanged.
 Sender CSK rebase is monotonic and session-fenced: an out-of-order version fetch may install only
 if it is still the latest requested version for the same active channel, user, `MediaEncryption`
 instance, and Worker. Install the derived key and stamped version together; stale work must never

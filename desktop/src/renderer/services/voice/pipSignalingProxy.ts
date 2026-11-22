@@ -32,6 +32,7 @@ import {
   type ProducerClosedBroadcast,
   type OwnershipTransferBroadcast,
   type VoiceEndedBroadcast,
+  type DecryptKeyVersionBroadcast,
   type VoiceStateResult,
   type CreateRecvTransportResult,
   type ConsumeResult,
@@ -621,6 +622,16 @@ export class PipSignalingProxy {
       producerId,
       userId,
     } satisfies ProducerClosedBroadcast);
+  }
+
+  /** Retire old PiP decrypt keys even when no new media/key request arrives. */
+  broadcastDecryptKeyVersion(keyVersion: number): void {
+    if (!Number.isSafeInteger(keyVersion) || keyVersion <= 0) return;
+    this.broadcast({
+      kind: 'broadcast',
+      type: 'decrypt-key-version',
+      keyVersion,
+    } satisfies DecryptKeyVersionBroadcast);
   }
 
   // ── Internal helpers ────────────────────────────────────────────

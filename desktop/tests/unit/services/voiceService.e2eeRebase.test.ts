@@ -262,6 +262,7 @@ describe('voiceService E2EE sender re-base (#1878 Task 5)', () => {
   });
 
   afterEach(() => {
+    svc.onMediaKeyVersionChanged = null;
     svc.cleanupTimersAndE2EE();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -308,7 +309,10 @@ describe('voiceService E2EE sender re-base (#1878 Task 5)', () => {
     e2eeMockState.channelKeyVersion = 5;
     await svc.initEncryptionCore(CHANNEL, 0);
     const enc = latestEncryption();
+    const onMediaKeyVersionChanged = vi.fn();
+    svc.onMediaKeyVersionChanged = onMediaKeyVersionChanged;
     expect(enc.getKeyVersion()).toBe(5);
+    expect(onMediaKeyVersionChanged).not.toHaveBeenCalled();
     workerPostMessage.mockClear();
 
     // A rotation to version 6 is announced. The re-base kicks off a by-version
@@ -333,6 +337,7 @@ describe('voiceService E2EE sender re-base (#1878 Task 5)', () => {
 
     expect(enc.setKeyVersion).toHaveBeenLastCalledWith(6);
     expect(enc.getKeyVersion()).toBe(6);
+    expect(onMediaKeyVersionChanged).toHaveBeenCalledExactlyOnceWith(6);
     // The worker is re-initialized at the new version.
     const reinit = workerPostMessage.mock.calls.map((c) => c[0]).find((m) => m?.type === 'init');
     expect(reinit).toMatchObject({ keyVersion: 6, currentKeyId: 0 });
@@ -1174,6 +1179,36 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
   // closed, so the error paths matter as much as the happy one.
 
   describe('deriveFrameKeyForPip', () => {
+    it('rejects initial PiP provision during sender rebase, then accepts a fresh current snapshot', async () => {
+      e2eeMockState.channelKeyVersion = 7;
+      await svc.initEncryptionCore(CHANNEL, 0);
+      const enc = latestEncryption();
+      e2eeMockState.channelKeyVersion = 8;
+      enc.addDecryptKeyAtVersion.mockClear();
+
+      await expect(svc.deriveFrameKeyForPip('alice')).rejects.toThrow(
+        'frame-key request superseded by rotation'
+      );
+      expect(enc.addDecryptKeyAtVersion).not.toHaveBeenCalled();
+
+      enc.setKeyVersion(8);
+      await expect(svc.deriveFrameKeyForPip('alice')).resolves.toMatchObject({
+        keyVersion: 8,
+        keyId: 0,
+      });
+      expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledWith(fakeCsk, 'alice', 8, 0);
+    });
+
+    it('refuses a partial frame-key pair before any CSK fetch', async () => {
+      e2eeMockState.channelKeyVersion = 7;
+      await svc.initEncryptionCore(CHANNEL, 0);
+      vi.mocked(mockedE2EEService.getChannelKeyMaterial).mockClear();
+      await expect(svc.deriveFrameKeyForPip('alice', 7)).rejects.toThrow(
+        'incomplete frame-key request'
+      );
+      expect(mockedE2EEService.getChannelKeyMaterial).not.toHaveBeenCalled();
+    });
+
     it("derives at the channel's current version and epoch when the PiP omits them", async () => {
       e2eeMockState.channelKeyVersion = 7;
       await svc.initEncryptionCore(CHANNEL, 0);

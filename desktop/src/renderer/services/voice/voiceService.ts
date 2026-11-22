@@ -1041,6 +1041,7 @@ class VoiceService {
   // PiP producer lifecycle callbacks — wired by MainView when proxy is active
   onProducerAdded: ((producerId: string, userId: string, source: string) => void) | null = null;
   onProducerClosed: ((producerId: string, userId: string) => void) | null = null;
+  onMediaKeyVersionChanged: ((keyVersion: number) => void) | null = null;
 
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
@@ -11179,6 +11180,7 @@ class VoiceService {
         keyVersion: context.keyVersion,
       };
       context.e2eeWorker?.postMessage(workerMessage);
+      this.onMediaKeyVersionChanged?.(context.keyVersion);
       console.debug('E2EE: sender re-based encrypt key on CSK rotation', {
         channelId: context.channelId,
         keyVersion: context.keyVersion,
