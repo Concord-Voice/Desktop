@@ -49,6 +49,29 @@ const CHANNEL_KEY_CACHE_TTL = Number.MAX_SAFE_INTEGER;
 // key-arrival path calls, so the window only ever delays a repeat refusal.
 const MISSING_KEY_BACKOFF_MS = 30_000;
 const PENDING_KEY_RETRY_DELAY_MS = 60_000;
+const PENDING_KEY_MAX_PAGES = 20;
+
+type PendingKeyRequestsResponse = {
+  pending_requests?: PendingKeyRequest[];
+  next_cursor?: string | null;
+};
+
+function isValidPendingKeyCursor(cursor: unknown): cursor is string {
+  return typeof cursor === 'string' && cursor.length <= 160 && /^[A-Za-z0-9_-]+$/.test(cursor);
+}
+
+function isValidPendingKeyRequest(value: unknown): value is PendingKeyRequest {
+  if (value === null || typeof value !== 'object') return false;
+  const request = value as Partial<PendingKeyRequest>;
+  return (
+    typeof request.user_id === 'string' &&
+    request.user_id.length > 0 &&
+    typeof request.channel_id === 'string' &&
+    request.channel_id.length > 0 &&
+    (request.key_version === undefined ||
+      (Number.isSafeInteger(request.key_version) && request.key_version >= 1))
+  );
+}
 
 function isPendingKeyMiss(err: unknown): boolean {
   return err instanceof E2EEKeyUnavailableError && err.pending;
@@ -189,6 +212,8 @@ class E2EEService {
   private pendingKeyRequestProcessor: Promise<void> | null = null;
   private pendingKeyRequestProcessorGeneration: number | null = null;
   private pendingKeyRequestRerun = false;
+  private pendingKeyPageCursor: string | null = null;
+  private pendingKeyRetryFromStart = false;
   private keySessionGeneration: number = 0;
   // Bumped ONLY by clearKeys() (actual key destruction: logout, nuclearReset/
   // gracefulReset teardown, account switch). The init-commit fence keys on THIS
@@ -1144,14 +1169,17 @@ class E2EEService {
     if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
 
     try {
-      const requests = await this.fetchPendingKeyRequests(sessionGeneration);
-      if (requests === null) return;
-      console.debug('[E2EE] Pending key requests:', requests.length);
+      const page = await this.fetchPendingKeyRequests(sessionGeneration);
+      if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
+      console.debug('[E2EE] Pending key requests:', page.requests.length);
 
-      for (const request of requests) {
+      let stopped = false;
+      for (const request of page.requests) {
         const action = await this.processPendingKeyRequest(request, sessionGeneration);
-        if (action === 'stop') break;
+        if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
+        if (action === 'stop') stopped = true;
       }
+      this.finishPendingKeySweep(page.nextCursor, stopped, sessionGeneration);
     } catch (err) {
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
       console.warn('[E2EE] processPendingKeyRequests fatal', {
@@ -1161,12 +1189,58 @@ class E2EEService {
     }
   }
 
+  private finishPendingKeySweep(
+    nextCursor: string | null,
+    stopped: boolean,
+    sessionGeneration: number
+  ): void {
+    if (stopped) this.pendingKeyRetryFromStart = true;
+    const retryFromStart = nextCursor === null && this.pendingKeyRetryFromStart;
+    this.pendingKeyPageCursor = nextCursor;
+    if (nextCursor === null) this.pendingKeyRetryFromStart = false;
+    if (nextCursor !== null || retryFromStart) this.schedulePendingKeyRetry(sessionGeneration);
+  }
+
   private async fetchPendingKeyRequests(
     sessionGeneration: number
-  ): Promise<PendingKeyRequest[] | null> {
+  ): Promise<{ requests: PendingKeyRequest[]; nextCursor: string | null }> {
+    const requests = new Map<string, PendingKeyRequest>();
+    let cursor = this.pendingKeyPageCursor;
+    for (let page = 0; page < PENDING_KEY_MAX_PAGES; page++) {
+      const data = await this.fetchPendingKeyRequestPage(cursor, sessionGeneration);
+      if (data === null || data === 'expired') {
+        return { requests: [...requests.values()], nextCursor: data === 'expired' ? null : cursor };
+      }
+      for (const request of data.pending_requests || []) {
+        requests.set(
+          JSON.stringify([request.channel_id, request.user_id, request.key_version]),
+          request
+        );
+      }
+      if (data.next_cursor == null) {
+        cursor = null;
+        break;
+      }
+      if (!isValidPendingKeyCursor(data.next_cursor)) {
+        console.warn('[E2EE] pending-keys cursor was invalid');
+        this.pendingKeyPageCursor = null;
+        this.schedulePendingKeyRetry(sessionGeneration);
+        cursor = null;
+        break;
+      }
+      cursor = data.next_cursor;
+    }
+    return { requests: [...requests.values()], nextCursor: cursor };
+  }
+
+  private async fetchPendingKeyRequestPage(
+    cursor: string | null,
+    sessionGeneration: number
+  ): Promise<PendingKeyRequestsResponse | 'expired' | null> {
+    const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`;
     let res: Response;
     try {
-      res = await apiFetch('/api/v1/e2ee/pending-keys');
+      res = await apiFetch(`/api/v1/e2ee/pending-keys${query}`);
     } catch (err) {
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return null;
       console.warn('[E2EE] pending-keys request failed', { error: (err as Error).message });
@@ -1176,21 +1250,41 @@ class E2EEService {
     if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return null;
     if (!res.ok) {
       console.debug('[E2EE] pending-keys request failed:', res.status, res.statusText);
-      if (pendingKeyResponseIsRetryable(res)) this.schedulePendingKeyRetry(sessionGeneration);
-      return null;
+      const cursorExpired = cursor !== null && res.status === 400;
+      if (cursorExpired) this.pendingKeyPageCursor = null;
+      if (pendingKeyResponseIsRetryable(res) || cursorExpired) {
+        this.schedulePendingKeyRetry(sessionGeneration);
+      }
+      return cursorExpired ? 'expired' : null;
     }
 
-    let data: { pending_requests?: PendingKeyRequest[] };
+    return this.parsePendingKeyRequestPage(res, sessionGeneration);
+  }
+
+  private async parsePendingKeyRequestPage(
+    res: Response,
+    sessionGeneration: number
+  ): Promise<PendingKeyRequestsResponse | null> {
     try {
-      data = await safeJson(res);
+      const data = (await safeJson(res)) as unknown;
+      if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('Invalid pending-keys response');
+      }
+      const page = data as PendingKeyRequestsResponse;
+      if (
+        page.pending_requests !== undefined &&
+        (!Array.isArray(page.pending_requests) ||
+          !page.pending_requests.every(isValidPendingKeyRequest))
+      ) {
+        throw new Error('Invalid pending-key requests');
+      }
+      return this.isPendingKeyRequestSessionCurrent(sessionGeneration) ? page : null;
     } catch (err) {
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return null;
       console.warn('[E2EE] pending-keys response was invalid', { error: (err as Error).message });
       this.schedulePendingKeyRetry(sessionGeneration);
       return null;
     }
-    if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return null;
-    return data.pending_requests || [];
   }
 
   private async processPendingKeyRequest(
@@ -1962,6 +2056,8 @@ class E2EEService {
       this.pendingKeyRetryTimer = null;
     }
     this.keySessionGeneration += 1;
+    this.pendingKeyPageCursor = null;
+    this.pendingKeyRetryFromStart = false;
     this.pendingKeyFetches.clear();
     this.pendingVersionedKeyFetches.clear();
   }
