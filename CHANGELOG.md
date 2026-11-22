@@ -29,9 +29,15 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests.
+
 ### Fixed
 
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
+
+### Security
+
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.2] - 2026-11-18
 
