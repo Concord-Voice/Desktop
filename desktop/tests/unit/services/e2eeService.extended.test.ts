@@ -1004,6 +1004,76 @@ describe('e2eeService — extended', () => {
       }
     });
 
+    it('processes earlier pages when a later page fails and resumes at the failed cursor', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      const { processRequest, restore } = stubPendingKeyProcessor();
+      mockApiFetch
+        .mockResolvedValueOnce(
+          pendingKeysPage([{ user_id: 'early-user', channel_id: 'early-channel' }], 'page-1')
+        )
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Server Error' } as Response);
+
+      try {
+        await e2eeService.processPendingKeyRequests();
+
+        expect(processRequest).toHaveBeenCalledWith(
+          { user_id: 'early-user', channel_id: 'early-channel' },
+          expect.any(Number)
+        );
+        expect((e2eeService as any).pendingKeyPageCursor).toBe('page-1');
+      } finally {
+        restore();
+        mockApiFetch.mockReset();
+      }
+    });
+
+    it('serves independent recipients and reaches later pages despite one retriable stop', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      const { processRequest, restore } = stubPendingKeyProcessor();
+      processRequest.mockImplementation((request, generation) => {
+        if (request.user_id === 'stuck-user') {
+          (e2eeService as any).schedulePendingKeyRetry(generation);
+          return Promise.resolve('stop');
+        }
+        return Promise.resolve('continue');
+      });
+      mockApiFetch.mockImplementation((url) => {
+        const cursor = new URL(String(url), 'https://desktop.test').searchParams.get('cursor');
+        const page = cursor === null ? 1 : Number(cursor.replace('page-', '')) + 1;
+        return Promise.resolve(
+          pendingKeysPage(
+            page === 1
+              ? [{ user_id: 'stuck-user', channel_id: 'early-channel' }]
+              : page === 20
+                ? [{ user_id: 'later-user', channel_id: 'later-channel' }]
+                : [],
+            `page-${page}`
+          )
+        );
+      });
+
+      try {
+        await e2eeService.processPendingKeyRequests();
+
+        expect(processRequest.mock.calls.map(([request]) => request.user_id)).toEqual([
+          'stuck-user',
+          'later-user',
+        ]);
+        expect((e2eeService as any).pendingKeyPageCursor).toBe('page-20');
+      } finally {
+        restore();
+        mockApiFetch.mockReset();
+      }
+    });
+
     it('caps a cursor sweep at 20 pages and retries the remaining page', async () => {
       vi.useFakeTimers();
       try {
@@ -1052,7 +1122,7 @@ describe('e2eeService — extended', () => {
       }
     });
 
-    it('does not advance a capped cursor until all fetched requests process', async () => {
+    it('revisits a deferred first-page request after reaching the final cursor window', async () => {
       vi.useFakeTimers();
       try {
         await e2eeService.initialize(
@@ -1089,14 +1159,19 @@ describe('e2eeService — extended', () => {
 
           await vi.advanceTimersByTimeAsync(60_000);
 
-          expect(mockApiFetch.mock.calls[20][0]).toBe('/api/v1/e2ee/pending-keys');
-          expect(processRequest).toHaveBeenCalledTimes(2);
+          expect(mockApiFetch.mock.calls[20][0]).toBe('/api/v1/e2ee/pending-keys?cursor=page-20');
+          expect(processRequest).toHaveBeenCalledWith(
+            { user_id: 'after-cap', channel_id: 'after-cap' },
+            expect.any(Number)
+          );
 
           await vi.advanceTimersByTimeAsync(60_000);
 
-          expect(mockApiFetch.mock.calls[40][0]).toBe('/api/v1/e2ee/pending-keys?cursor=page-20');
-          expect(processRequest).toHaveBeenCalledWith(
-            { user_id: 'after-cap', channel_id: 'after-cap' },
+          expect(mockApiFetch.mock.calls[21][0]).toBe('/api/v1/e2ee/pending-keys');
+          expect(processRequest).toHaveBeenCalledTimes(3);
+          expect(processRequest).toHaveBeenNthCalledWith(
+            3,
+            { user_id: 'early-user', channel_id: 'early-channel' },
             expect.any(Number)
           );
         } finally {
@@ -1156,12 +1231,15 @@ describe('e2eeService — extended', () => {
             '/api/v1/e2ee/pending-keys',
             '/api/v1/e2ee/pending-keys?cursor=expired-cursor',
           ]);
-          expect(processRequest).not.toHaveBeenCalled();
+          expect(processRequest).toHaveBeenCalledWith(
+            { user_id: 'stale-user', channel_id: 'stale-channel', key_version: 1 },
+            expect.any(Number)
+          );
 
           await vi.advanceTimersByTimeAsync(60_000);
 
           expect(mockApiFetch.mock.calls[2][0]).toBe('/api/v1/e2ee/pending-keys');
-          expect(processRequest).toHaveBeenCalledTimes(1);
+          expect(processRequest).toHaveBeenCalledTimes(2);
           expect(processRequest).toHaveBeenCalledWith(
             { user_id: 'fresh-user', channel_id: 'fresh-channel', key_version: 2 },
             expect.any(Number)

@@ -200,6 +200,7 @@ class E2EEService {
   private pendingKeyRequestProcessorGeneration: number | null = null;
   private pendingKeyRequestRerun = false;
   private pendingKeyPageCursor: string | null = null;
+  private pendingKeyRetryFromStart = false;
   private keySessionGeneration: number = 0;
   // Bumped ONLY by clearKeys() (actual key destruction: logout, nuclearReset/
   // gracefulReset teardown, account switch). The init-commit fence keys on THIS
@@ -1159,13 +1160,20 @@ class E2EEService {
       if (page === null) return;
       console.debug('[E2EE] Pending key requests:', page.requests.length);
 
+      let stopped = false;
       for (const request of page.requests) {
         const action = await this.processPendingKeyRequest(request, sessionGeneration);
-        if (action === 'stop') return;
+        if (action === 'stop') {
+          if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
+          stopped = true;
+        }
       }
       if (this.isPendingKeyRequestSessionCurrent(sessionGeneration)) {
+        if (stopped) this.pendingKeyRetryFromStart = true;
+        const retryFromStart = page.nextCursor === null && this.pendingKeyRetryFromStart;
         this.pendingKeyPageCursor = page.nextCursor;
-        if (page.nextCursor !== null) this.schedulePendingKeyRetry(sessionGeneration);
+        if (page.nextCursor === null) this.pendingKeyRetryFromStart = false;
+        if (page.nextCursor !== null || retryFromStart) this.schedulePendingKeyRetry(sessionGeneration);
       }
     } catch (err) {
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
@@ -1183,7 +1191,11 @@ class E2EEService {
     let cursor = this.pendingKeyPageCursor;
     for (let page = 0; page < PENDING_KEY_MAX_PAGES; page++) {
       const data = await this.fetchPendingKeyRequestPage(cursor, sessionGeneration);
-      if (data === null) return null;
+      if (data === null || data === 'expired') {
+        return requests.size > 0 && this.isPendingKeyRequestSessionCurrent(sessionGeneration)
+          ? { requests: [...requests.values()], nextCursor: data === 'expired' ? null : cursor }
+          : null;
+      }
       for (const request of data.pending_requests || []) {
         requests.set(
           JSON.stringify([request.channel_id, request.user_id, request.key_version]),
@@ -1197,7 +1209,7 @@ class E2EEService {
         console.warn('[E2EE] pending-keys cursor was invalid');
         this.pendingKeyPageCursor = null;
         this.schedulePendingKeyRetry(sessionGeneration);
-        return null;
+        return requests.size > 0 ? { requests: [...requests.values()], nextCursor: null } : null;
       }
       cursor = data.next_cursor;
     }
@@ -1207,7 +1219,7 @@ class E2EEService {
   private async fetchPendingKeyRequestPage(
     cursor: string | null,
     sessionGeneration: number
-  ): Promise<PendingKeyRequestsResponse | null> {
+  ): Promise<PendingKeyRequestsResponse | 'expired' | null> {
     const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`;
     let res: Response;
     try {
@@ -1227,7 +1239,7 @@ class E2EEService {
       if (pendingKeyResponseIsRetryable(res) || cursorExpired) {
         this.schedulePendingKeyRetry(sessionGeneration);
       }
-      return null;
+      return cursorExpired ? 'expired' : null;
     }
 
     try {
@@ -2012,6 +2024,7 @@ class E2EEService {
     }
     this.keySessionGeneration += 1;
     this.pendingKeyPageCursor = null;
+    this.pendingKeyRetryFromStart = false;
     this.pendingKeyFetches.clear();
     this.pendingVersionedKeyFetches.clear();
   }

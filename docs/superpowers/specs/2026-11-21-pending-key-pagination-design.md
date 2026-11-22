@@ -17,19 +17,21 @@ especially easy to miss.
 
 - Fetch cursor pages during one sweep, URL-encoding every cursor, and combine
   requests by channel, recipient, and key version before processing them.
-- Bound each sweep to 20 pages. Save the continuation only after every fetched
-  request has processed; schedule the existing retry to resume the next page.
-- Preserve the existing generation fence and stop behavior. A stopped request
-  restarts the uncommitted sweep rather than advancing the cursor.
+- Bound each sweep to 20 pages. Process requests from successful pages even if
+  a later page fails, then retry from the failed page's cursor.
+- Continue past a retryable failure for one recipient, advance the page cursor,
+  and remember that failure until a full sweep reaches the end and retries from
+  page one. A session fence still stops all work immediately.
 - Treat omitted `next_cursor` as a one-page legacy response. An expired saved
-  cursor (`400`) is cleared and retried from the first page. Invalid cursors
-  are rejected locally and never interpolated unencoded into a URL.
+  cursor (`400`) or invalid cursor is cleared and retried from the first page;
+  requests already fetched are still processed. Cursors are URL-encoded.
 - Clear the saved cursor with the existing pending-operation fence.
 
 ## Acceptance criteria
 
-- All pages, including an empty intermediate page, yield each unique request
-  exactly once.
+- Successful pages, including an empty intermediate page, yield each unique
+  request once per sweep; retryable failures are revisited on a later sweep.
 - A 20-page sweep retries from its saved continuation without dropping work.
-- Session fences, stop/retry behavior, legacy unpaged servers, and expired
-  cursors retain their prior safe outcomes.
+- A failed later page does not discard earlier requests. A failed recipient
+  does not starve later pages and is revisited after the final cursor window.
+- Session fences, legacy unpaged servers, and expired cursors retain safe outcomes.
