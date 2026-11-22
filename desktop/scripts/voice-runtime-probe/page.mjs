@@ -121,8 +121,11 @@ async function publishVideo() {
   if (!codec) throw new Error('VP8 unavailable');
   const plan = buildCameraEncodingPlan({ codec, maxBitrate: 1_200_000, scalabilityMode: 'L3T3',
     priority: { priority: 'medium', networkPriority: 'medium' }, eligibility: { svc: true, simulcast: true } });
+  // The 640x360 CI canvas exercises two live VP8 simulcast encodings. Some
+  // macOS runners negotiate the third RID but never encode a frame on it.
+  const activeEncodings = plan.encodings.slice(0, 2);
   videoProducer = await voiceService.produceEncrypted(send, {
-    track: videoTrack, codec, encodings: plan.encodings, stopTracks: false, appData: { source: 'camera' },
+    track: videoTrack, codec, encodings: activeEncodings, stopTracks: false, appData: { source: 'camera' },
   });
   producers.set('video', videoProducer);
   return { id: videoProducer.id, kind: 'video' };

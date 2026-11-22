@@ -88,10 +88,9 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
-        // A CI renderer can negotiate three RIDs while encoding only the base
-        // layer (for example macOS 26 arm64). Requesting layer 2 here starves
-        // the fixture before the encrypted-video witness can start.
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0 });
+        // The probe publishes two active simulcast RIDs; request the highest
+        // one rather than a third RID some macOS renderers never encode.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
