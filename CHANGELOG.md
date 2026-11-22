@@ -29,6 +29,12 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys.
+
+### Security
+
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them.
+
 ## [0.3.2] - 2026-11-18
 
 Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.
