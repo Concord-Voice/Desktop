@@ -250,6 +250,81 @@ describe('GifEmbed', () => {
     });
   });
 
+  // The provider's width and height are parsed JSON, typed `number` and never
+  // checked at runtime. The box is a width plus an aspect ratio, and CSS ignores
+  // a ratio with a zero term: the media's own shape then sets a height that
+  // nothing bounds. Measured in Chromium, a 4000×4 claim on a tall file made one
+  // embed 292,000px tall in the pin panel.
+  it('keeps a 1px side when an extreme ratio rounds the other side to zero', async () => {
+    // 4000×4 → 400×0.4, which rounds to a zero height.
+    getBySlugMock.mockResolvedValue({ ...mockResolvedImage, width: 4000, height: 4 });
+    const { container } = render(
+      <GifEmbed slug="sliver" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    await waitFor(() => {
+      expect(container.querySelector('img')).not.toBeNull();
+    });
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('400px');
+    expect(embed.style.aspectRatio).toBe('400 / 1');
+  });
+
+  it.each([
+    ['a negative height', { width: 100, height: -100 }],
+    ['two negative values', { width: -1, height: -1000 }],
+    ['a zero width', { width: 0, height: 300 }],
+    ['an infinite width', { width: Infinity, height: 300 }],
+    ['a NaN height', { width: 300, height: NaN }],
+    ['a numeric string', { width: '300', height: '200' }],
+    ['a missing height', { width: 300, height: undefined }],
+  ])('falls back to the skeleton box for %s', async (_label, dimensions) => {
+    getBySlugMock.mockResolvedValue({ ...mockResolvedImage, ...dimensions });
+    const { container } = render(
+      <GifEmbed slug="hostile" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    await waitFor(() => {
+      expect(container.querySelector('img')).not.toBeNull();
+    });
+    // The image's own attributes carry the resolved size. The container's
+    // inline style alone would not prove it: jsdom, like a browser, drops an
+    // invalid value such as `NaNpx` and keeps the pre-resolve skeleton size.
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('width')).toBe('250');
+    expect(img?.getAttribute('height')).toBe('180');
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('250px');
+    expect(embed.style.aspectRatio).toBe('250 / 180');
+    expect(embed.style.height).toBe('');
+  });
+
+  it('reserves the skeleton box while the GIF is still resolving', () => {
+    getBySlugMock.mockReturnValue(new Promise(() => {}));
+    const { container } = render(
+      <GifEmbed slug="pending" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    expect(container.querySelector('.gif-embed-skeleton')).not.toBeNull();
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('250px');
+    expect(embed.style.aspectRatio).toBe('250 / 180');
+    expect(embed.style.height).toBe('');
+  });
+
+  it('releases the reserved box once the GIF fails to resolve', async () => {
+    getBySlugMock.mockRejectedValue(new Error('not found'));
+    const { container } = render(
+      <GifEmbed slug="gone" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    expect(await screen.findByText('GIF unavailable')).toBeInTheDocument();
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('');
+    expect(embed.style.aspectRatio).toBe('');
+    expect(embed.style.height).toBe('');
+  });
+
   it('passes the clamped width/height to the rendered <video> element', async () => {
     getBySlugMock.mockResolvedValue({
       ...mockResolvedVideo,

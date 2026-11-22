@@ -23,16 +23,32 @@ const GIF_MAX_H = 300;
 const SKELETON_W = 250;
 const SKELETON_H = 180;
 
+/** True for a dimension the display box can be computed from. The provider's
+ *  width and height are parsed JSON: typed `number`, never checked at runtime.
+ *  A negative, zero, non-finite or non-numeric value falls back to the skeleton
+ *  size, because the box derived from it is unbounded or invalid. */
+function isUsableDimension(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
 /** Clamp a (width, height) pair into the GIF embed display box, preserving
  *  aspect ratio. We compute the final rendered size up-front so the container
  *  reserves exactly that space — without this, the browser briefly paints the
  *  natural intrinsic size before the CSS max-width/max-height clamp kicks in,
  *  causing a visible vertical "expand then settle" jump on send.
  */
-function clampGifSize(w: number | undefined, h: number | undefined) {
-  if (!w || !h) return { width: SKELETON_W, height: SKELETON_H };
+function clampGifSize(w: unknown, h: unknown) {
+  if (!isUsableDimension(w) || !isUsableDimension(h)) {
+    return { width: SKELETON_W, height: SKELETON_H };
+  }
   const ratio = Math.min(GIF_MAX_W / w, GIF_MAX_H / h, 1);
-  return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
+  // At least 1px a side. The container's box is a width plus an aspect ratio,
+  // and CSS ignores a ratio with a zero term: the media's own shape would then
+  // set the height, with nothing to bound it.
+  return {
+    width: Math.max(1, Math.round(w * ratio)),
+    height: Math.max(1, Math.round(h * ratio)),
+  };
 }
 
 /** Inline GIF embed for chat messages.

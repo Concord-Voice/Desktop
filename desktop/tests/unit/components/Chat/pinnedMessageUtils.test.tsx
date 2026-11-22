@@ -200,8 +200,10 @@ describe('decryptPins', () => {
   });
 
   // The row the server returns for a pinned DM message: `conversation_id` in
-  // place of `channel_id`, with its attachments (Desktop#14). The files must
-  // reach AttachmentDisplay keyed to the conversation, whose key opens them.
+  // place of `channel_id`, with its attachments. The files must reach
+  // AttachmentDisplay keyed to the conversation, whose key opens them. The
+  // client already did this; the server did not send the attachments
+  // (Desktop#14), so nothing here held the client's half in place.
   it('keeps the attachments of a DM pin and keys them to the conversation', async () => {
     await setE2EEInitialized(true);
     mockGetChannelKey.mockResolvedValue({} as CryptoKey);

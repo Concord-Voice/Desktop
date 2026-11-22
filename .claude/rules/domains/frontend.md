@@ -2547,6 +2547,14 @@ the narrow one. It has happened twice in the pin panel: attachments (#2011), the
   new media surface, measure it in a running renderer.
 - **`.gif-embed` sets `line-height: 0` for its media.** A child whose text can wrap sets its own
   line height, or the wrapped lines print on top of each other.
+- **The cap needs a parent with a definite width.** `max-width: 100%` resolves against the
+  containing block. A parent that sizes to its content (a shrink-to-fit box, or a grid `auto` or
+  `1fr` track without `min-width: 0`) treats the percentage as no limit while it measures, so the
+  400px width wins and the embed overflows again. Put chat media in a block-level parent, or in a
+  flex or grid item with `min-width: 0`. The message row and the pin card both are.
+- **The inline box is computed from provider data, so validate it.** `clampGifSize` accepts only
+  finite numbers above zero and never returns a side under 1px. CSS ignores an `aspect-ratio` with
+  a zero term, and the media's own shape then sets a height nothing bounds.
 
 ## Adaptive sidebar dock (post-#2510, geometry post-#2653)
 

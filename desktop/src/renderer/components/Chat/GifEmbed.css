@@ -46,13 +46,12 @@
 
 .gif-embed-skeleton {
   /* Fill the container's inline-sized box so the skeleton occupies the same
-     space the resolved GIF will, eliminating the size flip on resolve. When
-     the parent has no inline size yet (very first render of an unknown GIF),
-     fall back to a sensible default so the skeleton is visible. */
+     space the resolved GIF will, eliminating the size flip on resolve. The
+     skeleton renders only while the container has its inline size (250x180
+     until the GIF resolves), so it sets no minimum of its own: a minimum
+     would be clipped, not scaled, in a surface narrower than itself. */
   width: 100%;
   height: 100%;
-  min-width: 250px;
-  min-height: 180px;
   border-radius: 8px;
   background: var(--bg-tertiary, #2a2a2e);
   animation: gif-skeleton-pulse 1.5s ease-in-out infinite;
@@ -140,9 +139,8 @@
      muted token twice and the contrast-pairs guard (#3285) caught it twice. */
   color: var(--text-primary);
   font-size: calc(12px * var(--font-scale, 1));
-  /* .gif-embed sets line-height: 0 for its media. This is the one child whose
-     text wraps (a narrow GIF), and at 0 the wrapped lines print on top of each
-     other. */
+  /* .gif-embed sets line-height: 0 for its media. This text wraps inside a
+     narrow GIF, and at 0 the wrapped lines print on top of each other. */
   line-height: 1.3;
 }
 
