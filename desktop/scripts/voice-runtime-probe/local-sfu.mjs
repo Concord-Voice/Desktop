@@ -105,6 +105,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         if (consumer.kind === 'video') await consumer.requestKeyFrame();
         return {};
       }
+      case 'requestKeyFrame': {
+        const consumer = owned(peer.consumers, body.consumerId);
+        if (consumer.kind !== 'video' || consumer.paused) throw new Error('Invalid keyframe request');
+        await consumer.requestKeyFrame();
+        return {};
+      }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
         peer.consumers.delete(consumer.id); consumer.close(); return {};

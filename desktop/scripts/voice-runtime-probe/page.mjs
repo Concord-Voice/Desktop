@@ -175,6 +175,17 @@ async function consume(descriptor) {
   await rpc('resume', { consumerId: consumer.id });
   if (consumer.kind === 'audio') await audioWitness.start();
   if (consumer.kind === 'video') {
+    // The first SFU keyframe request can run before DTLS is connected. On
+    // macOS that left a live RTP stream with no decodable keyframe. Request
+    // again only after the receive transport reaches the connected state.
+    const connectionDeadline = performance.now() + 5_000;
+    while (transport.connectionState !== 'connected') {
+      if (performance.now() >= connectionDeadline || ['failed', 'closed'].includes(transport.connectionState)) {
+        throw new Error('Fixture video receive transport did not connect');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await rpc('requestKeyFrame', { consumerId: consumer.id });
     // play() on a MediaStream waits for the first frame and has no deadline of
     // its own; bound it like the audio witness so a starved consumer names itself.
     let timer;
