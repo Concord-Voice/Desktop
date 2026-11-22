@@ -97,30 +97,6 @@ jobs:
           restore-keys: |
             semgrep-${{ runner.os }}-${{ env.SEMGREP_VERSION }}-
 
-      - name: Capture Python version (pip cache key component)
-        if: inputs.run-custom || inputs.run-community || inputs.run-canary
-        # Without the interpreter version in the key, a runner-image
-        # Python bump would keep hitting the stale exact key forever
-        # (actions/cache never re-saves on exact-key hit) while the old
-        # cpXX wheels go unused — silent permanent re-download.
-        id: py
-        run: echo "version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pip wheels (semgrep install)
-        if: inputs.run-custom || inputs.run-community || inputs.run-canary
-        # The pip install below re-downloads the semgrep wheel set
-        # (~30 MB incl. deps) on every run. Caching pip's wheel cache
-        # keyed on the pinned version makes the install a local unpack.
-        # A cached wheel is still checked against the lock's hashes.
-        # Stock actions/cache is deliberate: Blacksmith transparently
-        # intercepts it against the colocated cache (ADR-0016 §Decision 4
-        # verification note, #1438) — do NOT swap to the archived
-        # useblacksmith/cache fork.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/pip
-          key: pip-semgrep-${{ runner.os }}-py${{ steps.py.outputs.version }}-${{ env.SEMGREP_VERSION }}
-
       - name: Install Semgrep
         if: inputs.run-custom || inputs.run-community || inputs.run-canary
         env:
@@ -130,12 +106,14 @@ jobs:
         run: |
           set -euo pipefail
           # Hash-locked install (OpenSSF Scorecard Pinned-Dependencies). The lock
-          # must name the same version as SEMGREP_VERSION, or the bump is half-done.
+          # protected workflow lock must name SEMGREP_VERSION; ordinary PR
+          # scans deliberately use the base lock during candidate upgrades.
           # --no-deps: the lock overrides Semgrep's own OpenTelemetry and mcp pins to
           # fixed versions (every release pins vulnerable ones); see the lock header.
-          # A protected run reads the lock from the immutable workflow commit, never
-          # from the checked-out PR: the PR must not choose code this job executes.
-          lock=.github/requirements-semgrep.txt
+          # Both paths use trusted source: the protected workflow commit for
+          # external verdicts and the immutable PR base for ordinary scans.
+          # The candidate lock is exercised only by the read-only CI job.
+          lock="$RUNNER_TEMP/requirements-semgrep.txt"
           if [[ "$EXTERNAL_VERDICT" == true ]]; then
             if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop || ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::Protected Semgrep workflow identity is unavailable or invalid."
@@ -143,11 +121,36 @@ jobs:
             fi
             git cat-file -e "${WORKFLOW_SHA}^{commit}" 2>/dev/null \
               || git fetch --no-tags --quiet origin "$WORKFLOW_SHA"
-            lock="$RUNNER_TEMP/requirements-semgrep.txt"
             git show "${WORKFLOW_SHA}:.github/requirements-semgrep.txt" > "$lock"
+            trusted_ref="$WORKFLOW_SHA"
+            grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" "$lock" \
+              || { echo "::error::$lock does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
+          else
+            if [[ ! "$BASELINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::PR base SHA is unavailable or invalid."
+              exit 1
+            fi
+            git cat-file -e "${BASELINE_COMMIT}^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet origin "$BASELINE_COMMIT"
+            git show "${BASELINE_COMMIT}:.github/requirements-semgrep.txt" > "$lock"
+            trusted_ref="$BASELINE_COMMIT"
           fi
-          grep -Eq "^semgrep==${SEMGREP_VERSION//./\\.}( |$)" "$lock" \
-            || { echo "::error::$lock does not pin semgrep==${SEMGREP_VERSION}"; exit 1; }
+          # Rule paths and ignore globs also reach the pinned scanner. Load both
+          # from the same trusted tree as the lock before any write-scoped scan.
+          trusted_dir="$RUNNER_TEMP/semgrep-trusted"
+          mkdir -p "$trusted_dir"
+          git archive "$trusted_ref" -- .semgrep .semgrepignore | tar -x -C "$trusted_dir"
+          test -d "$trusted_dir/.semgrep" && test -f "$trusted_dir/.semgrepignore"
+          # Preserve custom SARIF rule IDs by scanning trusted rules at their
+          # original relative path after removing the PR-controlled directory.
+          rm -rf -- .semgrep
+          cp -R "$trusted_dir/.semgrep" .semgrep
+          # Semgrep's override accepts a filename, not an absolute path. A
+          # runtime-only basename prevents PR-added nested ignore files from
+          # being selected while preserving the trusted root ignore patterns.
+          trusted_ignore=$(mktemp .semgrepignore-trusted.XXXXXXXXXXXX)
+          cp "$trusted_dir/.semgrepignore" "$trusted_ignore"
+          echo "SEMGREP_TRUSTED_IGNORE_NAME=${trusted_ignore#./}" >> "$GITHUB_ENV"
           python3 -m pip install --user --disable-pip-version-check --require-hashes --no-deps \
             --only-binary=:all: -r "$lock"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -157,7 +160,9 @@ jobs:
         if: inputs.run-custom
         run: |
           set +e
-          semgrep scan --config=.semgrep/ --baseline-commit="${BASELINE_COMMIT}" --json-output=semgrep-custom.json --sarif-output=semgrep-custom.sarif
+          semgrep scan --config=.semgrep/ \
+            --x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME" \
+            --baseline-commit="${BASELINE_COMMIT}" --json-output=semgrep-custom.json --sarif-output=semgrep-custom.sarif
           SCAN_EXIT=$?
           set -e
           # Exit code 0 = no findings, 1 = findings found, other = scan error
@@ -214,6 +219,7 @@ jobs:
           # (gitignore syntax) so a production directory that happens to be named
           # fixtures stays in scope.
           semgrep scan --timeout=45 --config=p/security-audit --config=p/owasp-top-ten \
+            --x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME" \
             --exclude='*_test.go' --exclude='**/tests/fixtures' --exclude='/scripts/fixtures' \
             --baseline-commit="${BASELINE_COMMIT}" --json-output=semgrep-community.json --sarif-output=semgrep-community.sarif
           SCAN_EXIT=$?
@@ -339,6 +345,7 @@ jobs:
         run: |
           set +e
           semgrep scan --config=p/owasp-top-ten --metrics=off \
+            --x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME" \
             --json-output=semgrep-canary.json "${CANARY_FIXTURE}"
           SCAN_EXIT=$?
           set -e
