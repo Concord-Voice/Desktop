@@ -292,6 +292,8 @@ describe('AddFriendModal', () => {
 
   it('cleans up copy feedback timers and ignores clipboard completion after unmount', async () => {
     vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
     const clipboard = vi.mocked(navigator.clipboard.writeText);
     clipboard.mockResolvedValue(undefined);
     const { unmount } = render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
@@ -301,9 +303,12 @@ describe('AddFriendModal', () => {
       expect(screen.getByText('Copied!')).toBeInTheDocument();
       await act(async () => vi.advanceTimersByTime(2000));
       expect(screen.getByText('Copy')).toBeInTheDocument();
+      setTimeoutSpy.mockClear();
       await act(async () => fireEvent.click(screen.getByText('Copy')));
       expect(screen.getByText('Copied!')).toBeInTheDocument();
-      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      const copyTimerCall = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 2000);
+      expect(copyTimerCall).toBeGreaterThanOrEqual(0);
+      const copyTimer = setTimeoutSpy.mock.results[copyTimerCall].value;
 
       let finishCopy: () => void = () => {};
       clipboard.mockImplementationOnce(
@@ -313,19 +318,16 @@ describe('AddFriendModal', () => {
           })
       );
       fireEvent.click(screen.getByText('Copied!'));
-      // jsdom 31 registers its own ~16.7ms window setInterval
-      // (jsdom/browser/Window.js) under the fake clock, so the count never
-      // reaches 0. Prove that exactly the component's one copy-feedback timer
-      // is cleared on unmount, and that the late clipboard completion does not
-      // schedule a new one.
-      const timersBeforeUnmount = vi.getTimerCount();
+      // jsdom can create a focus timer during unmount, so track the copy timer itself.
       unmount();
-      const timersAfterUnmount = vi.getTimerCount();
-      expect(timersAfterUnmount).toBe(timersBeforeUnmount - 1);
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(copyTimer);
+      setTimeoutSpy.mockClear();
       await act(async () => finishCopy());
-      expect(vi.getTimerCount()).toBe(timersAfterUnmount);
+      expect(setTimeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 2000);
     } finally {
       unmount();
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
       vi.useRealTimers();
       clipboard.mockResolvedValue(undefined);
     }
