@@ -187,7 +187,7 @@ export const handlers = [
 
   // --- E2EE ---
   http.get(`${API_BASE}/api/v1/e2ee/pending-keys`, () => {
-    return HttpResponse.json({ requests: [] });
+    return HttpResponse.json({ pending_requests: [], next_cursor: null });
   }),
 
   http.get(`${API_BASE}/api/v1/channels/:id/keys`, () => {
