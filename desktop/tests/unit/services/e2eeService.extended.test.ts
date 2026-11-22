@@ -1333,6 +1333,86 @@ describe('e2eeService — extended', () => {
       }
     });
 
+    it('retries an HTTP 200 null pending-keys body', async () => {
+      vi.useFakeTimers();
+      try {
+        await e2eeService.initialize(
+          testPassword,
+          regKeys.wrappedPrivateKey,
+          regKeys.keyDerivationSalt
+        );
+        mockApiFetch
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(null) } as Response)
+          .mockResolvedValueOnce(pendingKeysPage([], null));
+
+        await e2eeService.processPendingKeyRequests();
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(mockApiFetch).toHaveBeenCalledTimes(2);
+        expect(mockApiFetch.mock.calls[1][0]).toBe('/api/v1/e2ee/pending-keys');
+      } finally {
+        mockApiFetch.mockReset();
+        vi.useRealTimers();
+      }
+    });
+
+    it.each([
+      ['non-array list', 'x'],
+      ['zero key epoch', [{ user_id: 'bad-user', channel_id: 'bad-channel', key_version: 0 }]],
+    ])('retries a malformed pending-key request list (%s)', async (_, pendingRequests) => {
+      vi.useFakeTimers();
+      try {
+        await e2eeService.initialize(
+          testPassword,
+          regKeys.wrappedPrivateKey,
+          regKeys.keyDerivationSalt
+        );
+        const { processRequest, restore } = stubPendingKeyProcessor();
+        mockApiFetch
+          .mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ pending_requests: pendingRequests }),
+          } as Response)
+          .mockResolvedValueOnce(pendingKeysPage([], null));
+
+        try {
+          await e2eeService.processPendingKeyRequests();
+          expect(processRequest).not.toHaveBeenCalled();
+          await vi.advanceTimersByTimeAsync(60_000);
+          expect(mockApiFetch).toHaveBeenCalledTimes(2);
+        } finally {
+          restore();
+          mockApiFetch.mockReset();
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('rejects a non-base64url capped cursor and retries from page one', async () => {
+      vi.useFakeTimers();
+      try {
+        await e2eeService.initialize(
+          testPassword,
+          regKeys.wrappedPrivateKey,
+          regKeys.keyDerivationSalt
+        );
+        let calls = 0;
+        mockApiFetch.mockImplementation(() => {
+          calls += 1;
+          return Promise.resolve(pendingKeysPage([], calls === 20 ? '\ud800' : `page-${calls}`));
+        });
+
+        await e2eeService.processPendingKeyRequests();
+        expect((e2eeService as any).pendingKeyPageCursor).toBeNull();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(mockApiFetch.mock.calls[20][0]).toBe('/api/v1/e2ee/pending-keys');
+      } finally {
+        mockApiFetch.mockReset();
+        vi.useRealTimers();
+      }
+    });
+
     it('retries a rejected pending-keys fetch', async () => {
       vi.useFakeTimers();
       try {
