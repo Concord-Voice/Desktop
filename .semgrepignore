@@ -29,3 +29,5 @@ prototypes/
 # script. Semgrep cannot fully parse either, and neither is ours to change.
 client/mobile/native/ConcordCrypto/Vendor/
 client/mobile/android/gradlew
+
+# CI sentinel for protected Semgrep pin activation; close this PR after validation.
