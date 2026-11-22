@@ -29,7 +29,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-GIFs in the pinned messages panel now fit the panel. Pending channel keys now reach every member on a server with many key requests.
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. GIFs in the pinned messages panel now fit the panel.
 
 ### Fixed
 
@@ -37,6 +37,10 @@ GIFs in the pinned messages panel now fit the panel. Pending channel keys now re
 - **GIFs:** A KLIPY GIF in the pinned messages panel now scales down to fit the panel, in servers and in DMs. It kept its full chat size and ran past the panel's edge ([#14](https://github.com/Concord-Voice/Desktop/issues/14)).
 - **GIFs:** The "paused" notice on a narrow GIF no longer prints its wrapped lines on top of each other.
 - **GIFs:** A GIF whose size data is missing or not a usable number now shows at the placeholder size. Bad size data from the GIF service could make one GIF many screens tall.
+
+### Security
+
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.2] - 2026-11-18
 

@@ -16,7 +16,7 @@ jobs:
   pr-ci:
     name: Protected scan enforcement
     # Reviewed main commit keeps the reusable graph immutable in ruleset runs.
-    uses: Concord-Voice/Desktop/.github/workflows/pr-ci.yml@0f214fbf710c48544fe1a898ed61f7f787127648
+    uses: Concord-Voice/Desktop/.github/workflows/pr-ci.yml@52e2c8b0e386ab4a8cf2f4d4843edc3b6fad0b42
     with:
       trusted-source: true
       enforcement-only: true
