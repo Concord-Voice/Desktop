@@ -164,6 +164,10 @@ jobs:
         if: ${{ !inputs.reusable-analysis }}
         run: echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      - name: Export CI Pip pins for Sonar SCA
+        if: ${{ inputs.reusable-analysis }}
+        run: python3 scripts/sonar/ci-pip-sbom.py
+
       - name: SonarCloud Scan
         # SHA-pinned per supply-chain hardening (#847). Upgrade procedure: resolve
         # gh api repos/<owner>/<repo>/git/refs/tags/vX.Y.Z, replace SHA + comment.

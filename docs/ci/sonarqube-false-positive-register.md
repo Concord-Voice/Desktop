@@ -38,6 +38,9 @@ The register exists because the `mcp__sonarqube__change_sonar_issue_status` tool
 > `sonar.sca.enabled=false` in `sonarcloud.yml`, because SCA can run build tools
 > in a job that holds the Sonar token and must never resolve PR-controlled
 > manifests. PR-time dependency gating stays with OSV-Scanner and Dependabot.
+> The two CI Pip manifests are excluded from ordinary resolution and their
+> exact Linux pins are imported as a generated CycloneDX SBOM on the main scan,
+> so no package build code runs in the token-bearing scanner job.
 > The `sonar.sca.*` properties in `sonar-project.properties` set scan scope
 > only, not rules, so they are not rule tuning.
 
