@@ -30,9 +30,9 @@ const COPY_BY_SUBTYPE: Record<UpdateCriticalErrorSubtype, { headline: string; co
   },
   'media-crypto-version': {
     headline:
-      'Media-security version mismatch — all participants must use the same media-security version of the Concord app. Update or rejoin after the active call is compatible with your app.',
+      'Media-security version mismatch — update Concord. If your app is current, ask your server administrator to update the server. Rejoin after the active call ends.',
     confirm:
-      'I understand all participants must use compatible Concord versions to join this encrypted voice call.',
+      'I understand the app, server, and active call must use compatible media-security versions.',
   },
   'signature-failure': {
     headline:

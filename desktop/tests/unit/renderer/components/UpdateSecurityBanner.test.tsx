@@ -40,11 +40,9 @@ describe('UpdateSecurityBanner (#658)', () => {
     render(<UpdateSecurityBanner />);
 
     expect(
-      screen.getByText(/all participants must use the same media-security version/i)
+      screen.getByText(/ask your server administrator to update the server/i)
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/update or rejoin after the active call is compatible/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/rejoin after the active call ends/i)).toBeInTheDocument();
     expect(screen.queryByText(/out of date|newer encryption format/i)).toBeNull();
     expect(screen.queryByRole('link', { name: /download the latest/i })).toBeNull();
   });

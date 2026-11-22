@@ -580,42 +580,41 @@ Forward-secrecy posture (**Decision B**):
   remaining members on membership change: a removed member's
   `getChannelKeyByVersion` for the new version 403s server-side, so it can never
   derive the post-rotation frame key.
-- **The stamped `keyVersion` is unauthenticated** — frames decrypt with no AAD
-  (`crypto.subtle.decrypt({ name: 'AES-GCM', iv }, …)`), so the trailer only
-  _selects_ the key. A tampered version flip therefore degrades to a fail-closed
-  frame drop (`FrameKeyMissError` / GCM `OperationError`), never a decryption with
-  the wrong-version key or an exfiltration path.
+- **v6 authenticates the stamped key metadata and clear framing bytes.** A whole-frame
+  tag binds the exact trailer and clear prefix; H.264 binds its exact mini-header,
+  clear-prefix length, and complete clear Annex-B prefix; AV1 binds its canonical
+  ordered manifest. A tampered selector or framing byte therefore fails authentication
+  and drops the frame.
 
-### Media frame crypto v5 (2026-07-15)
+### Media frame crypto v6
 
-v5 is **per-codec**. `encryptFrame(frame, codec)` / `decryptFrame(frame, senderUserId,
+v6 is **per-codec**. `encryptFrame(frame, codec)` / `decryptFrame(frame, senderUserId,
 codec)` in `mediaEncryption.ts` dispatch by the `CodecFamily` resolved from the producer or
 consumer's first **non-auxiliary media codec** in `workers/e2eeProtocol.ts`. The resolver skips
 RTX, RED, ULPFEC, FlexFEC, comfort-noise, and telephone-event entries; reading `codecs[0]` can
 select an auxiliary codec and make sender/receiver framing disagree:
 
-- AV1 retains v4's per-OBU payload scheme.
-- H.264 uses the v5 Annex-B/NAL-aware access-unit scheme below. It is **not** whole-frame.
-- VP9, VP8, Opus, and unknown byte-transparent codecs use whole-frame v5.
+- Scheme registry: Opus `1`, VP8 `2`, VP9 `3`, AV1 `4`, H.264 `5`. Unknown codecs or schemes fail
+  closed; do not silently select a byte-transparent fallback.
+- VP9, VP8, and Opus use whole-frame v6. H.264 uses the v6 Annex-B/NAL-aware access-unit scheme;
+  AV1 uses v6 per-OBU framing. Neither video format is whole-frame.
 
-**AV1 — per-OBU payload encryption (retained from v4):**
+**AV1 — authenticated per-OBU framing:**
 
-- Encrypt only `OBU_FRAME(6)` and `OBU_TILE_GROUP(4)` payloads. OBU headers, leb128 sizes,
-  temporal delimiters, and metadata remain clear so the SFU can parse or rewrite structure.
-  OBU structure and its mini-header are not AAD; binding rewritten leb128 sizes would break
-  authentication.
-- Each encrypted OBU prepends the shared 22-byte mini-header from
-  `mediaFrameMiniHeader.ts`: `[magic:2][IV:12][keyId:2 BE][keyVersion:4 BE][reserved:2]`.
-  Every OBU uses a fresh full 96-bit CSPRNG IV. Do not restore a deterministic counter prefix:
-  a recreated media session can reuse the same CSK-derived sender key, so reset counters are not
-  a unique cross-session nonce domain. v5 relies on full-random IVs plus existing CSK/key rotations
-  as an operational control; it does not claim a process-local counter proves a global per-key
-  invocation bound across recreated sessions or devices. A hard global nonce domain requires the
-  version-gated per-session subkey design described in the native media-engine specification.
-- Receivers derive OBU boundaries only by re-parsing the received leb128 sizes. Malformed,
-  overlong, oversized, or over-count inputs fail closed. Rebuilt encrypted OBUs force
-  `has_size_field=1`; structure-only AV1 frames contain no coded-pixel payload and pass through
-  clear by design.
+- The shared mini-header is 22 bytes:
+  `[magic:2][IV:12][keyId:2 BE][keyVersion:4 BE][version:1 (=6)][scheme:1]`.
+  Every protected OBU has a fresh full 96-bit CSPRNG IV.
+- Only `SEQUENCE_HEADER(1)`, `FRAME_HEADER(3)`, and `PADDING(15)` may remain clear; only
+  `TILE_GROUP(4)` and `FRAME(6)` may be protected. Require at least one protected OBU. Reject
+  every other type or malformed/overlong/oversized OBU. A valid nonminimal LEB128 input is
+  accepted, then emitted canonically.
+- Remove at most one exact *leading* empty temporal delimiter (`12 00`) and never emit it to the
+  decoder. A changed delimiter, a duplicate, or one elsewhere is invalid. Canonical emitted OBUs
+  use reserved bits zero, `has_size_field=1`, and minimal LEB128 sizes.
+- The AAD is the media-frame domain plus a canonical ordered manifest containing every clear OBU
+  header/payload and every protected mini-header/length. Each protected OBU tag additionally binds
+  that manifest and its protected ordinal. Authenticate the whole frame before output or cache
+  mutation.
 
 **H.264 — Annex-B/NAL-aware encrypted access-unit suffix:**
 
@@ -625,8 +624,9 @@ select an auxiliary codec and make sender/receiver framing disagree:
   `slice_type`, `pic_parameter_set_id`). Parameter/metadata NALs before that first slice remain
   visible to libwebrtc.
 - One fresh 96-bit random IV and one AES-256-GCM operation protect the entire remaining access-unit
-  suffix, including later slices and NAL delimiters. The first VCL NAL header plus clear slice
-  prefix is AAD; preceding delimiters and parameter/metadata NALs are not.
+  suffix, including later slices and NAL delimiters. The 22-byte mini-header above and the complete
+  clear Annex-B prefix are AAD: `domain || exact mini-header || u32be(clearPrefixLength) ||
+  entireClearPrefix`. No part of the retained clear prefix is unauthenticated.
 - The encrypted terminal region is `[22-byte mini-header][ciphertext + 16-byte tag]`, then
   reversibly emulation-prevention-stuffed with the preceding clear-byte zero-run as context.
   Stuffing prevents ciphertext from synthesizing `00 00 01` and becoming a false packetizer
@@ -635,28 +635,30 @@ select an auxiliary codec and make sender/receiver framing disagree:
 - H.264 is admitted only with `packetization-mode=1`; the protected NAL may grow and therefore
   needs FU-A fragmentation. Any unsupported NAL, missing/invalid mini-header, malformed stuffing,
   missing VCL boundary, key miss, or GCM failure drops the frame. Do not fall back to plaintext.
-- **Accepted metadata/availability tradeoff:** SPS, PPS, AUD, SEI, delimiters, and other supported
-  pre-VCL bytes remain visible and are not authenticated. An on-path participant or compromised SFU
-  can tamper with them to disrupt decoding, but cannot forge the authenticated slice suffix or
-  recover pixel content. Expanding AAD requires packet-capture proof that libwebrtc and mediasoup do
-  not legitimately rewrite the added bytes; otherwise it would turn normal rewrites into drops.
+- SPS, PPS, AUD, SEI, delimiters, and other supported pre-VCL bytes remain visible for parser
+  compatibility, but v6 authenticates their exact bytes as part of the clear prefix.
 
 This is the custom H.264 **frame-protection boundary**. libwebrtc still owns RFC 6184
 packetization, pacing, retransmission, and feedback; do not add a second RTP packetizer without
 wire evidence that libwebrtc mutates the protected suffix.
 
-**VP9 / VP8 / Opus — whole-frame v5:**
+**VP9 / VP8 / Opus — whole-frame v6:**
 
 ```text
-[unencrypted header (1–10 B)][AES-256-GCM ciphertext + 16-byte tag]
-[headerBytes:1][keyId:2 BE][keyVersion:4 BE][IV:12][version:1 (=5)][magic:2]
+[unencrypted header (1–2 B)][AES-256-GCM ciphertext + 16-byte tag]
+[headerBytes:1][keyId:2 BE][keyVersion:4 BE][IV:12][version:1 (=6)][scheme:1][magic:2]
 ```
 
-The trailer remains 22 bytes. Receivers require `version === 5` before crypto, so an older
-whole-frame format is rejected deterministically. Whole-frame and AV1 encryption use no AAD so a
-BUNDLE payload-type collision cannot make a correctly keyed frame fail merely because the
-receiver inferred different leading-header bytes. Do not generalize that rule to H.264; its clear
-first-slice parser prefix is authenticated as described above.
+The trailer is 23 bytes. Its AAD is `"concord-voice/media-frame\\0" || exact trailer || clearPrefix`.
+Receivers require `version === 6` and the expected scheme before crypto. The clear prefix is bound,
+not inferred only for routing, so a BUNDLE payload-type collision or changed framing cannot be
+accepted under the wrong codec.
+
+**Version coexistence:** the desktop sends and receives v6 only. During the server rollout, the
+admission set is `{3, 4, 5, 6}`, but an occupied room permits exactly one version. Current v6-capable
+servers return typed `crypto_version_mismatch` for either direction; a v5 server rejects v6 with its
+generic unsupported-version acknowledgement. Do not imply that an older server can provide the typed,
+actionable compatibility UX, and never add a v5 decoder fallback.
 
 **Both transform APIs are load-bearing:** codec-aware dispatch and typed
 `FrameKeyMissError` provisioning must reach the `RTCRtpScriptTransform` Worker and the legacy
@@ -700,9 +702,13 @@ per-origin across `BrowserWindow`s) and refuses up front; it cannot see the auto
 bypass probe reaches the same fail-closed outcome a few seconds later. Either way the PiP plays
 nothing rather than ciphertext.
 
-**Key schedule unchanged from v3:** `deriveFrameKey`, `ratchetKey`, the
+**Key schedule:** `deriveFrameKey`, `ratchetKey`, the
 `senderId:keyVersion:keyId` decrypt-key map, and server-gated
-`getChannelKeyByVersion` provisioning are unchanged. v5 changes framing, not the cipher or keys.
+`getChannelKeyByVersion` provisioning remain the key basis; v6 changes framing and authentication.
+For an unauthenticated frame, ratchet work is capped at ten forward steps per frame, ten steps per
+sender, and 64 steps globally in each 15-second window. An exact missing-key retry is backed off
+350 ms. Directly installed keys bypass this request/work limiter; no candidate is committed until
+full tag verification succeeds.
 Sender CSK rebase is monotonic and session-fenced: an out-of-order version fetch may install only
 if it is still the latest requested version for the same active channel, user, `MediaEncryption`
 instance, and Worker. Install the derived key and stamped version together; stale work must never
@@ -724,12 +730,12 @@ Rotations buffered during derivation are reconciled against `getHighestSeenKeyVe
 subscription becomes live. Cleanup invalidates the generation and unsubscribes at entry, before its
 first await; stale retries or failed initializers may destroy only candidates/state they still own.
 
-**Simulcast-screen safety (#1924):** H.264/VP8 simulcast publishes independent encodes. Each
+**Simulcast-screen crypto contract:** H.264/VP8 simulcast publishes independent encodes. Each
 encoded frame on each layer gets its own random IV, so layering does not reuse a GCM nonce. H.264
-uses one NAL-aware AEAD per access unit; VP8 uses whole-frame v5. AV1 screen remains SVC or a
-single stream and never simulcasts as a product layering contract; its full-random per-OBU IVs do
-not themselves imply simulcast support. Never bind SSRC/RID into an IV or the H.264 AAD. The
-media-plane screen gate remains authoritative.
+uses one NAL-aware AEAD per access unit; VP8 uses whole-frame v6. AV1 screen remains SVC or a
+single stream and never simulcasts as a product layering contract. Never bind SSRC/RID into an IV
+or the H.264 AAD. This is a framing invariant, not rollout proof: screen delivery, layer switching,
+and loss/reordering remain unvalidated release-admission cases.
 
 **Forward-secrecy posture (Decision B, unchanged from v3):** the keyId ratchet is synchronization,
 not an intra-version access boundary. CSK rotation/re-wrap and the server's versioned-key access
@@ -819,14 +825,14 @@ Every field earns its place, and dropping any one re-opens a specific attack:
 | `fileNonce` | chunks splice across two files encrypted under the same key |
 | `chunkSize` | the file re-frames under a different chunking |
 
-**WHY ATTACHMENTS BIND AAD WHERE MEDIA FRAMES DO NOT.** A media frame is one
-independent unit whose loss is a dropped frame; there is no ordering or
-completeness claim to forge, and v5 deliberately keeps AAD minimal because
-binding rewritten container sizes would break interop. An attachment is a
+**WHY ATTACHMENTS AND MEDIA FRAME AAD DIFFER.** A media frame is one independent
+unit whose loss is a dropped frame; v6 authenticates its codec-defined clear bytes
+(whole-frame trailer/prefix, H.264 prefix, or AV1 manifest) without binding RTP routing metadata.
+An attachment is a
 *sequence* whose meaning depends on order and completeness, and it is
 reassembled from parts an untrusted server holds. The AAD is what makes the
 sequence itself authenticated rather than merely each part. This asymmetry is
-intentional — see the v3/v5 sections above before "unifying" anything.
+intentional — see the v3/v6 sections above before "unifying" anything.
 
 **The header is UNAUTHENTICATED and must be treated as untrusted input.** It is
 outside every chunk's ciphertext, so it selects parameters, it does not attest

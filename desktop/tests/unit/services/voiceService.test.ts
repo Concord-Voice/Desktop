@@ -1650,6 +1650,10 @@ describe('VoiceService', () => {
         'Media frame crypto version mismatch'
       );
       expect(mockDeviceLoad).not.toHaveBeenCalled();
+      expect(useUpdateStatusStore.getState().criticalError).toMatchObject({
+        subtype: 'media-crypto-version',
+        message: 'This voice call requires the same media-security version.',
+      });
     });
 
     it('maps a typed crypto_version_mismatch join ack to the update-required banner state', async () => {
@@ -1675,6 +1679,23 @@ describe('VoiceService', () => {
       const critical = useUpdateStatusStore.getState().criticalError;
       expect(critical?.subtype).toBe('media-crypto-version');
       expect(critical?.message).toBe('This voice call requires the same media-security version.');
+    });
+
+    it('offers conditional server-upgrade guidance for an older media plane generic join ack', async () => {
+      setupAuth();
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue(makeJoinResponse()),
+      });
+      mockSocket.connected = true;
+      setupEmitResponses({ 'join-room': { error: 'Failed to join room' } });
+
+      await expect(voiceService.joinChannel('channel-1')).rejects.toThrow('Failed to join room');
+
+      expect(useVoiceStore.getState().joinError).toBe(
+        'Couldn’t join voice. If this server has not been updated for this app’s media-security version, ask its administrator to update it; otherwise try again later.'
+      );
+      expect(useUpdateStatusStore.getState().criticalError).toBeNull();
     });
 
     it('a media_policy_cooldown join ack reaches the error state WITH the cooldown interrupt (#2153)', async () => {

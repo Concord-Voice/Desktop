@@ -4545,6 +4545,14 @@ class VoiceService {
     store.setConnectionState('error');
     const microphoneGuidance = this.microphoneJoinGuidance(err);
     if (microphoneGuidance) store.setJoinError(microphoneGuidance);
+    // Older media planes return this generic ack for an unsupported frame
+    // version. They do not expose a typed version error, so give conditional
+    // guidance without claiming that every generic join failure is a mismatch.
+    if (err instanceof Error && err.message === 'Failed to join room') {
+      store.setJoinError(
+        'Couldn’t join voice. If this server has not been updated for this app’s media-security version, ask its administrator to update it; otherwise try again later.'
+      );
+    }
     if ((err as { code?: unknown } | null)?.code === VOICE_JOINS_PAUSED_CODE) {
       store.setJoinError(VOICE_JOINS_PAUSED_ERROR);
     }
@@ -4773,7 +4781,9 @@ class VoiceService {
       ...(joinData.call_id ? { callId: joinData.call_id } : {}),
     });
     if (roomJoined.mediaFrameCryptoVersion !== MEDIA_E2EE_FRAME_CRYPTO_VERSION) {
-      throw new Error('Media frame crypto version mismatch');
+      throw Object.assign(new Error('Media frame crypto version mismatch'), {
+        code: 'crypto_version_mismatch',
+      });
     }
     if (
       !admissionHandshake ||
