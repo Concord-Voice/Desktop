@@ -128,6 +128,84 @@ jobs:
       run-community: ${{ needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).selected.semgrep_community }}
       run-canary: ${{ needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).selected.semgrep_canary }}
 
+  # Candidate lock validation runs without the scanner's SARIF/comment grants.
+  # Only ordinary PR CI exercises the PR checkout's Python dependencies; the
+  # protected verdict continues to install its own immutable workflow lock.
+  semgrep-lock-compatibility:
+    name: semgrep-lock-compatibility
+    needs: [ioc]
+    if: ${{ !inputs.enforcement-only && needs.ioc.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Detect Semgrep compatibility changes
+        id: changes
+        env:
+          BASELINE_COMMIT: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::PR base SHA is unavailable or invalid."
+            exit 1
+          fi
+          git cat-file -e "${BASELINE_COMMIT}^{commit}" 2>/dev/null \
+            || git fetch --no-tags --quiet origin "$BASELINE_COMMIT"
+          if git diff --quiet "$BASELINE_COMMIT" HEAD -- \
+            .github/requirements-semgrep.txt .github/workflows/semgrep.yml \
+            .github/workflows/pr-ci.yml .github/scripts/tests/test_semgrep_dependency_compatibility.py \
+            .semgrep/ .semgrepignore; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [[ "$status" -ne 1 ]]; then exit "$status"; fi
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install candidate Semgrep lock and test compatibility
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          export PYTHONSAFEPATH=1
+          export PYTHONPATH=''
+          lock=.github/requirements-semgrep.txt
+          grep -Eq '^semgrep==1\.186\.0( |$)' "$lock" \
+            || { echo '::error::Candidate lock must pin semgrep==1.186.0'; exit 1; }
+          grep -Eq '^wcmatch==11\.2( |$)' "$lock" \
+            || { echo '::error::Candidate lock must pin wcmatch==11.2'; exit 1; }
+          python3.12 -m venv "$RUNNER_TEMP/semgrep-candidate"
+          source "$RUNNER_TEMP/semgrep-candidate/bin/activate"
+          python -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes --no-deps --only-binary=:all: -r "$lock"
+          # Parse every candidate rule under the read-only token. Semgrep's
+          # --validate fetches registry lint rules, so a local scan gives a
+          # deterministic config verdict without another network dependency.
+          set +e
+          semgrep scan --config=.semgrep/ --json-output="$RUNNER_TEMP/semgrep-candidate-rules.json" \
+            --quiet --metrics=off --disable-version-check .semgrep/tests/test-electron.ts
+          scan_exit=$?
+          set -e
+          if [[ "$scan_exit" -gt 1 ]]; then
+            echo "::error::Candidate Semgrep rules failed to load or scan (exit $scan_exit)."
+            exit "$scan_exit"
+          fi
+          python - "$RUNNER_TEMP/semgrep-candidate-rules.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1]) as report_file:
+              report = json.load(report_file)
+          if report.get('errors') or report.get('skipped_rules') or not report.get('paths', {}).get('scanned'):
+              raise SystemExit('Candidate Semgrep rules had errors, skipped rules, or no scanned fixture')
+          PY
+          python .github/scripts/tests/test_semgrep_dependency_compatibility.py
+
   eslint:
     name: eslint
     needs: [ioc, detect-changes]
