@@ -140,6 +140,22 @@ async function publish() {
   return [{ id: audio.id, kind: 'audio' }, await publishVideo()];
 }
 
+async function refreshVideoTrack() {
+  if (!videoProducer || videoProducer.closed || videoTrack?.readyState !== 'live') {
+    throw new Error('Fixture video producer unavailable for track refresh');
+  }
+  const previous = videoTrack;
+  const replacement = previous.clone();
+  try {
+    await videoProducer.replaceTrack({ track: replacement });
+  } catch (error) {
+    replacement.stop();
+    throw error;
+  }
+  videoTrack = replacement;
+  previous.stop();
+}
+
 async function consume(descriptor) {
   const transport = descriptor.kind === 'audio' ? audioRecv : videoRecv;
   const result = await rpc('consume', { transportId: transport.id, producerId: descriptor.id,
@@ -386,4 +402,4 @@ async function cleanup() {
   voiceService.terminateE2EEWorker(); voiceService.mediaEncryption?.destroy();
 }
 
-globalThis.mediaProbe = { setup, publish, consume, diagnose, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };
+globalThis.mediaProbe = { setup, publish, refreshVideoTrack, consume, diagnose, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };

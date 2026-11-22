@@ -84,6 +84,10 @@ with `backgroundThrottling: false`, which starved the covered peer's video. If a
 call still fails, the result's `consumeDiagnostics` records each window's visibility and
 two samples of its video RTP counters (frames and keyframes encoded, PLI/FIR counts,
 packets and frames received).
+For video startup, the fixture waits for the SFU receive transport's DTLS-connected
+state before asking for a keyframe. It also replaces the live sender track once
+as video consumption starts, with at most two more replacements while playback waits;
+the real RTP sender, E2EE transform, decoder, and playback witnesses remain in use.
 The existing supported `MEDIASOUP_WORKER_BIN` override can select an exact candidate
 worker; record that separately from proving its ordinary installation/build path.
 The artifact distinguishes the JavaScript package version from the resolved native
