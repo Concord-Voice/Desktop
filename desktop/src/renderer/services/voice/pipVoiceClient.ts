@@ -523,6 +523,30 @@ export class PipVoiceClient {
     }
   }
 
+  private isValidFrameKeyResult(result: GetFrameKeyResult): boolean {
+    return (
+      Number.isSafeInteger(result.keyVersion) &&
+      result.keyVersion > 0 &&
+      Number.isSafeInteger(result.keyId) &&
+      result.keyId >= 0 &&
+      result.keyId <= 100
+    );
+  }
+
+  private shouldRetryInitialFrameKey(
+    cause: 'initial' | 'frame-miss' | 'recovery',
+    err: unknown,
+    attempt: number,
+    maxRetries: number
+  ): boolean {
+    if (cause !== 'initial' || attempt >= maxRetries) return false;
+    const reason = errorMessage(err);
+    return (
+      reason.includes('frame-key request superseded by rotation') ||
+      reason.includes('stale frame-key response after rotation')
+    );
+  }
+
   /**
    * Ask the main window for one decrypt frame key and hand it to the Worker.
    *
@@ -549,13 +573,7 @@ export class PipVoiceClient {
           KEY_RPC_TIMEOUT
         );
         if (this.e2eeWorker !== worker || this.disposed) return;
-        if (
-          !Number.isSafeInteger(result.keyVersion) ||
-          result.keyVersion <= 0 ||
-          !Number.isSafeInteger(result.keyId) ||
-          result.keyId < 0 ||
-          result.keyId > 100
-        ) {
+        if (!this.isValidFrameKeyResult(result)) {
           throw new Error('E2EE: malformed frame-key response');
         }
         // A main-window rebase broadcast can overtake an older RPC response.
@@ -576,11 +594,12 @@ export class PipVoiceClient {
       } catch (err) {
         // Only the initial authority-originated fetch retries a CSK rebase
         // race. Frame misses remain one RPC per Worker request.
-        const retryableInitial =
-          cause === 'initial' &&
-          (errorMessage(err).includes('frame-key request superseded by rotation') ||
-            errorMessage(err).includes('stale frame-key response after rotation')) &&
-          attempt < retryDelays.length;
+        const retryableInitial = this.shouldRetryInitialFrameKey(
+          cause,
+          err,
+          attempt,
+          retryDelays.length
+        );
         if (!retryableInitial || this.e2eeWorker !== worker || this.disposed) {
           console.debug('[PipVoiceClient] E2EE: frame-key provision failed', {
             senderUserId,
