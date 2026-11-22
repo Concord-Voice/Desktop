@@ -42,6 +42,7 @@ const controlRefused = new Set();
 const controlNormalizationReasons = new Set();
 const otherDiscontinuities = new Set(['stream-changed', 'counter-reset', 'clock-regression']);
 const enteredFrames = new Map();
+const decryptFailures = [];
 const consumers = new Map();
 const producers = new Map();
 const independent = createAvSyncDriftDetector();
@@ -77,6 +78,12 @@ async function setup(rawTestKey) {
   voiceService.e2eeWorker = worker;
   worker.addEventListener('message', ({ data }) => {
     if (data.type === 'decryptStats') enteredFrames.set(data.probeId, data.entered);
+    if (data.type === 'log' && data.message?.startsWith('E2EE: dropping frame') && decryptFailures.length < 5) {
+      decryptFailures.push({
+        error: String(data.data?.error ?? 'unknown').replaceAll(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '<user>'),
+        frameSize: data.data?.frameSize ?? null,
+      });
+    }
   });
   worker.postMessage({ type: 'init', encryptKey: await deriveFrameKey(csk, senderId), currentKeyId: 0, keyVersion: 1 });
   worker.postMessage({ type: 'addDecryptKey', senderUserId: remoteId, keyVersion: 1, keyId: 0,
@@ -205,9 +212,13 @@ async function videoCounters() {
 async function diagnose() {
   const first = await videoCounters();
   await new Promise((resolve) => { setTimeout(resolve, 2_000); });
+  for (const consumer of consumers.values()) worker.postMessage({ type: 'queryDecryptStats', probeId: consumer.id });
+  await new Promise((resolve) => { setTimeout(resolve, 100); });
   return { visibilityState: document.visibilityState, hasFocus: document.hasFocus(),
     videoTrackState: videoTrack?.readyState ?? null, videoTrackMuted: videoTrack?.muted ?? null,
-    frameRate: videoTrack?.getSettings().frameRate ?? null, first, second: await videoCounters() };
+    frameRate: videoTrack?.getSettings().frameRate ?? null, first, second: await videoCounters(),
+    decryptEntered: [...consumers.values()].map((consumer) => ({ kind: consumer.kind,
+      entered: enteredFrames.get(consumer.id) ?? 0 })), decryptFailures };
 }
 
 async function independentTick() {
