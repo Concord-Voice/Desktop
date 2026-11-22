@@ -185,7 +185,17 @@ async function consume(descriptor) {
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    await rpc('requestKeyFrame', { consumerId: consumer.id });
+    // Browser connection can precede the SFU's DTLS-connected event. The
+    // fixture reports readiness from the server-side transport that owns this
+    // consumer, so a successful RPC cannot silently skip the keyframe request.
+    let keyframeReady = false;
+    while (!keyframeReady) {
+      if (performance.now() >= connectionDeadline || ['failed', 'closed'].includes(transport.connectionState)) {
+        throw new Error('Fixture video SFU transport did not connect before keyframe request');
+      }
+      ({ ready: keyframeReady } = await rpc('requestKeyFrame', { consumerId: consumer.id }));
+      if (!keyframeReady) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     // play() on a MediaStream waits for the first frame and has no deadline of
     // its own; bound it like the audio witness so a starved consumer names itself.
     let timer;

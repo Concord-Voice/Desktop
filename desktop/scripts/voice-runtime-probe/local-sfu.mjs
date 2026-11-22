@@ -39,7 +39,7 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
     throw error;
   }
   const peers = new Map(['a', 'b'].map((id) => [id, {
-    transports: new Map(), producers: new Map(), consumers: new Map(),
+    transports: new Map(), producers: new Map(), consumers: new Map(), consumerTransports: new Map(),
   }]));
   const owned = (map, id) => {
     const value = typeof id === 'string' && map.get(id);
@@ -84,10 +84,12 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         const other = peers.get(body.peer === 'a' ? 'b' : 'a');
         const producer = owned(other.producers, body.producerId);
         if (peer.consumers.size >= 2) throw new Error('Fixture consumer limit');
-        const consumer = await owned(peer.transports, body.transportId).consume({
+        const transport = owned(peer.transports, body.transportId);
+        const consumer = await transport.consume({
           producerId: producer.id, rtpCapabilities: body.rtpCapabilities, paused: true,
         });
         peer.consumers.set(consumer.id, consumer);
+        peer.consumerTransports.set(consumer.id, transport);
         // The probe publishes two active simulcast RIDs; request the highest
         // one rather than a third RID some macOS renderers never encode.
         if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1 });
@@ -99,21 +101,20 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
       case 'resume': {
         const consumer = owned(peer.consumers, body.consumerId);
         await consumer.resume();
-        // A macOS receiver can join after the publisher's only VP8 keyframe
-        // and then receive RTP without ever entering its decrypt transform.
-        // Request a fresh keyframe once the fixture consumer is unpaused.
-        if (consumer.kind === 'video') await consumer.requestKeyFrame();
         return {};
       }
       case 'requestKeyFrame': {
         const consumer = owned(peer.consumers, body.consumerId);
         if (consumer.kind !== 'video' || consumer.paused) throw new Error('Invalid keyframe request');
+        const transport = owned(peer.consumerTransports, consumer.id);
+        if (transport.dtlsState !== 'connected') return { ready: false };
         await consumer.requestKeyFrame();
-        return {};
+        return { ready: true };
       }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
-        peer.consumers.delete(consumer.id); consumer.close(); return {};
+        peer.consumers.delete(consumer.id); peer.consumerTransports.delete(consumer.id);
+        consumer.close(); return {};
       }
       case 'closeProducer': {
         const producer = owned(peer.producers, body.producerId);
