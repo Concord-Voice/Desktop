@@ -97,8 +97,6 @@ export function selectCryptoScheme(
     case 'vp8':
     case 'vp9':
       return 'whole-frame';
-    case undefined:
-      return undefined;
     default:
       return undefined;
   }
