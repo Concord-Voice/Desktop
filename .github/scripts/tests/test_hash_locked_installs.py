@@ -1,6 +1,7 @@
 """Hash-locked pip installs read their lock from protected source when the scan is protected."""
 
 from pathlib import Path
+import os
 import re
 import subprocess
 import tempfile
@@ -61,6 +62,36 @@ class SemgrepLockTests(unittest.TestCase):
         self.assertIn('git show "${BASELINE_COMMIT}:.github/requirements-semgrep.txt" > "$lock"', run)
         self.assertNotIn('lock=.github/requirements-semgrep.txt', run)
         self.assertLess(run.index('grep -Eq "^semgrep=='), run.index('else\n'))
+
+    def test_version_upgrade_uses_base_lock_only_for_ordinary_scan(self):
+        run = self.install["run"]
+        select_lock = run[run.index('lock="$RUNNER_TEMP/requirements-semgrep.txt"'):
+                          run.index('# Rule paths and ignore globs')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github").mkdir()
+            lock = root / ".github/requirements-semgrep.txt"
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            commits = []
+            for pin in ("1.185.0", "1.186.0"):
+                lock.write_text(f"semgrep=={pin} \\\n")
+                subprocess.run(["git", "add", "."], cwd=root, check=True)
+                subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                                "commit", "-qm", pin], cwd=root, check=True)
+                commits.append(subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                                cwd=root, text=True).strip())
+            env = os.environ | {"RUNNER_TEMP": directory, "BASELINE_COMMIT": commits[0],
+                                "WORKFLOW_SHA": commits[1], "WORKFLOW_REPOSITORY": "Concord-Voice/Desktop",
+                                "SEMGREP_VERSION": "1.186.0", "EXTERNAL_VERDICT": "false"}
+            result = subprocess.run(["bash", "-c", "set -euo pipefail\n" + select_lock],
+                                    cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("semgrep==1.185.0", (root / "requirements-semgrep.txt").read_text())
+            env["EXTERNAL_VERDICT"] = "true"
+            result = subprocess.run(["bash", "-c", "set -euo pipefail\n" + select_lock],
+                                    cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("semgrep==1.186.0", (root / "requirements-semgrep.txt").read_text())
 
     def test_write_scoped_scan_extracts_trusted_rules_and_ignore(self):
         workflow = (ROOT / ".github/workflows/semgrep.yml").read_text()
