@@ -1173,7 +1173,8 @@ class E2EEService {
         const retryFromStart = page.nextCursor === null && this.pendingKeyRetryFromStart;
         this.pendingKeyPageCursor = page.nextCursor;
         if (page.nextCursor === null) this.pendingKeyRetryFromStart = false;
-        if (page.nextCursor !== null || retryFromStart) this.schedulePendingKeyRetry(sessionGeneration);
+        if (page.nextCursor !== null || retryFromStart)
+          this.schedulePendingKeyRetry(sessionGeneration);
       }
     } catch (err) {
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
