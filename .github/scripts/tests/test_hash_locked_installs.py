@@ -60,6 +60,7 @@ class SemgrepLockTests(unittest.TestCase):
         run = self.install["run"]
         self.assertIn('git show "${BASELINE_COMMIT}:.github/requirements-semgrep.txt" > "$lock"', run)
         self.assertNotIn('lock=.github/requirements-semgrep.txt', run)
+        self.assertLess(run.index('grep -Eq "^semgrep=='), run.index('else\n'))
 
     def test_write_scoped_scan_extracts_trusted_rules_and_ignore(self):
         workflow = (ROOT / ".github/workflows/semgrep.yml").read_text()
@@ -67,9 +68,9 @@ class SemgrepLockTests(unittest.TestCase):
 
         self.assertIn("git archive", workflow)
         self.assertIn(".semgrep .semgrepignore", workflow)
-        self.assertNotIn("--config=.semgrep/", custom)
-        self.assertIn('echo "SEMGREP_TRUSTED_RULES=$trusted_dir/.semgrep"', workflow)
-        self.assertIn('--config="$SEMGREP_TRUSTED_RULES"', custom)
+        self.assertIn('rm -rf -- .semgrep', workflow)
+        self.assertIn('cp -R "$trusted_dir/.semgrep" .semgrep', workflow)
+        self.assertIn("--config=.semgrep/", custom)
         self.assertIn('SEMGREP_TRUSTED_IGNORE_NAME', workflow)
         self.assertIn('--x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME"', custom)
 

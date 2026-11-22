@@ -52,7 +52,7 @@ class SemgrepDependencyCompatibilityTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(contents)
 
-    def scan(self, config, excludes=()):
+    def scan(self, config, excludes=(), ignore_filename=None, baseline=None):
         args = [
             str(SEMGREP),
             "scan",
@@ -67,6 +67,10 @@ class SemgrepDependencyCompatibilityTests(unittest.TestCase):
         ]
         for pattern in excludes:
             args.extend(["--exclude", pattern])
+        if ignore_filename:
+            args.append(f"--x-semgrepignore-filename={ignore_filename}")
+        if baseline:
+            args.append(f"--baseline-commit={baseline}")
         args.append("targets")
         result = subprocess.run(
             args,
@@ -91,6 +95,28 @@ class SemgrepDependencyCompatibilityTests(unittest.TestCase):
         self.assertEqual(
             self.scan(ROOT / ".semgrep/concord-electron.yml", ("**/scripts/**",)),
             ["targets/.hidden/window.ts", "targets/src/window.ts"],
+        )
+
+    def test_runtime_ignore_boundary_with_baseline_scan(self):
+        trusted = self.root / ".semgrepignore-trusted.test"
+        trusted.write_text((ROOT / ".semgrepignore").read_text() + "\ntargets/scripts/\n")
+        (self.root / ".semgrepignore").write_text("targets/\n")
+        (self.root / "targets/src/.semgrepignore").write_text("window.ts\n")
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+             "commit", "-qm", "baseline"],
+            cwd=self.root, check=True,
+        )
+        baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.root, text=True).strip()
+        for relative in ("targets/src/window.ts", "targets/scripts/window.ts"):
+            with (self.root / relative).open("a") as source:
+                source.write("const anotherWindow = { nodeIntegration: true };\n")
+        self.assertEqual(
+            self.scan(ROOT / ".semgrep/concord-electron.yml",
+                      ignore_filename=trusted.name, baseline=baseline),
+            ["targets/src/window.ts"],
         )
 
     def test_target_manager_globs_keep_desktop_path_semantics(self):
