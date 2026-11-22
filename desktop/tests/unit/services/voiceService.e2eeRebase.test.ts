@@ -1025,7 +1025,7 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     await svc.initEncryptionCore(CHANNEL, 0);
     const oldEncryption = latestEncryption();
 
-    svc.provisionFrameKey(CHANNEL, 'sender-old', 7, 2);
+    svc.provisionFrameKey(CHANNEL, 'sender-old', 5, 0);
     await drainMicrotasks();
     svc.cleanupTimersAndE2EE();
     e2eeMockState.channelKeyVersion = 9;
@@ -1033,7 +1033,7 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     const replacementEncryption = latestEncryption();
     workerPostMessage.mockClear();
 
-    resolveVersionFetch(CHANNEL, 7);
+    resolveVersionFetch(CHANNEL, 5);
     await drainMicrotasks();
 
     expect(oldEncryption.addDecryptKeyAtVersion).not.toHaveBeenCalled();
@@ -1051,19 +1051,19 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     const { e2eeService } = await import('@/renderer/services/e2ee/e2eeService');
     (e2eeService.getChannelKeyByVersion as ReturnType<typeof vi.fn>).mockClear();
 
-    svc.provisionFrameKey(CHANNEL, 'sender-9', 7, 2);
-    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 7);
+    svc.provisionFrameKey(CHANNEL, 'sender-9', 5, 0);
+    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 5);
 
-    resolveVersionFetch(CHANNEL, 7);
+    resolveVersionFetch(CHANNEL, 5);
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledWith(fakeCsk, 'sender-9', 7, 2);
+    expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledWith(fakeCsk, 'sender-9', 5, 0);
     const addMsg = workerPostMessage.mock.calls
       .map((c) => c[0])
       .find((m) => m?.type === 'addDecryptKey');
-    expect(addMsg).toMatchObject({ senderUserId: 'sender-9', keyVersion: 7, keyId: 2 });
+    expect(addMsg).toMatchObject({ senderUserId: 'sender-9', keyVersion: 5, keyId: 0 });
   });
 
   it('the legacy requestFrameKey recovery callback routes through provisionFrameKey', async () => {
@@ -1073,8 +1073,8 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     (e2eeService.getChannelKeyByVersion as ReturnType<typeof vi.fn>).mockClear();
 
     const cbs = svc.decryptRecoveryCallbacks();
-    cbs.requestFrameKey('sender-3', 4, 1);
-    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 4);
+    cbs.requestFrameKey('sender-3', 5, 0);
+    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 5);
   });
 
   it('is fail-closed when the version fetch rejects (no key added, no worker post, no throw)', async () => {
@@ -1087,7 +1087,7 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     );
     workerPostMessage.mockClear();
 
-    svc.provisionFrameKey(CHANNEL, 'sender-x', 9, 0);
+    svc.provisionFrameKey(CHANNEL, 'sender-x', 5, 0);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1106,10 +1106,65 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
     svc.handleWorkerMessage({
       type: 'requestFrameKey',
       senderUserId: 'sender-7',
-      keyVersion: 8,
-      keyId: 3,
+      keyVersion: 5,
+      keyId: 0,
     });
-    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 8);
+    expect(e2eeService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 5);
+  });
+
+  it('rejects frame-controlled future epochs and versions before fetching or deriving', async () => {
+    e2eeMockState.channelKeyVersion = 5;
+    await svc.initEncryptionCore(CHANNEL, 0);
+    (mockedE2EEService.getChannelKeyMaterial as ReturnType<typeof vi.fn>).mockClear();
+    const enc = latestEncryption();
+    const cbs = svc.decryptRecoveryCallbacks();
+    svc.handleWorkerMessage({
+      type: 'requestFrameKey',
+      senderUserId: 'sender',
+      keyVersion: 5,
+      keyId: 100,
+    });
+    cbs.requestFrameKey('sender', 6, 0);
+    await expect(svc.deriveFrameKeyForPip('sender', 5, 100)).rejects.toThrow(
+      'frame-key request not admitted'
+    );
+    expect(mockedE2EEService.getChannelKeyByVersion).not.toHaveBeenCalled();
+    expect(mockedE2EEService.getChannelKeyMaterial).not.toHaveBeenCalled();
+    expect(enc.addDecryptKeyAtVersion).not.toHaveBeenCalled();
+  });
+
+  it('shares one sender request budget across Worker, legacy, and PiP', async () => {
+    e2eeMockState.channelKeyVersion = 5;
+    await svc.initEncryptionCore(CHANNEL, 0);
+    const enc = latestEncryption();
+    (mockedE2EEService.getChannelKeyByVersion as ReturnType<typeof vi.fn>).mockResolvedValue(
+      fakeCsk
+    );
+    const cbs = svc.decryptRecoveryCallbacks();
+    for (let i = 0; i < 8; i++) {
+      if (i % 3 === 0) {
+        svc.handleWorkerMessage({
+          type: 'requestFrameKey',
+          senderUserId: 'sender',
+          keyVersion: 5,
+          keyId: 0,
+        });
+      } else if (i % 3 === 1) {
+        cbs.requestFrameKey('sender', 5, 0);
+      } else {
+        await svc.deriveFrameKeyForPip('sender', 5, 0);
+      }
+      await drainMicrotasks(8);
+    }
+    expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledTimes(8);
+    svc.handleWorkerMessage({
+      type: 'requestFrameKey',
+      senderUserId: 'sender',
+      keyVersion: 5,
+      keyId: 0,
+    });
+    await drainMicrotasks(8);
+    expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledTimes(8);
   });
 
   // ── deriveFrameKeyForPip (2026-08-21 PiP E2EE gap) ──────────────────────────────────────
@@ -1134,39 +1189,28 @@ describe('voiceService #1895 — legacy-path frame-key provisioning', () => {
       expect(result).toEqual({ key: pipKey, keyVersion: 7, keyId: 2 });
     });
 
-    it('fetches the exact CSK version when the PiP reports a miss for an older epoch', async () => {
+    it('rejects a PiP frame stamp for an older version without fetching a CSK', async () => {
       e2eeMockState.channelKeyVersion = 7;
       await svc.initEncryptionCore(CHANNEL, 0);
-      const olderCsk = { __cskV5: true } as unknown as CryptoKey;
-      (mockedE2EEService.getChannelKeyByVersion as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-        olderCsk
-      );
       const enc = latestEncryption();
 
-      const result = await svc.deriveFrameKeyForPip('alice', 5, 1);
-
-      // Deriving from the CURRENT CSK for a version-5 frame would hand back a key
-      // that decrypts to garbage — the version must drive the CSK lookup.
-      expect(mockedE2EEService.getChannelKeyByVersion).toHaveBeenCalledWith(CHANNEL, 5);
-      expect(enc.addDecryptKeyAtVersion).toHaveBeenCalledWith(olderCsk, 'alice', 5, 1);
-      expect(result.keyVersion).toBe(5);
-      expect(result.keyId).toBe(1);
+      await expect(svc.deriveFrameKeyForPip('alice', 5, 1)).rejects.toThrow(
+        'frame-key request not admitted'
+      );
+      expect(mockedE2EEService.getChannelKeyByVersion).not.toHaveBeenCalled();
+      expect(enc.addDecryptKeyAtVersion).not.toHaveBeenCalled();
     });
 
-    it('propagates a DENIED versioned CSK lookup and installs no key', async () => {
-      // Server-gated: getChannelKeyByVersion denies on revocation or lost
-      // membership. That must surface as a rejection so the PiP fails closed —
-      // installing anything here would hand back a key for an epoch this user
-      // is no longer entitled to. (CodeRabbit, PR #2870)
+    it('propagates a denied current CSK lookup and installs no PiP key', async () => {
       e2eeMockState.channelKeyVersion = 7;
       await svc.initEncryptionCore(CHANNEL, 0);
       const enc = latestEncryption();
       enc.addDecryptKeyAtVersion.mockClear();
-      (mockedE2EEService.getChannelKeyByVersion as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      (mockedE2EEService.getChannelKeyMaterial as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('key revoked for this member')
       );
 
-      await expect(svc.deriveFrameKeyForPip('alice', 5, 1)).rejects.toThrow(
+      await expect(svc.deriveFrameKeyForPip('alice', 7, 0)).rejects.toThrow(
         'key revoked for this member'
       );
       expect(enc.addDecryptKeyAtVersion).not.toHaveBeenCalled();

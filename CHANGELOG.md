@@ -37,7 +37,7 @@ Concord Voice now refuses undersized RSA account public keys before sharing chan
 
 ### Security
 
-- **Voice:** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. An incompatible server or active call now shows steps to restore voice access.
+- **Voice:** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
 - **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.2] - 2026-11-18

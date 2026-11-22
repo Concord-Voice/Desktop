@@ -611,10 +611,10 @@ select an auxiliary codec and make sender/receiver framing disagree:
 - Remove at most one exact *leading* empty temporal delimiter (`12 00`) and never emit it to the
   decoder. A changed delimiter, a duplicate, or one elsewhere is invalid. Canonical emitted OBUs
   use reserved bits zero, `has_size_field=1`, and minimal LEB128 sizes.
-- The AAD is the media-frame domain plus a canonical ordered manifest containing every clear OBU
-  header/payload and every protected mini-header/length. Each protected OBU tag additionally binds
-  that manifest and its protected ordinal. Authenticate the whole frame before output or cache
-  mutation.
+- SHA-256 hashes the complete canonical ordered manifest once per frame. The manifest contains
+  every clear OBU header/payload and every protected mini-header/length. Each protected OBU's
+  fixed-size AAD binds the media-frame domain, v6 AV1 scheme, manifest length, 32-byte digest,
+  and protected ordinal. Authenticate the whole frame before output or cache mutation.
 
 **H.264 — Annex-B/NAL-aware encrypted access-unit suffix:**
 
@@ -707,8 +707,12 @@ nothing rather than ciphertext.
 `getChannelKeyByVersion` provisioning remain the key basis; v6 changes framing and authentication.
 For an unauthenticated frame, ratchet work is capped at ten forward steps per frame, ten steps per
 sender, and 64 steps globally in each 15-second window. An exact missing-key retry is backed off
-350 ms. Directly installed keys bypass this request/work limiter; no candidate is committed until
-full tag verification succeeds.
+350 ms. Authority-installed keys bypass this frame-triggered request/work limiter; no candidate is
+committed until full tag verification succeeds. An active decrypt key has no wall-clock cutoff;
+a newer epoch or CSK version retires the old key after a ten-second overlap. Frame-triggered
+Worker, legacy, and PiP provisioning share a main-thread gate: a frame stamp may request only the
+current authoritative version and epoch, with one in-flight request per sender/key tuple and
+sender/global request and ratchet-work budgets per 15-second window.
 Sender CSK rebase is monotonic and session-fenced: an out-of-order version fetch may install only
 if it is still the latest requested version for the same active channel, user, `MediaEncryption`
 instance, and Worker. Install the derived key and stamped version together; stale work must never

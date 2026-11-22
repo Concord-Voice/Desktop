@@ -96,7 +96,15 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
           rtpParameters: consumer.rtpParameters,
         };
       }
-      case 'resume': await owned(peer.consumers, body.consumerId).resume(); return {};
+      case 'resume': {
+        const consumer = owned(peer.consumers, body.consumerId);
+        await consumer.resume();
+        // A macOS receiver can join after the publisher's only VP8 keyframe
+        // and then receive RTP without ever entering its decrypt transform.
+        // Request a fresh keyframe once the fixture consumer is unpaused.
+        if (consumer.kind === 'video') await consumer.requestKeyFrame();
+        return {};
+      }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
         peer.consumers.delete(consumer.id); consumer.close(); return {};
