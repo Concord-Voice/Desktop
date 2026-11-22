@@ -33,7 +33,7 @@ Concord Voice now refuses undersized RSA account public keys before sharing chan
 
 ### Security
 
-- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them.
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.2] - 2026-11-18
 
