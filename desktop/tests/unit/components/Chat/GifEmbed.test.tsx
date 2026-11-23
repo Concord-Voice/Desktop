@@ -189,6 +189,11 @@ describe('GifEmbed', () => {
 
   // ---------- Layout-shift fixes (bug #1: vertical expand on send) ----------
 
+  // The container reserves its box as a WIDTH plus an ASPECT RATIO, never a
+  // pixel height. A pixel height cannot follow the width down when the embed
+  // sits in a surface narrower than itself — the pinned-messages panel is
+  // ~290px wide — so the embed either overflowed the panel or, once clamped,
+  // letterboxed. Desktop#14.
   it('clamps oversized GIFs into the 400×300 display box on the container', async () => {
     // 1600×900 → max-width 400 with 16:9 aspect → 400×225
     getBySlugMock.mockResolvedValue({
@@ -203,7 +208,8 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('400px');
-      expect(embed.style.height).toBe('225px');
+      expect(embed.style.aspectRatio).toBe('400 / 225');
+      expect(embed.style.height).toBe('');
     });
   });
 
@@ -221,7 +227,8 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('150px');
-      expect(embed.style.height).toBe('300px');
+      expect(embed.style.aspectRatio).toBe('150 / 300');
+      expect(embed.style.height).toBe('');
     });
   });
 
@@ -238,8 +245,84 @@ describe('GifEmbed', () => {
     await waitFor(() => {
       const embed = container.querySelector('.gif-embed') as HTMLElement;
       expect(embed.style.width).toBe('120px');
-      expect(embed.style.height).toBe('80px');
+      expect(embed.style.aspectRatio).toBe('120 / 80');
+      expect(embed.style.height).toBe('');
     });
+  });
+
+  // The provider's width and height are parsed JSON, typed `number` and never
+  // checked at runtime. The box is a width plus an aspect ratio, and CSS ignores
+  // a ratio with a zero term: the media's own shape then sets a height that
+  // nothing bounds. Measured in Chromium, a 4000×4 claim on a tall file made one
+  // embed 292,000px tall in the pin panel.
+  it('keeps a 1px side when an extreme ratio rounds the other side to zero', async () => {
+    // 4000×4 → 400×0.4, which rounds to a zero height.
+    getBySlugMock.mockResolvedValue({ ...mockResolvedImage, width: 4000, height: 4 });
+    const { container } = render(
+      <GifEmbed slug="sliver" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    await waitFor(() => {
+      expect(container.querySelector('img')).not.toBeNull();
+    });
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('400px');
+    expect(embed.style.aspectRatio).toBe('400 / 1');
+  });
+
+  it.each([
+    ['a negative height', { width: 100, height: -100 }],
+    ['two negative values', { width: -1, height: -1000 }],
+    ['a zero width', { width: 0, height: 300 }],
+    ['an infinite width', { width: Infinity, height: 300 }],
+    ['a NaN height', { width: 300, height: NaN }],
+    ['a numeric string', { width: '300', height: '200' }],
+    ['a missing height', { width: 300, height: undefined }],
+  ])('falls back to the skeleton box for %s', async (_label, dimensions) => {
+    getBySlugMock.mockResolvedValue({ ...mockResolvedImage, ...dimensions });
+    const { container } = render(
+      <GifEmbed slug="hostile" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    await waitFor(() => {
+      expect(container.querySelector('img')).not.toBeNull();
+    });
+    // The image's own attributes carry the resolved size. The container's
+    // inline style alone would not prove it: jsdom, like a browser, drops an
+    // invalid value such as `NaNpx` and keeps the pre-resolve skeleton size.
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('width')).toBe('250');
+    expect(img?.getAttribute('height')).toBe('180');
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('250px');
+    expect(embed.style.aspectRatio).toBe('250 / 180');
+    expect(embed.style.height).toBe('');
+  });
+
+  it('reserves the skeleton box while the GIF is still resolving', () => {
+    getBySlugMock.mockReturnValue(new Promise(() => {}));
+    const { container } = render(
+      <GifEmbed slug="pending" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    expect(container.querySelector('.gif-embed-skeleton')).not.toBeNull();
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('250px');
+    expect(embed.style.aspectRatio).toBe('250 / 180');
+    expect(embed.style.height).toBe('');
+  });
+
+  it('releases the reserved box once the GIF fails to resolve', async () => {
+    getBySlugMock.mockRejectedValue(new Error('not found'));
+    const { container } = render(
+      <GifEmbed slug="gone" mode="auto" reduceAnimations={false} loadAutomatically={true} />
+    );
+    triggerVisible();
+    expect(await screen.findByText('GIF unavailable')).toBeInTheDocument();
+    const embed = container.querySelector('.gif-embed') as HTMLElement;
+    expect(embed.style.width).toBe('');
+    expect(embed.style.aspectRatio).toBe('');
+    expect(embed.style.height).toBe('');
   });
 
   it('passes the clamped width/height to the rendered <video> element', async () => {
@@ -268,6 +351,7 @@ describe('GifEmbed', () => {
     // doesn't get stretched into a 250×180 box.
     expect(embed.style.width).toBe('');
     expect(embed.style.height).toBe('');
+    expect(embed.style.aspectRatio).toBe('');
   });
 
   // ---------- Reduce Animations hover-to-play (#571 item #6B) ----------
@@ -507,6 +591,11 @@ describe('GifEmbed — a failed STILL is recoverable, a failed ANIMATION is not 
     await waitFor(() => expect(container.querySelector('.gif-embed-stopped')).not.toBeNull());
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText('GIF unavailable')).toBeNull();
+    // The stand-in fills the container's box (stylesheet) and carries no pixel
+    // size of its own, so it shrinks with the container in a narrow surface.
+    const stopped = container.querySelector('.gif-embed-stopped') as HTMLElement;
+    expect(stopped.style.width).toBe('');
+    expect(stopped.style.height).toBe('');
 
     // The animation was never the thing that failed, so hover still reaches it.
     fireEvent.mouseEnter(container.querySelector('.gif-embed') as HTMLElement);

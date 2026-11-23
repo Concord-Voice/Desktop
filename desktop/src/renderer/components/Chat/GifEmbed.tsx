@@ -23,16 +23,32 @@ const GIF_MAX_H = 300;
 const SKELETON_W = 250;
 const SKELETON_H = 180;
 
+/** True for a dimension the display box can be computed from. The provider's
+ *  width and height are parsed JSON: typed `number`, never checked at runtime.
+ *  A negative, zero, non-finite or non-numeric value falls back to the skeleton
+ *  size, because the box derived from it is unbounded or invalid. */
+function isUsableDimension(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
 /** Clamp a (width, height) pair into the GIF embed display box, preserving
  *  aspect ratio. We compute the final rendered size up-front so the container
  *  reserves exactly that space — without this, the browser briefly paints the
  *  natural intrinsic size before the CSS max-width/max-height clamp kicks in,
  *  causing a visible vertical "expand then settle" jump on send.
  */
-function clampGifSize(w: number | undefined, h: number | undefined) {
-  if (!w || !h) return { width: SKELETON_W, height: SKELETON_H };
+function clampGifSize(w: unknown, h: unknown) {
+  if (!isUsableDimension(w) || !isUsableDimension(h)) {
+    return { width: SKELETON_W, height: SKELETON_H };
+  }
   const ratio = Math.min(GIF_MAX_W / w, GIF_MAX_H / h, 1);
-  return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
+  // At least 1px a side. The container's box is a width plus an aspect ratio,
+  // and CSS ignores a ratio with a zero term: the media's own shape would then
+  // set the height, with nothing to bound it.
+  return {
+    width: Math.max(1, Math.round(w * ratio)),
+    height: Math.max(1, Math.round(h * ratio)),
+  };
 }
 
 /** Inline GIF embed for chat messages.
@@ -337,8 +353,10 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, mode, reduceAnimations, loadA
   // action available now, the other a cause hovering cannot fix, and unfocus
   // wins when both hold. Real text also settles SonarQube S6819: no role="img"
   // is needed when the element has a native name. Found by Codex on PR #3291.
+  // No inline size: the stand-in fills the container's box (GifEmbed.css), so it
+  // shrinks with the container instead of keeping the pixels it was resolved at.
   const stoppedBox = (
-    <div className="gif-embed-stopped" style={{ width: display.width, height: display.height }}>
+    <div className="gif-embed-stopped">
       <Pause size={14} aria-hidden="true" />
       <span>{windowFocused ? 'Hover to play' : 'Paused — Concord is in the background'}</span>
     </div>
@@ -358,13 +376,18 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, mode, reduceAnimations, loadA
     onStillError: () => setStillError(true),
   });
 
-  // Lock the container to the (clamped) final size so the message bubble
-  // reserves the right vertical space from the first frame. The placeholder
-  // and error states use intrinsic sizing (no inline style) so they don't
-  // get stretched to a 250x180 box when nothing's loaded yet.
+  // Reserve the (clamped) final box so the message bubble holds the right
+  // vertical space from the first frame. The box is a WIDTH plus an ASPECT
+  // RATIO, never a pixel height: `max-width` in GifEmbed.css can then narrow the
+  // embed to a surface smaller than itself (the pinned-messages panel is about
+  // 290px wide) and the height follows. A pixel height cannot follow a narrowed
+  // width, which is why the box is not one (Desktop#14). In a wide surface the
+  // result is the same box as before. The placeholder and error states use
+  // intrinsic sizing (no inline style) so they don't get stretched to a 250x180
+  // box when nothing's loaded yet.
   const containerStyle: React.CSSProperties | undefined =
     shouldLoad && !error
-      ? { width: `${display.width}px`, height: `${display.height}px` }
+      ? { width: `${display.width}px`, aspectRatio: `${display.width} / ${display.height}` }
       : undefined;
 
   // Pointer and focus are tracked UNCONDITIONALLY, even under an 'always' gate

@@ -1,12 +1,16 @@
 .gif-embed {
   position: relative;
   display: block;
-  /* Width/height are set inline from the resolved (clamped) GIF dimensions
-     so the container reserves the final rendered size from the first paint
-     and skeleton → media swap doesn't shift layout. Falls back to fit-content
-     for the placeholder/error states which size themselves intrinsically. */
+  /* Width and aspect-ratio are set inline from the resolved (clamped) GIF
+     dimensions so the container reserves the final rendered size from the
+     first paint and skeleton → media swap doesn't shift layout. Falls back to
+     fit-content for the placeholder/error states which size themselves
+     intrinsically. */
   width: fit-content;
-  max-width: 400px;
+  /* 100% as well as 400px: an embed is never wider than the surface it sits
+     in. The pinned-messages panel is narrower than a full-size embed, and the
+     inline aspect-ratio keeps the shape when this narrows it (Desktop#14). */
+  max-width: min(400px, 100%);
   margin-top: 2px;
   margin-bottom: 0;
   border-radius: 8px;
@@ -42,13 +46,12 @@
 
 .gif-embed-skeleton {
   /* Fill the container's inline-sized box so the skeleton occupies the same
-     space the resolved GIF will, eliminating the size flip on resolve. When
-     the parent has no inline size yet (very first render of an unknown GIF),
-     fall back to a sensible default so the skeleton is visible. */
+     space the resolved GIF will, eliminating the size flip on resolve. The
+     skeleton renders only while the container has its inline size (250x180
+     until the GIF resolves), so it sets no minimum of its own: a minimum
+     would be clipped, not scaled, in a surface narrower than itself. */
   width: 100%;
   height: 100%;
-  min-width: 250px;
-  min-height: 180px;
   border-radius: 8px;
   background: var(--bg-tertiary, #2a2a2e);
   animation: gif-skeleton-pulse 1.5s ease-in-out infinite;
@@ -114,14 +117,18 @@
 }
 
 /* Stand-in for an animated <img> with no distinct still rendition, where the
-   only way to stop it is to take it off screen (#2369). Sized inline to the box
-   the image occupied so nothing reflows, and it SAYS why it is blank rather
-   than sitting as an unexplained grey rectangle. */
+   only way to stop it is to take it off screen (#2369). It fills the box the
+   image occupied so nothing reflows, and it SAYS why it is blank rather than
+   sitting as an unexplained grey rectangle. */
 .gif-embed-stopped {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  /* Fills the container's reserved box, so it narrows with it. */
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
   padding: 0 8px;
   text-align: center;
   border-radius: 8px;
@@ -132,6 +139,9 @@
      muted token twice and the contrast-pairs guard (#3285) caught it twice. */
   color: var(--text-primary);
   font-size: calc(12px * var(--font-scale, 1));
+  /* .gif-embed sets line-height: 0 for its media. This text wraps inside a
+     narrow GIF, and at 0 the wrapped lines print on top of each other. */
+  line-height: 1.3;
 }
 
 .gif-embed-stopped svg {

@@ -2529,6 +2529,33 @@ The gated GIF surfaces answer to one pure resolver, `resolveGifPlayback` in `src
 
 - **Accepted and recorded:** refocus restarts an `<img>`-path animation from frame 0. There is no still frame for an E2EE attachment because the server never sees plaintext, and no API resumes an animated `<img>`. Do not add a cross-fade to soften it — a fade implies a continuity this path structurally cannot provide.
 
+## Chat media fits the surface it is in (post-#14)
+
+Chat media renders in surfaces of different widths: the message list is wide, and the
+pinned-messages panel has about 290px of content. Media that reserves its box in pixels overflows
+the narrow one. It has happened twice in the pin panel: attachments (#2011), then KLIPY embeds
+(#14), where a 400px embed ran 85px past the panel.
+
+- **Reserve the box as a width plus an `aspect-ratio`, never a pixel height.** `GifEmbed` sets
+  `width` and `aspect-ratio` inline from the clamped GIF size, and `.gif-embed` caps it with
+  `max-width: min(400px, 100%)`. The height then follows the width down. An inline pixel height
+  cannot follow: the embed overflows, or letterboxes once something clamps its width.
+- **A child that fills the reserved box uses `width: 100%; height: 100%`,** not the pixel size the
+  media resolved at. The `<img>`, the `<video>` and `.gif-embed-stopped` all do.
+- **jsdom runs no layout, so no component test sees an overflow.** `GifEmbed.test.tsx` pins the
+  inline style and `tests/unit/styles/gif-embed-container-fit.test.ts` pins the stylesheet. For a
+  new media surface, measure it in a running renderer.
+- **`.gif-embed` sets `line-height: 0` for its media.** A child whose text can wrap sets its own
+  line height, or the wrapped lines print on top of each other.
+- **The cap needs a parent with a definite width.** `max-width: 100%` resolves against the
+  containing block. A parent that sizes to its content (a shrink-to-fit box, or a grid `auto` or
+  `1fr` track without `min-width: 0`) treats the percentage as no limit while it measures, so the
+  400px width wins and the embed overflows again. Put chat media in a block-level parent, or in a
+  flex or grid item with `min-width: 0`. The message row and the pin card both are.
+- **The inline box is computed from provider data, so validate it.** `clampGifSize` accepts only
+  finite numbers above zero and never returns a side under 1px. CSS ignores an `aspect-ratio` with
+  a zero term, and the media's own shape then sets a height nothing bounds.
+
 ## Adaptive sidebar dock (post-#2510, geometry post-#2653)
 
 The four content sidebars (DM Threads / Friends, Server Channels / Members) share one resizable,
