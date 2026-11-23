@@ -22,7 +22,7 @@ import {
 const mockApiFetch = vi.fn();
 const mockRefreshAccessToken = vi.fn(() => Promise.resolve<string | null>(null));
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
   refreshAccessToken: () => mockRefreshAccessToken(),
 }));
@@ -31,6 +31,7 @@ import EmailSmsSetup from '@/renderer/components/Settings/EmailSmsSetup';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // Named fixtures: the pre-commit detect-secrets hook flags a credential-shaped
 // key beside a quoted literal regardless of the value.
 const FIXTURE_PW = 'fixture-password-do-not-persist';

@@ -9,6 +9,7 @@ import type { ChatContext } from '@/renderer/types/chat';
 import { FIXTURE_PW } from '../../helpers/stepUpTokenWire';
 import { confirmAndSettle, confirmInFlight } from '../../helpers/confirmDelete';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // Reproductions from the #3509 frontend review for the delete flow:
 // M1 — a mint refusal with mfa_required (the account enrolled MFA after the
 //      prompt opened) must move to the confirm view with the mint's methods,
@@ -36,7 +37,7 @@ vi.mock('@/renderer/services/messaging/pinService', () => ({
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
 });
 

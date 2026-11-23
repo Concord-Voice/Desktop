@@ -87,6 +87,10 @@ packets and frames received). Its last element is not a per-peer entry: it is `{
 with the SFU's own view per peer (transport ICE/DTLS state and bitrate; producer and
 consumer layers, scores and PLI/NACK counts; no ids), or `{ sfuError }` if that read failed.
 A single entity whose stats read fails appears in place as `{ statsError }`.
+For video startup, the fixture waits for the SFU receive transport's DTLS-connected
+state before asking for a keyframe. It also replaces the live sender track once
+as video consumption starts, with at most two more replacements while playback waits;
+the real RTP sender, E2EE transform, decoder, and playback witnesses remain in use.
 The existing supported `MEDIASOUP_WORKER_BIN` override can select an exact candidate
 worker; record that separately from proving its ordinary installation/build path.
 The artifact distinguishes the JavaScript package version from the resolved native

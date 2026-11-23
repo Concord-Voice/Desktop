@@ -24,7 +24,7 @@ import { deferred } from '../../../helpers/deferred';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -51,6 +51,7 @@ import {
 } from '@/renderer/services/system/requestContext';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const ACCOUNT = 'acct-1';
 const TYPED = 'swordfish';
 const CHECKING = 'Checking your verification methods…';

@@ -130,7 +130,7 @@ vi.mock('@/renderer/components/Auth/MFAMethodPicker', async () => {
   const React = require('react');
   // The category rules are the real ones: which methods a sign-in challenge
   // offers is what these tests check (#3563). Only the picker UI is a stand-in.
-  const actual = await vi.importActual<typeof import('@/renderer/components/Auth/MFAMethodPicker')>(
+  const actual = await vi.importActual<typeof MFAMethodPickerModule>(
     '@/renderer/components/Auth/MFAMethodPicker'
   );
   const component = ({
@@ -167,6 +167,7 @@ vi.mock('@/renderer/components/Auth/MFAMethodPicker', async () => {
 
 import MFAChallengeModal from '@/renderer/components/Auth/MFAChallengeModal';
 
+import type * as MFAMethodPickerModule from '@/renderer/components/Auth/MFAMethodPicker';
 // Chromium fires `close` only after the dialog has closed; the modal ignores a
 // close event that arrives while its dialog is open again.
 function fireNativeClose(dialog: HTMLDialogElement) {

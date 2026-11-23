@@ -10,6 +10,7 @@ import {
   resolveAttachmentLimit,
 } from '@/renderer/utils/policy/entitlementLimits';
 
+import type * as AttachmentCryptoModule from '@/renderer/utils/crypto/attachmentCrypto';
 vi.mock('@/renderer/utils/ui/openSubscriptionPage', () => ({
   openSubscriptionPage: vi.fn(),
 }));
@@ -20,7 +21,7 @@ vi.mock('@/renderer/utils/ui/openSubscriptionPage', () => ({
 // assertion discriminate (#2837 mutation sweep).
 const MOCK_MAX_ATTACHMENTS = 7;
 vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
-  const actual = await vi.importActual<typeof import('@/renderer/utils/crypto/attachmentCrypto')>(
+  const actual = await vi.importActual<typeof AttachmentCryptoModule>(
     '@/renderer/utils/crypto/attachmentCrypto'
   );
   return { ...actual, MAX_ATTACHMENTS: 7 };

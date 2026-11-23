@@ -11,6 +11,7 @@ import { deferred } from '../../helpers/deferred';
 import { confirmAndSettle, confirmInFlight } from '../../helpers/confirmDelete';
 import type { ChatContext } from '@/renderer/types/chat';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // #3455 T7: the delete-rate soft-lock refusal slot in useChatController. The
 // hook owns one refusal slot, an in-flight dedupe, and the retry request; the
 // wire reading itself is pinned in deleteRefusal.test.ts.
@@ -36,7 +37,7 @@ vi.mock('@/renderer/services/messaging/pinService', () => ({
 // The real safeJson, so a non-JSON body takes the path a proxy page would.
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/apiClient')>();
+  const actual = await importOriginal<typeof ApiClientModule>();
   return { ...actual, apiFetch: (...args: unknown[]) => mockApiFetch(...args) };
 });
 

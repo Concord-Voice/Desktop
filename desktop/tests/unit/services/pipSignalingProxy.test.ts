@@ -123,6 +123,16 @@ describe('PipSignalingProxy', () => {
   // ── Constructor & Lifecycle ─────────────────────────────────────────
 
   describe('constructor & lifecycle', () => {
+    it('broadcasts a committed decrypt-key version on the private session channel', () => {
+      proxy.broadcastDecryptKeyVersion(8);
+      expect(getChannel().posted).toContainEqual({
+        kind: 'broadcast',
+        type: 'decrypt-key-version',
+        keyVersion: 8,
+      });
+      expect(MockBroadcastChannel.all.filter((c) => c.name === 'concord-pip')).toHaveLength(0);
+    });
+
     it('opens a PRIVATE channel per session and never the shared name (#3104 D6)', () => {
       expect(getChannel().name).toBe(`concord-pip:${TEST_SESSION_TOKEN}`);
       expect(MockBroadcastChannel.all.filter((c) => c.name === 'concord-pip')).toHaveLength(0);

@@ -281,12 +281,20 @@ export interface VoiceEndedBroadcast {
   type: 'voice-ended';
 }
 
+/** Main window committed a newer channel-key version for media encryption. */
+export interface DecryptKeyVersionBroadcast {
+  kind: 'broadcast';
+  type: 'decrypt-key-version';
+  keyVersion: number;
+}
+
 export type AnyPipBroadcast =
   | StateUpdateBroadcast
   | ProducerAddedBroadcast
   | ProducerClosedBroadcast
   | OwnershipTransferBroadcast
-  | VoiceEndedBroadcast;
+  | VoiceEndedBroadcast
+  | DecryptKeyVersionBroadcast;
 
 // ── Combined message type for the channel ───────────────────────────
 

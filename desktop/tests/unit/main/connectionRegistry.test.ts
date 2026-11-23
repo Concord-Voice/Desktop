@@ -9,7 +9,7 @@ const profile = vi.hoisted(() => ({
   idOverride: null as ((apiBase: string) => string | null) | null,
 }));
 vi.mock('../../../src/main/selfHostedProfile', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/main/selfHostedProfile')>(
+  const actual = await vi.importActual<typeof SelfHostedProfileModule>(
     '../../../src/main/selfHostedProfile'
   );
   return {
@@ -44,6 +44,7 @@ import {
   type ConnectionRecord,
 } from '../../../src/main/connectionRegistry';
 
+import type * as SelfHostedProfileModule from '../../../src/main/selfHostedProfile';
 const SAAS_ORIGIN = 'https://api.concordvoice.chat';
 const A = new URL('https://a.example').origin;
 const B = new URL('https://b.example:8443').origin;

@@ -590,7 +590,7 @@ describe('applyLegacyDecryptPipeline — both schemes wired (#1885 lock)', () =>
     expect(new Uint8Array(sink[0].data)).toEqual(original);
   });
 
-  it('decrypts an AV1 v5 per-OBU frame on the legacy path (regression lock)', async () => {
+  it('decrypts an AV1 v6 per-OBU frame on the legacy transform path', async () => {
     const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
       'encrypt',
       'decrypt',
@@ -626,10 +626,12 @@ describe('applyLegacyDecryptPipeline — both schemes wired (#1885 lock)', () =>
       'av1'
     );
     await new Promise((r) => setTimeout(r, 20));
-    expect(new Uint8Array(sink[0].data)).toEqual(original); // black-screen regression lock
+    // The exact empty leading temporal delimiter is the measured AV1 transport
+    // normalization; the decoder receives the authenticated remaining OBUs.
+    expect(new Uint8Array(sink[0].data)).toEqual(original.subarray(2));
   });
 
-  it('passes h264 to the shared v5 NAL-aware implementation on the legacy path', async () => {
+  it('passes h264 to the shared v6 NAL-aware implementation on the legacy path', async () => {
     const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, [
       'encrypt',
       'decrypt',

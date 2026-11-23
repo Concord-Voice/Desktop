@@ -20,11 +20,12 @@ import { clientConfigService } from '@/renderer/services/system/clientConfigServ
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 import { signInRefreshableSession } from '../../helpers/refreshReplay';
 
+import type * as StepUpTokenModule from '@/renderer/services/system/stepUpToken';
 // The copy of a refused password exchange is wrapped so one case can reword it:
 // the challenge's `refusal` must be read from the wire and the mint's reason,
 // never from the text a view happens to carry.
 vi.mock('@/renderer/services/system/stepUpToken', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/renderer/services/system/stepUpToken')>();
+  const actual = await importOriginal<typeof StepUpTokenModule>();
   return {
     ...actual,
     passwordStepUpRefusalMessage: vi.fn(actual.passwordStepUpRefusalMessage),

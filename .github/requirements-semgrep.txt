@@ -1,13 +1,16 @@
 # Hash-locked Semgrep install set for .github/workflows/semgrep.yml, installed with --no-deps.
 # Keep semgrep== in step with SEMGREP_VERSION there; the workflow fails if they differ.
-# Every Semgrep release pins a vulnerable opentelemetry-api (and 1.186.0 a vulnerable mcp),
-# so the lock overrides those to fixed versions; `pip check` reports the override, by design.
+# Every Semgrep release pins a vulnerable opentelemetry-api (and 1.186.0 a vulnerable mcp).
+# Semgrep 1.186.0 also requires wcmatch~=8.3, but GHSA-53pm-wgxf-c6qf is fixed in
+# wcmatch 11.2. The lock overrides these constraints to fixed versions; `pip check`
+# reports the override by design. PR CI tests Semgrep compatibility with wcmatch 11.2.
 # Regenerate (keeps this header; run from the repo root):
 #   d=$(mktemp -d) && echo "semgrep==<version>" > "$d/semgrep.in" && printf "%s\n" \
 #   'opentelemetry-api>=1.45.2' 'opentelemetry-sdk>=1.45.2' 'opentelemetry-exporter-otlp-proto-http>=1.45.2' \
 #   'opentelemetry-exporter-otlp-proto-common>=1.45.2' 'opentelemetry-proto>=1.45.2' \
 #   'opentelemetry-instrumentation>=0.50b0' 'opentelemetry-instrumentation-requests>=0.50b0' \
-#   'opentelemetry-semantic-conventions>=0.50b0' 'opentelemetry-util-http>=0.50b0' 'mcp>=1.30.0,<2' > "$d/overrides.txt" &&
+#   'opentelemetry-semantic-conventions>=0.50b0' 'opentelemetry-util-http>=0.50b0' 'mcp>=1.30.0,<2' \
+#   'wcmatch==11.2' > "$d/overrides.txt" &&
 #   (cd "$d" && uv pip compile semgrep.in --universal --generate-hashes --python-version 3.12 --no-header \
 #   --override overrides.txt -o lock.txt) && { sed '/^[^#]/,$d' .github/requirements-semgrep.txt; cat "$d/lock.txt"; } \
 #   > "$d/new.txt" && mv "$d/new.txt" .github/requirements-semgrep.txt
@@ -1094,10 +1097,12 @@ uvicorn==0.54.0 ; sys_platform != 'emscripten' \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via mcp
-wcmatch==8.5.2 \
-    --hash=sha256:17d3ad3758f9d0b5b4dedc770b65420d4dac62e680229c287bf24c9db856a478 \
-    --hash=sha256:a70222b86dea82fb382dd87b73278c10756c138bd6f8f714e2183128887b9eb2
-    # via semgrep
+wcmatch==11.2 \
+    --hash=sha256:1605bde546fbde4c063628c7d89eda486909fd4337e51d73a873987fbcb2554c \
+    --hash=sha256:952bab83c75c233836007a69550a3a8753cf06964c1eb3b84ff11ad5bff1c272
+    # via
+    #   --override overrides.txt
+    #   semgrep
 wrapt==2.5.2 \
     --hash=sha256:01ace38a377198e0b981b027a46cbdb5502d0123bd39c1a0f60a83a5eab7698e \
     --hash=sha256:035cd71e2aadfc0ad366ab4785b49e62093370885ea4b527b61b308b7a92ff14 \

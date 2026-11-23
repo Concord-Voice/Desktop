@@ -14,7 +14,7 @@ import { createMockWsService, requireHandler } from '../../helpers/wsServiceMock
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -31,6 +31,7 @@ import { useMfaEnforcement } from '@/renderer/hooks/auth/useMfaEnforcement';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useClientConfigStore } from '@/renderer/stores/ui/clientConfigStore';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const SERVER = 'srv-1';
 const PATH = `/api/v1/servers/${SERVER}/mfa-enforcement`;
 

@@ -1,6 +1,7 @@
 """Hash-locked pip installs read their lock from protected source when the scan is protected."""
 
 from pathlib import Path
+import os
 import re
 import subprocess
 import tempfile
@@ -55,6 +56,87 @@ class SemgrepLockTests(unittest.TestCase):
                          "${{ fromJSON(toJSON(job)).workflow_sha }}")
         self.assertEqual(self.job["env"]["EXTERNAL_VERDICT"], "${{ inputs.external-verdict }}")
         self.assertEqual(self.job["env"]["PYTHONSAFEPATH"], "1")
+
+    def test_ordinary_run_reads_lock_from_pr_base(self):
+        run = self.install["run"]
+        self.assertIn('git show "${BASELINE_COMMIT}:.github/requirements-semgrep.txt" > "$lock"', run)
+        self.assertNotIn('lock=.github/requirements-semgrep.txt', run)
+        self.assertLess(run.index('grep -Eq "^semgrep=='), run.index('else\n'))
+
+    def test_version_upgrade_uses_base_lock_only_for_ordinary_scan(self):
+        run = self.install["run"]
+        select_lock = run[run.index('lock="$RUNNER_TEMP/requirements-semgrep.txt"'):
+                          run.index('# Rule paths and ignore globs')]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github").mkdir()
+            lock = root / ".github/requirements-semgrep.txt"
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            commits = []
+            for pin in ("1.185.0", "1.186.0"):
+                lock.write_text(f"semgrep=={pin} \\\n")
+                subprocess.run(["git", "add", "."], cwd=root, check=True)
+                subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                                "commit", "-qm", pin], cwd=root, check=True)
+                commits.append(subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                                cwd=root, text=True).strip())
+            env = os.environ | {"RUNNER_TEMP": directory, "BASELINE_COMMIT": commits[0],
+                                "WORKFLOW_SHA": commits[1], "WORKFLOW_REPOSITORY": "Concord-Voice/Desktop",
+                                "SEMGREP_VERSION": "1.186.0", "EXTERNAL_VERDICT": "false"}
+            result = subprocess.run(["bash", "-c", "set -euo pipefail\n" + select_lock],
+                                    cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("semgrep==1.185.0", (root / "requirements-semgrep.txt").read_text())
+            env["EXTERNAL_VERDICT"] = "true"
+            result = subprocess.run(["bash", "-c", "set -euo pipefail\n" + select_lock],
+                                    cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("semgrep==1.186.0", (root / "requirements-semgrep.txt").read_text())
+
+    def test_write_scoped_scan_extracts_trusted_rules_and_ignore(self):
+        workflow = (ROOT / ".github/workflows/semgrep.yml").read_text()
+        custom = step("semgrep.yml", "semgrep", "Run Semgrep (custom rules)")["run"]
+
+        self.assertIn("git archive", workflow)
+        self.assertIn(".semgrep .semgrepignore", workflow)
+        self.assertIn('rm -rf -- .semgrep', workflow)
+        self.assertIn('cp -R "$trusted_dir/.semgrep" .semgrep', workflow)
+        self.assertIn("--config=.semgrep/", custom)
+        self.assertIn('SEMGREP_TRUSTED_IGNORE_NAME', workflow)
+        self.assertIn('--x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME"', custom)
+
+    def test_write_scoped_community_and_canary_use_trusted_ignore(self):
+        trusted_ignore = '--x-semgrepignore-filename="$SEMGREP_TRUSTED_IGNORE_NAME"'
+        for name in ("Run Semgrep (community rulesets)", "Canary — mutable-action-ref detector is still live"):
+            with self.subTest(step=name):
+                self.assertIn(trusted_ignore, step("semgrep.yml", "semgrep", name)["run"])
+
+
+class SemgrepCompatibilityWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.steps, self.job = steps("pr-ci.yml", "semgrep-lock-compatibility")
+
+    def test_candidate_lock_job_is_read_only_and_ioc_gated(self):
+        self.assertEqual(self.job["needs"], ["ioc"])
+        self.assertEqual(self.job["permissions"], {"contents": "read"})
+        checkout = next(step for step in self.steps if step.get("uses", "").startswith("actions/checkout@"))
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+
+    def test_candidate_lock_job_runs_only_compatibility_test(self):
+        commands = "\n".join(step.get("run", "") for step in self.steps)
+        self.assertIn("--require-hashes --no-deps --only-binary=:all:", commands)
+        self.assertIn("PYTHONSAFEPATH=1", commands)
+        self.assertIn("PYTHONPATH=''", commands)
+        self.assertIn("python .github/scripts/tests/test_semgrep_dependency_compatibility.py", commands)
+        self.assertNotIn("upload-sarif", commands)
+
+    def test_candidate_job_exercises_checked_out_rule_configuration(self):
+        commands = "\n".join(step.get("run", "") for step in self.steps)
+        compatibility = (ROOT / ".github/scripts/tests/test_semgrep_dependency_compatibility.py").read_text()
+        self.assertIn("python .github/scripts/tests/test_semgrep_dependency_compatibility.py", commands)
+        self.assertIn(".semgrepignore", commands)
+        self.assertIn('ROOT / ".semgrep/concord-electron.yml"', compatibility)
+        self.assertIn('shutil.copyfile(ROOT / ".semgrepignore"', compatibility)
 
 
 class IocPyyamlLockTests(unittest.TestCase):

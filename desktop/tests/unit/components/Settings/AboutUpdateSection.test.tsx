@@ -5,7 +5,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 // Partial mock: `resetAllStores` (store-helpers) imports every store, and the apiClient
 // chain reads API_BASE/WS_BASE from this module at import time.
 vi.mock('@/renderer/config', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/config')>()),
+  ...(await importOriginal<typeof ConfigModule>()),
   SPA_VERSION: 'a'.repeat(40),
 }));
 
@@ -86,6 +86,7 @@ import AboutUpdateSection, {
   resolveSpaSignal,
 } from '@/renderer/components/Settings/AboutUpdateSection';
 
+import type * as ConfigModule from '@/renderer/config';
 describe('resolveSpaSignal (pure Interface-signal derivation)', () => {
   it('surfaces an available UI update at rest (no check needed)', () => {
     expect(resolveSpaSignal('newer-available', false)).toEqual({

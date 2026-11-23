@@ -42,6 +42,7 @@ const controlRefused = new Set();
 const controlNormalizationReasons = new Set();
 const otherDiscontinuities = new Set(['stream-changed', 'counter-reset', 'clock-regression']);
 const enteredFrames = new Map();
+const decryptFailures = [];
 const consumers = new Map();
 const producers = new Map();
 const independent = createAvSyncDriftDetector();
@@ -77,6 +78,12 @@ async function setup(rawTestKey) {
   voiceService.e2eeWorker = worker;
   worker.addEventListener('message', ({ data }) => {
     if (data.type === 'decryptStats') enteredFrames.set(data.probeId, data.entered);
+    if (data.type === 'log' && data.message?.startsWith('E2EE: dropping frame') && decryptFailures.length < 5) {
+      decryptFailures.push({
+        error: String(data.data?.error ?? 'unknown').replaceAll(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '<user>'),
+        frameSize: data.data?.frameSize ?? null,
+      });
+    }
   });
   worker.postMessage({ type: 'init', encryptKey: await deriveFrameKey(csk, senderId), currentKeyId: 0, keyVersion: 1 });
   worker.postMessage({ type: 'addDecryptKey', senderUserId: remoteId, keyVersion: 1, keyId: 0,
@@ -114,8 +121,11 @@ async function publishVideo() {
   if (!codec) throw new Error('VP8 unavailable');
   const plan = buildCameraEncodingPlan({ codec, maxBitrate: 1_200_000, scalabilityMode: 'L3T3',
     priority: { priority: 'medium', networkPriority: 'medium' }, eligibility: { svc: true, simulcast: true } });
+  // The 640x360 CI canvas exercises two live VP8 simulcast encodings. Some
+  // macOS runners negotiate the third RID but never encode a frame on it.
+  const activeEncodings = plan.encodings.slice(0, 2);
   videoProducer = await voiceService.produceEncrypted(send, {
-    track: videoTrack, codec, encodings: plan.encodings, stopTracks: false, appData: { source: 'camera' },
+    track: videoTrack, codec, encodings: activeEncodings, stopTracks: false, appData: { source: 'camera' },
   });
   producers.set('video', videoProducer);
   return { id: videoProducer.id, kind: 'video' };
@@ -128,6 +138,22 @@ async function publish() {
   });
   producers.set('audio', audio);
   return [{ id: audio.id, kind: 'audio' }, await publishVideo()];
+}
+
+async function refreshVideoTrack() {
+  if (!videoProducer || videoProducer.closed || videoTrack?.readyState !== 'live') {
+    throw new Error('Fixture video producer unavailable for track refresh');
+  }
+  const previous = videoTrack;
+  const replacement = previous.clone();
+  try {
+    await videoProducer.replaceTrack({ track: replacement });
+  } catch (error) {
+    replacement.stop();
+    throw error;
+  }
+  videoTrack = replacement;
+  previous.stop();
 }
 
 async function consume(descriptor) {
@@ -165,6 +191,27 @@ async function consume(descriptor) {
   await rpc('resume', { consumerId: consumer.id });
   if (consumer.kind === 'audio') await audioWitness.start();
   if (consumer.kind === 'video') {
+    // The first SFU keyframe request can run before DTLS is connected. On
+    // macOS that left a live RTP stream with no decodable keyframe. Request
+    // again only after the receive transport reaches the connected state.
+    const connectionDeadline = performance.now() + 5_000;
+    while (transport.connectionState !== 'connected') {
+      if (performance.now() >= connectionDeadline || ['failed', 'closed'].includes(transport.connectionState)) {
+        throw new Error('Fixture video receive transport did not connect');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    // Browser connection can precede the SFU's DTLS-connected event. The
+    // fixture reports readiness from the server-side transport that owns this
+    // consumer, so a successful RPC cannot silently skip the keyframe request.
+    let keyframeReady = false;
+    while (!keyframeReady) {
+      if (performance.now() >= connectionDeadline || ['failed', 'closed'].includes(transport.connectionState)) {
+        throw new Error('Fixture video SFU transport did not connect before keyframe request');
+      }
+      ({ ready: keyframeReady } = await rpc('requestKeyFrame', { consumerId: consumer.id }));
+      if (!keyframeReady) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     // play() on a MediaStream waits for the first frame and has no deadline of
     // its own; bound it like the audio witness so a starved consumer names itself.
     let timer;
@@ -205,9 +252,13 @@ async function videoCounters() {
 async function diagnose() {
   const first = await videoCounters();
   await new Promise((resolve) => { setTimeout(resolve, 2_000); });
+  for (const consumer of consumers.values()) worker.postMessage({ type: 'queryDecryptStats', probeId: consumer.id });
+  await new Promise((resolve) => { setTimeout(resolve, 100); });
   return { visibilityState: document.visibilityState, hasFocus: document.hasFocus(),
     videoTrackState: videoTrack?.readyState ?? null, videoTrackMuted: videoTrack?.muted ?? null,
-    frameRate: videoTrack?.getSettings().frameRate ?? null, first, second: await videoCounters() };
+    frameRate: videoTrack?.getSettings().frameRate ?? null, first, second: await videoCounters(),
+    decryptEntered: [...consumers.values()].map((consumer) => ({ kind: consumer.kind,
+      entered: enteredFrames.get(consumer.id) ?? 0 })), decryptFailures };
 }
 
 async function independentTick() {
@@ -351,4 +402,4 @@ async function cleanup() {
   voiceService.terminateE2EEWorker(); voiceService.mediaEncryption?.destroy();
 }
 
-globalThis.mediaProbe = { setup, publish, consume, diagnose, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };
+globalThis.mediaProbe = { setup, publish, refreshVideoTrack, consume, diagnose, arm, updatePriority, witness, closeRemoteVideo, reproduceVideo, cleanup };

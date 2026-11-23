@@ -29,6 +29,17 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing and require a compatible media-security version across the app, server, and active call.
+
+### Fixed
+
+- **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
+
+### Security
+
+- **Voice:** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
+
 ## [0.3.2] - 2026-11-18
 
 Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.

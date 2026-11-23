@@ -4,6 +4,7 @@ import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { captureApiRequestContext } from '@/renderer/services/system/requestContext';
 import { resetAllStores } from '../../helpers/store-helpers';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 // The step-up run's request context reaching the privacy PATCH, and the
 // pre-dispatch refusal that comes back. `apiFetch` is mocked at the module
 // boundary because the observables are its arguments and its rejection.
@@ -12,7 +13,7 @@ import { resetAllStores } from '../../helpers/store-helpers';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 

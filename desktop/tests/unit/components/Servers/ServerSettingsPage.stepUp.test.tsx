@@ -24,7 +24,7 @@ import { moderationMember } from '../../../helpers/moderationPurge';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/system/apiClient', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await importOriginal<typeof ApiClientModule>()),
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
@@ -50,6 +50,7 @@ import {
   MANAGE_SERVER,
 } from '@/renderer/utils/policy/permissions';
 
+import type * as ApiClientModule from '@/renderer/services/system/apiClient';
 const SERVER_PATH = '/api/v1/servers/server-1';
 const SETTING_PATH = `${SERVER_PATH}/mfa-enforcement`;
 const NEW_NAME = 'Renamed Server';

@@ -78,6 +78,7 @@ import {
   deriveFrameKey,
 } from '../e2ee/mediaEncryption';
 import { e2eeService } from '../e2ee/e2eeService';
+import { FrameKeyProvisionGate } from '../e2ee/frameKeyProvisionGate';
 import { E2EEKeyUnavailableError, isPendingKeyError } from '../e2ee/e2eeErrors';
 import {
   useOsPermissionStore,
@@ -1040,9 +1041,11 @@ class VoiceService {
   // PiP producer lifecycle callbacks — wired by MainView when proxy is active
   onProducerAdded: ((producerId: string, userId: string, source: string) => void) | null = null;
   onProducerClosed: ((producerId: string, userId: string) => void) | null = null;
+  onMediaKeyVersionChanged: ((keyVersion: number) => void) | null = null;
 
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
+  private readonly frameKeyProvisionGate = new FrameKeyProvisionGate();
   // RTCRtpScriptTransform Worker (Chromium 129+) — owns frame crypto in a dedicated thread
   private e2eeWorker: Worker | null = null;
   // #1878: unsubscribe handle for the e2eeService key-rotation subscription
@@ -4545,6 +4548,14 @@ class VoiceService {
     store.setConnectionState('error');
     const microphoneGuidance = this.microphoneJoinGuidance(err);
     if (microphoneGuidance) store.setJoinError(microphoneGuidance);
+    // Older media planes return this generic ack for an unsupported frame
+    // version. They do not expose a typed version error, so give conditional
+    // guidance without claiming that every generic join failure is a mismatch.
+    if (err instanceof Error && err.message === 'Failed to join room') {
+      store.setJoinError(
+        'Couldn’t join voice. If this server has not been updated for this app’s media-security version, ask its administrator to update it; otherwise try again later.'
+      );
+    }
     if ((err as { code?: unknown } | null)?.code === VOICE_JOINS_PAUSED_CODE) {
       store.setJoinError(VOICE_JOINS_PAUSED_ERROR);
     }
@@ -4773,7 +4784,9 @@ class VoiceService {
       ...(joinData.call_id ? { callId: joinData.call_id } : {}),
     });
     if (roomJoined.mediaFrameCryptoVersion !== MEDIA_E2EE_FRAME_CRYPTO_VERSION) {
-      throw new Error('Media frame crypto version mismatch');
+      throw Object.assign(new Error('Media frame crypto version mismatch'), {
+        code: 'crypto_version_mismatch',
+      });
     }
     if (
       !admissionHandshake ||
@@ -5083,6 +5096,7 @@ class VoiceService {
     this.rotationDeadline = 0;
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
+    this.frameKeyProvisionGate.clear();
     this.latestRequestedEncryptKeyVersion = 0;
   }
 
@@ -8715,29 +8729,67 @@ class VoiceService {
 
     const channelId = useVoiceStore.getState().activeChannelId;
     if (!channelId) throw new Error('E2EE: no active voice channel');
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) throw new Error('E2EE: no active user');
+    const e2eeWorker = this.e2eeWorker;
+    this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
 
-    const material = await e2eeService.getChannelKeyMaterial(channelId);
-    const resolvedVersion = keyVersion ?? material.keyVersion;
-    const resolvedKeyId = keyId ?? mediaEncryption.getCurrentKeyId();
+    // PiP's optional pair comes from a frame miss, not authoritative signaling.
+    // Admit it through the same gate as the main Worker and legacy pipeline.
+    const frameTriggered = keyVersion !== undefined || keyId !== undefined;
+    if (frameTriggered && (keyVersion === undefined || keyId === undefined)) {
+      throw new Error('E2EE: incomplete frame-key request');
+    }
+    const requestedVersion = keyVersion ?? mediaEncryption.getKeyVersion();
+    const requestedId = keyId ?? mediaEncryption.getCurrentKeyId();
+    const provisionToken = frameTriggered
+      ? this.frameKeyProvisionGate.admit(
+          senderUserId,
+          requestedVersion,
+          requestedId,
+          mediaEncryption.getKeyVersion(),
+          mediaEncryption.getCurrentKeyId()
+        )
+      : null;
+    if (frameTriggered && !provisionToken) throw new Error('E2EE: frame-key request not admitted');
 
-    // A miss for a version other than the one we hold must fetch THAT version's
-    // CSK: deriving from the current CSK for an older version's frame yields a
-    // key that decrypts to garbage. (An earlier draft of this comment described
-    // failing closed here instead — it described a superseded design, not this
-    // code, and restoring it would break mid-session CSK-rotation recovery for
-    // PiP consumers. CodeRabbit, PR #2870.)
-    const csk =
-      resolvedVersion === material.keyVersion
-        ? material.channelKey
-        : await e2eeService.getChannelKeyByVersion(channelId, resolvedVersion);
+    try {
+      const material = await e2eeService.getChannelKeyMaterial(channelId);
+      this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
+      const resolvedVersion = keyVersion ?? material.keyVersion;
+      const resolvedKeyId = keyId ?? requestedId;
 
-    const key = await mediaEncryption.addDecryptKeyAtVersion(
-      csk,
-      senderUserId,
-      resolvedVersion,
-      resolvedKeyId
-    );
-    return { key, keyVersion: resolvedVersion, keyId: resolvedKeyId };
+      // The frame stamp cannot authorize a version or epoch. Recheck after the
+      // await so a rotation cannot turn an admitted current pair into a stale one.
+      if (
+        resolvedVersion !== mediaEncryption.getKeyVersion() ||
+        resolvedKeyId !== mediaEncryption.getCurrentKeyId()
+      ) {
+        throw new Error('E2EE: frame-key request superseded by rotation');
+      }
+      const csk =
+        resolvedVersion === material.keyVersion
+          ? material.channelKey
+          : await e2eeService.getChannelKeyByVersion(channelId, resolvedVersion);
+      this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
+      if (
+        resolvedVersion !== mediaEncryption.getKeyVersion() ||
+        resolvedKeyId !== mediaEncryption.getCurrentKeyId()
+      ) {
+        throw new Error('E2EE: frame-key request superseded by rotation');
+      }
+
+      const key = await mediaEncryption.addDecryptKeyAtVersion(
+        csk,
+        senderUserId,
+        resolvedVersion,
+        resolvedKeyId
+      );
+      this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
+      return { key, keyVersion: resolvedVersion, keyId: resolvedKeyId };
+    } finally {
+      if (provisionToken) this.frameKeyProvisionGate.release(provisionToken);
+    }
   }
 
   /** Proxy a signaling event to the media plane (used by PiP signaling proxy) */
@@ -11128,6 +11180,7 @@ class VoiceService {
         keyVersion: context.keyVersion,
       };
       context.e2eeWorker?.postMessage(workerMessage);
+      this.onMediaKeyVersionChanged?.(context.keyVersion);
       console.debug('E2EE: sender re-based encrypt key on CSK rotation', {
         channelId: context.channelId,
         keyVersion: context.keyVersion,
@@ -11169,6 +11222,7 @@ class VoiceService {
     if (this.mediaEncryption === context.expectedMediaEncryption) {
       this.mediaEncryption?.destroy();
       this.mediaEncryption = null;
+      this.frameKeyProvisionGate.clear();
     }
     if (this.e2eeWorker === context.expectedWorker) {
       this.terminateE2EEWorker();
@@ -11789,12 +11843,27 @@ class VoiceService {
     const e2eeWorker = this.e2eeWorker;
     const localUserId = useUserStore.getState().user?.id;
     if (!mediaEncryption || !localUserId) return;
+    if (!this.isCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker))
+      return;
+    const provisionToken = this.frameKeyProvisionGate.admit(
+      senderUserId,
+      keyVersion,
+      keyId,
+      mediaEncryption.getKeyVersion(),
+      mediaEncryption.getCurrentKeyId()
+    );
+    if (!provisionToken) return;
 
     void (async () => {
       try {
         this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
         const csk = await e2eeService.getChannelKeyByVersion(channelId, keyVersion);
         this.assertCurrentDecryptKeyContext(channelId, localUserId, mediaEncryption, e2eeWorker);
+        if (
+          keyVersion !== mediaEncryption.getKeyVersion() ||
+          keyId !== mediaEncryption.getCurrentKeyId()
+        )
+          return;
         const key = await mediaEncryption.addDecryptKeyAtVersion(
           csk,
           senderUserId,
@@ -11825,6 +11894,8 @@ class VoiceService {
           keyId,
           reason: errorMessage(err),
         });
+      } finally {
+        this.frameKeyProvisionGate.release(provisionToken);
       }
     })();
   }
