@@ -22,6 +22,8 @@ The Concord Voice desktop app for Windows, macOS, and Linux.
 
 **Website:** [www.concordvoice.com](https://www.concordvoice.com) | **Wiki:** [Desktop wiki](https://github.com/Concord-Voice/Desktop/wiki) | **Security:** security@concordvoice.com
 
+[![sponsor](https://img.shields.io/badge/sponsor-Concord--Voice-pink?logo=github-sponsors)](https://github.com/sponsors/Concord-Voice)
+
 ---
 
 ## Introduction
