@@ -145,10 +145,11 @@ export class PipVoiceClient {
 
   /**
    * This PiP's own E2EE Worker — decrypt-only. It is never sent `init`
-   * (a PiP has no producers, so it never encrypts); `addDecryptKey` populates
-   * the decrypt map independently of the encrypt side.
+   * (a PiP has no producers, so it never encrypts). Main-window authority
+   * advances its decrypt version, and atomic key installs populate the map.
    */
   private e2eeWorker: Worker | null = null;
+  private authoritativeKeyVersion = 0;
 
   /** In-flight bypass probes, keyed by consumer id (see scheduleBypassProbe). */
   private readonly bypassProbes = new Map<
@@ -401,7 +402,10 @@ export class PipVoiceClient {
       // load-bearing for safety — the Worker drops undecryptable frames and
       // asks for the exact key via requestFrameKey — it just avoids an opening
       // burst of key misses.
-      await this.provisionFrameKey(producerUserId);
+      await this.provisionFrameKey(producerUserId, undefined, undefined, 'initial');
+      if (this.disposed || this.e2eeWorker !== worker) {
+        throw new Error('PiP session changed during key provision');
+      }
 
       // PiP E2EE: attach the decrypt transform AT RECEIVER CREATION via
       // onRtpReceiver (fires after setRemoteDescription, before createAnswer).
@@ -506,11 +510,41 @@ export class PipVoiceClient {
         console.error('[PipVoiceClient] E2EE Worker error:', errorMessage(err));
       };
       this.e2eeWorker = worker;
+      if (this.authoritativeKeyVersion > 0) {
+        worker.postMessage({
+          type: 'setDecryptKeyVersion',
+          keyVersion: this.authoritativeKeyVersion,
+        } satisfies E2EEWorkerMessage);
+      }
       return worker;
     } catch (err) {
       console.error('[PipVoiceClient] E2EE Worker creation failed:', errorMessage(err));
       return null;
     }
+  }
+
+  private isValidFrameKeyResult(result: GetFrameKeyResult): boolean {
+    return (
+      Number.isSafeInteger(result.keyVersion) &&
+      result.keyVersion > 0 &&
+      Number.isSafeInteger(result.keyId) &&
+      result.keyId >= 0 &&
+      result.keyId <= 100
+    );
+  }
+
+  private shouldRetryInitialFrameKey(
+    cause: 'initial' | 'frame-miss' | 'recovery',
+    err: unknown,
+    attempt: number,
+    maxRetries: number
+  ): boolean {
+    if (cause !== 'initial' || attempt >= maxRetries) return false;
+    const reason = errorMessage(err);
+    return (
+      reason.includes('frame-key request superseded by rotation') ||
+      reason.includes('stale frame-key response after rotation')
+    );
   }
 
   /**
@@ -524,32 +558,69 @@ export class PipVoiceClient {
   private async provisionFrameKey(
     senderUserId: string,
     keyVersion?: number,
-    keyId?: number
+    keyId?: number,
+    cause: 'initial' | 'frame-miss' | 'recovery' = 'frame-miss'
   ): Promise<void> {
     const worker = this.e2eeWorker;
     if (!worker || this.disposed) return;
-    try {
-      const result = await this.rpc<GetFrameKeyResult>(
-        'get-frame-key',
-        { senderUserId, keyVersion, keyId },
-        KEY_RPC_TIMEOUT
-      );
-      if (this.e2eeWorker !== worker) return;
-      worker.postMessage({
-        type: 'addDecryptKey',
-        senderUserId,
-        keyVersion: result.keyVersion,
-        keyId: result.keyId,
-        key: result.key,
-      } satisfies E2EEWorkerMessage);
-    } catch (err) {
-      console.debug('[PipVoiceClient] E2EE: frame-key provision failed', {
-        senderUserId,
-        keyVersion,
-        keyId,
-        reason: errorMessage(err),
-      });
+    const retryDelays = [500, 1000, 2000];
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      if (this.e2eeWorker !== worker || this.disposed) return;
+      try {
+        const result = await this.rpc<GetFrameKeyResult>(
+          'get-frame-key',
+          { senderUserId, keyVersion, keyId },
+          KEY_RPC_TIMEOUT
+        );
+        if (this.e2eeWorker !== worker || this.disposed) return;
+        if (!this.isValidFrameKeyResult(result)) {
+          throw new Error('E2EE: malformed frame-key response');
+        }
+        // A main-window rebase broadcast can overtake an older RPC response.
+        // Never let that response reinstall a retired CSK in the PiP Worker.
+        if (result.keyVersion < this.authoritativeKeyVersion) {
+          throw new Error('E2EE: stale frame-key response after rotation');
+        }
+        this.authoritativeKeyVersion = result.keyVersion;
+        worker.postMessage({
+          type: 'installDecryptKey',
+          authoritativeKeyVersion: result.keyVersion,
+          senderUserId,
+          keyVersion: result.keyVersion,
+          keyId: result.keyId,
+          key: result.key,
+        } satisfies E2EEWorkerMessage);
+        return;
+      } catch (err) {
+        // Only the initial authority-originated fetch retries a CSK rebase
+        // race. Frame misses remain one RPC per Worker request.
+        const retryableInitial = this.shouldRetryInitialFrameKey(
+          cause,
+          err,
+          attempt,
+          retryDelays.length
+        );
+        if (!retryableInitial || this.e2eeWorker !== worker || this.disposed) {
+          console.debug('[PipVoiceClient] E2EE: frame-key provision failed', {
+            senderUserId,
+            keyVersion,
+            keyId,
+            reason: errorMessage(err),
+          });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
+      }
     }
+  }
+
+  private advanceDecryptKeyVersion(keyVersion: number): void {
+    if (!Number.isSafeInteger(keyVersion) || keyVersion <= this.authoritativeKeyVersion) return;
+    this.authoritativeKeyVersion = keyVersion;
+    this.e2eeWorker?.postMessage({
+      type: 'setDecryptKeyVersion',
+      keyVersion,
+    } satisfies E2EEWorkerMessage);
   }
 
   private handleWorkerMessage(msg: E2EEMainMessage): void {
@@ -560,7 +631,7 @@ export class PipVoiceClient {
       case 'requestRecovery':
         // Re-derive at the channel's current version/epoch — the PiP's analogue
         // of the main window's invalidate-and-refetch self-heal.
-        void this.provisionFrameKey(msg.senderUserId);
+        void this.provisionFrameKey(msg.senderUserId, undefined, undefined, 'recovery');
         break;
       case 'decryptStats':
         void this.evaluateBypassProbe(msg.probeId, msg.entered);
@@ -942,6 +1013,7 @@ export class PipVoiceClient {
 
     // Handle broadcasts from main window
     if (msg.kind === 'broadcast') {
+      if (msg.type === 'decrypt-key-version') this.advanceDecryptKeyVersion(msg.keyVersion);
       if (msg.type === 'voice-ended') {
         this.remoteCleanupAvailable = false;
         this.cancelPendingRpcs(true);

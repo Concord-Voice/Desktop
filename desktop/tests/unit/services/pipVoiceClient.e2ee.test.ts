@@ -378,12 +378,96 @@ describe('PipVoiceClient — receive-side E2EE (2026-08-21 PiP E2EE gap)', () =>
         keyId: undefined,
       });
       expect(theWorker().posted).toContainEqual({
-        type: 'addDecryptKey',
+        type: 'installDecryptKey',
+        authoritativeKeyVersion: 7,
         senderUserId: 'alice',
         keyVersion: 7,
         keyId: 3,
         key: FRAME_KEY,
       });
+    });
+
+    it('advances decrypt authority without a media miss and drops a late old-key response', async () => {
+      await join();
+      await client.consume('prod-1', 'mic', 'alice');
+      const worker = theWorker();
+      const installsBefore = worker.posted.filter(
+        (m: any) => m.type === 'installDecryptKey'
+      ).length;
+      channel().autoResponder = (data) => {
+        const msg = data as { kind?: string; method?: string; id?: string };
+        if (msg.kind === 'rpc-request' && msg.method === 'get-frame-key') return undefined;
+        if (msg.kind === 'rpc-request' && msg.id) {
+          return {
+            kind: 'rpc-response',
+            id: msg.id,
+            result: defaultRpcResponses[msg.method ?? ''],
+          };
+        }
+        return undefined;
+      };
+      worker.onmessage!({
+        data: { type: 'requestFrameKey', senderUserId: 'bob', keyVersion: 7, keyId: 3 },
+      } as MessageEvent);
+      const oldRequest = requests('get-frame-key').at(-1) as { id?: string };
+      expect(oldRequest.id).toBeDefined();
+
+      channel().simulateMessage({ kind: 'broadcast', type: 'decrypt-key-version', keyVersion: 8 });
+      expect(worker.posted).toContainEqual({ type: 'setDecryptKeyVersion', keyVersion: 8 });
+      channel().simulateMessage({ kind: 'broadcast', type: 'decrypt-key-version', keyVersion: 7 });
+      expect(worker.posted.filter((m: any) => m.type === 'setDecryptKeyVersion')).toHaveLength(1);
+      channel().simulateMessage({
+        kind: 'rpc-response',
+        id: oldRequest.id,
+        result: { key: FRAME_KEY, keyVersion: 7, keyId: 3 },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.posted.filter((m: any) => m.type === 'installDecryptKey')).toHaveLength(
+        installsBefore
+      );
+    });
+
+    it('retries an initial key request only after a rebase race', async () => {
+      await join();
+      let keyRequests = 0;
+      channel().autoResponder = (data) => {
+        const msg = data as { kind?: string; method?: string; id?: string };
+        if (msg.kind !== 'rpc-request' || !msg.id) return undefined;
+        if (msg.method === 'get-frame-key' && keyRequests++ === 0) {
+          return {
+            kind: 'rpc-response',
+            id: msg.id,
+            error: 'E2EE: frame-key request superseded by rotation',
+          };
+        }
+        return { kind: 'rpc-response', id: msg.id, result: defaultRpcResponses[msg.method ?? ''] };
+      };
+      const consuming = client.consume('prod-1', 'mic', 'alice');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(await consuming).not.toBeNull();
+      expect(requests('get-frame-key')).toHaveLength(2);
+      expect(theWorker().posted.some((m: any) => m.type === 'installDecryptKey')).toBe(true);
+    });
+
+    it('stops initial rebase retries after four attempts', async () => {
+      await join();
+      channel().autoResponder = (data) => {
+        const msg = data as { kind?: string; method?: string; id?: string };
+        if (msg.kind !== 'rpc-request' || !msg.id) return undefined;
+        if (msg.method === 'get-frame-key') {
+          return {
+            kind: 'rpc-response',
+            id: msg.id,
+            error: 'E2EE: frame-key request superseded by rotation',
+          };
+        }
+        return { kind: 'rpc-response', id: msg.id, result: defaultRpcResponses[msg.method ?? ''] };
+      };
+      const consuming = client.consume('prod-1', 'mic', 'alice');
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(await consuming).not.toBeNull();
+      expect(requests('get-frame-key')).toHaveLength(4);
+      expect(theWorker().posted.some((m: any) => m.type === 'installDecryptKey')).toBe(false);
     });
 
     it('answers a Worker typed miss with that exact version and epoch', async () => {
@@ -443,6 +527,29 @@ describe('PipVoiceClient — receive-side E2EE (2026-08-21 PiP E2EE gap)', () =>
       expect(requests('get-frame-key')).toHaveLength(1);
     });
 
+    it('does not retry a frame miss even when its error is a rebase race', async () => {
+      await join();
+      await client.consume('prod-1', 'mic', 'alice');
+      channel().posted.length = 0;
+      channel().autoResponder = (data) => {
+        const msg = data as { kind?: string; method?: string; id?: string };
+        if (msg.kind !== 'rpc-request' || !msg.id) return undefined;
+        if (msg.method === 'get-frame-key') {
+          return {
+            kind: 'rpc-response',
+            id: msg.id,
+            error: 'E2EE: frame-key request superseded by rotation',
+          };
+        }
+        return { kind: 'rpc-response', id: msg.id, result: defaultRpcResponses[msg.method ?? ''] };
+      };
+      theWorker().onmessage!({
+        data: { type: 'requestFrameKey', senderUserId: 'bob', keyVersion: 8, keyId: 0 },
+      } as MessageEvent);
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(requests('get-frame-key')).toHaveLength(1);
+    });
+
     it('keeps playing when a key request fails — the Worker drops, never passes through', async () => {
       await join({ 'get-frame-key': undefined });
 
@@ -452,7 +559,7 @@ describe('PipVoiceClient — receive-side E2EE (2026-08-21 PiP E2EE gap)', () =>
       // the Worker, and the next typed miss re-requests. Refusing the stream
       // here would turn a recoverable hiccup into a dead tile.
       expect(stream).not.toBeNull();
-      expect(theWorker().posted.some((m: any) => m.type === 'addDecryptKey')).toBe(false);
+      expect(theWorker().posted.some((m: any) => m.type === 'installDecryptKey')).toBe(false);
     });
   });
 

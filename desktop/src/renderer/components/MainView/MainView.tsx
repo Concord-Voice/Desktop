@@ -154,6 +154,9 @@ const usePipSignalingProxy = (isInVoice: boolean): void => {
         voiceService.onProducerClosed = (pid: string, uid: string) => {
           proxy?.broadcastProducerClosed(pid, uid);
         };
+        voiceService.onMediaKeyVersionChanged = (version: number) => {
+          proxy?.broadcastDecryptKeyVersion(version);
+        };
       })
       .catch(() => {
         /* voiceService import failed — nothing to proxy */
@@ -168,6 +171,7 @@ const usePipSignalingProxy = (isInVoice: boolean): void => {
       if (capturedVoiceService) {
         capturedVoiceService.onProducerAdded = null;
         capturedVoiceService.onProducerClosed = null;
+        capturedVoiceService.onMediaKeyVersionChanged = null;
       }
     };
   }, [isInVoice]);

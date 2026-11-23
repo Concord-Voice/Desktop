@@ -480,9 +480,11 @@ repository, not an observation about this bump.
   unavailable/failed transform must throw from the callback and abort publishing with the owning
   source cleanup; never wait for `transport.produce()` to resolve and attach afterward, because
   that creates a plaintext-send window.
-- A typed `crypto_version_mismatch` means only that the client and occupied room use incompatible
-  formats. The update/security banner must remain direction-neutral because either side may be
-  newer; never claim specifically that the local client is outdated.
+- A typed `crypto_version_mismatch` from a v6-capable server means only that the client and occupied
+  room use incompatible formats. The update/security banner must remain direction-neutral because
+  either side may be newer; never claim specifically that the local client is outdated. A v5 server
+  rejects v6 through a generic unsupported-version acknowledgement, so do not treat that older-server
+  case as proof of typed actionable UX.
 
 ## Voice/media producer track lifecycle (`voiceService.ts`, post-#1902)
 

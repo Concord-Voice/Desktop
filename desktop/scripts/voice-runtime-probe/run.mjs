@@ -205,11 +205,29 @@ try {
   for (const [index, page] of pages.entries()) {
     descriptors.push(await inRenderer(page, `publish peer ${index}`, () => globalThis.mediaProbe.publish()));
   }
+  const consumeWithVideoRefresh = async (index, descriptor, label) => {
+    const pending = inRenderer(pages[index], label,
+      (entry) => globalThis.mediaProbe.consume(entry), descriptor);
+    if (descriptor.kind === 'video') {
+      // A macOS runner can miss the publisher's only pre-join keyframe. If
+      // playback has not begun, replace the real sending track to restart its
+      // encoder. Always exercise one refresh; retry only while playback waits.
+      // The E2EE transform and every receive witness remain in use.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const state = await Promise.race([
+          pending.then(() => 'success', () => 'failure'), delay(1500).then(() => 'pending'),
+        ]);
+        if (state === 'failure' || (state === 'success' && attempt > 0)) break;
+        await inRenderer(pages[1 - index], `refresh video sender peer ${1 - index}`,
+          () => globalThis.mediaProbe.refreshVideoTrack());
+      }
+    }
+    await pending;
+  };
   try {
     for (let index = 0; index < pages.length; index++) {
       for (const descriptor of descriptors[1 - index]) {
-        await inRenderer(pages[index], `consume peer ${index} ${descriptor.kind}`,
-          (entry) => globalThis.mediaProbe.consume(entry), descriptor);
+        await consumeWithVideoRefresh(index, descriptor, `consume peer ${index} ${descriptor.kind}`);
       }
     }
   } catch (error) {
@@ -284,8 +302,7 @@ try {
     replacement.push(await inRenderer(page, `reproduceVideo peer ${index}`, () => globalThis.mediaProbe.reproduceVideo()));
   }
   for (let index = 0; index < pages.length; index++) {
-    await inRenderer(pages[index], `consume replacement peer ${index}`, (entry) => globalThis.mediaProbe.consume(entry),
-      replacement[1 - index]);
+    await consumeWithVideoRefresh(index, replacement[1 - index], `consume replacement peer ${index}`);
   }
   const replacementProgress = pages.map(() => createVideoProgressGate());
   result.replacementWitnesses = await until(readWitnesses, (witnesses) => witnesses.every((entry, index) => {
