@@ -31,6 +31,10 @@ belongs in it, and write it if the section has none. Do not edit the
 
 Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing and require a compatible media-security version across the app, server, and active call.
 
+### Added
+
+- **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
+
 ### Fixed
 
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
