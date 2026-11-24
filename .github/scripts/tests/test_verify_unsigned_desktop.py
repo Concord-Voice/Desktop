@@ -19,6 +19,33 @@ class UnsignedDesktopTest(unittest.TestCase):
     def test_checked_in_workflows(self):
         unsigned.verify(ROOT)
 
+    def test_nightly_main_ci_requires_the_existing_release_gates(self):
+        workflow = yaml.load(
+            (ROOT / '.github/workflows/main-ci.yml').read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        self.assertEqual(workflow['on'], {
+            'push': {'branches': ['main']},
+            'schedule': [{'cron': '0 7 * * *'}],
+        })
+        jobs = workflow['jobs']
+        changes = jobs['changes']
+        self.assertEqual(
+            changes['if'],
+            "github.repository == 'Concord-Voice/Desktop' && github.ref == 'refs/heads/main'",
+        )
+        self.assertEqual(
+            ' '.join(changes['outputs']['release-requested'].split()),
+            "${{ (github.event_name == 'schedule' && steps.pending.outputs.pending == 'true') || "
+            "(github.event_name == 'push' && steps.hotfix.outputs.hotfix == 'true' && "
+            "(steps.pending.outputs.pending == 'true' || steps.filter.outputs.desktop-release == 'true')) }}",
+        )
+        dispatch = jobs['build-desktop']
+        self.assertEqual(dispatch['name'], 'build-desktop')
+        self.assertCountEqual(dispatch['needs'], ['changes', 'ioc', 'eslint', 'codeql', 'scorecard', 'build'])
+        self.assertEqual(dispatch['if'], "success() && needs.changes.outputs.release-requested == 'true'")
+        self.assertEqual(jobs['ioc']['with']['diff-base'], '${{ needs.changes.outputs.diff-base }}')
+
     def test_version_extraction_parses_data_without_executing_symlink_target(self):
         workflow = yaml.load(
             (ROOT / '.github/workflows/build-desktop.yml').read_text(),
