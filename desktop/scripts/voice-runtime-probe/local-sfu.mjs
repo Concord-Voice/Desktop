@@ -120,6 +120,31 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         const producer = owned(peer.producers, body.producerId);
         peer.producers.delete(producer.id); producer.close(); return {};
       }
+      case 'sfuDiagnose': {
+        // Failure-only: bounded SFU-side counters, no ids, keys or raw reports.
+        const trim = (entry) => ({ type: entry.type, kind: entry.kind, rid: entry.rid ?? null,
+          packetCount: entry.packetCount ?? null, pliCount: entry.pliCount ?? null,
+          firCount: entry.firCount ?? null, nackCount: entry.nackCount ?? null, score: entry.score ?? null });
+        // One entity's failed stats read becomes an in-place marker; the rest of the report survives.
+        const safe = async (read) => { try { return await read(); } catch (error) { return { statsError: error.message }; } };
+        const trimAll = async (entity) => (await entity.getStats()).map(trim);
+        const out = [];
+        for (const [name, entry] of peers) {
+          out.push({ peer: name,
+            transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
+              const [stat] = await t.getStats();
+              return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+                sendBitrate: stat?.sendBitrate ?? null };
+            }))),
+            producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
+              kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
+            consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
+              kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
+              score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
+              stats: await trimAll(c) })))) });
+        }
+        return out;
+      }
       default: throw new Error('Unknown fixture action');
     }
   };

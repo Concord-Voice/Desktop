@@ -242,6 +242,9 @@ try {
         return { peer: index, error: diagnoseError.message };
       }
     }));
+    try {
+      result.consumeDiagnostics.push({ sfu: await withDeadline(sfu.rpc({ peer: 'a', action: 'sfuDiagnose' }), DIAGNOSE_MS, 'SFU diagnose') });
+    } catch (sfuError) { result.consumeDiagnostics.push({ sfuError: sfuError.message }); }
     process.stderr.write(`[voice-probe] consume diagnostics: ${JSON.stringify(result.consumeDiagnostics)}\n`);
     throw error;
   }

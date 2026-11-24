@@ -40,3 +40,16 @@ test('router initialization rejection closes the already spawned real native wor
   assert.equal(capturedWorker.closed, true);
   assert.equal(capturedWorker.subprocessClosed, true);
 });
+
+test('sfuDiagnose reports bounded counters without ids and survives a failed stats read', async (context) => {
+  const sfu = await createLocalSfu(media);
+  context.after(() => sfu.close());
+  await sfu.rpc({ peer: 'a', action: 'createTransport', direction: 'send' });
+  const report = await sfu.rpc({ peer: 'a', action: 'sfuDiagnose' });
+  assert.deepEqual(report.map((entry) => entry.peer), ['a', 'b']);
+  assert.equal(report[0].transports.length, 1);
+  assert.deepEqual(Object.keys(report[0].transports[0]).sort(), ['availableOutgoingBitrate', 'dtls', 'ice', 'sendBitrate']);
+  assert.deepEqual(report[1].transports, []);
+  assert.doesNotMatch(JSON.stringify(report), /[0-9a-f]{8}-[0-9a-f]{4}-/, 'no resource ids in the report');
+  await assert.rejects(sfu.rpc({ peer: 'unknown', action: 'sfuDiagnose' }), /Unknown fixture peer/);
+});
