@@ -29,6 +29,8 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+## [0.4.0] - 2026-11-23
+
 Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing and require media encryption v6 on the server and in the active call.
 
 ### Fixed
