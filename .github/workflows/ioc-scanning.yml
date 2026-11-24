@@ -58,19 +58,6 @@ jobs:
     outputs:
       security-scripts: ${{ steps.filter.outputs.security-scripts }}
     steps:
-      - name: Verify protected workflow identity
-        if: ${{ inputs.trusted-source }}
-        env:
-          WORKFLOW_REPOSITORY: ${{ fromJSON(toJSON(job)).workflow_repository }}
-          WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" != pull_request ||
-                "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
-                ! "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "::error::Protected IOC workflow identity is unavailable or invalid."
-            exit 1
-          fi
-
       - name: Check out target
         if: ${{ !inputs.trusted-source }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -86,15 +73,28 @@ jobs:
           fetch-depth: 0
           path: target
 
-      - name: Check out protected scanner and policy
-        if: ${{ github.event_name == 'pull_request' && inputs.trusted-source }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # actionlint v1.7.12 predates these official job identity properties.
-          repository: ${{ fromJSON(toJSON(job)).workflow_repository }}
-          ref: ${{ fromJSON(toJSON(job)).workflow_sha }}
-          persist-credentials: false
-          path: scanner
+      - name: Materialize the protected scanner and policy
+        if: ${{ inputs.trusted-source }}
+        shell: bash
+        env:
+          WORKFLOW_REPOSITORY: ${{ fromJSON(toJSON(job)).workflow_repository }}
+          WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
+        run: |
+          set -euo pipefail
+          # Materialize only scanner files from the exact reusable-workflow
+          # commit. The target checkout fetched origin/main and its history.
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ||
+                "$GITHUB_REPOSITORY" != Concord-Voice/Desktop ||
+                "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
+                ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             ! git -C target merge-base --is-ancestor "$WORKFLOW_SHA" refs/remotes/origin/main; then
+            echo "::error::Protected IOC policy is not from a Desktop main revision in a PR run."
+            exit 1
+          fi
+
+          mkdir scanner
+          git -C target archive --format=tar "$WORKFLOW_SHA" \
+            .github/requirements-pyyaml.txt scripts/security | tar -xf - -C scanner
 
       # Path-gate signal for supply-chain-scan-selftest. On pull_request
       # dorny/paths-filter lists changed files via the API (pull-requests: read);
@@ -113,7 +113,7 @@ jobs:
 
       - name: Install PyYAML (runner linter dependency)
         env:
-          # Trusted scans install from the protected scanner checkout, never the target.
+          # Trusted scans install from the protected policy revision.
           PYYAML_REQUIREMENTS: ${{ inputs.trusted-source && 'scanner/.github/requirements-pyyaml.txt' || '.github/requirements-pyyaml.txt' }}
         run: >-
           python3 -m pip install --user --quiet --disable-pip-version-check --require-hashes

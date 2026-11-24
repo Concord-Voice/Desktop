@@ -140,13 +140,71 @@ class SemgrepCompatibilityWorkflowTests(unittest.TestCase):
 
 
 class IocPyyamlLockTests(unittest.TestCase):
-    def test_trusted_scan_reads_lock_from_scanner_checkout(self):
+    def test_trusted_scan_reads_lock_from_protected_policy(self):
         all_steps, _ = steps("ioc-scanning.yml", "supply-chain-scan")
         install = next(s for s in all_steps if "PYYAML_REQUIREMENTS" in s.get("env", {}))
         self.assertEqual(install["env"]["PYYAML_REQUIREMENTS"],
                          "${{ inputs.trusted-source && 'scanner/.github/requirements-pyyaml.txt'"
                          " || '.github/requirements-pyyaml.txt' }}")
         self.assertIn('--require-hashes --only-binary=:all: -r "$PYYAML_REQUIREMENTS"', install["run"])
+
+
+    def test_protected_ioc_policy_comes_from_the_workflow_revision_on_main(self):
+        policy = step("ioc-scanning.yml", "supply-chain-scan", "Materialize the protected scanner and policy")
+        self.assertEqual(policy["if"], "${{ inputs.trusted-source }}")
+        self.assertEqual(policy["env"]["WORKFLOW_SHA"], "${{ fromJSON(toJSON(job)).workflow_sha }}")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "core.hooksPath=/dev/null", *args], cwd=target, text=True, stderr=subprocess.PIPE,
+                ).strip()
+
+            git("init", "-q")
+            git("config", "user.name", "Workflow test")
+            git("config", "user.email", "workflow@example.invalid")
+            git("config", "commit.gpgsign", "false")
+            lock = target / ".github/requirements-pyyaml.txt"
+            scanner = target / "scripts/security/scanner.sh"
+            lock.parent.mkdir()
+            scanner.parent.mkdir(parents=True)
+            lock.write_text("protected lock")
+            scanner.write_text("protected scanner")
+            git("add", ".")
+            git("commit", "-qm", "Protected workflow revision")
+            protected = git("rev-parse", "HEAD")
+            git("update-ref", "refs/remotes/origin/main", protected)
+
+            lock.write_text("candidate lock")
+            scanner.write_text("candidate scanner")
+            git("commit", "-qam", "PR content")
+            candidate = git("rev-parse", "HEAD")
+
+            cases = (
+                ("pull_request", "Concord-Voice/Desktop", candidate),
+                ("schedule", "Concord-Voice/Desktop", protected),
+                ("workflow_dispatch", "Concord-Voice/Desktop", protected),
+                ("pull_request", "other/Desktop", protected),
+                ("pull_request", "Concord-Voice/Desktop", "main"),
+                ("pull_request", "Concord-Voice/Desktop", protected),
+            )
+            for event, repo, sha in cases:
+                with self.subTest(event=event, repo=repo, sha=sha):
+                    result = subprocess.run(
+                        ["bash", "-c", policy["run"]], cwd=root, text=True, capture_output=True,
+                        env={**os.environ, "GITHUB_EVENT_NAME": event, "GITHUB_REPOSITORY": "Concord-Voice/Desktop",
+                             "WORKFLOW_REPOSITORY": repo, "WORKFLOW_SHA": sha},
+                    )
+                    expected = event == "pull_request" and repo == "Concord-Voice/Desktop" and sha == protected
+                    self.assertEqual(result.returncode == 0, expected, result.stderr)
+                    if expected:
+                        self.assertEqual((root / "scanner/.github/requirements-pyyaml.txt").read_text(), "protected lock")
+                        self.assertEqual((root / "scanner/scripts/security/scanner.sh").read_text(), "protected scanner")
+                    else:
+                        self.assertFalse((root / "scanner").exists())
 
 
 if __name__ == "__main__":
