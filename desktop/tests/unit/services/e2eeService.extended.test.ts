@@ -1795,7 +1795,8 @@ describe('e2eeService — extended', () => {
               } as Response)
               .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ key: { wrapped_key: wrappedForUser, key_version: 1 } }),
+                json: () =>
+                  Promise.resolve({ key: { wrapped_key: wrappedForUser, key_version: 1 } }),
               } as Response);
           }
           mockApiFetch
@@ -1810,6 +1811,11 @@ describe('e2eeService — extended', () => {
 
           const callsBeforeRetry = route === 'upload' ? 5 : 3;
           expect(mockApiFetch).toHaveBeenCalledTimes(callsBeforeRetry);
+          expect(mockApiFetch.mock.calls[callsBeforeRetry - 1][0]).toBe(
+            route === 'upload'
+              ? '/api/v1/e2ee/keys/ch-pending'
+              : '/api/v1/users/user-new/public-key'
+          );
           await vi.advanceTimersByTimeAsync(60_000);
           expect(mockApiFetch.mock.calls[callsBeforeRetry][0]).toBe(
             '/api/v1/e2ee/pending-keys?cursor=saved-cursor'

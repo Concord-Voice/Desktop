@@ -150,7 +150,8 @@ interface WrappedPendingKey {
   keyFingerprint: string;
 }
 
-type PendingKeyStepResult<T> = { action: 'process'; data: T } | { action: 'continue' | 'stop' };
+type PendingKeyAction = 'continue' | 'stop' | 'rate-limited';
+type PendingKeyStepResult<T> = { action: 'process'; data: T } | { action: PendingKeyAction };
 
 function pendingKeyResponseIsRetryable(res: Response): boolean {
   return res.status === 429 || res.status >= 500;
@@ -209,6 +210,7 @@ class E2EEService {
   private readonly channelKeyGenerations: Map<string, number> = new Map();
   private readonly channelAccessRevocationGenerations: Map<string, number> = new Map();
   private pendingKeyRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingKeyThrottled = false;
   private pendingKeyRequestProcessor: Promise<void> | null = null;
   private pendingKeyRequestProcessorGeneration: number | null = null;
   private pendingKeyRequestRerun = false;
@@ -1125,7 +1127,7 @@ class E2EEService {
    * Process pending key requests — auto-wrap keys for new members.
    */
   processPendingKeyRequests(): Promise<void> {
-    if (!this.isInitialized) return Promise.resolve();
+    if (!this.isInitialized || this.pendingKeyThrottled) return Promise.resolve();
     const sessionGeneration = this.keySessionGeneration;
 
     if (
@@ -1177,6 +1179,12 @@ class E2EEService {
       for (const request of page.requests) {
         const action = await this.processPendingKeyRequest(request, sessionGeneration);
         if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
+        if (action === 'rate-limited') {
+          this.pendingKeyRequestRerun = false;
+          this.pendingKeyThrottled = true;
+          this.schedulePendingKeyRetry(sessionGeneration, true);
+          return;
+        }
         if (action === 'stop') stopped = true;
       }
       this.finishPendingKeySweep(page.nextCursor, stopped, sessionGeneration);
@@ -1290,7 +1298,7 @@ class E2EEService {
   private async processPendingKeyRequest(
     request: PendingKeyRequest,
     sessionGeneration: number
-  ): Promise<'continue' | 'stop'> {
+  ): Promise<PendingKeyAction> {
     const recipientKey = await this.fetchPendingRecipientPublicKey(request, sessionGeneration);
     if (recipientKey.action !== 'process') return recipientKey.action;
 
@@ -1322,6 +1330,7 @@ class E2EEService {
         userId: request.user_id,
         status: res.status,
       });
+      if (res.status === 429) return { action: 'rate-limited' };
       if (pendingKeyResponseIsRetryable(res)) {
         this.schedulePendingKeyRetry(sessionGeneration);
         return { action: 'stop' };
@@ -1381,7 +1390,7 @@ class E2EEService {
     recipientKey: PendingRecipientPublicKey,
     wrappedKey: WrappedPendingKey,
     sessionGeneration: number
-  ): Promise<'continue' | 'stop'> {
+  ): Promise<PendingKeyAction> {
     // Echo the recipient's public-key version the CSK was wrapped against (#2420)
     // so the server can skip + self-heal a wrap that raced a concurrent key reset.
     const uploadBody: {
@@ -1425,6 +1434,7 @@ class E2EEService {
       request.channel_id,
       res.status
     );
+    if (res.status === 429) return 'rate-limited';
     if (!res.ok && pendingKeyResponseIsRetryable(res)) {
       this.schedulePendingKeyRetry(sessionGeneration);
       return 'stop';
@@ -1432,11 +1442,15 @@ class E2EEService {
     return 'continue';
   }
 
-  private schedulePendingKeyRetry(sessionGeneration: number): void {
+  private schedulePendingKeyRetry(sessionGeneration: number, restart = false): void {
     if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
-    if (this.pendingKeyRetryTimer !== null) return;
+    if (this.pendingKeyRetryTimer !== null) {
+      if (!restart) return;
+      clearTimeout(this.pendingKeyRetryTimer);
+    }
     this.pendingKeyRetryTimer = setTimeout(() => {
       this.pendingKeyRetryTimer = null;
+      this.pendingKeyThrottled = false;
       if (!this.isPendingKeyRequestSessionCurrent(sessionGeneration)) return;
       void this.processPendingKeyRequests();
     }, PENDING_KEY_RETRY_DELAY_MS);
@@ -2056,6 +2070,7 @@ class E2EEService {
       this.pendingKeyRetryTimer = null;
     }
     this.keySessionGeneration += 1;
+    this.pendingKeyThrottled = false;
     this.pendingKeyPageCursor = null;
     this.pendingKeyRetryFromStart = false;
     this.pendingKeyFetches.clear();
