@@ -147,9 +147,8 @@ function validContext(tag: string, fields: unknown[]): boolean {
     if (name === 'content_kind' && value !== 'message-body') return false;
     if (
       name === 'blob_purpose' &&
-      !['preferences', 'saved_gifs', 'friend_organization', 'presence_overrides'].includes(
-        String(value)
-      )
+      (typeof value !== 'string' ||
+        !['preferences', 'saved_gifs', 'friend_organization', 'presence_overrides'].includes(value))
     )
       return false;
     if (
@@ -254,9 +253,10 @@ function contextError(tag: string, fields: unknown[]): string | null {
     const purpose = fields[purposeIndex];
     if (
       (name === 'blob_purpose' &&
-        !['preferences', 'saved_gifs', 'friend_organization', 'presence_overrides'].includes(
-          String(purpose)
-        )) ||
+        (typeof purpose !== 'string' ||
+          !['preferences', 'saved_gifs', 'friend_organization', 'presence_overrides'].includes(
+            purpose
+          ))) ||
       (name === 'key_purpose' &&
         purpose !==
           (tag === 'recovery-prefs-wrap-v1'
