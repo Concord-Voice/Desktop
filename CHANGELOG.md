@@ -31,11 +31,11 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [0.3.3] - 2026-11-23
 
-Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing, require a compatible media-security version, and retry video layer requests after the receive transport connects.
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing, require a compatible media-security version, and retry video layer requests as receiver setup completes.
 
 ### Fixed
 
-- **Voice:** Video layer requests now retry after the receive transport connects, so a call does not remain stalled when its first request preceded DTLS setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
+- **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
 
 ### Security

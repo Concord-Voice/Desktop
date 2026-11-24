@@ -8444,23 +8444,28 @@ class VoiceService {
   private reemitPreferredLayersAfterRecvTransportConnect(mediaKind: 'audio' | 'video'): void {
     if (mediaKind !== 'video') return;
 
-    for (const [consumerId, meta] of this.consumerMeta) {
-      if (meta.source !== 'camera' && meta.source !== 'screen') continue;
-      const consumer = this.consumers.get(consumerId);
-      if (!consumer || consumer.closed || consumer.kind !== 'video') continue;
-
-      const payload = this.computePreferredLayerPayloadForUser(
-        meta.producerUserId,
-        undefined,
-        meta.source
-      );
-      if (!payload) continue;
-
-      // The original send is deliberately de-duped. A successful transport edge is
-      // the one lifecycle event that must re-deliver the same request.
-      this.lastPreferredLayerKeyByConsumer.delete(consumerId);
-      this.emitPreferredLayers(consumerId, payload);
+    for (const consumerId of this.consumerMeta.keys()) {
+      this.replayVideoLayerDemandForConsumer(consumerId);
     }
+  }
+
+  private replayVideoLayerDemandForConsumer(consumerId: string): void {
+    const meta = this.consumerMeta.get(consumerId);
+    if (!meta || (meta.source !== 'camera' && meta.source !== 'screen')) return;
+    const consumer = this.consumers.get(consumerId);
+    if (!consumer || consumer.closed || consumer.kind !== 'video') return;
+
+    const payload = this.computePreferredLayerPayloadForUser(
+      meta.producerUserId,
+      undefined,
+      meta.source
+    );
+    if (!payload) return;
+
+    // A connection edge or a late consumer registration must re-deliver the
+    // current demand even if an earlier send was de-duped or arrived too early.
+    this.lastPreferredLayerKeyByConsumer.delete(consumerId);
+    this.emitPreferredLayers(consumerId, payload);
   }
 
   /**
@@ -9622,6 +9627,11 @@ class VoiceService {
       console.debug('[consume] transport closed for consumer', consumer.id);
       this.removeConsumerState(consumer.id);
     });
+    // DTLS can connect before consume() resolves. The connection-edge handler
+    // then sees no registered consumer, so replay that demand on registration.
+    if (consumer.kind === 'video' && recvTransport.connectionState === 'connected') {
+      this.replayVideoLayerDemandForConsumer(consumer.id);
+    }
     console.debug('[consume] consumer created', {
       consumerId: consumer.id,
       kind: consumer.kind,

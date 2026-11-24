@@ -576,6 +576,47 @@ describe('VoiceService ICE-server threading (#3104)', () => {
     expect(preferredLayerCalls()).toHaveLength(4);
   });
 
+  it('replays persisted video demand when the transport connects before consumer registration', async () => {
+    const videoTransport = makeRecvTransportWithEvents();
+    mockCreateRecvTransport.mockReturnValueOnce(makeRecvTransportWithEvents()).mockReturnValueOnce(videoTransport);
+    await joinWith([STUN]);
+
+    const svc = voiceService as any;
+    svc.setRemoteVideoRenderState('user-2', 'grid', {
+      visible: true,
+      cssWidth: 1280,
+      cssHeight: 720,
+      role: 'focus',
+      focusedWindow: true,
+    });
+    const preferredLayerCalls = () =>
+      mockSocket.emit.mock.calls.filter(([event]) => event === 'set-preferred-layers');
+    expect(preferredLayerCalls()).toHaveLength(0);
+
+    // The connection event cannot replay a demand for a consumer that the
+    // pending consume() call has not returned yet.
+    (videoTransport as any).connectionState = 'connected';
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(0);
+
+    const consumer = {
+      id: 'late-camera', kind: 'video', closed: false,
+      track: { readyState: 'live', enabled: true }, on: vi.fn(),
+    };
+    videoTransport.consume.mockResolvedValue(consumer);
+    const createOption = vi.spyOn(svc, 'creationAttachConsumeOption').mockReturnValue({});
+    try {
+      await svc.createAndRegisterConsumer(videoTransport, {
+        id: consumer.id, producerId: 'camera-producer', kind: 'video',
+        rtpParameters: {}, source: 'camera', producerUserId: 'user-2',
+      }, 'user-2', svc.videoReproduceGeneration, mockSocket, { cancelled: false });
+    } finally {
+      createOption.mockRestore();
+    }
+    expect(preferredLayerCalls()).toHaveLength(1);
+    expect(preferredLayerCalls()[0][1]).toMatchObject({ consumerId: consumer.id });
+  });
+
   it('preserves the existing transport parameters alongside the ICE config', async () => {
     await joinWith([STUN]);
     const opts = mockCreateSendTransport.mock.calls[0][0];
