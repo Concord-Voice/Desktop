@@ -33,6 +33,10 @@ belongs in it, and write it if the section has none. Do not edit the
 
 Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing, require media encryption v6 on the server and in the active call, and retry video layer requests as receiver setup completes.
 
+### Added
+
+- **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
+
 ### Fixed
 
 - **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
