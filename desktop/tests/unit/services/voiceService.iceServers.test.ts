@@ -578,7 +578,9 @@ describe('VoiceService ICE-server threading (#3104)', () => {
 
   it('replays persisted video demand when the transport connects before consumer registration', async () => {
     const videoTransport = makeRecvTransportWithEvents();
-    mockCreateRecvTransport.mockReturnValueOnce(makeRecvTransportWithEvents()).mockReturnValueOnce(videoTransport);
+    mockCreateRecvTransport
+      .mockReturnValueOnce(makeRecvTransportWithEvents())
+      .mockReturnValueOnce(videoTransport);
     await joinWith([STUN]);
 
     const svc = voiceService as any;
@@ -600,16 +602,30 @@ describe('VoiceService ICE-server threading (#3104)', () => {
     expect(preferredLayerCalls()).toHaveLength(0);
 
     const consumer = {
-      id: 'late-camera', kind: 'video', closed: false,
-      track: { readyState: 'live', enabled: true }, on: vi.fn(),
+      id: 'late-camera',
+      kind: 'video',
+      closed: false,
+      track: { readyState: 'live', enabled: true },
+      on: vi.fn(),
     };
     videoTransport.consume.mockResolvedValue(consumer);
     const createOption = vi.spyOn(svc, 'creationAttachConsumeOption').mockReturnValue({});
     try {
-      await svc.createAndRegisterConsumer(videoTransport, {
-        id: consumer.id, producerId: 'camera-producer', kind: 'video',
-        rtpParameters: {}, source: 'camera', producerUserId: 'user-2',
-      }, 'user-2', svc.videoReproduceGeneration, mockSocket, { cancelled: false });
+      await svc.createAndRegisterConsumer(
+        videoTransport,
+        {
+          id: consumer.id,
+          producerId: 'camera-producer',
+          kind: 'video',
+          rtpParameters: {},
+          source: 'camera',
+          producerUserId: 'user-2',
+        },
+        'user-2',
+        svc.videoReproduceGeneration,
+        mockSocket,
+        { cancelled: false }
+      );
     } finally {
       createOption.mockRestore();
     }
