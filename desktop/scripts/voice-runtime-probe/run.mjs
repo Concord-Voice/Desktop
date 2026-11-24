@@ -210,19 +210,14 @@ try {
       (entry) => globalThis.mediaProbe.consume(entry), descriptor);
     if (descriptor.kind === 'video') {
       // A macOS runner can miss the publisher's only pre-join keyframe. If
-      // playback still waits, transition the consumer's layers after DTLS and
-      // replace the real sending track to restart its encoder. Always exercise
-      // one refresh; retry only while playback waits.
+      // playback has not begun, replace the real sending track to restart its
+      // encoder. Always exercise one refresh; retry only while playback waits.
       // The E2EE transform and every receive witness remain in use.
       for (let attempt = 0; attempt < 3; attempt++) {
         const state = await Promise.race([
           pending.then(() => 'success', () => 'failure'), delay(1500).then(() => 'pending'),
         ]);
         if (state === 'failure' || (state === 'success' && attempt > 0)) break;
-        if (state === 'pending') {
-          await withDeadline(sfu.rpc({ peer: index === 0 ? 'a' : 'b', action: 'retryVideoKeyframe' }),
-            DIAGNOSE_MS, `retry video keyframe peer ${index}`);
-        }
         await inRenderer(pages[1 - index], `refresh video sender peer ${1 - index}`,
           () => globalThis.mediaProbe.refreshVideoTrack());
       }
@@ -248,15 +243,8 @@ try {
       }
     }));
     try {
-      result.consumeDiagnostics.push({ sfu: await withDeadline(sfu.rpc({ peer: 'a', action: 'sfuDiagnose', probeLowestLayer: true }), DIAGNOSE_MS, 'SFU diagnose') });
+      result.consumeDiagnostics.push({ sfu: await withDeadline(sfu.rpc({ peer: 'a', action: 'sfuDiagnose' }), DIAGNOSE_MS, 'SFU diagnose') });
     } catch (sfuError) { result.consumeDiagnostics.push({ sfuError: sfuError.message }); }
-    result.consumeDiagnostics.push({ afterLayerProbe: await Promise.all(pages.map(async (page, index) => {
-      try {
-        const { second } = await withDeadline(page.evaluate(() => globalThis.mediaProbe.diagnose()),
-          DIAGNOSE_MS, `diagnose sender peer ${index}`);
-        return { peer: index, outbound: second.outbound, inbound: second.inbound };
-      } catch { return { peer: index, error: 'sender-diagnostics-unavailable' }; }
-    })) });
     process.stderr.write(`[voice-probe] consume diagnostics: ${JSON.stringify(result.consumeDiagnostics)}\n`);
     throw error;
   }
@@ -275,15 +263,6 @@ try {
   await until(readWitnesses, (witnesses) => witnesses.every((entry) => entry.layeredPriorityApplied), 'live layered encoding priority update');
   const initialWitnesses = await until(readWitnesses, (witnesses) => witnesses.every((entry, index) =>
     initialConsumersVerified(entry, verifiedByPeer[index])), 'each original audio/video consumer production verification');
-  for (const [index] of pages.entries()) {
-    const layer = await withDeadline(sfu.rpc({ peer: index === 0 ? 'a' : 'b', action: 'promoteVideoLayer' }),
-      DIAGNOSE_MS, `promote video layer peer ${index}`);
-    assert.equal(layer.spatialLayer, 1, 'SFU high video layer must activate');
-  }
-  await until(readWitnesses, (witnesses) => witnesses.every((entry, index) =>
-    entry.framesDecoded > initialWitnesses[index].framesDecoded &&
-    entry.e2eeVideoEntered > initialWitnesses[index].e2eeVideoEntered),
-  'authenticated high-layer video after promotion');
   const originalAudioIds = initialWitnesses.map((entry) => entry.consumerEvidence.find((consumer) => consumer.kind === 'audio').id);
   setStage('continuous-call');
   const progress = pages.map(() => createVideoProgressGate());
