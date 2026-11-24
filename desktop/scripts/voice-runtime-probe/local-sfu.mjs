@@ -90,10 +90,9 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         });
         peer.consumers.set(consumer.id, consumer);
         peer.consumerTransports.set(consumer.id, transport);
-        // Start on the lowest of the two live RIDs. Some macOS runners do not
-        // activate the high layer from a cold, packet-free consumer. The probe
-        // promotes it after its first authenticated audio/video witness.
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
+        // The probe publishes two active simulcast RIDs. Start high, then
+        // switch to the low layer once this consumer's DTLS is connected.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
@@ -109,6 +108,10 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         if (consumer.kind !== 'video' || consumer.paused) throw new Error('Invalid keyframe request');
         const transport = owned(peer.consumerTransports, consumer.id);
         if (transport.dtlsState !== 'connected') return { ready: false };
+        // A cold, packet-free simulcast consumer can stay without active layers
+        // on macOS even after PLI. The post-DTLS preference change activates
+        // the low stream; the probe later requires high-layer delivery too.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
         await consumer.requestKeyFrame();
         return { ready: true };
       }
