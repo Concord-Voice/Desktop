@@ -555,6 +555,25 @@ describe('VoiceService ICE-server threading (#3104)', () => {
 
     expect(preferredLayerCalls()).toHaveLength(2);
     expect(preferredLayerCalls()[1]).toEqual(preferredLayerCalls()[0]);
+
+    // A duplicate event is not a reconnect. A disconnect followed by connected is,
+    // so it gets one more replay. This mirrors mediasoup's state transition model.
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(2);
+    videoTransport._fire('connectionstatechange', 'disconnected');
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(3);
+
+    // A callback held by a retired transport must not replay layer demand into the
+    // new session. The currently-owned replacement is the only transport that may.
+    const replacement = makeRecvTransportWithEvents();
+    mockCreateRecvTransport.mockReturnValueOnce(replacement);
+    await svc.createRecvTransportForKind('video');
+    videoTransport._fire('connectionstatechange', 'disconnected');
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(3);
+    replacement._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(4);
   });
 
   it('preserves the existing transport parameters alongside the ICE config', async () => {
