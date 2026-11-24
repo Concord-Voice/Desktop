@@ -121,7 +121,7 @@ keys, SDP and raw media stats are deliberately excluded from the artifact.
 
 `markers.transformFailures` retains at most 32 fixed reason records with the peer index
 and the stage at which the event was observed. Reasons are `bypass-reattach`,
-`bypass-close`, `worker-error`, `decrypt-close`, `verified-payload-rejected`, and
+`bypass-close`, `worker-error`, `encrypt-failed`, `decrypt-close`, `verified-payload-rejected`, and
 `verified-jsonvalue-threw`. These records contain no console arguments or consumer IDs,
 and any record still fails the runtime gate. An accepted verification requires a consumer
 ID and a positive entered-frame count, matching the production verdict even when the

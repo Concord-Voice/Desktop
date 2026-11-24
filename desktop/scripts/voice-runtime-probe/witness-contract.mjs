@@ -224,7 +224,8 @@ export function classifyTransformFailure(text) {
   if (/E2EE Worker error/.test(text)) return 'worker-error';
   // Keep the earlier substring check's coverage even when a console argument
   // contains a newline; classify decrypt explicitly as well.
-  if (/(?:en|de)crypt transform failed/.test(text)) return 'decrypt-close';
+  if (/encrypt transform failed/.test(text)) return 'encrypt-failed';
+  if (/decrypt transform failed/.test(text)) return 'decrypt-close';
   return null;
 }
 

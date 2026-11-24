@@ -8,7 +8,7 @@ test('classifies transform errors without retaining console text', () => {
     ['E2EE: receive transform still bypassed after re-attach — closing consumer fail-closed', 'bypass-close'],
     ['E2EE Worker error: sensitive text', 'worker-error'],
     ['E2EE: closing consumer because decrypt transform failed', 'decrypt-close'],
-    ['E2EE: closing consumer because encrypt transform failed', 'decrypt-close'],
+    ['E2EE: closing consumer because encrypt transform failed', 'encrypt-failed'],
   ]) {
     const failures = [];
     recordTransformFailure(failures, classifyTransformFailure(text), 1, 'camera-reproduce');
@@ -17,8 +17,8 @@ test('classifies transform errors without retaining console text', () => {
   assert.equal(classifyTransformFailure('healthy'), null);
   // Playwright can concatenate a console argument containing a newline; the
   // previous substring check still detected an error after that newline.
-  assert.equal(classifyTransformFailure('context\nencrypt transform failed: detail'), 'decrypt-close');
-  assert.equal(classifyTransformFailure('xencrypt transform failedMore'), 'decrypt-close');
+  assert.equal(classifyTransformFailure('context\nencrypt transform failed: detail'), 'encrypt-failed');
+  assert.equal(classifyTransformFailure('xencrypt transform failedMore'), 'encrypt-failed');
 });
 
 test('failure records are bounded and keep the pass gate closed', () => {
