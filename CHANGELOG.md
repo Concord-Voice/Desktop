@@ -31,16 +31,17 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [0.4.0] - 2026-11-23
 
-Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing and require media encryption v6 on the server and in the active call.
+Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing, require media encryption v6 on the server and in the active call, and retry video layer requests as receiver setup completes.
 
 ### Fixed
 
+- **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
 - **Encryption:** Desktop pauses pending-key distribution when the server throttles requests, so it can retry without exhausting the public-key lookup limit.
 
 ### Security
 
-- **Voice:** **BREAKING** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
+- **Voice:** **BREAKING** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Self-hosted voice requires server version 0.4.0 or newer after that release is published; Hosted voice requires the v6 media fleet rollout. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
 - **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.2] - 2026-11-18
