@@ -31,7 +31,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [0.4.0] - 2026-11-23
 
-Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing, require media encryption v6 on the server and in the active call, and retry video layer requests as receiver setup completes.
+Apple and Google sign-in support the server’s client-binding check. Concord Voice now refuses undersized RSA account public keys before sharing channel keys, and pending channel keys reach members across pages, with distribution pausing when the server throttles requests. Encrypted calls authenticate codec framing, require media encryption v6 on the server and in the active call, and retry video layer requests as receiver setup completes.
 
 ### Added
 
