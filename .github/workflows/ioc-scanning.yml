@@ -20,13 +20,9 @@ on:
     inputs:
       diff-base:
         description: >-
-          Explicit commit to diff install scripts against. Only the nightly
-          passes this. A cron has no `github.event.before`, so without it the
-          scanner falls through to HEAD~1 (see resolve_diff_base) and inspects
-          only the LAST merge — with ~4 merges/day the nightly would miss most
-          of the window it exists to backstop. The nightly passes the last
-          SUCCESSFUL nightly's SHA so a failed night is covered by the next one
-          rather than silently skipped.
+          Explicit commit to diff install scripts against. Cron has no
+          `github.event.before`. Native nightly passes its last successful
+          scheduled SHA. Scheduled Main CI passes the prior Desktop release SHA.
         type: string
         required: false
         default: ''
@@ -68,7 +64,8 @@ jobs:
           WORKFLOW_REPOSITORY: ${{ fromJSON(toJSON(job)).workflow_repository }}
           WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
         run: |
-          if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ||
+                "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
                 ! "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "::error::Protected IOC workflow identity is unavailable or invalid."
             exit 1
@@ -90,7 +87,7 @@ jobs:
           path: target
 
       - name: Check out protected scanner and policy
-        if: ${{ inputs.trusted-source }}
+        if: ${{ github.event_name == 'pull_request' && inputs.trusted-source }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # actionlint v1.7.12 predates these official job identity properties.

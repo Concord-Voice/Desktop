@@ -46,6 +46,15 @@ class UnsignedDesktopTest(unittest.TestCase):
         self.assertEqual(dispatch['if'], "success() && needs.changes.outputs.release-requested == 'true'")
         self.assertEqual(jobs['ioc']['with']['diff-base'], '${{ needs.changes.outputs.diff-base }}')
 
+    def test_protected_ioc_checkout_is_pr_only(self):
+        workflow = yaml.load(
+            (ROOT / '.github/workflows/ioc-scanning.yml').read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        steps = workflow['jobs']['supply-chain-scan']['steps']
+        checkout = next(step for step in steps if step.get('with', {}).get('path') == 'scanner')
+        self.assertEqual(checkout['if'], "${{ github.event_name == 'pull_request' && inputs.trusted-source }}")
+
     def test_version_extraction_parses_data_without_executing_symlink_target(self):
         workflow = yaml.load(
             (ROOT / '.github/workflows/build-desktop.yml').read_text(),
