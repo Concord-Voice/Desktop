@@ -1,31 +1,15 @@
-# Main CI — push:main orchestrator (ADR-0018 / #1477, epic #1470).
-#
-# Owns the push:main CI pipeline: IOC scan first (push mode — diff base from
-# github.event.before via IOC_DIFF_BASE), then the scanner push-legs, then a
-# build-desktop DISPATCH gated behind ALL scan verdicts (#2048/#2274 — the
-# standalone child run resolves the desktop-release environment secrets that
-# workflow_call paths lose, and owns release publication plus the release-asset
-# sync and public-mirror fan-out). It does NOT deploy: Desktop has no server
-# deploys (nightly-ci.yml and production deploys stayed in Hosted at the split).
-# Known gap: CodeQL, ESLint SARIF and Scorecard run on
-# main only for a hotfix release merge. PR CI scans every change before it
-# merges; osv-scanner.yml and sonar-main.yml still run on a schedule.
-# nightly-native-audiocap.yml owns only the daily IOC/native verification.
-#
-# Scanner exceptions (in-file triggers retained elsewhere):
-#   - osv-scanner.yml: standalone main/weekly and legacy or uncertain PR
-#     triggers; protected required-pr-build owns selected PR scans.
-#   - scorecard.yml: branch_protection_rule stays in-file.
-#
-# build-desktop gating: the former build-desktop push trigger was
-# path-filtered to the version manifest + the workflow itself (the release
-# path) — replicated here via the changes filter so ordinary merges do NOT
-# run six platform builds.
+# Main CI gates hotfix releases on push and pending versions on the nightly schedule.
+# IOC runs first. All scan and product gates must pass before the SHA-bound
+# build-desktop dispatch. The Release-Ops bridge uses that job's success to
+# start protected tagging, attestation verification, signing and publication.
+# nightly-native-audiocap.yml separately runs the daily native audio checks.
 name: Main CI
 
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '0 7 * * *'
 
 concurrency:
   # Never cancel in-flight main scans/releases — rapid merges queue instead
@@ -41,6 +25,7 @@ permissions:
 jobs:
   changes:
     name: Detect release-path changes
+    if: github.repository == 'Concord-Voice/Desktop' && github.ref == 'refs/heads/main'
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
     # Detect/verify work runs on GitHub's standard runner, free for public repos.
     runs-on: ubuntu-24.04
@@ -55,43 +40,13 @@ jobs:
       pull-requests: read
       issues: read
     outputs:
-      # Path match OR pending-release probe. The probe is the SOLE detector
-      # of a pending version bump — the path filter no longer lists
-      # desktop/package.json (see the filter block below) — as well as
-      # the liveness backstop for the dispatch topology (#2274): if a gated
-      # dispatch fails its SHA binding because main advanced mid-pipeline,
-      # the untagged version re-arms the release path on every successor push
-      # THAT TRIGGERS THIS WORKFLOW, until the release lands. Mirrors
-      # detect-release's own tag-vs-version decision, so it never fires
-      # once the current version is tagged.
-      #
-      # That qualifier is load-bearing and was learned the hard way: a push
-      # carrying a CI-suppression marker in its commit body runs NO workflow
-      # at all, so it cannot re-arm — and main-cd's spa.env audit commit,
-      # which used to carry one, is precisely the push that lands ~1-2 min
-      # after a merge and advances HEAD past the commit this job just gated
-      # (~14 min of scan legs later). The backstop was therefore inert
-      # against the only push class that actually broke the binding, and
-      # desktop-v0.2.33/v0.2.34 both stranded untagged. The marker was
-      # removed in deploy-spa.sh; its recursion guard is now structural
-      # (spa.env matches no main-cd path filter). Do not describe this probe
-      # as covering "every push" — it covers every push that triggers CI.
-      #
-      # NARROWED AGAIN 2026-08-26 (ADR-0018 amendment): the dispatcher below is
-      # now also gated on `hotfix`, so on an ordinary merge this probe arms
-      # NOTHING here. It still runs, and its value still feeds `desktop-release`,
-      # but an ordinary merge waits for an operator to cut the release (there
-      # is no nightly release dispatcher in this repo). The probe is VERSION-based,
-      # not push-based:
-      # it stays armed until v<version> is tagged, so the next hotfix merge
-      # releases the pending version too.
-      desktop-release: ${{ steps.filter.outputs.desktop-release == 'true' || steps.pending.outputs.pending == 'true' }}
-      # Whether THIS merge must cut a release now instead of waiting for an
-      # operator. DERIVED on every push, never stored: resolve the merge commit
-      # to its PR and read the label. There is no flag to set and none to drop,
-      # so two hotfixes in flight cannot race a shared bit, and a re-run
-      # recomputes the same answer.
-      hotfix: ${{ steps.hotfix.outputs.hotfix }}
+      # Nightly checks the merged version. A hotfix push also preserves the
+      # existing build-desktop workflow-change smoke path.
+      release-requested: >-
+        ${{ (github.event_name == 'schedule' && steps.pending.outputs.pending == 'true') ||
+            (github.event_name == 'push' && steps.hotfix.outputs.hotfix == 'true' &&
+              (steps.pending.outputs.pending == 'true' || steps.filter.outputs.desktop-release == 'true')) }}
+      diff-base: ${{ steps.window.outputs.diff-base }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,6 +58,7 @@ jobs:
       # build.yml / pr-ci.yml.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
+        if: github.event_name == 'push'
         with:
           filters: |
             # This filter covers the release workflow's own definition only,
@@ -134,7 +90,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION=$(node -p "require('./desktop/package.json').version")
+          VERSION=$(jq -er '.version' desktop/package.json)
           AUTH_HEADER=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
           if GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
@@ -151,19 +107,37 @@ jobs:
             echo "pending=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve the nightly release scan window
+        id: window
+        if: github.event_name == 'schedule' && steps.pending.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A schedule has no event.before. Include all changes since the
+          # nearest reachable Desktop release, or since root on a cold start.
+          if TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD); then
+            BASE=$(git rev-parse "${TAG}^{commit}")
+          else
+            BASE=$(git rev-list --max-parents=0 HEAD | tail -1)
+          fi
+          test -n "$BASE"
+          echo "diff-base=$BASE" >> "$GITHUB_OUTPUT"
+
       - name: Resolve the hotfix label from the merged PR
         id: hotfix
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.sha }}
           # Untrusted, so it stays in env and is only ever read as a value —
           # never interpolated into a command. It is the race-free source: a
           # squash merge carries "(#N)" in its subject, available here with no
-          # API call. Null on non-push events; the script falls back.
+          # API call.
           COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
         run: bash .github/scripts/resolve-hotfix-label.sh
 
       - name: Report how the hotfix label was resolved
+        if: github.event_name == 'push'
         env:
           RESOLUTION: ${{ steps.hotfix.outputs.resolution }}
           # NOT named PATH. The obvious name for "how it was resolved" would
@@ -179,18 +153,18 @@ jobs:
           # indistinguishable from the author not having applied it.
           case "${RESOLUTION}" in
             undetermined)
-              echo "::warning::Could NOT determine the hotfix label for this commit — deferring the release to an operator (fail-closed). This is not the same as the label being absent; if the merge was meant to be a hotfix, an operator dispatches Release-Ops Tag Release with this run's ID and SHA." ;;
+              echo "::warning::Could NOT determine the hotfix label for this commit — deferring the release to nightly (fail-closed). Check the PR association and rerun Main CI if this release must start immediately." ;;
             api-error)
               # Split out of the `*)` arm, which would otherwise announce a
               # hotfix on a run that never read a label. When the PR was located
               # before the failure, RESOLVED_VIA names how — the difference
               # between "the API is down" and "we never found the PR".
-              echo "::warning::Hotfix resolution hit a GitHub API error (PR #${PR_NUMBER:-unknown}, found via ${RESOLVED_VIA}) — deferring the release to an operator (fail-closed). Check the changes job permissions before assuming the label was absent." ;;
+              echo "::warning::Hotfix resolution hit a GitHub API error (PR #${PR_NUMBER:-unknown}, found via ${RESOLVED_VIA}) — deferring the release to nightly (fail-closed). Check the changes job permissions before assuming the label was absent." ;;
             no-label)
               # `resolved_via` is the half `resolution` cannot carry here: it
               # separates a race-free subject parse from a fallback that had to
               # retry, on the outcome that happens on nearly every merge.
-              echo "::notice::No risk: hotfix on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — any pending release waits for an operator" ;;
+              echo "::notice::No risk: hotfix on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — any pending release waits for nightly" ;;
             *)
               echo "::notice::risk: hotfix present on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — release path runs on this merge" ;;
           esac
@@ -199,12 +173,10 @@ jobs:
   ioc:
     name: ioc
     needs: [changes]
-    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
-    # current main and scanned before it merges
-    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
-    # commit buys a fresh baseline and little else.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
+    if: needs.changes.outputs.release-requested == 'true'
     uses: ./.github/workflows/ioc-scanning.yml
+    with:
+      diff-base: ${{ needs.changes.outputs.diff-base }}
     permissions:
       contents: read
       pull-requests: read
@@ -213,11 +185,7 @@ jobs:
   eslint:
     name: eslint
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
-    # current main and scanned before it merges
-    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
-    # commit buys a fresh baseline and little else.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
+    if: needs.changes.outputs.release-requested == 'true'
     permissions:
       contents: read
       security-events: write
@@ -227,11 +195,7 @@ jobs:
   codeql:
     name: codeql
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
-    # current main and scanned before it merges
-    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
-    # commit buys a fresh baseline and little else.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
+    if: needs.changes.outputs.release-requested == 'true'
     permissions:
       contents: read
       security-events: write
@@ -243,11 +207,7 @@ jobs:
   scorecard:
     name: scorecard
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
-    # current main and scanned before it merges
-    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
-    # commit buys a fresh baseline and little else.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
+    if: needs.changes.outputs.release-requested == 'true'
     permissions:
       contents: read
       security-events: write
@@ -259,20 +219,11 @@ jobs:
       checks: read
     uses: ./.github/workflows/scorecard.yml
 
-  # ─── Product-correctness suite + SonarCloud (restored on push:main, #1510) ───
-  # Per repo-admin decision (2026-06-14): build.yml + sonarcloud.yml run on
-  # EVERY merge to main so SonarCloud's main-branch analysis (dashboard,
-  # badges, issue list) stays current — reversing the #919 post-merge removal
-  # for the Sonar path. Mirrors pr-ci.yml's build -> sonar wiring; IOC-first
-  # per ADR-0018 (build installs/executes repo code).
+  # ─── Product-correctness suite ──────────────────────────────────────
   build:
     name: build
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
-    # current main and scanned before it merges
-    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
-    # commit buys a fresh baseline and little else.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
+    if: needs.changes.outputs.release-requested == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -286,11 +237,8 @@ jobs:
   build-desktop:
     name: build-desktop
     needs: [changes, ioc, eslint, codeql, scorecard, build]
-    # The complete gate set above still guards every release this job cuts —
-    # deployment.md:411's requirement is intact, because when hotfix is false
-    # those jobs skip and this one skips with them. A release is never
-    # dispatched from an ungated run; it is only ever deferred to an operator.
-    if: success() && needs.changes.outputs.desktop-release == 'true' && needs.changes.outputs.hotfix == 'true'
+    # Both triggers require the same complete gate set and SHA-bound build.
+    if: success() && needs.changes.outputs.release-requested == 'true'
     permissions:
       actions: write
       checks: read
@@ -305,7 +253,7 @@ jobs:
     # stuck PENDING can also be cancelled by a newer overlapping manual
     # dispatch (1-pending-slot per group). Recovery in every one of these
     # cases is an operator tag (Release-Ops Tag Release with this run's ID and
-    # SHA) or another hotfix merge that bumps the version.
+    # SHA) or the next nightly while the version is still untagged.
     timeout-minutes: 300
     steps:
       - name: Dispatch and await trusted desktop build
