@@ -35,7 +35,7 @@ Concord Voice now refuses undersized RSA account public keys before sharing chan
 
 ### Fixed
 
-- **Voice:** Video layer requests now retry after the receive transport connects, so a call does not remain stalled when its first request preceded DTLS setup.
+- **Voice:** Video layer requests now retry after the receive transport connects, so a call does not remain stalled when its first request preceded DTLS setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
 
 ### Security
