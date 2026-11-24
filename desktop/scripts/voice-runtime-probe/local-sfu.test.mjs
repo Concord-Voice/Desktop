@@ -51,5 +51,9 @@ test('sfuDiagnose reports bounded counters without ids and survives a failed sta
   assert.deepEqual(Object.keys(report[0].transports[0]).sort(), ['availableOutgoingBitrate', 'dtls', 'ice', 'sendBitrate']);
   assert.deepEqual(report[1].transports, []);
   assert.doesNotMatch(JSON.stringify(report), /[0-9a-f]{8}-[0-9a-f]{4}-/, 'no resource ids in the report');
+  const layerProbe = await sfu.rpc({ peer: 'a', action: 'sfuDiagnose', probeLowestLayer: true });
+  assert.deepEqual(layerProbe.before, report);
+  assert.deepEqual(layerProbe.intervention, []);
+  assert.deepEqual(layerProbe.after.map((entry) => entry.peer), ['a', 'b']);
   await assert.rejects(sfu.rpc({ peer: 'unknown', action: 'sfuDiagnose' }), /Unknown fixture peer/);
 });

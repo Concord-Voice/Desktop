@@ -128,22 +128,44 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         // One entity's failed stats read becomes an in-place marker; the rest of the report survives.
         const safe = async (read) => { try { return await read(); } catch (error) { return { statsError: error.message }; } };
         const trimAll = async (entity) => (await entity.getStats()).map(trim);
-        const out = [];
+        const snapshot = async () => {
+          const out = [];
+          for (const [name, entry] of peers) {
+            out.push({ peer: name,
+              transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
+                const [stat] = await t.getStats();
+                return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+                  sendBitrate: stat?.sendBitrate ?? null };
+              }))),
+              producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
+                kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
+              consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
+                kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
+                score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
+                stats: await trimAll(c) })))) });
+          }
+          return out;
+        };
+        const before = await snapshot();
+        if (body.probeLowestLayer !== true) return before;
+        // This intervention happens only after the runtime probe has failed.
+        // It distinguishes layer selection from missing sender keyframes without
+        // changing any passing-path assertion or allowing recovery to pass CI.
+        const intervention = [];
         for (const [name, entry] of peers) {
-          out.push({ peer: name,
-            transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
-              const [stat] = await t.getStats();
-              return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
-                sendBitrate: stat?.sendBitrate ?? null };
-            }))),
-            producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
-              kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
-            consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
-              kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
-              score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
-              stats: await trimAll(c) })))) });
+          for (const consumer of entry.consumers.values()) {
+            if (consumer.kind !== 'video' || consumer.type !== 'simulcast') continue;
+            try {
+              await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
+              await consumer.requestKeyFrame();
+              intervention.push({ peer: name, result: 'requested' });
+            } catch {
+              intervention.push({ peer: name, result: 'failed' });
+            }
+          }
         }
-        return out;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        return { before, intervention, after: await snapshot() };
       }
       default: throw new Error('Unknown fixture action');
     }

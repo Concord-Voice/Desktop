@@ -243,8 +243,15 @@ try {
       }
     }));
     try {
-      result.consumeDiagnostics.push({ sfu: await withDeadline(sfu.rpc({ peer: 'a', action: 'sfuDiagnose' }), DIAGNOSE_MS, 'SFU diagnose') });
+      result.consumeDiagnostics.push({ sfu: await withDeadline(sfu.rpc({ peer: 'a', action: 'sfuDiagnose', probeLowestLayer: true }), DIAGNOSE_MS, 'SFU diagnose') });
     } catch (sfuError) { result.consumeDiagnostics.push({ sfuError: sfuError.message }); }
+    result.consumeDiagnostics.push({ afterLayerProbe: await Promise.all(pages.map(async (page, index) => {
+      try {
+        const { second } = await withDeadline(page.evaluate(() => globalThis.mediaProbe.diagnose()),
+          DIAGNOSE_MS, `diagnose sender peer ${index}`);
+        return { peer: index, outbound: second.outbound, inbound: second.inbound };
+      } catch { return { peer: index, error: 'sender-diagnostics-unavailable' }; }
+    })) });
     process.stderr.write(`[voice-probe] consume diagnostics: ${JSON.stringify(result.consumeDiagnostics)}\n`);
     throw error;
   }
