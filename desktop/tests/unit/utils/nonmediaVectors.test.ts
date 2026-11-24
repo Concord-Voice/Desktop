@@ -9,9 +9,9 @@ const corpusBytes = readFileSync(
   new URL('../../fixtures/nonmedia-e2ee-v1-vectors.json', import.meta.url)
 );
 const corpusPin =
-  'd4b2e4b72b7ff351e5a379431f547664f162bd2c60f532f641ae0297f7313e77a1602cafb28c9be03eb6c2c6ef50fbd2';
+  '40ad79e980cf5d7085954be008f152644f48be9bc5ddaa7712d53b19c0c08a5f1892dbb5260a3fad6cd8b2bfbaee142f';
 const generatorPin =
-  'e4d620fbd8cb85bceb506144318295575f9dc56f8af1ae72848675e66f3a6a833a02e20cdf3dfdbc9acb1d51c475b844';
+  '20724e140d2745547091e04487579e53ad0288959dbe767c48b27aff8bc9ea3082862a613100797080212cb0a50e11f2';
 const sha384 = (bytes: Uint8Array): string => createHash('sha384').update(bytes).digest('hex');
 // Verify all corpus pins before JSON.parse can turn fixture bytes into cases.
 if (sha384(corpusBytes) !== corpusPin) throw new Error('nonmedia corpus whole-file pin mismatch');
