@@ -90,9 +90,10 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         });
         peer.consumers.set(consumer.id, consumer);
         peer.consumerTransports.set(consumer.id, transport);
-        // The probe publishes two active simulcast RIDs; request the highest
-        // one rather than a third RID some macOS renderers never encode.
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1 });
+        // Start on the lowest of the two live RIDs. Some macOS runners do not
+        // activate the high layer from a cold, packet-free consumer. The probe
+        // promotes it after its first authenticated audio/video witness.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
@@ -110,6 +111,19 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         if (transport.dtlsState !== 'connected') return { ready: false };
         await consumer.requestKeyFrame();
         return { ready: true };
+      }
+      case 'promoteVideoLayer': {
+        const video = [...peer.consumers.values()].filter((consumer) => consumer.kind === 'video' && consumer.type === 'simulcast');
+        if (video.length !== 1) throw new Error('Fixture video consumer unavailable for layer promotion');
+        const [consumer] = video;
+        await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
+        await consumer.requestKeyFrame();
+        const deadline = Date.now() + 5_000;
+        while (consumer.currentLayers?.spatialLayer !== 1) {
+          if (Date.now() >= deadline) throw new Error('Fixture high video layer did not activate');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return { spatialLayer: consumer.currentLayers.spatialLayer, temporalLayer: consumer.currentLayers.temporalLayer };
       }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);

@@ -270,6 +270,15 @@ try {
   await until(readWitnesses, (witnesses) => witnesses.every((entry) => entry.layeredPriorityApplied), 'live layered encoding priority update');
   const initialWitnesses = await until(readWitnesses, (witnesses) => witnesses.every((entry, index) =>
     initialConsumersVerified(entry, verifiedByPeer[index])), 'each original audio/video consumer production verification');
+  for (const [index] of pages.entries()) {
+    const layer = await withDeadline(sfu.rpc({ peer: index === 0 ? 'a' : 'b', action: 'promoteVideoLayer' }),
+      DIAGNOSE_MS, `promote video layer peer ${index}`);
+    assert.equal(layer.spatialLayer, 1, 'SFU high video layer must activate');
+  }
+  await until(readWitnesses, (witnesses) => witnesses.every((entry, index) =>
+    entry.framesDecoded > initialWitnesses[index].framesDecoded &&
+    entry.e2eeVideoEntered > initialWitnesses[index].e2eeVideoEntered),
+  'authenticated high-layer video after promotion');
   const originalAudioIds = initialWitnesses.map((entry) => entry.consumerEvidence.find((consumer) => consumer.kind === 'audio').id);
   setStage('continuous-call');
   const progress = pages.map(() => createVideoProgressGate());
