@@ -1764,47 +1764,67 @@ describe('e2eeService — extended', () => {
       }
     });
 
-    it('retries pending distribution after a retryable upload failure', async () => {
-      vi.useFakeTimers();
-      try {
-        await e2eeService.initialize(
-          testPassword,
-          regKeys.wrappedPrivateKey,
-          regKeys.keyDerivationSalt
-        );
-        const channelKey = await generateChannelKey();
-        const wrappedForUser = await wrapChannelKey(channelKey, regKeys.publicKey);
-        const pubKeyBase64 = await exportPublicKey(regKeys.publicKey);
-        mockApiFetch
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                pending_requests: [{ user_id: 'user-new', channel_id: 'ch-pending' }],
-              }),
-          } as Response)
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({ public_key: pubKeyBase64, key_version: 1 }),
-          } as Response)
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({ key: { wrapped_key: wrappedForUser, key_version: 1 } }),
-          } as Response)
-          .mockResolvedValueOnce({ ok: false, status: 429 } as Response)
-          .mockResolvedValueOnce({
-            ok: true,
-            json: () => Promise.resolve({ pending_requests: [] }),
-          } as Response);
+    it.each(['public-key lookup', 'upload'])(
+      'pauses the pending-key sweep after a rate-limited %s',
+      async (route) => {
+        vi.useFakeTimers();
+        try {
+          await e2eeService.initialize(
+            testPassword,
+            regKeys.wrappedPrivateKey,
+            regKeys.keyDerivationSalt
+          );
+          const throttled = deferred<Response>();
+          const requests = [
+            { user_id: 'user-new', channel_id: 'ch-pending' },
+            { user_id: 'user-later', channel_id: 'ch-later' },
+          ];
+          // Start at the continuation saved by a previous sweep.
+          Object.assign(e2eeService, { pendingKeyPageCursor: 'saved-cursor' });
+          mockApiFetch.mockResolvedValueOnce(pendingKeysPage(requests, 'later-cursor'));
+          mockApiFetch.mockResolvedValueOnce(pendingKeysPage([], null));
 
-        await e2eeService.processPendingKeyRequests();
-        await vi.advanceTimersByTimeAsync(60_000);
+          if (route === 'upload') {
+            const channelKey = await generateChannelKey();
+            const wrappedForUser = await wrapChannelKey(channelKey, regKeys.publicKey);
+            const pubKeyBase64 = await exportPublicKey(regKeys.publicKey);
+            mockApiFetch
+              .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ public_key: pubKeyBase64, key_version: 1 }),
+              } as Response)
+              .mockResolvedValueOnce({
+                ok: true,
+                json: () =>
+                  Promise.resolve({ key: { wrapped_key: wrappedForUser, key_version: 1 } }),
+              } as Response);
+          }
+          mockApiFetch
+            .mockImplementationOnce(() => throttled.promise)
+            .mockResolvedValue(pendingKeysPage([], null));
 
-        expect(mockApiFetch.mock.calls[4][0]).toBe('/api/v1/e2ee/pending-keys');
-      } finally {
-        vi.useRealTimers();
+          const first = e2eeService.processPendingKeyRequests();
+          const coalesced = e2eeService.processPendingKeyRequests();
+          throttled.resolve({ ok: false, status: 429 } as Response);
+          await Promise.all([first, coalesced]);
+          await e2eeService.processPendingKeyRequests();
+
+          const callsBeforeRetry = route === 'upload' ? 5 : 3;
+          expect(mockApiFetch).toHaveBeenCalledTimes(callsBeforeRetry);
+          expect(mockApiFetch.mock.calls[callsBeforeRetry - 1][0]).toBe(
+            route === 'upload'
+              ? '/api/v1/e2ee/keys/ch-pending'
+              : '/api/v1/users/user-new/public-key'
+          );
+          await vi.advanceTimersByTimeAsync(60_000);
+          expect(mockApiFetch.mock.calls[callsBeforeRetry][0]).toBe(
+            '/api/v1/e2ee/pending-keys?cursor=saved-cursor'
+          );
+        } finally {
+          vi.useRealTimers();
+        }
       }
-    });
+    );
 
     it('retries pending distribution after an upload network failure', async () => {
       vi.useFakeTimers();
