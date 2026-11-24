@@ -31,7 +31,7 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [0.3.3] - 2026-11-23
 
-Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing and require a compatible media-security version across the app, server, and active call.
+Concord Voice now refuses undersized RSA account public keys before sharing channel keys. Pending channel keys also reach members when the server has more than one page of key requests. Encrypted calls now authenticate codec framing, require a compatible media-security version, and retry video layer requests after the receive transport connects.
 
 ### Fixed
 
