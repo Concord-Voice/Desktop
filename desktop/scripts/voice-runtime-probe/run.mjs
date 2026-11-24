@@ -210,14 +210,19 @@ try {
       (entry) => globalThis.mediaProbe.consume(entry), descriptor);
     if (descriptor.kind === 'video') {
       // A macOS runner can miss the publisher's only pre-join keyframe. If
-      // playback has not begun, replace the real sending track to restart its
-      // encoder. Always exercise one refresh; retry only while playback waits.
+      // playback still waits, transition the consumer's layers after DTLS and
+      // replace the real sending track to restart its encoder. Always exercise
+      // one refresh; retry only while playback waits.
       // The E2EE transform and every receive witness remain in use.
       for (let attempt = 0; attempt < 3; attempt++) {
         const state = await Promise.race([
           pending.then(() => 'success', () => 'failure'), delay(1500).then(() => 'pending'),
         ]);
         if (state === 'failure' || (state === 'success' && attempt > 0)) break;
+        if (state === 'pending') {
+          await withDeadline(sfu.rpc({ peer: index === 0 ? 'a' : 'b', action: 'retryVideoKeyframe' }),
+            DIAGNOSE_MS, `retry video keyframe peer ${index}`);
+        }
         await inRenderer(pages[1 - index], `refresh video sender peer ${1 - index}`,
           () => globalThis.mediaProbe.refreshVideoTrack());
       }

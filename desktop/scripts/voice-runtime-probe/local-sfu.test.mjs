@@ -55,6 +55,7 @@ test('sfuDiagnose reports bounded counters without ids and survives a failed sta
   assert.deepEqual(layerProbe.before, report);
   assert.deepEqual(layerProbe.intervention, []);
   assert.deepEqual(layerProbe.after.map((entry) => entry.peer), ['a', 'b']);
+  assert.deepEqual(await sfu.rpc({ peer: 'a', action: 'retryVideoKeyframe' }), { ready: false });
   await assert.rejects(sfu.rpc({ peer: 'a', action: 'promoteVideoLayer' }), /video consumer unavailable/);
   await assert.rejects(sfu.rpc({ peer: 'unknown', action: 'sfuDiagnose' }), /Unknown fixture peer/);
 });

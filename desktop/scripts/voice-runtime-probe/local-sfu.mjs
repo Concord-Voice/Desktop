@@ -115,6 +115,21 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         await consumer.requestKeyFrame();
         return { ready: true };
       }
+      case 'retryVideoKeyframe': {
+        const video = [...peer.consumers.values()].filter((consumer) => consumer.kind === 'video' && consumer.type === 'simulcast');
+        if (video.length > 1) throw new Error('Fixture video consumer limit');
+        const [consumer] = video;
+        if (!consumer || consumer.paused) return { ready: false };
+        const transport = owned(peer.consumerTransports, consumer.id);
+        if (transport.dtlsState !== 'connected') return { ready: false };
+        // Give a packet-free consumer a real post-DTLS layer transition while
+        // the renderer still waits for playback. The later high-layer witness
+        // remains required before the continuous-call gate can pass.
+        await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
+        await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
+        await consumer.requestKeyFrame();
+        return { ready: true };
+      }
       case 'promoteVideoLayer': {
         const video = [...peer.consumers.values()].filter((consumer) => consumer.kind === 'video' && consumer.type === 'simulcast');
         if (video.length !== 1) throw new Error('Fixture video consumer unavailable for layer promotion');
