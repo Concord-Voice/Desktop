@@ -119,6 +119,16 @@ advancing decoded/presented frames, separately verified replacement consumers an
 confirmed native-worker exit. Original verbose console logs,
 keys, SDP and raw media stats are deliberately excluded from the artifact.
 
+`markers.transformFailures` retains at most 32 fixed reason records with the peer index
+and the stage at which the event was observed. Reasons are `bypass-reattach`,
+`bypass-close`, `worker-error`, `decrypt-close`, `verified-payload-rejected`, and
+`verified-jsonvalue-threw`. These records contain no console arguments or consumer IDs,
+and any record still fails the runtime gate. An accepted verification requires a consumer
+ID and a positive entered-frame count, matching the production verdict even when the
+sample reports zero received packets. This does not prove the cause of older failures
+that recorded only a boolean. During camera reproduction the artifact also records
+elapsed milliseconds and peer index for close, reproduce, and replacement-consume calls.
+
 Runtime evidence: on 2026-11-09, the repaired probe passed on macOS with sandboxed Electron
 45.0.0 (Chromium 156.0.8078.48, bundled Node 24.22.0), mediasoup-client 3.25.3, and native
 SFU 3.31.0. It ran 95.151 seconds: both peers produced steady usable raw windows (five and
