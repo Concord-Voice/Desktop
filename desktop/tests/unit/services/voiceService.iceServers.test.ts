@@ -385,6 +385,22 @@ function makeRecvTransport() {
   };
 }
 
+/** A recv transport mock that lets a test deliver the mediasoup connection edge. */
+function makeRecvTransportWithEvents() {
+  const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+  return {
+    id: `recv-events-${transportSeq}`,
+    closed: false,
+    close: vi.fn(),
+    consume: vi.fn(),
+    on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+      (handlers[event] ??= []).push(cb);
+    }),
+    getStats: vi.fn().mockResolvedValue(new Map()),
+    _fire: (event: string, ...args: unknown[]) => handlers[event]?.forEach((cb) => cb(...args)),
+  };
+}
+
 /** Wire the socket ack responses a full join needs. */
 function setupEmitResponses() {
   mockSocket.emit.mockImplementation(
@@ -508,6 +524,37 @@ describe('VoiceService ICE-server threading (#3104)', () => {
       expect(call[0].iceServers).toEqual([STUN, TURN]);
       expect(call[0].iceTransportPolicy).toBe('all');
     }
+  });
+
+  it('replays existing video layer demand when the video recv transport connects', async () => {
+    const audioTransport = makeRecvTransportWithEvents();
+    const videoTransport = makeRecvTransportWithEvents();
+    mockCreateRecvTransport.mockReturnValueOnce(audioTransport).mockReturnValueOnce(videoTransport);
+    await joinWith([STUN]);
+
+    const svc = voiceService as any;
+    svc.consumers.set('camera-consumer', { id: 'camera-consumer', kind: 'video', closed: false });
+    svc.consumerMeta.set('camera-consumer', {
+      source: 'camera',
+      producerUserId: 'user-2',
+      producerId: 'camera-producer',
+    });
+    svc.setRemoteVideoRenderState('user-2', 'grid', {
+      visible: true,
+      cssWidth: 1280,
+      cssHeight: 720,
+      role: 'focus',
+      focusedWindow: true,
+    });
+
+    const preferredLayerCalls = () =>
+      mockSocket.emit.mock.calls.filter(([event]) => event === 'set-preferred-layers');
+    expect(preferredLayerCalls()).toHaveLength(1);
+
+    videoTransport._fire('connectionstatechange', 'connected');
+
+    expect(preferredLayerCalls()).toHaveLength(2);
+    expect(preferredLayerCalls()[1]).toEqual(preferredLayerCalls()[0]);
   });
 
   it('preserves the existing transport parameters alongside the ICE config', async () => {
