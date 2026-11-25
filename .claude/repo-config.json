@@ -91,5 +91,142 @@
       "head_verdict_pattern": "\\*\\*Completed\\*\\*[^|\\n]*\\|\\s*`([0-9a-f]{7,40})`",
       "decline_pattern": "codex usage limit|usage limits? (have|has) been reached|reached your (codex )?usage limit|Codex Review: Something went wrong"
     }
-  ]
+  ],
+  "weekly_deps": {
+    "risk_policy": "evidence-v1",
+    "tiers": {
+      "A": {
+        "Renderer icons": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "lucide-react"
+          ],
+          "dependency_type": "production",
+          "max_bump": "minor"
+        },
+        "Desktop lint and formatting": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "@eslint-react/eslint-plugin",
+            "eslint",
+            "prettier",
+            "typescript-eslint"
+          ],
+          "dependency_type": "development",
+          "max_bump": "minor"
+        },
+        "Desktop test tools": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "@testing-library/user-event",
+            "jsdom",
+            "msw"
+          ],
+          "dependency_type": "development",
+          "max_bump": "minor"
+        },
+        "Desktop build tool patch": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "vite"
+          ],
+          "dependency_type": "development",
+          "max_bump": "patch"
+        }
+      },
+      "B": {
+        "Renderer icons major": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "lucide-react"
+          ],
+          "dependency_type": "production",
+          "max_bump": "major"
+        },
+        "Desktop lint and formatting major": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "@eslint-react/eslint-plugin",
+            "eslint",
+            "prettier",
+            "typescript-eslint"
+          ],
+          "dependency_type": "development",
+          "max_bump": "major"
+        },
+        "Desktop test tools major": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "@testing-library/user-event",
+            "jsdom",
+            "msw"
+          ],
+          "dependency_type": "development",
+          "max_bump": "major"
+        },
+        "Desktop build tool minor": {
+          "ecosystems": [
+            "npm"
+          ],
+          "directories": [
+            "desktop"
+          ],
+          "packages": [
+            "vite"
+          ],
+          "dependency_type": "development",
+          "max_bump": "minor"
+        }
+      }
+    },
+    "critical_packages": [
+      "vite",
+      "mediasoup-client",
+      "@electron-forge/*"
+    ],
+    "bundled_engines": [
+      "electron",
+      "@playwright/test",
+      "playwright",
+      "playwright-core",
+      "mediasoup",
+      "workerd",
+      "miniflare"
+    ]
+  }
 }
