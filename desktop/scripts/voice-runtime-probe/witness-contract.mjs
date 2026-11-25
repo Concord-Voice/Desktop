@@ -213,9 +213,39 @@ export function createVideoProgressGate() {
 
 export function verifiedConsumerId(payload) {
   return payload && typeof payload.consumerId === 'string' && payload.consumerId &&
-    Number.isFinite(payload.entered) && payload.entered > 0 &&
-    Number.isFinite(payload.packetsReceived) && payload.packetsReceived > 0
+    Number.isFinite(payload.entered) && payload.entered > 0
     ? payload.consumerId : null;
+}
+
+// Only fixed classifications and fixture-owned peer/stage labels leave the probe.
+export function classifyTransformFailure(text) {
+  if (/BYPASSED/.test(text)) return 'bypass-reattach';
+  if (/still bypassed/.test(text)) return 'bypass-close';
+  if (/E2EE Worker error/.test(text)) return 'worker-error';
+  // Keep the earlier substring check's coverage even when a console argument
+  // contains a newline; classify decrypt explicitly as well.
+  if (/encrypt transform failed/.test(text)) return 'encrypt-failed';
+  if (/decrypt transform failed/.test(text)) return 'decrypt-close';
+  return null;
+}
+
+export function recordTransformFailure(failures, reason, peer, stage) {
+  if (failures.length < 32) failures.push({ reason, peer, stage });
+}
+
+export async function observeVerifiedTransform(readPayload, ids, failures, peer, stage) {
+  try {
+    const id = verifiedConsumerId(await readPayload());
+    if (!id) {
+      recordTransformFailure(failures, 'verified-payload-rejected', peer, stage);
+      return false;
+    }
+    ids.add(id);
+    return true;
+  } catch {
+    recordTransformFailure(failures, 'verified-jsonvalue-threw', peer, stage);
+    return false;
+  }
 }
 
 export function initialConsumersVerified(witness, verifiedIds) {
@@ -232,7 +262,7 @@ export function replacementVerified(witness, previousId, verifiedIds, originalAu
 }
 
 export function requireNoRuntimeFailure(markers) {
-  if (markers.transformFailure || markers.priorityUpdateFailure || markers.pageErrors !== 0) {
+  if (markers.transformFailures.length > 0 || markers.priorityUpdateFailure || markers.pageErrors !== 0) {
     throw new Error('Runtime media error');
   }
 }

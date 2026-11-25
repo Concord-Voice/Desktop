@@ -31,23 +31,9 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [0.4.0] - 2026-11-23
 
-Apple and Google sign-in support the server’s client-binding check. Pending channel keys reach members across pages, and distribution pauses when the server throttles requests. Encrypted calls authenticate codec framing and require media encryption v6 on the server and in the active call.
+Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes; existing remembered sessions require signing in again. Mute and deafen hold through reconnects, attachments up to 1 GiB open, each release artifact ships with an attested CycloneDX SBOM, and Apple and Google sign-in support the server’s client-binding check. Encrypted calls authenticate codec framing and require media encryption v6, undersized RSA account public keys are refused, pending channel keys reach members across pages, and video layer requests retry as receiver setup completes.
 
-### Fixed
-
-- **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
-- **Encryption:** Desktop pauses pending-key distribution when the server throttles requests, so it can retry without exhausting the public-key lookup limit.
-
-### Security
-
-- **Voice:** **BREAKING** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
-- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
-
-## [0.3.2] - 2026-11-18
-
-Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes. Your mute and deafen state holds through reconnects, attachments up to 1 GiB open, and each release artifact ships with an attested CycloneDX SBOM. Existing remembered sessions require signing in again.
-
-**54 Total Changes** | 5 Added | 11 Changed | 14 Fixed | 24 Security
+**60 Total Changes** | 6 Added | 11 Changed | 17 Fixed | 26 Security
 
 ### Added
 
@@ -56,6 +42,7 @@ Concord Voice now runs each server connection in its own isolated browser sessio
 - **Encryption:** Added a dormant verifier for the account's private device list, the device rules and device key wraps. It returns the same result as the reference for every device test vector. Nothing uses it yet.
 - **Encryption:** Added dormant code that encrypts the account keys held on this device to another of the account's devices, but only to a device the verified device list shows as active. It also chooses the only key a new secret may be encrypted to after the account's status is verified. Nothing uses it yet.
 - **Voice:** Only one server connection can use the microphone, camera or screen share at a time. Starting capture in another connection asks you to confirm the move, and the connection that gave it up shows a banner.
+- **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
 
 ### Changed
 
@@ -87,6 +74,9 @@ Concord Voice now runs each server connection in its own isolated browser sessio
 - **Feedback:** The known-issues link in the Feedback window now opens the list at its current address.
 - **Chat:** Saving an image now checks the 100 MiB limit before copying its decrypted bytes.
 - **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
+- **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
+- **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
+- **Encryption:** Desktop pauses pending-key distribution when the server throttles requests, so it can retry without exhausting the public-key lookup limit.
 
 ### Security
 
@@ -114,6 +104,8 @@ Concord Voice now runs each server connection in its own isolated browser sessio
 - **Dependencies:** CI now fails when a lockfile resolves a package from a host outside the approved registries. The check also covers `.npmrc` registry settings, `npm-shrinkwrap.json`, git and URL versions, and `replace` directives in `go.mod` ([#220](https://github.com/Concord-Voice/Desktop/pull/220)).
 - **Dependencies:** Updated undici, qs and express-rate-limit to patched versions, and removed the old eslint 8 tree from development tooling. The picomatch advisory GHSA-fc5q-39xc-vjpf has no patched release and affects only development tooling, so the audit gates accept it until a set review date.
 - **CI:** Workflows that run with base-branch privileges now check out the protected base-branch commit. The PyYAML and Semgrep installs are hash-locked, and a protected Semgrep scan reads its lock from protected source. The IOC list refresh rejects symlinked inputs.
+- **Voice:** **BREAKING** Authenticate clear codec framing in media encryption v6, reject unknown or older frame formats, and bound missing-key work. Self-hosted voice requires server version 0.4.0 or newer after that release is published; Hosted voice requires the v6 media fleet rollout. Active-call format mismatches show recovery steps; an older server may return only a generic join error ([#295](https://github.com/Concord-Voice/Desktop/pull/295)).
+- **Encryption:** Reject imported RSA account public keys below 4096 bits before wrapping channel keys to them ([#291](https://github.com/Concord-Voice/Desktop/pull/291)).
 
 ## [0.3.1] - 2026-11-06
 
