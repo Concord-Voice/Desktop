@@ -96,19 +96,6 @@
     "risk_policy": "evidence-v1",
     "tiers": {
       "A": {
-        "Renderer icons": {
-          "ecosystems": [
-            "npm"
-          ],
-          "directories": [
-            "desktop"
-          ],
-          "packages": [
-            "lucide-react"
-          ],
-          "dependency_type": "production",
-          "max_bump": "minor"
-        },
         "Desktop lint and formatting": {
           "ecosystems": [
             "npm"
@@ -142,19 +129,6 @@
         }
       },
       "B": {
-        "Renderer icons major": {
-          "ecosystems": [
-            "npm"
-          ],
-          "directories": [
-            "desktop"
-          ],
-          "packages": [
-            "lucide-react"
-          ],
-          "dependency_type": "production",
-          "max_bump": "major"
-        },
         "Desktop lint and formatting major": {
           "ecosystems": [
             "npm"
@@ -195,11 +169,20 @@
           "packages": [
             "vite"
           ]
+        },
+        "Production renderer runtime": {
+          "ecosystems": [
+            "npm"
+          ],
+          "packages": [
+            "lucide-react"
+          ]
         }
       }
     },
     "security_sensitive_extra": [
-      "vite"
+      "vite",
+      "lucide-react"
     ],
     "critical_packages": [
       "vite",
