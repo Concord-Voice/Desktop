@@ -29,6 +29,8 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Video in voice calls now recovers on its own when a call starts before the receiver is ready, instead of staying stalled.
+
 ### Added
 
 - **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
