@@ -29,11 +29,21 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Video in voice calls now recovers on its own when a call starts before the receiver is ready, instead of staying stalled.
+
+### Added
+
+- **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
+
+### Fixed
+
+- **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#302](https://github.com/Concord-Voice/Desktop/pull/302)).
+
 ## [0.4.0] - 2026-11-23
 
-Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes; existing remembered sessions require signing in again. Mute and deafen hold through reconnects, attachments up to 1 GiB open, each release artifact ships with an attested CycloneDX SBOM, and Apple and Google sign-in support the server’s client-binding check. Encrypted calls authenticate codec framing and require media encryption v6, undersized RSA account public keys are refused, pending channel keys reach members across pages, and video layer requests retry as receiver setup completes.
+Concord Voice now runs each server connection in its own isolated browser session, binds remembered sessions to their server, and asks for fresh, purpose-bound proof before sensitive account changes; existing remembered sessions require signing in again. Mute and deafen hold through reconnects, attachments up to 1 GiB open, each release artifact ships with an attested CycloneDX SBOM, and Apple and Google sign-in support the server’s client-binding check. Encrypted calls authenticate codec framing and require media encryption v6, undersized RSA account public keys are refused, and pending channel keys reach members across pages.
 
-**60 Total Changes** | 6 Added | 11 Changed | 17 Fixed | 26 Security
+**58 Total Changes** | 5 Added | 11 Changed | 16 Fixed | 26 Security
 
 ### Added
 
@@ -42,7 +52,6 @@ Concord Voice now runs each server connection in its own isolated browser sessio
 - **Encryption:** Added a dormant verifier for the account's private device list, the device rules and device key wraps. It returns the same result as the reference for every device test vector. Nothing uses it yet.
 - **Encryption:** Added dormant code that encrypts the account keys held on this device to another of the account's devices, but only to a device the verified device list shows as active. It also chooses the only key a new secret may be encrypted to after the account's status is verified. Nothing uses it yet.
 - **Voice:** Only one server connection can use the microphone, camera or screen share at a time. Starting capture in another connection asks you to confirm the move, and the connection that gave it up shows a banner.
-- **Encryption:** Added a dormant reader for ADR-0051 non-media ciphertext contexts, checked against the shared vectors. Nothing uses it yet.
 
 ### Changed
 
@@ -74,7 +83,6 @@ Concord Voice now runs each server connection in its own isolated browser sessio
 - **Feedback:** The known-issues link in the Feedback window now opens the list at its current address.
 - **Chat:** Saving an image now checks the 100 MiB limit before copying its decrypted bytes.
 - **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
-- **Voice:** Video layer requests now retry after the receive transport connects or its consumer becomes available, so a call does not remain stalled during setup ([#304](https://github.com/Concord-Voice/Desktop/pull/304)).
 - **Encryption:** Pending channel keys now reach members even when the server has more than one page of key requests.
 - **Encryption:** Desktop pauses pending-key distribution when the server throttles requests, so it can retry without exhausting the public-key lookup limit.
 
