@@ -194,6 +194,21 @@ jobs:
             exit 1
           fi
 
+          # Every `file:` override must still resolve in the lockfile. npm resolves
+          # an override's relative path from each consumer, not from desktop/, so a
+          # re-hoist can silently swap the compat adapters in desktop/tools/ for
+          # registry glob/minimatch majors their old-API consumers cannot call.
+          # Fail rather than open a lockfile that breaks the packaging tools.
+          DROPPED=$(jq -rn --slurpfile pkg desktop/package.json --slurpfile new "$LOCK" '
+            [$new[0].packages[] | .resolved? // empty] as $have
+            | ($pkg[0].overrides // {}) | .. | strings | select(startswith("file:"))
+            | sub("^file:(\\./)?"; "file:") | select(. as $w | $have | index($w) | not)')
+          if [ -n "$DROPPED" ]; then
+            echo "::error::the refresh dropped these file: overrides from $LOCK (see desktop/tools/README.md):"
+            printf '%s\n' "$DROPPED"
+            exit 1
+          fi
+
           # Lockfile only. Any other change, desktop/package.json above all, means
           # npm did something this workflow does not allow: stop.
           OTHER=$(git status --porcelain --untracked-files=all | cut -c4- | { grep -vxF "$LOCK" || true; })
@@ -235,7 +250,9 @@ jobs:
           \`npm update --package-lock-only --ignore-scripts --min-release-age=7\` was run in \`desktop/\` against the current \`main\`. ${CHANGED} lockfile entries changed.
 
           - Lockfile only: the workflow fails if \`desktop/package.json\` or any other file changes.
-          - Within existing ranges: no major bump unless a range already allowed it. Majors stay with Dependabot.
+          - No downgrades: the workflow fails if any locked package line goes down.
+          - Compat adapters kept: the workflow fails if a \`file:\` override in \`desktop/package.json\` no longer resolves in the lockfile.
+          - Overrides can move a package across majors. Check that the dependency-compat tests are green.
           - No version published in the last 7 days (\`min-release-age\`).
           - No install scripts ran: \`--package-lock-only\` installs nothing, and \`--ignore-scripts\` is set too.
 
