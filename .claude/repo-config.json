@@ -139,19 +139,6 @@
           ],
           "dependency_type": "development",
           "max_bump": "minor"
-        },
-        "Desktop build tool patch": {
-          "ecosystems": [
-            "npm"
-          ],
-          "directories": [
-            "desktop"
-          ],
-          "packages": [
-            "vite"
-          ],
-          "dependency_type": "development",
-          "max_bump": "patch"
         }
       },
       "B": {
@@ -198,22 +185,22 @@
           ],
           "dependency_type": "development",
           "max_bump": "major"
-        },
-        "Desktop build tool minor": {
+        }
+      },
+      "C": {
+        "Production renderer compiler": {
           "ecosystems": [
             "npm"
           ],
-          "directories": [
-            "desktop"
-          ],
           "packages": [
             "vite"
-          ],
-          "dependency_type": "development",
-          "max_bump": "minor"
+          ]
         }
       }
     },
+    "security_sensitive_extra": [
+      "vite"
+    ],
     "critical_packages": [
       "vite",
       "mediasoup-client",
