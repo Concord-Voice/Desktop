@@ -90,7 +90,7 @@
     "app-builder-bin": "^4.2.0",
     "app-builder-lib": "26.18.0",
     "concurrently": "^10.0.7",
-    "electron": "^45.2.3",
+    "electron": "^45.4.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
