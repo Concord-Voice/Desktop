@@ -404,7 +404,7 @@ test('original markers and entered frames cannot verify a replacement consumer',
     consumerEvidence: [{ id: 'original-audio', kind: 'audio', entered: 20 }] };
   assert.equal(replacementVerified(replacement, 'original-video', verified, 'original-audio'), false);
   assert.equal(verifiedConsumerId({ consumerId: 'replacement', entered: 0, packetsReceived: 10 }), null);
-  assert.equal(verifiedConsumerId({ consumerId: 'replacement', entered: 10, packetsReceived: 0 }), null);
+  assert.equal(verifiedConsumerId({ consumerId: 'replacement', entered: 10, packetsReceived: 0 }), 'replacement');
   verified.add(verifiedConsumerId({ consumerId: 'replacement', entered: 10, packetsReceived: 10 }));
   assert.equal(replacementVerified(replacement, 'original-video', verified, 'original-audio'), true);
   assert.equal(replacementVerified({ ...replacement, videoConsumerId: 'original-video' }, 'original-video', verified, 'original-audio'), false);
@@ -426,9 +426,9 @@ test('an original audio consumer requires its own production verdict before meas
 });
 
 test('a recreation-phase error blocks the final pass gate', () => {
-  const clean = { transformFailure: false, priorityUpdateFailure: false, pageErrors: 0 };
+  const clean = { transformFailures: [], priorityUpdateFailure: false, pageErrors: 0 };
   assert.doesNotThrow(() => requireNoRuntimeFailure(clean));
-  for (const bad of [{ transformFailure: true }, { priorityUpdateFailure: true }, { pageErrors: 1 }]) {
+  for (const bad of [{ transformFailures: [{ reason: 'worker-error', peer: 0, stage: 'camera-reproduce' }] }, { priorityUpdateFailure: true }, { pageErrors: 1 }]) {
     assert.throws(() => requireNoRuntimeFailure({ ...clean, ...bad }), /Runtime media error/);
   }
 });

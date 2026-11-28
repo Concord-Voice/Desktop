@@ -8435,6 +8435,40 @@ class VoiceService {
   }
 
   /**
+   * A render-state demand can be emitted while a freshly-created recv transport is
+   * still connecting. Re-send the current demand once that transport connects: the
+   * media plane treats it as consumer-scoped state, and a transport-level edge must
+   * not be the only chance to deliver it. This deliberately covers video only; audio
+   * consumers have no layer request.
+   */
+  private reemitPreferredLayersAfterRecvTransportConnect(mediaKind: 'audio' | 'video'): void {
+    if (mediaKind !== 'video') return;
+
+    for (const consumerId of this.consumerMeta.keys()) {
+      this.replayVideoLayerDemandForConsumer(consumerId);
+    }
+  }
+
+  private replayVideoLayerDemandForConsumer(consumerId: string): void {
+    const meta = this.consumerMeta.get(consumerId);
+    if (!meta || (meta.source !== 'camera' && meta.source !== 'screen')) return;
+    const consumer = this.consumers.get(consumerId);
+    if (!consumer || consumer.closed || consumer.kind !== 'video') return;
+
+    const payload = this.computePreferredLayerPayloadForUser(
+      meta.producerUserId,
+      undefined,
+      meta.source
+    );
+    if (!payload) return;
+
+    // A connection edge or a late consumer registration must re-deliver the
+    // current demand even if an earlier send was de-duped or arrived too early.
+    this.lastPreferredLayerKeyByConsumer.delete(consumerId);
+    this.emitPreferredLayers(consumerId, payload);
+  }
+
+  /**
    * Emit set-preferred-layers demand for an EXPLICIT consumer id (#1924, PiP screen).
    * A PiP window runs a socket-less voiceService in a separate BrowserWindow, so it
    * can't report render-state itself — it proxies an explicit RPC (via PipSignalingProxy)
@@ -9148,6 +9182,22 @@ class VoiceService {
     // DEBUG: Capture SDP from E2EE recv transport
     this.logTransportSdp(transport, `recv-${mediaKind}`);
     this.recordSelectedCandidatePair(transport, `recv-${mediaKind}`);
+
+    // A consumer's persisted render state can arrive before DTLS completes. Replay
+    // the demand on the first connection edge (and each real reconnect) so the SFU
+    // receives it after this transport is usable. mediasoup de-dupes identical state
+    // values, but keep a local latch for mocks and unusual adapters that do not.
+    let connected = false;
+    transport.on('connectionstatechange', (state) => {
+      if (state !== 'connected') {
+        connected = false;
+        return;
+      }
+      if (connected) return;
+      connected = true;
+      if (this.getRecvTransport(mediaKind) !== transport) return;
+      this.reemitPreferredLayersAfterRecvTransportConnect(mediaKind);
+    });
   }
 
   /**
@@ -9577,6 +9627,11 @@ class VoiceService {
       console.debug('[consume] transport closed for consumer', consumer.id);
       this.removeConsumerState(consumer.id);
     });
+    // DTLS can connect before consume() resolves. The connection-edge handler
+    // then sees no registered consumer, so replay that demand on registration.
+    if (consumer.kind === 'video' && recvTransport.connectionState === 'connected') {
+      this.replayVideoLayerDemandForConsumer(consumer.id);
+    }
     console.debug('[consume] consumer created', {
       consumerId: consumer.id,
       kind: consumer.kind,

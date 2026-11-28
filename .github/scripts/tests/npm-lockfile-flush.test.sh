@@ -93,6 +93,7 @@ case "$NPM_STUB_MODE" in
   zero)      printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/s":{"version":"0.27.0"}}}\n' "$L" > package-lock.json ;;
   hoist)     printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"2.1.0"}}}\n' "$L" > package-lock.json ;;
   rc)        printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"3.0.0-rc.9"}}}\n' "$L" > package-lock.json ;;
+  adapter)   printf '%s"node_modules/dep":{"version":"1.2.0"},"node_modules/g":{"version":"1.0.0","resolved":"file:tools/g-compat"}}}\n' "$L" > package-lock.json ;;
   none)      ;;
 esac
 exit 0
@@ -160,6 +161,29 @@ run_refresh rehoist "" 'node_modules/x:2.0.0 node_modules/a/node_modules/x:3.1.0
 # change, not a downgrade within a line.
 run_refresh zero "" 'node_modules/s:0.28.0'
 [ "$RC" -eq 0 ] && ok "a 0.x minor counts as its own line" || bad "0.28 -> 0.27 must compare as two lines" "rc=$RC"$'\n'"$OUT"
+
+# A `file:` override (a desktop/tools adapter) must survive the refresh: npm can
+# swap it for a registry copy when a newer major is hoisted.
+run_adapter() { # $1 = mode; base package.json overrides g@<2 with a local adapter
+  REPO=$(make_repo)
+  ( cd "$REPO/desktop" \
+      && jq -c '.overrides = {"g@<2": "file:./tools/g-compat"}' package.json > p && mv p package.json \
+      && jq -c '.packages["node_modules/g"] = {version: "1.0.0", resolved: "file:tools/g-compat"}' package-lock.json > l && mv l package-lock.json \
+      && git commit -qam overrides )
+  : > "$WORK/npm.log"; : > "$WORK/gh_output"
+  OUT=$(cd "$REPO" && PATH="$WORK/bin:$PATH" NPM_STUB_MODE="$1" NPM_STUB_LOG="$WORK/npm.log" \
+        GITHUB_OUTPUT="$WORK/gh_output" npm_config_ignore_scripts=true npm_config_min_release_age=7 \
+        bash "$WORK/refresh.sh" 2>&1); RC=$?
+  OUTPUTS=$(cat "$WORK/gh_output")
+}
+run_adapter bump
+[ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] && grep -q 'dropped these file: overrides' <<<"$OUT" && grep -qx 'file:tools/g-compat' <<<"$OUT" \
+  && ok "a refresh that drops a file: override adapter fails the run and names it" \
+  || bad "a dropped file: override must fail the run" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
+run_adapter adapter
+[ "$RC" -eq 0 ] && [ "$OUTPUTS" = "has_changes=true" ] \
+  && ok "a refresh that keeps the file: override adapter passes" \
+  || bad "a kept file: override must pass" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
 
 run_refresh bump 0
 [ "$RC" -ne 0 ] && [ ! -s "$WORK/npm.log" ] && grep -q 'no min-release-age' <<<"$OUT" \
