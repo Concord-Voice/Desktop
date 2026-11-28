@@ -21,6 +21,8 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 WORKFLOW="$REPO_ROOT/.github/workflows/npm-lockfile-flush.yml"
 WORK="$(mktemp -d)"
+export NPM_STUB_GLOBAL_ROOT
+NPM_STUB_GLOBAL_ROOT="$(npm root -g)" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 pass=0
@@ -65,7 +67,8 @@ lock() { # $1 = version of node_modules/dep; [$2 = extra entries, "path:version"
 }
 make_repo() { # [$1 = extra base entries, as for lock]; prints the repo path
   local dir; dir="$(mktemp -d "$WORK/repo.XXXXXX")"
-  mkdir -p "$dir/desktop"
+  mkdir -p "$dir/desktop" "$dir/.github/scripts"
+  cp "$REPO_ROOT/.github/scripts/check-lockfile-compat.cjs" "$dir/.github/scripts/"
   printf '{"name":"r","devDependencies":{"dep":"^1.0.0"}}\n' > "$dir/desktop/package.json"
   lock 1.0.0 "${1:-}" > "$dir/desktop/package-lock.json"
   ( cd "$dir" && git init -q . && git config user.email t@t.t && git config user.name t \
@@ -82,6 +85,7 @@ if [ "$1 $2" = "config ls" ]; then
   exit 0
 fi
 [ "$1" = "--version" ] && { echo 0.0.0-stub; exit 0; }
+[ "$1 $2" = "root -g" ] && { printf '%s\n' "$NPM_STUB_GLOBAL_ROOT"; exit 0; }
 echo "$PWD|$*|ignore=${npm_config_ignore_scripts:-}|age=${npm_config_min_release_age:-}" >> "$NPM_STUB_LOG"
 L='{"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},'
 case "$NPM_STUB_MODE" in
@@ -94,6 +98,16 @@ case "$NPM_STUB_MODE" in
   hoist)     printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"2.1.0"}}}\n' "$L" > package-lock.json ;;
   rc)        printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"3.0.0-rc.9"}}}\n' "$L" > package-lock.json ;;
   adapter)   printf '%s"node_modules/dep":{"version":"1.2.0"},"node_modules/g":{"version":"1.0.0","resolved":"file:tools/g-compat"}}}\n' "$L" > package-lock.json ;;
+  legacy-kept)
+    cat > package-lock.json <<'JSON'
+{"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},"node_modules/dep":{"version":"1.2.0"},"node_modules/minimatch":{"name":"@concordvoice/minimatch-compat","version":"1.0.0","resolved":"file:tools/minimatch-compat"},"node_modules/app-builder-lib/node_modules/minimatch":{"version":"11.0.3","resolved":"https://registry.npmjs.org/minimatch/-/minimatch-11.0.3.tgz"},"node_modules/app-builder-lib/node_modules/@electron/asar":{"version":"3.4.1","dependencies":{"minimatch":"^3.0.4"}},"node_modules/app-builder-lib/node_modules/@electron/asar/node_modules/minimatch":{"name":"@concordvoice/minimatch-compat","version":"1.0.0","resolved":"file:tools/minimatch-compat"}}}
+JSON
+    ;;
+  legacy-partial)
+    cat > package-lock.json <<'JSON'
+{"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},"node_modules/dep":{"version":"1.2.0"},"node_modules/minimatch":{"name":"@concordvoice/minimatch-compat","version":"1.0.0","resolved":"file:tools/minimatch-compat"},"node_modules/app-builder-lib/node_modules/minimatch":{"version":"11.0.3","resolved":"https://registry.npmjs.org/minimatch/-/minimatch-11.0.3.tgz"},"node_modules/app-builder-lib/node_modules/@electron/asar":{"version":"3.4.1","dependencies":{"minimatch":"^3.0.4"}}}}
+JSON
+    ;;
   none)      ;;
 esac
 exit 0
@@ -184,6 +198,31 @@ run_adapter adapter
 [ "$RC" -eq 0 ] && [ "$OUTPUTS" = "has_changes=true" ] \
   && ok "a refresh that keeps the file: override adapter passes" \
   || bad "a kept file: override must pass" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
+
+# A root compat adapter cannot prove that every legacy consumer sees it. npm
+# may re-hoist a registry minimatch under app-builder-lib while preserving the
+# root file: entry. The refresh must reject that before it can open a PR.
+run_legacy_adapter() {
+  REPO=$(make_repo)
+  ( cd "$REPO/desktop" \
+      && jq -c '.overrides = {"minimatch@<6": "file:./tools/minimatch-compat"}' package.json > p && mv p package.json \
+      && git commit -qam overrides )
+  : > "$WORK/npm.log"; : > "$WORK/gh_output"
+  OUT=$(cd "$REPO" && PATH="$WORK/bin:$PATH" NPM_STUB_MODE="$1" NPM_STUB_LOG="$WORK/npm.log" \
+        GITHUB_OUTPUT="$WORK/gh_output" npm_config_ignore_scripts=true npm_config_min_release_age=7 \
+        bash "$WORK/refresh.sh" 2>&1); RC=$?
+  OUTPUTS=$(cat "$WORK/gh_output")
+}
+run_legacy_adapter legacy-kept
+[ "$RC" -eq 0 ] && [ "$OUTPUTS" = "has_changes=true" ] \
+  && ok "a legacy consumer with its nearest compat adapter passes" \
+  || bad "a legacy consumer must retain its nearest compat adapter" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
+run_legacy_adapter legacy-partial
+[ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] \
+  && grep -q "app-builder-lib/node_modules/@electron/asar -> minimatch" <<<"$OUT" \
+  && grep -q "app-builder-lib/node_modules/minimatch" <<<"$OUT" \
+  && ok "a surviving root adapter cannot mask a nearer registry package" \
+  || bad "a partial legacy adapter loss must fail before opening a PR" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
 
 run_refresh bump 0
 [ "$RC" -ne 0 ] && [ ! -s "$WORK/npm.log" ] && grep -q 'no min-release-age' <<<"$OUT" \
