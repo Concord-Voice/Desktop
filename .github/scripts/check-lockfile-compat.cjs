@@ -5,7 +5,7 @@ const { createRequire } = require("node:module");
 const path = require("node:path");
 
 const [, , lockfile, npmRoot] = process.argv;
-const { minVersion } = createRequire(path.join(npmRoot, "npm/package.json"))("semver");
+const { minVersion, validRange } = createRequire(path.join(npmRoot, "npm/package.json"))("semver");
 const { packages } = JSON.parse(readFileSync(lockfile, "utf8"));
 const lockDir = path.dirname(path.resolve(lockfile));
 
@@ -13,15 +13,11 @@ for (const [location, entry] of Object.entries(packages)) {
   if (!location.includes("node_modules/")) continue;
   const consumer = createRequire(path.join(lockDir, location, "package.json"));
   for (const [dependency, floor] of [["glob", 9], ["minimatch", 6]]) {
+    // Match the installed-dependency check: only ordinary SemVer ranges
+    // below the adapter threshold are legacy edges.
     const range = entry.dependencies?.[dependency];
-    if (!range) continue;
-    let minimum;
-    try {
-      minimum = minVersion(range);
-    } catch {
-      // Non-SemVer dependencies are outside the legacy registry range overrides.
-      continue;
-    }
+    if (typeof range !== "string" || !range || !validRange(range)) continue;
+    const minimum = minVersion(range);
     if (!minimum || minimum.major >= floor) continue;
 
     const nearest = consumer.resolve.paths(dependency)
