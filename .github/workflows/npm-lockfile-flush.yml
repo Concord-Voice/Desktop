@@ -209,6 +209,12 @@ jobs:
             exit 1
           fi
 
+          # Presence alone is insufficient for the legacy packaging consumers:
+          # a root adapter can survive while a nearer registry package shadows
+          # it after npm re-hoists. Check each old glob/minimatch edge using the
+          # lockfile's Node-style parent lookup, before this job opens a PR.
+          node .github/scripts/check-lockfile-compat.cjs "$LOCK" "$(npm root -g)"
+
           # Lockfile only. Any other change, desktop/package.json above all, means
           # npm did something this workflow does not allow: stop.
           OTHER=$(git status --porcelain --untracked-files=all | cut -c4- | { grep -vxF "$LOCK" || true; })
@@ -251,7 +257,7 @@ jobs:
 
           - Lockfile only: the workflow fails if \`desktop/package.json\` or any other file changes.
           - No downgrades: the workflow fails if any locked package line goes down.
-          - Compat adapters kept: the workflow fails if a \`file:\` override in \`desktop/package.json\` no longer resolves in the lockfile.
+          - Compat adapters kept: the workflow fails if a \`file:\` override in \`desktop/package.json\` no longer resolves in the lockfile. It also checks the adapter each legacy packaging consumer resolves.
           - Overrides can move a package across majors. Check that the dependency-compat tests are green.
           - No version published in the last 7 days (\`min-release-age\`).
           - No install scripts ran: \`--package-lock-only\` installs nothing, and \`--ignore-scripts\` is set too.
