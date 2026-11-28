@@ -18,19 +18,26 @@ for (const [location, entry] of Object.entries(packages)) {
     const range = entry.dependencies?.[dependency];
     if (typeof range !== "string" || !range || !validRange(range)) continue;
     const minimum = minVersion(range);
-    if (!minimum || minimum.major >= floor) continue;
+    if (!minimum) {
+      console.error("Unsatisfiable packaging dependency range: %j", { location, dependency, range });
+      process.exitCode = 1;
+      continue;
+    }
+    if (minimum.major >= floor) continue;
 
     const nearest = consumer.resolve.paths(dependency)
+      .filter((dir) => dir.startsWith(lockDir + path.sep))
       .map((dir) => path.relative(lockDir, path.join(dir, dependency)).split(path.sep).join("/"))
       .find((candidate) => Object.hasOwn(packages, candidate));
     const resolved = packages[nearest];
     const expected = `@concordvoice/${dependency}-compat`;
-    if (resolved?.name === expected && resolved.resolved === `file:tools/${dependency}-compat`) {
+    if (resolved?.name === expected &&
+        resolved.resolved === `file:tools/${dependency}-compat` && !resolved.link) {
       continue;
     }
 
     const found = nearest ? `${nearest} (${resolved.resolved ?? "unresolved"})` : "no lockfile entry";
-    console.error(`::error::${location} -> ${dependency}: expected ${expected}; got ${found}`);
+    console.error("Legacy adapter mismatch: %j", { consumer: `${location} -> ${dependency}`, expected, found });
     process.exitCode = 1;
   }
 }

@@ -21,9 +21,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 WORKFLOW="$REPO_ROOT/.github/workflows/npm-lockfile-flush.yml"
 WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 export NPM_STUB_GLOBAL_ROOT
 NPM_STUB_GLOBAL_ROOT="$(npm root -g)" || exit 1
-trap 'rm -rf "$WORK"' EXIT
 
 pass=0
 fail=0
@@ -98,10 +98,14 @@ case "$NPM_STUB_MODE" in
   hoist)     printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"2.1.0"}}}\n' "$L" > package-lock.json ;;
   rc)        printf '%s"node_modules/dep":{"version":"1.0.0"},"node_modules/x":{"version":"3.0.0-rc.9"}}}\n' "$L" > package-lock.json ;;
   adapter)   printf '%s"node_modules/dep":{"version":"1.2.0"},"node_modules/g":{"version":"1.0.0","resolved":"file:tools/g-compat"}}}\n' "$L" > package-lock.json ;;
-  legacy-kept)
+  legacy-kept|legacy-linked)
     cat > package-lock.json <<'JSON'
 {"name":"r","lockfileVersion":3,"packages":{"":{"name":"r"},"node_modules/dep":{"version":"1.2.0"},"node_modules/minimatch":{"name":"@concordvoice/minimatch-compat","version":"1.0.0","resolved":"file:tools/minimatch-compat"},"node_modules/app-builder-lib/node_modules/minimatch":{"version":"11.0.3","resolved":"https://registry.npmjs.org/minimatch/-/minimatch-11.0.3.tgz"},"node_modules/app-builder-lib/node_modules/@electron/asar":{"version":"3.4.1","dependencies":{"minimatch":"^3.0.4"}},"node_modules/app-builder-lib/node_modules/@electron/asar/node_modules/minimatch":{"name":"@concordvoice/minimatch-compat","version":"1.0.0","resolved":"file:tools/minimatch-compat"}}}
 JSON
+    if [ "$NPM_STUB_MODE" = legacy-linked ]; then
+      jq '.packages["node_modules/app-builder-lib/node_modules/@electron/asar/node_modules/minimatch"].link = true' \
+        package-lock.json > linked.json && mv linked.json package-lock.json || exit 1
+    fi
     ;;
   legacy-partial)
     cat > package-lock.json <<'JSON'
@@ -217,6 +221,10 @@ run_legacy_adapter legacy-kept
 [ "$RC" -eq 0 ] && [ "$OUTPUTS" = "has_changes=true" ] \
   && ok "a legacy consumer with its nearest compat adapter passes" \
   || bad "a legacy consumer must retain its nearest compat adapter" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
+run_legacy_adapter legacy-linked
+[ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] && grep -q "Legacy adapter mismatch" <<<"$OUT" \
+  && ok "a linked legacy adapter is rejected before opening a PR" \
+  || bad "the resolved legacy adapter must be a packed install" "rc=$RC outputs=$OUTPUTS"$'\n'"$OUT"
 run_legacy_adapter legacy-partial
 [ "$RC" -ne 0 ] && [ -z "$OUTPUTS" ] \
   && grep -q "app-builder-lib/node_modules/@electron/asar -> minimatch" <<<"$OUT" \
