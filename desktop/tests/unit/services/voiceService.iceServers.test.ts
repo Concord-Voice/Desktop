@@ -385,6 +385,22 @@ function makeRecvTransport() {
   };
 }
 
+/** A recv transport mock that lets a test deliver the mediasoup connection edge. */
+function makeRecvTransportWithEvents() {
+  const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+  return {
+    id: `recv-events-${transportSeq}`,
+    closed: false,
+    close: vi.fn(),
+    consume: vi.fn(),
+    on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+      (handlers[event] ??= []).push(cb);
+    }),
+    getStats: vi.fn().mockResolvedValue(new Map()),
+    _fire: (event: string, ...args: unknown[]) => handlers[event]?.forEach((cb) => cb(...args)),
+  };
+}
+
 /** Wire the socket ack responses a full join needs. */
 function setupEmitResponses() {
   mockSocket.emit.mockImplementation(
@@ -508,6 +524,113 @@ describe('VoiceService ICE-server threading (#3104)', () => {
       expect(call[0].iceServers).toEqual([STUN, TURN]);
       expect(call[0].iceTransportPolicy).toBe('all');
     }
+  });
+
+  it('replays existing video layer demand when the video recv transport connects', async () => {
+    const audioTransport = makeRecvTransportWithEvents();
+    const videoTransport = makeRecvTransportWithEvents();
+    mockCreateRecvTransport.mockReturnValueOnce(audioTransport).mockReturnValueOnce(videoTransport);
+    await joinWith([STUN]);
+
+    const svc = voiceService as any;
+    svc.consumers.set('camera-consumer', { id: 'camera-consumer', kind: 'video', closed: false });
+    svc.consumerMeta.set('camera-consumer', {
+      source: 'camera',
+      producerUserId: 'user-2',
+      producerId: 'camera-producer',
+    });
+    svc.setRemoteVideoRenderState('user-2', 'grid', {
+      visible: true,
+      cssWidth: 1280,
+      cssHeight: 720,
+      role: 'focus',
+      focusedWindow: true,
+    });
+
+    const preferredLayerCalls = () =>
+      mockSocket.emit.mock.calls.filter(([event]) => event === 'set-preferred-layers');
+    expect(preferredLayerCalls()).toHaveLength(1);
+
+    videoTransport._fire('connectionstatechange', 'connected');
+
+    expect(preferredLayerCalls()).toHaveLength(2);
+    expect(preferredLayerCalls()[1]).toEqual(preferredLayerCalls()[0]);
+
+    // A duplicate event is not a reconnect. A disconnect followed by connected is,
+    // so it gets one more replay. This mirrors mediasoup's state transition model.
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(2);
+    videoTransport._fire('connectionstatechange', 'disconnected');
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(3);
+
+    // A callback held by a retired transport must not replay layer demand into the
+    // new session. The currently-owned replacement is the only transport that may.
+    const replacement = makeRecvTransportWithEvents();
+    mockCreateRecvTransport.mockReturnValueOnce(replacement);
+    await svc.createRecvTransportForKind('video');
+    videoTransport._fire('connectionstatechange', 'disconnected');
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(3);
+    replacement._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(4);
+  });
+
+  it('replays persisted video demand when the transport connects before consumer registration', async () => {
+    const videoTransport = makeRecvTransportWithEvents();
+    mockCreateRecvTransport
+      .mockReturnValueOnce(makeRecvTransportWithEvents())
+      .mockReturnValueOnce(videoTransport);
+    await joinWith([STUN]);
+
+    const svc = voiceService as any;
+    svc.setRemoteVideoRenderState('user-2', 'grid', {
+      visible: true,
+      cssWidth: 1280,
+      cssHeight: 720,
+      role: 'focus',
+      focusedWindow: true,
+    });
+    const preferredLayerCalls = () =>
+      mockSocket.emit.mock.calls.filter(([event]) => event === 'set-preferred-layers');
+    expect(preferredLayerCalls()).toHaveLength(0);
+
+    // The connection event cannot replay a demand for a consumer that the
+    // pending consume() call has not returned yet.
+    (videoTransport as any).connectionState = 'connected';
+    videoTransport._fire('connectionstatechange', 'connected');
+    expect(preferredLayerCalls()).toHaveLength(0);
+
+    const consumer = {
+      id: 'late-camera',
+      kind: 'video',
+      closed: false,
+      track: { readyState: 'live', enabled: true },
+      on: vi.fn(),
+    };
+    videoTransport.consume.mockResolvedValue(consumer);
+    const createOption = vi.spyOn(svc, 'creationAttachConsumeOption').mockReturnValue({});
+    try {
+      await svc.createAndRegisterConsumer(
+        videoTransport,
+        {
+          id: consumer.id,
+          producerId: 'camera-producer',
+          kind: 'video',
+          rtpParameters: {},
+          source: 'camera',
+          producerUserId: 'user-2',
+        },
+        'user-2',
+        svc.videoReproduceGeneration,
+        mockSocket,
+        { cancelled: false }
+      );
+    } finally {
+      createOption.mockRestore();
+    }
+    expect(preferredLayerCalls()).toHaveLength(1);
+    expect(preferredLayerCalls()[0][1]).toMatchObject({ consumerId: consumer.id });
   });
 
   it('preserves the existing transport parameters alongside the ICE config', async () => {

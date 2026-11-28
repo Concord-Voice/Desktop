@@ -14,22 +14,10 @@
       "resolved": "11.0.3"
     },
     {
-      "consumer": "node_modules/@eslint/config-array",
-      "dep": "minimatch",
-      "range": "^10.2.4",
-      "resolved": "11.0.3"
-    },
-    {
       "consumer": "node_modules/@microsoft/eslint-formatter-sarif",
       "dep": "eslint",
       "range": "^8.9.0",
-      "resolved": "10.14.0"
-    },
-    {
-      "consumer": "node_modules/@typescript-eslint/typescript-estree",
-      "dep": "minimatch",
-      "range": "^10.2.2",
-      "resolved": "11.0.3"
+      "resolved": "10.15.0"
     },
     {
       "consumer": "node_modules/app-builder-lib",
@@ -48,12 +36,6 @@
       "dep": "ws",
       "range": "~8.20.1",
       "resolved": "8.21.3"
-    },
-    {
-      "consumer": "node_modules/eslint",
-      "dep": "minimatch",
-      "range": "^10.2.6",
-      "resolved": "11.0.3"
     },
     {
       "consumer": "node_modules/global-agent",

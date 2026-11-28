@@ -90,9 +90,9 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         });
         peer.consumers.set(consumer.id, consumer);
         peer.consumerTransports.set(consumer.id, transport);
-        // The probe publishes two active simulcast RIDs; request the highest
-        // one rather than a third RID some macOS renderers never encode.
-        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1 });
+        // The probe publishes two active simulcast RIDs. Start high, then
+        // switch to the low layer once this consumer's DTLS is connected.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
         return {
           id: consumer.id, producerId: producer.id, kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
@@ -108,8 +108,40 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         if (consumer.kind !== 'video' || consumer.paused) throw new Error('Invalid keyframe request');
         const transport = owned(peer.consumerTransports, consumer.id);
         if (transport.dtlsState !== 'connected') return { ready: false };
+        // A cold, packet-free simulcast consumer can stay without active layers
+        // on macOS even after PLI. The post-DTLS preference change activates
+        // the low stream; the probe later requires high-layer delivery too.
+        if (consumer.type === 'simulcast') await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
         await consumer.requestKeyFrame();
         return { ready: true };
+      }
+      case 'retryVideoKeyframe': {
+        const video = [...peer.consumers.values()].filter((consumer) => consumer.kind === 'video' && consumer.type === 'simulcast');
+        if (video.length > 1) throw new Error('Fixture video consumer limit');
+        const [consumer] = video;
+        if (!consumer || consumer.paused) return { ready: false };
+        const transport = owned(peer.consumerTransports, consumer.id);
+        if (transport.dtlsState !== 'connected') return { ready: false };
+        // Give a packet-free consumer a real post-DTLS layer transition while
+        // the renderer still waits for playback. The later high-layer witness
+        // remains required before the continuous-call gate can pass.
+        await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
+        await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
+        await consumer.requestKeyFrame();
+        return { ready: true };
+      }
+      case 'promoteVideoLayer': {
+        const video = [...peer.consumers.values()].filter((consumer) => consumer.kind === 'video' && consumer.type === 'simulcast');
+        if (video.length !== 1) throw new Error('Fixture video consumer unavailable for layer promotion');
+        const [consumer] = video;
+        await consumer.setPreferredLayers({ spatialLayer: 1, temporalLayer: 2 });
+        await consumer.requestKeyFrame();
+        const deadline = Date.now() + 5_000;
+        while (consumer.currentLayers?.spatialLayer !== 1) {
+          if (Date.now() >= deadline) throw new Error('Fixture high video layer did not activate');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        return { spatialLayer: consumer.currentLayers.spatialLayer, temporalLayer: consumer.currentLayers.temporalLayer };
       }
       case 'closeConsumer': {
         const consumer = owned(peer.consumers, body.consumerId);
@@ -128,22 +160,44 @@ export async function createLocalSfu(mediaDirectory, { workerFactory } = {}) {
         // One entity's failed stats read becomes an in-place marker; the rest of the report survives.
         const safe = async (read) => { try { return await read(); } catch (error) { return { statsError: error.message }; } };
         const trimAll = async (entity) => (await entity.getStats()).map(trim);
-        const out = [];
+        const snapshot = async () => {
+          const out = [];
+          for (const [name, entry] of peers) {
+            out.push({ peer: name,
+              transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
+                const [stat] = await t.getStats();
+                return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
+                  sendBitrate: stat?.sendBitrate ?? null };
+              }))),
+              producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
+                kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
+              consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
+                kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
+                score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
+                stats: await trimAll(c) })))) });
+          }
+          return out;
+        };
+        const before = await snapshot();
+        if (body.probeLowestLayer !== true) return before;
+        // This intervention happens only after the runtime probe has failed.
+        // It distinguishes layer selection from missing sender keyframes without
+        // changing any passing-path assertion or allowing recovery to pass CI.
+        const intervention = [];
         for (const [name, entry] of peers) {
-          out.push({ peer: name,
-            transports: await Promise.all([...entry.transports.values()].map((t) => safe(async () => {
-              const [stat] = await t.getStats();
-              return { ice: t.iceState, dtls: t.dtlsState, availableOutgoingBitrate: stat?.availableOutgoingBitrate ?? null,
-                sendBitrate: stat?.sendBitrate ?? null };
-            }))),
-            producers: await Promise.all([...entry.producers.values()].map((p) => safe(async () => ({
-              kind: p.kind, type: p.type, paused: p.paused, score: p.score, stats: await trimAll(p) })))),
-            consumers: await Promise.all([...entry.consumers.values()].map((c) => safe(async () => ({
-              kind: c.kind, type: c.type, paused: c.paused, producerPaused: c.producerPaused,
-              score: c.score, currentLayers: c.currentLayers ?? null, preferredLayers: c.preferredLayers ?? null,
-              stats: await trimAll(c) })))) });
+          for (const consumer of entry.consumers.values()) {
+            if (consumer.kind !== 'video' || consumer.type !== 'simulcast') continue;
+            try {
+              await consumer.setPreferredLayers({ spatialLayer: 0, temporalLayer: 0 });
+              await consumer.requestKeyFrame();
+              intervention.push({ peer: name, result: 'requested' });
+            } catch {
+              intervention.push({ peer: name, result: 'failed' });
+            }
+          }
         }
-        return out;
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        return { before, intervention, after: await snapshot() };
       }
       default: throw new Error('Unknown fixture action');
     }
